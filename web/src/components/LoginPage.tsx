@@ -10,15 +10,14 @@ import { useSystemConfig } from '../hooks/useSystemConfig'
 
 export function LoginPage() {
   const { language } = useLanguage()
-  const { login, loginAdmin, verifyOTP, completeRegistration } = useAuth()
+  const { login, loginAdmin } = useAuth()
   const [step, setStep] = useState<'login' | 'otp' | 'setup-otp'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [otpCode, setOtpCode] = useState('')
-  const [userID, setUserID] = useState('')
-  const [qrCodeURL, setQrCodeURL] = useState('') // New state for recovery
-  const [otpSecret, setOtpSecret] = useState('') // New state for recovery
+  const [qrCodeURL] = useState('') // Kept for potential future use
+  const [otpSecret] = useState('') // Kept for potential future use
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [adminPassword, setAdminPassword] = useState('')
@@ -64,44 +63,15 @@ export function LoginPage() {
     const result = await login(email, password)
 
     if (result.success) {
-      // Check for incomplete OTP setup (user registered but didn't complete 2FA)
-      if (result.requiresOTPSetup && result.userID) {
-        setUserID(result.userID)
-        setQrCodeURL(result.qrCodeURL || '')
-        setOtpSecret(result.otpSecret || '')
-        setStep('setup-otp')
-        toast.info("Pending 2FA setup detected. Please complete configuration.")
-      } else if (result.requiresOTP && result.userID) {
-        setUserID(result.userID)
-
-        // Check if backend provided recovery data (meaning 2FA is pending setup)
-        if (result.qrCodeURL) {
-          setQrCodeURL(result.qrCodeURL)
-          setOtpSecret(result.otpSecret || '')
-          setStep('setup-otp')
-          toast.info("Pending 2FA setup detected. Please complete configuration.")
-        } else {
-          setStep('otp')
-        }
-      } else {
-        // Dismiss the "login expired" toast on successful login (no OTP required)
-        if (expiredToastId) {
-          toast.dismiss(expiredToastId)
-        }
+      // Login successful - AuthContext already handles redirect
+      // Dismiss the "login expired" toast on successful login
+      if (expiredToastId) {
+        toast.dismiss(expiredToastId)
       }
     } else {
-      // Check if we have recovery data despite the error (e.g. "Account has not completed OTP setup")
-      if (result.qrCodeURL) {
-        setUserID(result.userID || '') // We might need to ensure userID is returned in error case too, or derived
-        setQrCodeURL(result.qrCodeURL)
-        setOtpSecret(result.otpSecret || '')
-        setStep('setup-otp')
-        toast.warning(t('completeGapSetup', language) || "Incomplete setup detected. Please configure 2FA.")
-      } else {
-        const msg = result.message || t('loginFailed', language)
-        setError(msg)
-        toast.error(msg)
-      }
+      const msg = result.message || t('loginFailed', language)
+      setError(msg)
+      toast.error(msg)
     }
 
     setLoading(false)
@@ -109,30 +79,7 @@ export function LoginPage() {
 
   const handleOTPVerify = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    // If we have qrCodeURL, it means user needs to complete registration (first time OTP setup)
-    // Otherwise, it's a normal login OTP verification
-    const result = qrCodeURL
-      ? await completeRegistration(userID, otpCode)
-      : await verifyOTP(userID, otpCode)
-
-    if (!result.success) {
-      const msg = result.message || t('verificationFailed', language)
-      setError(msg)
-      toast.error(msg)
-    } else {
-      // Dismiss the "login expired" toast on successful OTP verification
-      if (expiredToastId) {
-        toast.dismiss(expiredToastId)
-      }
-      // Clear qrCodeURL after successful completion
-      setQrCodeURL('')
-      setOtpSecret('')
-    }
-    // 成功的话AuthContext会自动处理登录状态
-
+    // OTP 功能已移除，此函数不再使用
     setLoading(false)
   }
 

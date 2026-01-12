@@ -318,22 +318,6 @@ export function EquityChart({ traderId, embedded = false }: EquityChartProps) {
           position: 'relative',
         }}
       >
-        {/* NOFX Watermark */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '15px',
-            right: '15px',
-            fontSize: '20px',
-            fontWeight: 'bold',
-            color: 'rgba(240, 185, 11, 0.15)',
-            zIndex: 10,
-            pointerEvents: 'none',
-            fontFamily: 'monospace',
-          }}
-        >
-          NOFX
-        </div>
         <ResponsiveContainer width="100%" height={280}>
           <LineChart
             data={chartData}

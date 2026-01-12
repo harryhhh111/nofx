@@ -14,7 +14,7 @@ import { WhitelistFullPage } from './WhitelistFullPage'
 
 export function RegisterPage() {
   const { language } = useLanguage()
-  const { register, completeRegistration } = useAuth()
+  const { register } = useAuth()
   const [step, setStep] = useState<'register' | 'setup-otp' | 'verify-otp' | 'whitelist-full'>(
     'register'
   )
@@ -25,9 +25,8 @@ export function RegisterPage() {
   const [betaMode, setBetaMode] = useState(false)
   const [registrationEnabled, setRegistrationEnabled] = useState(true)
   const [otpCode, setOtpCode] = useState('')
-  const [userID, setUserID] = useState('')
-  const [otpSecret, setOtpSecret] = useState('')
-  const [qrCodeURL, setQrCodeURL] = useState('')
+  const [qrCodeURL] = useState('') // Kept for potential future use
+  const [otpSecret] = useState('') // Kept for potential future use
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [passwordValid, setPasswordValid] = useState(false)
@@ -86,11 +85,8 @@ export function RegisterPage() {
           lowerMsg.includes('not on whitelist')
       }
 
-      if (result.success && result.userID) {
-        setUserID(result.userID)
-        setOtpSecret(result.otpSecret || '')
-        setQrCodeURL(result.qrCodeURL || '')
-        setStep('setup-otp')
+      if (result.success) {
+        // Registration successful - AuthContext already handles redirect
       } else {
         // Check for whitelist/capacity limit error
         const msg = result.message || t('registrationFailed', language)
@@ -129,18 +125,7 @@ export function RegisterPage() {
 
   const handleOTPVerify = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
-    setLoading(true)
-
-    const result = await completeRegistration(userID, otpCode)
-
-    if (!result.success) {
-      const msg = result.message || t('registrationFailed', language)
-      setError(msg)
-      toast.error(msg)
-    }
-    // 成功的话AuthContext会自动处理登录状态
-
+    // OTP 功能已移除，此函数不再使用
     setLoading(false)
   }
 

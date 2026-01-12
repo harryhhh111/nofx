@@ -383,24 +383,7 @@ export function ComparisonChart({ traders }: ComparisonChartProps) {
 
       {/* Chart */}
       <div className="relative rounded-xl overflow-hidden"
-           style={{ background: 'linear-gradient(180deg, rgba(11, 14, 17, 0.8) 0%, rgba(11, 14, 17, 1) 100%)' }}>
-        {/* Watermark */}
-        <div style={{
-          position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          fontSize: '80px',
-          fontWeight: 'bold',
-          color: 'rgba(240, 185, 11, 0.03)',
-          zIndex: 1,
-          pointerEvents: 'none',
-          fontFamily: 'monospace',
-          letterSpacing: '0.1em',
-        }}>
-          NOFX
-        </div>
-
+           style={{ background: 'rgba(11, 14, 17, 0.8)' }}>
         <ResponsiveContainer width="100%" height={420}>
           <ComposedChart
             data={displayData}

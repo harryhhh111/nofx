@@ -3089,29 +3089,9 @@ func (s *Server) handleRegister(c *gin.Context) {
 		return
 	}
 
-	// Check if email already exists (must check before maxUsers to allow incomplete OTP users)
-	existingUser, err := s.store.User().GetByEmail(req.Email)
+	// Check if email already exists
+	_, err := s.store.User().GetByEmail(req.Email)
 	if err == nil {
-		// User exists, check OTP verification status
-		if !existingUser.OTPVerified {
-			// OTP not verified, verify password first for security
-			if !auth.CheckPassword(req.Password, existingUser.PasswordHash) {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "Email or password incorrect"})
-				return
-			}
-			// Password correct, allow user to continue OTP setup
-			// Return existing OTP information
-			qrCodeURL := auth.GetOTPQRCodeURL(existingUser.OTPSecret, req.Email)
-			c.JSON(http.StatusOK, gin.H{
-				"user_id":     existingUser.ID,
-				"email":       existingUser.Email,
-				"otp_secret":  existingUser.OTPSecret,
-				"qr_code_url": qrCodeURL,
-				"message":     "Incomplete registration detected, please continue OTP setup",
-			})
-			return
-		}
-		// OTP already verified, reject duplicate registration
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
 		return
 	}
@@ -3137,21 +3117,14 @@ func (s *Server) handleRegister(c *gin.Context) {
 		return
 	}
 
-	// Generate OTP secret
-	otpSecret, err := auth.GenerateOTPSecret()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "OTP secret generation failed"})
-		return
-	}
-
-	// Create user (unverified OTP status)
+	// Create user (local/internal use mode - auto set as verified)
 	userID := uuid.New().String()
 	user := &store.User{
 		ID:           userID,
 		Email:        req.Email,
 		PasswordHash: passwordHash,
-		OTPSecret:    otpSecret,
-		OTPVerified:  false,
+		OTPSecret:    "",
+		OTPVerified:  true, // Local/internal use mode, directly set as verified
 	}
 
 	err = s.store.User().Create(user)
@@ -3160,14 +3133,26 @@ func (s *Server) handleRegister(c *gin.Context) {
 		return
 	}
 
-	// Return OTP setup information
-	qrCodeURL := auth.GetOTPQRCodeURL(otpSecret, req.Email)
+	// Initialize default model and exchange configs for user
+	err = s.initUserDefaultConfigs(user.ID)
+	if err != nil {
+		logger.Infof("Failed to initialize user default configs: %v", err)
+	}
+
+	// Local/internal use mode - directly generate token and return login success
+	token, err := auth.GenerateJWT(userID, req.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
+		return
+	}
+
+	// Return registration success, direct login
 	c.JSON(http.StatusOK, gin.H{
-		"user_id":     userID,
-		"email":       req.Email,
-		"otp_secret":  otpSecret,
-		"qr_code_url": qrCodeURL,
-		"message":     "Please scan the QR code with Google Authenticator and verify OTP",
+		"user_id":      userID,
+		"email":        req.Email,
+		"message":      "Registration successful, automatically logged in",
+		"requires_otp": false,
+		"token":        token,
 	})
 }
 
@@ -3249,27 +3234,20 @@ func (s *Server) handleLogin(c *gin.Context) {
 		return
 	}
 
-	// Check if OTP is verified
-	if !user.OTPVerified {
-		// Return OTP info so user can complete setup
-		qrCodeURL := auth.GetOTPQRCodeURL(user.OTPSecret, user.Email)
-		c.JSON(http.StatusOK, gin.H{
-			"user_id":            user.ID,
-			"email":              user.Email,
-			"otp_secret":         user.OTPSecret,
-			"qr_code_url":        qrCodeURL,
-			"requires_otp_setup": true,
-			"message":            "Please complete OTP setup first",
-		})
+	// Generate JWT token
+	token, err := auth.GenerateJWT(user.ID, user.Email)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
 
-	// Return status requiring OTP verification
+	// Return login success status
 	c.JSON(http.StatusOK, gin.H{
 		"user_id":      user.ID,
 		"email":        user.Email,
-		"message":      "Please enter Google Authenticator code",
-		"requires_otp": true,
+		"message":      "Login successful",
+		"requires_otp": false,
+		"token":        token,
 	})
 }
 
@@ -3313,12 +3291,11 @@ func (s *Server) handleVerifyOTP(c *gin.Context) {
 	})
 }
 
-// handleResetPassword Reset password (via email + OTP verification)
+// handleResetPassword Reset password (via email only, for local/internal use mode)
 func (s *Server) handleResetPassword(c *gin.Context) {
 	var req struct {
 		Email       string `json:"email" binding:"required,email"`
 		NewPassword string `json:"new_password" binding:"required,min=6"`
-		OTPCode     string `json:"otp_code" binding:"required"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -3330,12 +3307,6 @@ func (s *Server) handleResetPassword(c *gin.Context) {
 	user, err := s.store.User().GetByEmail(req.Email)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Email does not exist"})
-		return
-	}
-
-	// Verify OTP
-	if !auth.VerifyOTP(user.OTPSecret, req.OTPCode) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Google Authenticator code error"})
 		return
 	}
 

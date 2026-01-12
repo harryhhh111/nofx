@@ -123,39 +123,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const data = await response.json()
 
       if (response.ok) {
-        // Check for OTP setup required (incomplete registration)
-        if (data.requires_otp_setup) {
-          return {
-            success: true,
-            userID: data.user_id,
-            requiresOTPSetup: true,
-            message: data.message,
-            qrCodeURL: data.qr_code_url,
-            otpSecret: data.otp_secret,
-            email: data.email
-          }
+        // Direct login success, save token and user info
+        reset401Flag()
+
+        const userInfo = { id: data.user_id, email: data.email }
+        setToken(data.token)
+        setUser(userInfo)
+        localStorage.setItem('auth_token', data.token)
+        localStorage.setItem('auth_user', JSON.stringify(userInfo))
+
+        // Check and redirect to returnUrl if exists
+        const returnUrl = sessionStorage.getItem('returnUrl')
+        if (returnUrl) {
+          sessionStorage.removeItem('returnUrl')
+          window.history.pushState({}, '', returnUrl)
+          window.dispatchEvent(new PopStateEvent('popstate'))
+        } else {
+          window.history.pushState({}, '', '/dashboard')
+          window.dispatchEvent(new PopStateEvent('popstate'))
         }
-        // Check for OTP verification required (normal login flow)
-        if (data.requires_otp) {
-          return {
-            success: true,
-            userID: data.user_id,
-            requiresOTP: true,
-            message: data.message,
-            qrCodeURL: data.qr_code_url,
-            otpSecret: data.otp_secret
-          }
-        }
-        // Unexpected success response
-        return { success: false, message: '登录响应异常' }
+
+        return { success: true, message: data.message }
       } else {
-        return {
-          success: false,
-          message: data.error,
-          qrCodeURL: data.qr_code_url,
-          otpSecret: data.otp_secret,
-          userID: data.user_id
-        }
+        return { success: false, message: data.error }
       }
     } catch (error) {
       return { success: false, message: '登录失败，请重试' }
@@ -220,18 +210,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const result = await httpClient.post<{
         user_id: string
-        otp_secret: string
-        qr_code_url: string
+        email: string
+        otp_secret?: string
+        qr_code_url?: string
         message: string
+        requires_otp?: boolean
+        token?: string
       }>('/api/register', requestBody)
 
       if (result.success && result.data) {
-        return {
-          success: true,
-          userID: result.data.user_id,
-          otpSecret: result.data.otp_secret,
-          qrCodeURL: result.data.qr_code_url,
-          message: result.message || result.data.message,
+        // Check if OTP step is needed (local/internal use mode usually doesn't need it)
+        if (result.data.token) {
+          // Direct login success, save token and user info
+          reset401Flag()
+
+          const userInfo = { id: result.data.user_id, email: result.data.email }
+          setToken(result.data.token)
+          setUser(userInfo)
+          localStorage.setItem('auth_token', result.data.token)
+          localStorage.setItem('auth_user', JSON.stringify(userInfo))
+
+          // Check and redirect to returnUrl if exists
+          const returnUrl = sessionStorage.getItem('returnUrl')
+          if (returnUrl) {
+            sessionStorage.removeItem('returnUrl')
+            window.history.pushState({}, '', returnUrl)
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          } else {
+            window.history.pushState({}, '', '/dashboard')
+            window.dispatchEvent(new PopStateEvent('popstate'))
+          }
+
+          return { success: true, message: result.data.message }
+        } else {
+          // Need OTP step (traditional flow)
+          return {
+            success: true,
+            userID: result.data.user_id,
+            otpSecret: result.data.otp_secret,
+            qrCodeURL: result.data.qr_code_url,
+            message: result.message || result.data.message,
+          }
         }
       }
 
@@ -343,7 +362,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const resetPassword = async (
     email: string,
     newPassword: string,
-    otpCode: string
+    _otpCode: string
   ) => {
     try {
       const response = await fetch('/api/reset-password', {
@@ -354,7 +373,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({
           email,
           new_password: newPassword,
-          otp_code: otpCode,
         }),
       })
 
