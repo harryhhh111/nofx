@@ -7,10 +7,12 @@ import (
 	"nofx/store"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 // SyncOrdersFromAster syncs Aster exchange order history to local database
+// Uses incremental sync based on last fill time
 // Also creates/updates position records to ensure orders/fills/positions data consistency
 // exchangeID: Exchange account UUID (from exchanges.id)
 // exchangeType: Exchange type ("aster")
@@ -19,9 +21,32 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 		return fmt.Errorf("store is nil")
 	}
 
-	// Get recent trades (last 24 hours)
-	startTime := time.Now().Add(-24 * time.Hour)
+	orderStore := st.Order()
 
+	// Get last sync time (Unix ms) - try database first for accurate recovery
+	nowMs := time.Now().UTC().UnixMilli()
+	var lastSyncTimeMs int64
+
+	// Try to get last fill time from database first (persistent across restarts)
+	lastFillTimeMs, err := orderStore.GetLastFillTimeByExchange(exchangeID)
+	if err == nil && lastFillTimeMs > 0 {
+		// Check if recovered time is valid (not in the future)
+		if lastFillTimeMs > nowMs {
+			logger.Infof("⚠️ Aster DB sync time %d is in the future (now: %d), using trader created time",
+				lastFillTimeMs, nowMs)
+			lastSyncTimeMs = getTraderCreatedTime(st, traderID, nowMs)
+		} else {
+			// Add 1 second buffer to avoid re-fetching the same fill
+			lastSyncTimeMs = lastFillTimeMs + 1000
+			logger.Infof("📅 Aster recovered last sync time from DB: %s (UTC)",
+				time.UnixMilli(lastSyncTimeMs).UTC().Format("2006-01-02 15:04:05"))
+		}
+	} else {
+		// No fill time in DB, use trader creation time
+		lastSyncTimeMs = getTraderCreatedTime(st, traderID, nowMs)
+	}
+
+	startTime := time.Unix(0, lastSyncTimeMs*int64(time.Millisecond))
 	logger.Infof("🔄 Syncing Aster trades from: %s", startTime.Format(time.RFC3339))
 
 	// Use GetTrades method to fetch trade records
@@ -38,7 +63,6 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 	})
 
 	// Process trades one by one (no transaction to avoid deadlock)
-	orderStore := st.Order()
 	positionStore := st.Position()
 	posBuilder := store.NewPositionBuilder(positionStore)
 	syncedCount := 0
@@ -179,15 +203,62 @@ func deriveAsterOrderAction(side, positionSide string, realizedPnL float64) stri
 	}
 }
 
+// getTraderCreatedTime 获取 trader 创建时间（Unix ms）
+// 优先使用 trader 创建时间，如果没有记录则回退到 24 小时前
+func getTraderCreatedTime(st *store.Store, traderID string, nowMs int64) int64 {
+	var traderCreatedAt int64
+	err := st.GormDB().Raw(`
+		SELECT CAST((julianday(created_at) - 2440587.5) * 86400000 AS INTEGER)
+		FROM traders WHERE id = ?
+	`, traderID).Scan(&traderCreatedAt).Error
+
+	if err == nil && traderCreatedAt > 0 && traderCreatedAt < nowMs {
+		logger.Infof("📅 Using trader created time: %s (UTC)",
+			time.UnixMilli(traderCreatedAt).UTC().Format("2006-01-02 15:04:05"))
+		return traderCreatedAt
+	}
+
+	// Fallback to 24 hours
+	fallbackTime := nowMs - 24*60*60*1000
+	logger.Infof("📅 Trader created time not found or invalid, using 24h default: %s (UTC)",
+		time.UnixMilli(fallbackTime).UTC().Format("2006-01-02 15:04:05"))
+	return fallbackTime
+}
+
 // StartOrderSync starts background order sync task for Aster
 func (t *AsterTrader) StartOrderSync(traderID string, exchangeID string, exchangeType string, st *store.Store, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		for range ticker.C {
-			if err := t.SyncOrdersFromAster(traderID, exchangeID, exchangeType, st); err != nil {
-				logger.Infof("⚠️  Aster order sync failed: %v", err)
+	t.orderSyncOnce.Do(func() {
+		t.orderSyncStopChan = make(chan struct{})
+		t.orderSyncTicker = time.NewTicker(interval)
+
+		go func() {
+			logger.Infof("🔄 Aster order sync started (interval: %v)", interval)
+			defer logger.Infof("⏹ Aster order sync stopped")
+
+			for {
+				select {
+				case <-t.orderSyncTicker.C:
+					if err := t.SyncOrdersFromAster(traderID, exchangeID, exchangeType, st); err != nil {
+						logger.Infof("⚠️  Aster order sync failed: %v", err)
+					}
+				case <-t.orderSyncStopChan:
+					return
+				}
 			}
-		}
-	}()
-	logger.Infof("🔄 Aster order sync started (interval: %v)", interval)
+		}()
+	})
+}
+
+// StopOrderSync stops the background order sync task
+func (t *AsterTrader) StopOrderSync() {
+	if t.orderSyncStopChan != nil {
+		close(t.orderSyncStopChan)
+		t.orderSyncStopChan = nil
+	}
+	if t.orderSyncTicker != nil {
+		t.orderSyncTicker.Stop()
+		t.orderSyncTicker = nil
+	}
+	t.orderSyncOnce = sync.Once{} // Reset to allow restart if needed
+	logger.Infof("⏹ Aster order sync stopped")
 }

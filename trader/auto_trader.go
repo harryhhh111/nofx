@@ -520,9 +520,27 @@ func (at *AutoTrader) Stop() {
 	at.isRunning = false
 	at.isRunningMutex.Unlock()
 
+	// Stop order sync goroutines based on exchange type
+	at.stopOrderSync()
+
 	close(at.stopMonitorCh) // Notify monitoring goroutine to stop
 	at.monitorWg.Wait()     // Wait for monitoring goroutine to finish
 	logger.Info("⏹ Automatic trading system stopped")
+}
+
+// stopOrderSync stops the order sync goroutines
+func (at *AutoTrader) stopOrderSync() {
+	if at.trader == nil {
+		return
+	}
+
+	// For now, only Aster trader has StopOrderSync implemented
+	// TODO: Implement StopOrderSync for other trader types (binance, bybit, okx, bitget, hyperliquid, lighter)
+	if at.exchange == "aster" {
+		if asterTrader, ok := at.trader.(*AsterTrader); ok {
+			asterTrader.StopOrderSync()
+		}
+	}
 }
 
 // runCycle runs one trading cycle (using AI full decision-making)
