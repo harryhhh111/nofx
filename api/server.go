@@ -215,6 +215,8 @@ func (s *Server) setupRoutes() {
 			protected.GET("/open-orders", s.handleOpenOrders)      // Open orders from exchange (pending SL/TP)
 			protected.GET("/decisions", s.handleDecisions)
 			protected.GET("/decisions/latest", s.handleLatestDecisions)
+			protected.GET("/decisions/digest", s.handleGetDecisionDigest)
+			protected.GET("/decisions/digest/list", s.handleGetDecisionDigestList)
 			protected.GET("/statistics", s.handleStatistics)
 
 			// Backtest routes
@@ -2895,6 +2897,88 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, records)
+}
+
+// handleGetDecisionDigest gets the latest decision digest for a specific trader
+// Returns only key decision information (actions, confidence, reasoning) without verbose
+// system prompt, input prompt, raw AI response, or chain of thought trace.
+// Query parameter: trader_id (required) - the associated trader ID
+func (s *Server) handleGetDecisionDigest(c *gin.Context) {
+	_, traderID, err := s.getTraderFromQuery(c)
+	if err != nil {
+		SafeBadRequest(c, "Invalid trader ID")
+		return
+	}
+
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		SafeNotFound(c, "Trader")
+		return
+	}
+
+	digest, err := trader.GetStore().Decision().GetLatestDigest(trader.GetID())
+	if err != nil {
+		SafeNotFound(c, "Decision record")
+		return
+	}
+
+	c.JSON(http.StatusOK, digest)
+}
+
+// handleGetDecisionDigestList gets a sorted list of latest decision digests for all of the user's traders
+// Each trader contributes at most one record (their most recent decision).
+// Returns the same data structure as handleGetDecisionDigest, but as a sorted array.
+// Query parameters:
+//   - sort_by: sorting field (timestamp, trader_id, success), default: timestamp
+//   - order: sorting direction (asc, desc), default: desc
+//   - limit: max number of results (1-200), default: 50
+func (s *Server) handleGetDecisionDigestList(c *gin.Context) {
+	userID := c.GetString("user_id")
+
+	// Parse sorting parameters
+	sortBy := c.DefaultQuery("sort_by", "timestamp")
+	order := c.DefaultQuery("order", "desc")
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+			if limit > 200 {
+				limit = 200 // Cap at 200 to prevent abuse
+			}
+		}
+	}
+
+	// Validate sort_by field
+	validSortFields := map[string]bool{"timestamp": true, "trader_id": true, "success": true}
+	if !validSortFields[sortBy] {
+		sortBy = "timestamp"
+	}
+
+	// Validate order direction
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+
+	// Get user's trader IDs for scoped access
+	traders, err := s.store.Trader().List(userID)
+	if err != nil {
+		SafeInternalError(c, "Get trader list", err)
+		return
+	}
+
+	traderIDs := make([]string, len(traders))
+	for i, t := range traders {
+		traderIDs[i] = t.ID
+	}
+
+	// Query the latest decision digest for each trader
+	digests, err := s.store.Decision().GetTradersLatestDigests(traderIDs, sortBy, order, limit)
+	if err != nil {
+		SafeInternalError(c, "Get decision digest list", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, digests)
 }
 
 // handleStatistics Statistics information

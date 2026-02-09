@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -102,6 +103,32 @@ type Statistics struct {
 	FailedCycles        int `json:"failed_cycles"`
 	TotalOpenPositions  int `json:"total_open_positions"`
 	TotalClosePositions int `json:"total_close_positions"`
+}
+
+// DecisionDigest AI decision digest (only key decision information, excluding verbose thinking process)
+// Used for API responses that need concise decision summaries without system prompt, input prompt, raw AI response, etc.
+type DecisionDigest struct {
+	TraderID            string           `json:"trader_id"`
+	CycleNumber         int              `json:"cycle_number"`
+	Timestamp           time.Time        `json:"timestamp"`
+	Decisions           []DecisionAction `json:"decisions"`
+	Success             bool             `json:"success"`
+	ErrorMessage        string           `json:"error_message,omitempty"`
+	AIRequestDurationMs int64            `json:"ai_request_duration_ms"`
+}
+
+// toDigest converts DB model to DecisionDigest (lightweight summary without verbose fields)
+func (db *DecisionRecordDB) toDigest() *DecisionDigest {
+	digest := &DecisionDigest{
+		TraderID:            db.TraderID,
+		CycleNumber:         db.CycleNumber,
+		Timestamp:           db.Timestamp,
+		Success:             db.Success,
+		ErrorMessage:        db.ErrorMessage,
+		AIRequestDurationMs: db.AIRequestDurationMs,
+	}
+	json.Unmarshal([]byte(db.Decisions), &digest.Decisions)
+	return digest
 }
 
 // NewDecisionStore creates a new DecisionStore
@@ -310,4 +337,77 @@ func (s *DecisionStore) GetLastCycleNumber(traderID string) (int, error) {
 		return 0, nil
 	}
 	return *cycleNumber, nil
+}
+
+// GetLatestDigest gets the latest decision digest for a specific trader (lightweight version)
+// Returns only key decision information without verbose prompts and raw AI response
+func (s *DecisionStore) GetLatestDigest(traderID string) (*DecisionDigest, error) {
+	var dbRecord DecisionRecordDB
+	err := s.db.Where("trader_id = ?", traderID).
+		Order("timestamp DESC").
+		First(&dbRecord).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query latest decision digest for trader %s: %w", traderID, err)
+	}
+	return dbRecord.toDigest(), nil
+}
+
+// GetTradersLatestDigests gets the latest decision digest for each specified trader, with sorting
+// traderIDs: list of trader IDs to query; if empty, queries all traders
+// sortBy: sorting field - "timestamp" (default), "trader_id", "success"
+// order: sorting direction - "desc" (default), "asc"
+// limit: max number of results; 0 means no limit
+func (s *DecisionStore) GetTradersLatestDigests(traderIDs []string, sortBy, order string, limit int) ([]*DecisionDigest, error) {
+	// Step 1: Determine which trader IDs to query
+	queryIDs := traderIDs
+	if len(queryIDs) == 0 {
+		// Get all distinct trader IDs from the decision_records table
+		if err := s.db.Model(&DecisionRecordDB{}).Distinct("trader_id").Pluck("trader_id", &queryIDs).Error; err != nil {
+			return nil, fmt.Errorf("failed to get distinct trader IDs: %w", err)
+		}
+	}
+
+	// Step 2: For each trader, get the latest record and convert to digest
+	digests := make([]*DecisionDigest, 0, len(queryIDs))
+	for _, tid := range queryIDs {
+		var dbRecord DecisionRecordDB
+		err := s.db.Where("trader_id = ?", tid).
+			Order("timestamp DESC").
+			First(&dbRecord).Error
+		if err != nil {
+			continue // Skip traders with no records
+		}
+		digests = append(digests, dbRecord.toDigest())
+	}
+
+	// Step 3: Sort results by the specified field and order
+	isAsc := order == "asc"
+	sort.Slice(digests, func(i, j int) bool {
+		switch sortBy {
+		case "trader_id":
+			if isAsc {
+				return digests[i].TraderID < digests[j].TraderID
+			}
+			return digests[i].TraderID > digests[j].TraderID
+		case "success":
+			if isAsc {
+				// false (0) before true (1) in ascending
+				return !digests[i].Success && digests[j].Success
+			}
+			// true (1) before false (0) in descending
+			return digests[i].Success && !digests[j].Success
+		default: // "timestamp"
+			if isAsc {
+				return digests[i].Timestamp.Before(digests[j].Timestamp)
+			}
+			return digests[i].Timestamp.After(digests[j].Timestamp)
+		}
+	})
+
+	// Step 4: Apply limit
+	if limit > 0 && len(digests) > limit {
+		digests = digests[:limit]
+	}
+
+	return digests, nil
 }
