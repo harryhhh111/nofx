@@ -72,7 +72,7 @@ func TestToDigest(t *testing.T) {
 		Timestamp:           now,
 		SystemPrompt:        "long system prompt...",
 		InputPrompt:         "long input prompt...",
-		CoTTrace:            "long chain of thought...",
+		CoTTrace:            "BTC showing strong bullish momentum with EMA20 above EMA50, MACD histogram expanding, RSI at 65 indicating room to run. OI increasing with positive netflow suggesting institutional buying.",
 		RawResponse:         "long raw AI response...",
 		Decisions:           string(decisionsJSON),
 		Success:             true,
@@ -97,6 +97,14 @@ func TestToDigest(t *testing.T) {
 	}
 	if digest.AIRequestDurationMs != 2500 {
 		t.Errorf("expected AIRequestDurationMs 2500, got %d", digest.AIRequestDurationMs)
+	}
+
+	// Verify CoTTrace (core AI reasoning) is included in digest
+	if digest.CoTTrace == "" {
+		t.Errorf("expected CoTTrace to be populated, got empty string")
+	}
+	if digest.CoTTrace != dbRecord.CoTTrace {
+		t.Errorf("expected CoTTrace to match DB record")
 	}
 
 	// Verify decisions are correctly deserialized
@@ -382,15 +390,15 @@ func TestDecisionDigestJSON(t *testing.T) {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
 
-	expectedFields := []string{"trader_id", "cycle_number", "timestamp", "decisions", "success", "ai_request_duration_ms"}
+	expectedFields := []string{"trader_id", "cycle_number", "timestamp", "cot_trace", "decisions", "success", "ai_request_duration_ms"}
 	for _, field := range expectedFields {
 		if _, exists := result[field]; !exists {
 			t.Errorf("expected JSON field '%s' to exist", field)
 		}
 	}
 
-	// Verify verbose fields are NOT present
-	unexpectedFields := []string{"system_prompt", "input_prompt", "cot_trace", "raw_response", "decision_json"}
+	// Verify verbose fields are NOT present (cot_trace IS expected, it's the core reasoning)
+	unexpectedFields := []string{"system_prompt", "input_prompt", "raw_response", "decision_json"}
 	for _, field := range unexpectedFields {
 		if _, exists := result[field]; exists {
 			t.Errorf("unexpected verbose field '%s' should not be in DecisionDigest JSON", field)

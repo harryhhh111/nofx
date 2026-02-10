@@ -105,24 +105,27 @@ type Statistics struct {
 	TotalClosePositions int `json:"total_close_positions"`
 }
 
-// DecisionDigest AI decision digest (only key decision information, excluding verbose thinking process)
-// Used for API responses that need concise decision summaries without system prompt, input prompt, raw AI response, etc.
+// DecisionDigest AI decision digest (key decision information with core AI reasoning)
+// Includes the AI's core thinking analysis (CoTTrace from <reasoning> tag) and final decisions,
+// but excludes verbose system prompt, input prompt, and raw AI response.
 type DecisionDigest struct {
 	TraderID            string           `json:"trader_id"`
 	CycleNumber         int              `json:"cycle_number"`
 	Timestamp           time.Time        `json:"timestamp"`
+	CoTTrace            string           `json:"cot_trace"` // Core AI reasoning analysis (from <reasoning> tag)
 	Decisions           []DecisionAction `json:"decisions"`
 	Success             bool             `json:"success"`
 	ErrorMessage        string           `json:"error_message,omitempty"`
 	AIRequestDurationMs int64            `json:"ai_request_duration_ms"`
 }
 
-// toDigest converts DB model to DecisionDigest (lightweight summary without verbose fields)
+// toDigest converts DB model to DecisionDigest (includes core reasoning, excludes prompts and raw response)
 func (db *DecisionRecordDB) toDigest() *DecisionDigest {
 	digest := &DecisionDigest{
 		TraderID:            db.TraderID,
 		CycleNumber:         db.CycleNumber,
 		Timestamp:           db.Timestamp,
+		CoTTrace:            db.CoTTrace, // AI's core thinking analysis
 		Success:             db.Success,
 		ErrorMessage:        db.ErrorMessage,
 		AIRequestDurationMs: db.AIRequestDurationMs,
