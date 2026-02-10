@@ -2903,20 +2903,24 @@ func (s *Server) handleLatestDecisions(c *gin.Context) {
 // Returns only key decision information (actions, confidence, reasoning) without verbose
 // system prompt, input prompt, raw AI response, or chain of thought trace.
 // Query parameter: trader_id (required) - the associated trader ID
+// Note: This endpoint queries the database directly, so the trader does NOT need to be
+// running or loaded in memory. Any trader_id that has decision records can be queried.
 func (s *Server) handleGetDecisionDigest(c *gin.Context) {
-	_, traderID, err := s.getTraderFromQuery(c)
-	if err != nil {
-		SafeBadRequest(c, "Invalid trader ID")
+	traderID := c.Query("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "trader_id is required")
 		return
 	}
 
-	trader, err := s.traderManager.GetTrader(traderID)
+	// Verify the trader exists in the database (does not require it to be running in memory)
+	_, err := s.store.Trader().GetByID(traderID)
 	if err != nil {
 		SafeNotFound(c, "Trader")
 		return
 	}
 
-	digest, err := trader.GetStore().Decision().GetLatestDigest(trader.GetID())
+	// Query decision record directly from database
+	digest, err := s.store.Decision().GetLatestDigest(traderID)
 	if err != nil {
 		SafeNotFound(c, "Decision record")
 		return
