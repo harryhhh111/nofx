@@ -139,6 +139,13 @@ func (s *Server) setupRoutes() {
 		// Public strategy market (no authentication required)
 		api.GET("/strategies/public", s.handlePublicStrategies)
 
+		// Decision digest (no authentication required, all users can access)
+		decisions := api.Group("/decisions")
+		{
+			decisions.GET("/digest", s.handleGetDecisionDigest)
+			decisions.GET("/digest/list", s.handleGetDecisionDigestList)
+		}
+
 		// Authentication related routes (no authentication required)
 		api.POST("/register", s.handleRegister)
 		api.POST("/login", s.handleLogin)
@@ -215,8 +222,6 @@ func (s *Server) setupRoutes() {
 			protected.GET("/open-orders", s.handleOpenOrders)      // Open orders from exchange (pending SL/TP)
 			protected.GET("/decisions", s.handleDecisions)
 			protected.GET("/decisions/latest", s.handleLatestDecisions)
-			protected.GET("/decisions/digest", s.handleGetDecisionDigest)
-			protected.GET("/decisions/digest/list", s.handleGetDecisionDigestList)
 			protected.GET("/statistics", s.handleStatistics)
 
 			// Backtest routes
@@ -2937,8 +2942,6 @@ func (s *Server) handleGetDecisionDigest(c *gin.Context) {
 //   - order: sorting direction (asc, desc), default: desc
 //   - limit: max number of results (1-200), default: 50
 func (s *Server) handleGetDecisionDigestList(c *gin.Context) {
-	userID := c.GetString("user_id")
-
 	// Parse sorting parameters
 	sortBy := c.DefaultQuery("sort_by", "timestamp")
 	order := c.DefaultQuery("order", "desc")
@@ -2963,8 +2966,8 @@ func (s *Server) handleGetDecisionDigestList(c *gin.Context) {
 		order = "desc"
 	}
 
-	// Get user's trader IDs for scoped access
-	traders, err := s.store.Trader().List(userID)
+	// Public endpoint: get all traders (no user scope)
+	traders, err := s.store.Trader().ListAll()
 	if err != nil {
 		SafeInternalError(c, "Get trader list", err)
 		return
