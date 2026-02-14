@@ -785,6 +785,7 @@ func (t *AsterTrader) CloseLong(symbol string, quantity float64) (map[string]int
 		"timeInForce":  "GTC",
 		"quantity":     qtyStr,
 		"price":        priceStr,
+		"reduceOnly":   "true",
 	}
 
 	body, err := t.request("POST", "/fapi/v3/order", params)
@@ -868,6 +869,7 @@ func (t *AsterTrader) CloseShort(symbol string, quantity float64) (map[string]in
 		"timeInForce":  "GTC",
 		"quantity":     qtyStr,
 		"price":        priceStr,
+		"reduceOnly":   "true",
 	}
 
 	body, err := t.request("POST", "/fapi/v3/order", params)
