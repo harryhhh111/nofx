@@ -537,7 +537,7 @@ func (at *AutoTrader) stopOrderSync() {
 	// For now, only Aster trader has StopOrderSync implemented
 	// TODO: Implement StopOrderSync for other trader types (binance, bybit, okx, bitget, hyperliquid, lighter)
 	if at.exchange == "aster" {
-		if asterTrader, ok := at.trader.(*AsterTrader); ok {
+		if asterTrader, ok := at.trader.(*aster.AsterTrader); ok {
 			asterTrader.StopOrderSync()
 		}
 	}
