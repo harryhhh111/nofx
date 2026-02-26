@@ -105,18 +105,27 @@ type Statistics struct {
 	TotalClosePositions int `json:"total_close_positions"`
 }
 
+// CoTTraceEntry 单条思考过程，用于 recent_cot_traces（按时间从新到旧）
+type CoTTraceEntry struct {
+	CycleNumber int       `json:"cycle_number"`
+	Timestamp   time.Time `json:"timestamp"`
+	CoTTrace    string    `json:"cot_trace"`
+}
+
 // DecisionDigest AI decision digest (key decision information with core AI reasoning)
 // Includes the AI's core thinking analysis (CoTTrace from <reasoning> tag) and final decisions,
 // but excludes verbose system prompt, input prompt, and raw AI response.
+// RecentCoTTraces: 该 trader 最近 3 条决策的思考过程，单条 digest 与 list 一致，上游无需改。
 type DecisionDigest struct {
-	TraderID            string           `json:"trader_id"`
-	CycleNumber         int              `json:"cycle_number"`
-	Timestamp           time.Time        `json:"timestamp"`
-	CoTTrace            string           `json:"cot_trace"` // Core AI reasoning analysis (from <reasoning> tag)
-	Decisions           []DecisionAction `json:"decisions"`
-	Success             bool             `json:"success"`
-	ErrorMessage        string           `json:"error_message,omitempty"`
-	AIRequestDurationMs int64            `json:"ai_request_duration_ms"`
+	TraderID            string            `json:"trader_id"`
+	CycleNumber         int               `json:"cycle_number"`
+	Timestamp           time.Time         `json:"timestamp"`
+	CoTTrace            string            `json:"cot_trace"`           // 当前记录的思考过程
+	RecentCoTTraces     []CoTTraceEntry   `json:"recent_cot_traces"`   // 最后 3 条思考过程（从新到旧）
+	Decisions           []DecisionAction  `json:"decisions"`
+	Success             bool              `json:"success"`
+	ErrorMessage        string            `json:"error_message,omitempty"`
+	AIRequestDurationMs int64             `json:"ai_request_duration_ms"`
 }
 
 // toDigest converts DB model to DecisionDigest (includes core reasoning, excludes prompts and raw response)
@@ -342,8 +351,29 @@ func (s *DecisionStore) GetLastCycleNumber(traderID string) (int, error) {
 	return *cycleNumber, nil
 }
 
-// GetLatestDigest gets the latest decision digest for a specific trader (lightweight version)
-// Returns only key decision information without verbose prompts and raw AI response
+// getLatestCoTTraces 获取指定 trader 最近 n 条决策的思考过程（按时间从新到旧）
+func (s *DecisionStore) getLatestCoTTraces(traderID string, n int) ([]CoTTraceEntry, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	var dbRecords []DecisionRecordDB
+	err := s.db.Where("trader_id = ?", traderID).
+		Order("timestamp DESC").
+		Limit(n).
+		Select("cycle_number", "timestamp", "cot_trace").
+		Find(&dbRecords).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CoTTraceEntry, 0, len(dbRecords))
+	for _, r := range dbRecords {
+		out = append(out, CoTTraceEntry{CycleNumber: r.CycleNumber, Timestamp: r.Timestamp, CoTTrace: r.CoTTrace})
+	}
+	return out, nil
+}
+
+// GetLatestDigest gets the latest decision digest for a specific trader (lightweight version).
+// 附带该 trader 最近 3 条思考过程（RecentCoTTraces），与 list 一致。
 func (s *DecisionStore) GetLatestDigest(traderID string) (*DecisionDigest, error) {
 	var dbRecord DecisionRecordDB
 	err := s.db.Where("trader_id = ?", traderID).
@@ -352,7 +382,9 @@ func (s *DecisionStore) GetLatestDigest(traderID string) (*DecisionDigest, error
 	if err != nil {
 		return nil, fmt.Errorf("failed to query latest decision digest for trader %s: %w", traderID, err)
 	}
-	return dbRecord.toDigest(), nil
+	digest := dbRecord.toDigest()
+	digest.RecentCoTTraces, _ = s.getLatestCoTTraces(traderID, 3)
+	return digest, nil
 }
 
 // GetTradersLatestDigests gets the latest decision digest for each specified trader, with sorting
@@ -370,7 +402,7 @@ func (s *DecisionStore) GetTradersLatestDigests(traderIDs []string, sortBy, orde
 		}
 	}
 
-	// Step 2: For each trader, get the latest record and convert to digest
+	// Step 2: For each trader, get the latest record and convert to digest，并附带最近 3 条思考过程（与单条 digest 一致，不新增参数）
 	digests := make([]*DecisionDigest, 0, len(queryIDs))
 	for _, tid := range queryIDs {
 		var dbRecord DecisionRecordDB
@@ -380,7 +412,9 @@ func (s *DecisionStore) GetTradersLatestDigests(traderIDs []string, sortBy, orde
 		if err != nil {
 			continue // Skip traders with no records
 		}
-		digests = append(digests, dbRecord.toDigest())
+		d := dbRecord.toDigest()
+		d.RecentCoTTraces, _ = s.getLatestCoTTraces(tid, 3)
+		digests = append(digests, d)
 	}
 
 	// Step 3: Sort results by the specified field and order
