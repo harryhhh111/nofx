@@ -1,10 +1,16 @@
 name: Build and Push Docker Images
 
+# 推送到 GHCR 需要 packages: write，否则会报 permission_denied: write_package
+permissions:
+  contents: read
+  packages: write
+
 on:
   push:
     branches:
       - main
       - dev
+      - feature/n
       - release/stable
     tags:
       - 'v*'
@@ -12,6 +18,7 @@ on:
     branches:
       - main
       - dev
+      - feature/n
   workflow_dispatch:
 
 env:
