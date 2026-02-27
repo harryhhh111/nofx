@@ -471,13 +471,15 @@ func GetGridDecisions(ctx *GridContext, mcpClient mcp.AIClient, config *store.Gr
 	duration := time.Since(startTime).Milliseconds()
 	logger.Infof("⏱️ [Grid] AI call duration: %d ms, decisions: %d", duration, len(decisions))
 
-	// Extract chain of thought from response
+	// Extract chain of thought and summary from response
 	cotTrace := extractCoTTrace(response)
+	cotSummary := extractCoTSummary(response, cotTrace)
 
 	return &FullDecision{
 		SystemPrompt:        systemPrompt,
 		UserPrompt:          userPrompt,
 		CoTTrace:            cotTrace,
+		CoTSummary:          cotSummary,
 		Decisions:           decisions,
 		RawResponse:         response,
 		AIRequestDurationMs: duration,

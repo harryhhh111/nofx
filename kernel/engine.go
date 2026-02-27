@@ -29,8 +29,9 @@ var (
 	reInvisibleRunes = regexp.MustCompile("[\u200B\u200C\u200D\uFEFF]")
 
 	// XML tag extraction (supports any characters in reasoning chain)
-	reReasoningTag = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
-	reDecisionTag  = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	reReasoningTag        = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
+	reReasoningSummaryTag = regexp.MustCompile(`(?s)<reasoning_summary>(.*?)</reasoning_summary>`)
+	reDecisionTag        = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
 )
 
 // ============================================================================
@@ -156,6 +157,7 @@ type FullDecision struct {
 	SystemPrompt        string     `json:"system_prompt"`
 	UserPrompt          string     `json:"user_prompt"`
 	CoTTrace            string     `json:"cot_trace"`
+	CoTSummary          string     `json:"cot_summary"` // 思考过程精炼摘要（2～4 句）
 	Decisions           []Decision `json:"decisions"`
 	RawResponse         string     `json:"raw_response"`
 	Timestamp           time.Time  `json:"timestamp"`
@@ -1024,12 +1026,15 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 
 	// 7. Output format
 	sb.WriteString("# Output Format (Strictly Follow)\n\n")
-	sb.WriteString("**Must use XML tags <reasoning> and <decision> to separate chain of thought and decision JSON, avoiding parsing errors**\n\n")
+	sb.WriteString("**Must use XML tags <reasoning>, <reasoning_summary> and <decision> to separate chain of thought, summary and decision JSON**\n\n")
 	sb.WriteString("## Format Requirements\n\n")
 	sb.WriteString("<reasoning>\n")
 	sb.WriteString("Your chain of thought analysis...\n")
 	sb.WriteString("- Briefly analyze your thinking process \n")
 	sb.WriteString("</reasoning>\n\n")
+	sb.WriteString("<reasoning_summary>\n")
+	sb.WriteString("2-4 sentences: key conclusion and main reason for the decision (e.g. hold SENTUSDT; skip PIPPIN/POWER).\n")
+	sb.WriteString("</reasoning_summary>\n\n")
 	sb.WriteString("<decision>\n")
 	sb.WriteString("Step 2: JSON decision array\n\n")
 	sb.WriteString("```json\n[\n")
@@ -1673,25 +1678,29 @@ func formatFloatSlice(values []float64) string {
 
 func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
+	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
 	decisions, err := extractDecisions(aiResponse)
 	if err != nil {
 		return &FullDecision{
-			CoTTrace:  cotTrace,
-			Decisions: []Decision{},
+			CoTTrace:   cotTrace,
+			CoTSummary: cotSummary,
+			Decisions:  []Decision{},
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
 	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
 		return &FullDecision{
-			CoTTrace:  cotTrace,
-			Decisions: decisions,
+			CoTTrace:   cotTrace,
+			CoTSummary: cotSummary,
+			Decisions:  decisions,
 		}, fmt.Errorf("decision validation failed: %w", err)
 	}
 
 	return &FullDecision{
-		CoTTrace:  cotTrace,
-		Decisions: decisions,
+		CoTTrace:   cotTrace,
+		CoTSummary: cotSummary,
+		Decisions:  decisions,
 	}, nil
 }
 
@@ -1713,6 +1722,26 @@ func extractCoTTrace(response string) string {
 	}
 
 	return strings.TrimSpace(response)
+}
+
+// extractCoTSummary 提取思考过程精炼摘要：优先从 <reasoning_summary> 标签；若无则取 cotTrace 前 maxSummaryLen 字符
+const maxSummaryLen = 500
+
+func extractCoTSummary(response string, cotTrace string) string {
+	if match := reReasoningSummaryTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
+		s := strings.TrimSpace(match[1])
+		if s != "" {
+			logger.Infof("✓ Extracted reasoning summary using <reasoning_summary> tag")
+			return s
+		}
+	}
+	if cotTrace == "" {
+		return ""
+	}
+	if len(cotTrace) <= maxSummaryLen {
+		return cotTrace
+	}
+	return cotTrace[:maxSummaryLen] + "..."
 }
 
 func extractDecisions(response string) ([]Decision, error) {

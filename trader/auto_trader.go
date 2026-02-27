@@ -634,10 +634,11 @@ func (at *AutoTrader) runCycle() error {
 
 	// Save chain of thought, decisions, and input prompt even if there's an error (for debugging)
 	if aiDecision != nil {
-		record.SystemPrompt = aiDecision.SystemPrompt // Save system prompt
+		record.SystemPrompt = aiDecision.SystemPrompt
 		record.InputPrompt = aiDecision.UserPrompt
 		record.CoTTrace = aiDecision.CoTTrace
-		record.RawResponse = aiDecision.RawResponse // Save raw AI response for debugging
+		record.CotSummary = aiDecision.CoTSummary
+		record.RawResponse = aiDecision.RawResponse
 		if len(aiDecision.Decisions) > 0 {
 			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
 			record.DecisionJSON = string(decisionJSON)

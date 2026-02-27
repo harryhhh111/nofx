@@ -23,6 +23,7 @@ type DecisionRecordDB struct {
 	SystemPrompt        string    `gorm:"column:system_prompt;default:''"`
 	InputPrompt         string    `gorm:"column:input_prompt;default:''"`
 	CoTTrace            string    `gorm:"column:cot_trace;default:''"`
+	CotSummary          string    `gorm:"column:cot_summary;default:''"`
 	DecisionJSON        string    `gorm:"column:decision_json;default:''"`
 	RawResponse         string    `gorm:"column:raw_response;default:''"`
 	CandidateCoins      string    `gorm:"column:candidate_coins;default:''"`
@@ -45,6 +46,7 @@ type DecisionRecord struct {
 	SystemPrompt        string             `json:"system_prompt"`
 	InputPrompt         string             `json:"input_prompt"`
 	CoTTrace            string             `json:"cot_trace"`
+	CotSummary          string             `json:"cot_summary"`
 	DecisionJSON        string             `json:"decision_json"`
 	RawResponse         string             `json:"raw_response"` // Raw AI response for debugging
 	CandidateCoins      []string           `json:"candidate_coins"`
@@ -110,6 +112,7 @@ type CoTTraceEntry struct {
 	CycleNumber int       `json:"cycle_number"`
 	Timestamp   time.Time `json:"timestamp"`
 	CoTTrace    string    `json:"cot_trace"`
+	CotSummary  string    `json:"cot_summary"`
 }
 
 // DecisionDigest AI decision digest (key decision information with core AI reasoning)
@@ -117,15 +120,16 @@ type CoTTraceEntry struct {
 // but excludes verbose system prompt, input prompt, and raw AI response.
 // RecentCoTTraces: 该 trader 最近 3 条决策的思考过程，单条 digest 与 list 一致，上游无需改。
 type DecisionDigest struct {
-	TraderID            string            `json:"trader_id"`
-	CycleNumber         int               `json:"cycle_number"`
-	Timestamp           time.Time         `json:"timestamp"`
-	CoTTrace            string            `json:"cot_trace"`           // 当前记录的思考过程
-	RecentCoTTraces     []CoTTraceEntry   `json:"recent_cot_traces"`   // 最后 3 条思考过程（从新到旧）
-	Decisions           []DecisionAction  `json:"decisions"`
-	Success             bool              `json:"success"`
-	ErrorMessage        string            `json:"error_message,omitempty"`
-	AIRequestDurationMs int64             `json:"ai_request_duration_ms"`
+	TraderID            string           `json:"trader_id"`
+	CycleNumber         int              `json:"cycle_number"`
+	Timestamp           time.Time        `json:"timestamp"`
+	CoTTrace            string           `json:"cot_trace"`         // 当前记录的思考过程
+	CotSummary          string           `json:"cot_summary"`       // 思考过程精炼摘要
+	RecentCoTTraces     []CoTTraceEntry  `json:"recent_cot_traces"` // 最后 3 条思考过程（从新到旧）
+	Decisions           []DecisionAction `json:"decisions"`
+	Success             bool             `json:"success"`
+	ErrorMessage        string           `json:"error_message,omitempty"`
+	AIRequestDurationMs int64            `json:"ai_request_duration_ms"`
 }
 
 // toDigest converts DB model to DecisionDigest (includes core reasoning, excludes prompts and raw response)
@@ -134,7 +138,8 @@ func (db *DecisionRecordDB) toDigest() *DecisionDigest {
 		TraderID:            db.TraderID,
 		CycleNumber:         db.CycleNumber,
 		Timestamp:           db.Timestamp,
-		CoTTrace:            db.CoTTrace, // AI's core thinking analysis
+		CoTTrace:            db.CoTTrace,
+		CotSummary:          db.CotSummary,
 		Success:             db.Success,
 		ErrorMessage:        db.ErrorMessage,
 		AIRequestDurationMs: db.AIRequestDurationMs,
@@ -150,11 +155,12 @@ func NewDecisionStore(db *gorm.DB) *DecisionStore {
 
 // initTables initializes AI decision log tables
 func (s *DecisionStore) initTables() error {
-	// For PostgreSQL with existing table, skip AutoMigrate
 	if s.db.Dialector.Name() == "postgres" {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'decision_records'`).Scan(&tableExists)
 		if tableExists > 0 {
+			// 已有表时只做列增量：添加 cot_summary（若不存在）
+			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS cot_summary TEXT DEFAULT ''`)
 			return nil
 		}
 	}
@@ -171,6 +177,7 @@ func (db *DecisionRecordDB) toRecord() *DecisionRecord {
 		SystemPrompt:        db.SystemPrompt,
 		InputPrompt:         db.InputPrompt,
 		CoTTrace:            db.CoTTrace,
+		CotSummary:          db.CotSummary,
 		DecisionJSON:        db.DecisionJSON,
 		RawResponse:         db.RawResponse,
 		Success:             db.Success,
@@ -203,6 +210,7 @@ func (s *DecisionStore) LogDecision(record *DecisionRecord) error {
 		SystemPrompt:        record.SystemPrompt,
 		InputPrompt:         record.InputPrompt,
 		CoTTrace:            record.CoTTrace,
+		CotSummary:          record.CotSummary,
 		DecisionJSON:        record.DecisionJSON,
 		RawResponse:         record.RawResponse,
 		CandidateCoins:      string(candidateCoinsJSON),
@@ -360,14 +368,14 @@ func (s *DecisionStore) getLatestCoTTraces(traderID string, n int) ([]CoTTraceEn
 	err := s.db.Where("trader_id = ?", traderID).
 		Order("timestamp DESC").
 		Limit(n).
-		Select("cycle_number", "timestamp", "cot_trace").
+		Select("cycle_number", "timestamp", "cot_trace", "cot_summary").
 		Find(&dbRecords).Error
 	if err != nil {
 		return nil, err
 	}
 	out := make([]CoTTraceEntry, 0, len(dbRecords))
 	for _, r := range dbRecords {
-		out = append(out, CoTTraceEntry{CycleNumber: r.CycleNumber, Timestamp: r.Timestamp, CoTTrace: r.CoTTrace})
+		out = append(out, CoTTraceEntry{CycleNumber: r.CycleNumber, Timestamp: r.Timestamp, CoTTrace: r.CoTTrace, CotSummary: r.CotSummary})
 	}
 	return out, nil
 }

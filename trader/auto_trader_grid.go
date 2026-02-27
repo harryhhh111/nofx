@@ -1288,6 +1288,7 @@ func (at *AutoTrader) saveGridDecisionRecord(decision *kernel.FullDecision) {
 		SystemPrompt:        decision.SystemPrompt,
 		InputPrompt:         decision.UserPrompt,
 		CoTTrace:            decision.CoTTrace,
+		CotSummary:          decision.CoTSummary,
 		RawResponse:         decision.RawResponse,
 		AIRequestDurationMs: decision.AIRequestDurationMs,
 		Success:             true,

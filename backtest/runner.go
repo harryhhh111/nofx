@@ -593,6 +593,7 @@ func (r *Runner) buildDecisionContext(ts int64, marketData map[string]*market.Da
 func (r *Runner) fillDecisionRecord(record *store.DecisionRecord, full *kernel.FullDecision) {
 	record.InputPrompt = full.UserPrompt
 	record.CoTTrace = full.CoTTrace
+	record.CotSummary = full.CoTSummary
 	if len(full.Decisions) > 0 {
 		if data, err := json.MarshalIndent(full.Decisions, "", "  "); err == nil {
 			record.DecisionJSON = string(data)
