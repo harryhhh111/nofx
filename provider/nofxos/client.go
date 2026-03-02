@@ -21,10 +21,12 @@ const (
 
 // Client is the NofxOS API client
 type Client struct {
-	BaseURL string
-	AuthKey string
-	Timeout time.Duration
-	mu      sync.RWMutex
+	BaseURL     string
+	AuthKey     string
+	Timeout     time.Duration
+	customURL   string // Full custom URL for AI500 (optional)
+	isCustomURL bool   // Whether using custom URL mode
+	mu          sync.RWMutex
 }
 
 var (
@@ -85,6 +87,58 @@ func (c *Client) GetAuthKey() string {
 	return c.AuthKey
 }
 
+// IsCustomURL returns whether the client is using a custom URL
+func (c *Client) IsCustomURL() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.isCustomURL
+}
+
+// GetCustomURL returns the custom URL if set
+func (c *Client) GetCustomURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.customURL
+}
+
+// doCustomURLRequest performs an HTTP GET request to the custom URL
+// Note: Uses regular HTTP client with proxy support but without SSRF protection
+// since the URL is explicitly configured by the user
+func (c *Client) doCustomURLRequest() ([]byte, error) {
+	c.mu.RLock()
+	customURL := c.customURL
+	timeout := c.Timeout
+	c.mu.RUnlock()
+
+	// Create HTTP client with proxy support (from environment) but no SSRF protection
+	client := &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy: http.ProxyFromEnvironment, // Support HTTP_PROXY/HTTPS_PROXY env vars
+		},
+	}
+
+	resp, err := client.Get(customURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return body, &APIError{
+			StatusCode: resp.StatusCode,
+			Message:    string(body),
+		}
+	}
+
+	return body, nil
+}
+
 // doRequest performs an HTTP GET request with authentication
 func (c *Client) doRequest(endpoint string) ([]byte, error) {
 	c.mu.RLock()
@@ -143,4 +197,21 @@ func ExtractAuthKey(url string) string {
 		return authKey
 	}
 	return ""
+}
+
+// NewClientWithCustomURL creates a client for custom API URLs
+// The custom URL is used directly without appending the standard endpoint path
+func NewClientWithCustomURL(fullURL string) *Client {
+	// Parse the URL to extract base URL for logging
+	baseURL := fullURL
+	if idx := strings.Index(fullURL, "/api/"); idx != -1 {
+		baseURL = fullURL[:idx]
+	}
+	return &Client{
+		BaseURL:     baseURL,
+		AuthKey:     "", // Custom URLs may not need auth
+		Timeout:     DefaultTimeout,
+		customURL:   fullURL,
+		isCustomURL: true,
+	}
 }

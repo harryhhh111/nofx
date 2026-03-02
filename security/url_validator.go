@@ -155,6 +155,8 @@ func ValidateURL(rawURL string) error {
 
 // SafeHTTPClient returns an HTTP client with SSRF protection
 // It validates URLs and blocks requests to private networks
+// Note: When using a proxy, SSRF protection is handled by ValidateURL only,
+// since the dialer connects to the proxy (which may be on localhost)
 func SafeHTTPClient(timeout time.Duration) *http.Client {
 	dialer := &net.Dialer{
 		Timeout:   timeout,
@@ -162,8 +164,18 @@ func SafeHTTPClient(timeout time.Duration) *http.Client {
 	}
 
 	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment, // Support HTTP_PROXY/HTTPS_PROXY env vars
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			// Extract host from address
+			// Check if proxy is configured
+			proxyURL, _ := http.ProxyFromEnvironment(&http.Request{URL: &url.URL{Scheme: "https", Host: addr}})
+			
+			// If using a proxy, skip SSRF check on dialer level (proxy handles the actual connection)
+			// SSRF protection is still enforced by ValidateURL on the final destination URL
+			if proxyURL != nil {
+				return dialer.DialContext(ctx, network, addr)
+			}
+			
+			// No proxy - perform SSRF check
 			host, _, err := net.SplitHostPort(addr)
 			if err != nil {
 				host = addr

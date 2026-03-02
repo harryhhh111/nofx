@@ -518,6 +518,7 @@ export interface CoinSourceConfig {
   excluded_coins?: string[];   // 排除的币种列表
   use_ai500: boolean;
   ai500_limit?: number;
+  custom_ai500_url?: string;   // Custom AI500 API URL (overrides default nofxos.ai)
   use_oi_top: boolean;
   oi_top_limit?: number;
   use_oi_low: boolean;

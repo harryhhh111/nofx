@@ -111,6 +111,8 @@ type CoinSourceConfig struct {
 	UseAI500 bool `json:"use_ai500"`
 	// AI500 coin pool maximum count
 	AI500Limit int `json:"ai500_limit,omitempty"`
+	// Custom AI500 API URL (optional, overrides default nofxos.ai)
+	CustomAI500URL string `json:"custom_ai500_url,omitempty"`
 	// whether to use OI Top (持仓增加榜，适合做多)
 	UseOITop bool `json:"use_oi_top"`
 	// OI Top maximum count
