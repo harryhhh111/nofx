@@ -66,6 +66,7 @@ func NewAsterTrader(user, signer, privateKeyHex string) (*AsterTrader, error) {
 	client := &http.Client{
 		Timeout: 30 * time.Second, // Increased to 30 seconds
 		Transport: &http.Transport{
+			Proxy:                  http.ProxyFromEnvironment, // Support HTTP_PROXY/HTTPS_PROXY env vars
 			TLSHandshakeTimeout:   10 * time.Second,
 			ResponseHeaderTimeout: 10 * time.Second,
 			IdleConnTimeout:       90 * time.Second,

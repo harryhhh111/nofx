@@ -581,7 +581,18 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 		limit = 30
 	}
 
-	symbols, err := e.nofxosClient.GetTopRatedCoins(limit)
+	var symbols []string
+	var err error
+
+	// Check if custom AI500 URL is configured
+	if e.config.CoinSource.CustomAI500URL != "" {
+		logger.Infof("🌐 Using custom AI500 URL: %s", e.config.CoinSource.CustomAI500URL)
+		customClient := nofxos.NewClientWithCustomURL(e.config.CoinSource.CustomAI500URL)
+		symbols, err = customClient.GetTopRatedCoins(limit)
+	} else {
+		symbols, err = e.nofxosClient.GetTopRatedCoins(limit)
+	}
+
 	if err != nil {
 		return nil, err
 	}

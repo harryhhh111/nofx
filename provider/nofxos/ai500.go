@@ -57,9 +57,18 @@ func (c *Client) GetAI500List() ([]CoinData, error) {
 }
 
 func (c *Client) fetchAI500() ([]CoinData, error) {
-	log.Printf("🔄 Requesting AI500 data from %s...", c.GetBaseURL())
+	var body []byte
+	var err error
 
-	body, err := c.doRequest("/api/ai500/list")
+	// Check if using custom URL mode
+	if c.IsCustomURL() {
+		log.Printf("🔄 Requesting AI500 data from custom URL...")
+		body, err = c.doCustomURLRequest()
+	} else {
+		log.Printf("🔄 Requesting AI500 data from %s...", c.GetBaseURL())
+		body, err = c.doRequest("/api/ai500/list")
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to request AI500 API: %w", err)
 	}

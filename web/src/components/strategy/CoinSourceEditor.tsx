@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, X, Database, TrendingUp, TrendingDown, List, Ban, Zap, Shuffle } from 'lucide-react'
+import { Plus, X, Database, TrendingUp, TrendingDown, List, Ban, Zap, Shuffle, Link } from 'lucide-react'
 import type { CoinSourceConfig } from '../../types'
 
 interface CoinSourceEditorProps {
@@ -60,6 +60,9 @@ export function CoinSourceEditor({
       excludedCoinsDesc: { zh: '这些币种将从所有数据源中排除，不会被交易', en: 'These coins will be excluded from all sources and will not be traded' },
       addExcludedCoin: { zh: '添加排除', en: 'Add Excluded' },
       nofxosNote: { zh: '使用 NofxOS API Key（在指标配置中设置）', en: 'Uses NofxOS API Key (set in Indicators config)' },
+      customAI500URL: { zh: '自定义 API URL', en: 'Custom API URL' },
+      customAI500URLDesc: { zh: '可选：使用自定义 API 替代默认的 NofxOS AI500 接口', en: 'Optional: Use custom API instead of default NofxOS AI500' },
+      customAI500URLPlaceholder: { zh: '例如：http://example.com/api/ai500', en: 'e.g., http://example.com/api/ai500' },
     }
     return translations[key]?.[language] || key
   }
@@ -350,24 +353,47 @@ export function CoinSourceEditor({
             </label>
 
             {config.use_ai500 && (
-              <div className="flex items-center gap-3 pl-8">
-                <span className="text-sm text-nofx-text-muted">
-                  {t('ai500Limit')}:
-                </span>
-                <select
-                  value={config.ai500_limit || 10}
-                  onChange={(e) =>
-                    !disabled &&
-                    onChange({ ...config, ai500_limit: parseInt(e.target.value) || 10 })
-                  }
-                  disabled={disabled}
-                  className="px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                >
-                  {[5, 10, 15, 20, 30, 50].map(n => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-              </div>
+              <>
+                <div className="flex items-center gap-3 pl-8">
+                  <span className="text-sm text-nofx-text-muted">
+                    {t('ai500Limit')}:
+                  </span>
+                  <select
+                    value={config.ai500_limit || 10}
+                    onChange={(e) =>
+                      !disabled &&
+                      onChange({ ...config, ai500_limit: parseInt(e.target.value) || 10 })
+                    }
+                    disabled={disabled}
+                    className="px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  >
+                    {[5, 10, 15, 20, 30, 50].map(n => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Custom AI500 URL */}
+                <div className="pl-8 mt-3">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <Link className="w-3.5 h-3.5 text-nofx-text-muted" />
+                    <span className="text-sm text-nofx-text-muted">{t('customAI500URL')}</span>
+                  </div>
+                  <p className="text-xs text-nofx-text-muted mb-2">
+                    {t('customAI500URLDesc')}
+                  </p>
+                  <input
+                    type="text"
+                    value={config.custom_ai500_url || ''}
+                    onChange={(e) =>
+                      !disabled && onChange({ ...config, custom_ai500_url: e.target.value })
+                    }
+                    disabled={disabled}
+                    placeholder={t('customAI500URLPlaceholder')}
+                    className="w-full px-3 py-1.5 rounded text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text placeholder:text-nofx-text-muted/50"
+                  />
+                </div>
+              </>
             )}
 
             <p className="text-xs pl-8 text-nofx-text-muted">
