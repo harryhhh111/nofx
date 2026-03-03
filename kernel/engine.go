@@ -31,7 +31,9 @@ var (
 	// XML tag extraction (supports any characters in reasoning chain)
 	reReasoningTag        = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 	reReasoningSummaryTag = regexp.MustCompile(`(?s)<reasoning_summary>(.*?)</reasoning_summary>`)
-	reDecisionTag        = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	reDecisionTag         = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	// 精炼摘要中剔除数据源名称（ai500、OITop 等）
+	reDataSourceInSummary = regexp.MustCompile(`(?i)\b(ai500|oi[_\s]?top)\b`)
 )
 
 // ============================================================================
@@ -1033,7 +1035,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- Briefly analyze your thinking process \n")
 	sb.WriteString("</reasoning>\n\n")
 	sb.WriteString("<reasoning_summary>\n")
-	sb.WriteString("2-4 sentences: key conclusion and main reason for the decision (e.g. hold SENTUSDT; skip PIPPIN/POWER).\n")
+	sb.WriteString("2-4 sentences: key conclusion and main reason for the decision (e.g. hold SENTUSDT; skip PIPPIN/POWER). Do NOT include data source names (e.g. ai500, OITop) in the summary—only reasoning and conclusions.\n")
 	sb.WriteString("</reasoning_summary>\n\n")
 	sb.WriteString("<decision>\n")
 	sb.WriteString("Step 2: JSON decision array\n\n")
@@ -1724,24 +1726,33 @@ func extractCoTTrace(response string) string {
 	return strings.TrimSpace(response)
 }
 
-// extractCoTSummary 提取思考过程精炼摘要：优先从 <reasoning_summary> 标签；若无则取 cotTrace 前 maxSummaryLen 字符
+// extractCoTSummary 提取思考过程精炼摘要：优先从 <reasoning_summary> 标签；若无则取 cotTrace 前 maxSummaryLen 字符。
+// 会剔除数据源名称（如 ai500、OITop）避免出现在精炼内容中。
 const maxSummaryLen = 500
 
+func sanitizeCotSummary(s string) string {
+	s = reDataSourceInSummary.ReplaceAllString(s, "")
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(s, " "))
+}
+
 func extractCoTSummary(response string, cotTrace string) string {
+	var s string
 	if match := reReasoningSummaryTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
-		s := strings.TrimSpace(match[1])
+		s = strings.TrimSpace(match[1])
 		if s != "" {
 			logger.Infof("✓ Extracted reasoning summary using <reasoning_summary> tag")
-			return s
+			return sanitizeCotSummary(s)
 		}
 	}
 	if cotTrace == "" {
 		return ""
 	}
 	if len(cotTrace) <= maxSummaryLen {
-		return cotTrace
+		s = cotTrace
+	} else {
+		s = cotTrace[:maxSummaryLen] + "..."
 	}
-	return cotTrace[:maxSummaryLen] + "..."
+	return sanitizeCotSummary(s)
 }
 
 func extractDecisions(response string) ([]Decision, error) {
