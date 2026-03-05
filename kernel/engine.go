@@ -107,6 +107,22 @@ type RecentOrder struct {
 	HoldDuration string  `json:"hold_duration"` // Hold duration, e.g. "2h30m"
 }
 
+// PositionMemory holds the AI's reasoning summary from when a position was originally opened.
+// Used to give the AI continuity — it can recall why it opened the position.
+type PositionMemory struct {
+	Symbol     string // trading pair, e.g. "BTCUSDT"
+	Side       string // "long" or "short"
+	CotSummary string // AI reasoning summary from the opening cycle
+}
+
+// ExternalDataItem holds the result of a single external data source fetch.
+// Each item corresponds to one ExternalDataSource config entry.
+type ExternalDataItem struct {
+	Label       string // display title shown in prompt
+	Description string // AI interpretation hint (tells AI what this data means)
+	Data        string // JSON-serialized data content
+}
+
 // Context trading context (complete information passed to AI)
 type Context struct {
 	CurrentTime     string                             `json:"current_time"`
@@ -122,12 +138,15 @@ type Context struct {
 	MultiTFMarket   map[string]map[string]*market.Data `json:"-"`
 	OITopDataMap    map[string]*OITopData              `json:"-"`
 	QuantDataMap    map[string]*QuantData              `json:"-"`
-	OIRankingData      *nofxos.OIRankingData      `json:"-"` // Market-wide OI ranking data
-	NetFlowRankingData *nofxos.NetFlowRankingData `json:"-"` // Market-wide fund flow ranking data
-	PriceRankingData   *nofxos.PriceRankingData   `json:"-"` // Market-wide price gainers/losers
-	BTCETHLeverage     int                          `json:"-"`
-	AltcoinLeverage int                                `json:"-"`
-	Timeframes      []string                           `json:"-"`
+	OIRankingData        *nofxos.OIRankingData      `json:"-"` // Market-wide OI ranking data
+	NetFlowRankingData   *nofxos.NetFlowRankingData `json:"-"` // Market-wide fund flow ranking data
+	PriceRankingData     *nofxos.PriceRankingData   `json:"-"` // Market-wide price gainers/losers
+	BTCETHLeverage       int                        `json:"-"`
+	AltcoinLeverage      int                        `json:"-"`
+	Timeframes           []string                   `json:"-"`
+	PositionMemories     []PositionMemory           `json:"-"` // AI reasoning from when each open position was created
+	RecentMarketJudgments []string                  `json:"-"` // Recent AI summaries within a time window (oldest→newest)
+	ExternalDataItems    []ExternalDataItem         `json:"-"` // Results from configured external data sources
 }
 
 // Decision AI trading decision
@@ -291,7 +310,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// 2. Build System Prompt using strategy engine
 	riskConfig := engine.GetRiskControlConfig()
-	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
+	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant, ctx.TradingStats)
 
 	// 3. Build User Prompt using strategy engine
 	userPrompt := engine.BuildUserPrompt(ctx)
@@ -313,6 +332,34 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.BTCETHMaxPositionValueRatio,
 		riskConfig.AltcoinMaxPositionValueRatio,
 	)
+
+	// 5b. Retry once with error feedback when decision validation fails
+	if err != nil && strings.Contains(err.Error(), "decision validation failed") {
+		logger.Infof("⚠️ Decision validation failed, retrying with correction feedback: %v", err)
+		feedbackPrompt := fmt.Sprintf(
+			"%s\n\n[CORRECTION REQUIRED] Your previous response had the following issues: %v\nPlease fix only the problematic decision(s) and re-output the full decision JSON array only (no extra text).",
+			userPrompt, err,
+		)
+		retryResponse, retryErr := mcpClient.CallWithMessages(systemPrompt, feedbackPrompt)
+		if retryErr == nil {
+			retryDecision, retryParseErr := parseFullDecisionResponse(
+				retryResponse,
+				ctx.Account.TotalEquity,
+				riskConfig.BTCETHMaxLeverage,
+				riskConfig.AltcoinMaxLeverage,
+				riskConfig.BTCETHMaxPositionValueRatio,
+				riskConfig.AltcoinMaxPositionValueRatio,
+			)
+			if retryParseErr == nil {
+				logger.Infof("✅ Retry succeeded after feedback correction")
+				decision = retryDecision
+				aiResponse = retryResponse
+				err = nil
+			} else {
+				logger.Infof("⚠️ Retry still failed: %v", retryParseErr)
+			}
+		}
+	}
 
 	if decision != nil {
 		decision.Timestamp = time.Now()
@@ -934,7 +981,25 @@ func (e *StrategyEngine) FetchPriceRankingData() *nofxos.PriceRankingData {
 // ============================================================================
 
 // BuildSystemPrompt builds System Prompt according to strategy configuration
-func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string) string {
+// calculateRiskMultiplier derives a position sizing multiplier (0.5–1.2) based on recent account performance.
+// Returns 1.0 (no adjustment) when stats are nil or the sample size is insufficient.
+func calculateRiskMultiplier(stats *TradingStats) float64 {
+	if stats == nil || stats.TotalTrades < 5 {
+		return 1.0
+	}
+	switch {
+	case stats.MaxDrawdownPct > 15:
+		return 0.5 // deep drawdown: halve position limits
+	case stats.ProfitFactor < 1.0:
+		return 0.6 // sustained losses: reduce risk
+	case stats.ProfitFactor >= 1.5 && stats.SharpeRatio >= 1.0:
+		return 1.2 // excellent performance: modest expansion
+	default:
+		return 1.0
+	}
+}
+
+func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string, tradingStats *TradingStats) string {
 	var sb strings.Builder
 	riskControl := e.config.RiskControl
 	promptSections := e.config.PromptSections
@@ -975,13 +1040,27 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		altcoinPosValueRatio = 1.0
 	}
 
+	// Apply adaptive risk budget multiplier based on account performance
+	riskMultiplier := calculateRiskMultiplier(tradingStats)
+	adjustedAltcoinLimit := accountEquity * altcoinPosValueRatio * riskMultiplier
+	adjustedBTCETHLimit := accountEquity * btcEthPosValueRatio * riskMultiplier
+
+	// Prepend risk budget status notice when multiplier is adjusted
+	if riskMultiplier < 1.0 {
+		sb.WriteString(fmt.Sprintf("[Risk Budget Reduced to %.0f%%] Account in drawdown/loss phase. Position limits reduced automatically to protect capital.\n\n",
+			riskMultiplier*100))
+	} else if riskMultiplier > 1.0 {
+		sb.WriteString(fmt.Sprintf("[Risk Budget Expanded to %.0f%%] Account performing well. Position limits slightly increased to capture opportunity.\n\n",
+			riskMultiplier*100))
+	}
+
 	sb.WriteString("# Hard Constraints (Risk Control)\n\n")
 	sb.WriteString("## CODE ENFORCED (Backend validation, cannot be bypassed):\n")
 	sb.WriteString(fmt.Sprintf("- Max Positions: %d coins simultaneously\n", riskControl.MaxPositions))
-	sb.WriteString(fmt.Sprintf("- Position Value Limit (Altcoins): max %.0f USDT (= equity %.0f × %.1fx)\n",
-		accountEquity*altcoinPosValueRatio, accountEquity, altcoinPosValueRatio))
-	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
-		accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
+	sb.WriteString(fmt.Sprintf("- Position Value Limit (Altcoins): max %.0f USDT (= equity %.0f × %.1fx × risk %.0f%%)\n",
+		adjustedAltcoinLimit, accountEquity, altcoinPosValueRatio, riskMultiplier*100))
+	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx × risk %.0f%%)\n",
+		adjustedBTCETHLimit, accountEquity, btcEthPosValueRatio, riskMultiplier*100))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
 	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
 
@@ -997,8 +1076,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
 	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
 	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
-	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, max is %.0f USDT\n",
-		accountEquity, btcEthPosValueRatio, accountEquity*btcEthPosValueRatio))
+	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, adjusted max is %.0f USDT\n",
+		accountEquity, btcEthPosValueRatio, adjustedBTCETHLimit))
 	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
 
 	// 4. Trading frequency (editable)
@@ -1032,9 +1111,10 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("\n\n")
 	} else {
 		sb.WriteString("# 📋 Decision Process\n\n")
-		sb.WriteString("1. Check positions → Should we take profit/stop-loss\n")
-		sb.WriteString("2. Scan candidate coins + multi-timeframe → Are there strong signals\n")
-		sb.WriteString("3. Write chain of thought first, then output structured JSON\n\n")
+		sb.WriteString("1. Review \"Position Open Reasoning\" — evaluate whether your original thesis still holds before deciding to hold or close.\n")
+		sb.WriteString("2. Check positions → Should we take profit/stop-loss\n")
+		sb.WriteString("3. Scan candidate coins + multi-timeframe → Are there strong signals\n")
+		sb.WriteString("4. Write chain of thought first, then output structured JSON\n\n")
 	}
 
 	// 7. Output format
@@ -1170,6 +1250,24 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		ctx.Account.TotalPnLPct,
 		ctx.Account.MarginUsedPct,
 		ctx.Account.PositionCount))
+
+	// Position open reasoning — recall why each current position was opened
+	if len(ctx.PositionMemories) > 0 {
+		sb.WriteString("## Position Open Reasoning (your analysis when these positions were opened)\n")
+		for _, pm := range ctx.PositionMemories {
+			sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, pm.CotSummary))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Recent market analysis — provide continuity across decision cycles
+	if len(ctx.RecentMarketJudgments) > 0 {
+		sb.WriteString("## Your Recent Market Analysis (for continuity, oldest→newest)\n")
+		for i, judgment := range ctx.RecentMarketJudgments {
+			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, judgment))
+		}
+		sb.WriteString("Note: Use above as context reference only, not as binding constraints.\n\n")
+	}
 
 	// Recently completed orders (placed before positions to ensure visibility)
 	if len(ctx.RecentOrders) > 0 {
@@ -1314,6 +1412,15 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	// Price Ranking data (market-wide gainers/losers)
 	if ctx.PriceRankingData != nil {
 		sb.WriteString(nofxos.FormatPriceRankingForAI(ctx.PriceRankingData, nofxosLang))
+	}
+
+	// External data sources (dynamic plugin — each item is fetched from a configured URL)
+	for _, item := range ctx.ExternalDataItems {
+		sb.WriteString(fmt.Sprintf("## External Data: %s\n", item.Label))
+		if item.Description != "" {
+			sb.WriteString(fmt.Sprintf("Context: %s\n", item.Description))
+		}
+		sb.WriteString(fmt.Sprintf("Data: %s\n\n", item.Data))
 	}
 
 	sb.WriteString("---\n\n")

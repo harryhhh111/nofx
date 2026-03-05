@@ -99,6 +99,7 @@ type TraderPosition struct {
 	Status             string  `gorm:"column:status;default:OPEN;index:idx_positions_status" json:"status"`
 	CloseReason        string  `gorm:"column:close_reason;default:''" json:"close_reason"`
 	Source             string  `gorm:"column:source;default:system" json:"source"`
+	OpeningCycle       int     `gorm:"column:opening_cycle;default:0" json:"opening_cycle"` // AI decision cycle number when position was opened
 	CreatedAt          int64   `gorm:"column:created_at" json:"created_at"`   // Unix milliseconds UTC
 	UpdatedAt          int64   `gorm:"column:updated_at" json:"updated_at"`   // Unix milliseconds UTC
 }
@@ -144,6 +145,8 @@ func (s *PositionStore) InitTables() error {
 
 			// Just ensure index exists
 			s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_exchange_pos_unique ON trader_positions(exchange_id, exchange_position_id) WHERE exchange_position_id != ''`)
+			// Add opening_cycle column for position memory feature
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_cycle INTEGER DEFAULT 0`)
 			return nil
 		}
 	}

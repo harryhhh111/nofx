@@ -179,8 +179,8 @@ func (e *DebateEngine) runDebate(session *store.DebateSessionWithDetails, strate
 		return
 	}
 
-	// Build system prompt based on strategy (same as AI Test)
-	baseSystemPrompt := strategyEngine.BuildSystemPrompt(1000.0, session.PromptVariant)
+	// Build system prompt based on strategy (same as AI Test); no trading stats in debate context
+	baseSystemPrompt := strategyEngine.BuildSystemPrompt(1000.0, session.PromptVariant, nil)
 
 	// Build user prompt with market data (OI ranking data is included via ctx.OIRankingData)
 	userPrompt := strategyEngine.BuildUserPrompt(ctx)
@@ -550,8 +550,8 @@ func (e *DebateEngine) getParticipantResponse(
 func (e *DebateEngine) collectVotes(session *store.DebateSessionWithDetails, strategyEngine *kernel.StrategyEngine, allMessages []*store.DebateMessage) ([]*store.DebateVote, error) {
 	var votes []*store.DebateVote
 
-	// Build voting context
-	baseSystemPrompt := strategyEngine.BuildSystemPrompt(1000.0, session.PromptVariant)
+	// Build voting context; no trading stats in debate context
+	baseSystemPrompt := strategyEngine.BuildSystemPrompt(1000.0, session.PromptVariant, nil)
 
 	for _, participant := range session.Participants {
 		vote, err := e.getParticipantVote(session, participant, baseSystemPrompt, allMessages)

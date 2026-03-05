@@ -343,6 +343,43 @@ func (s *DecisionStore) GetAllStatistics() (*Statistics, error) {
 	return stats, nil
 }
 
+// GetCotSummaryByCycle retrieves the CotSummary for a specific cycle number of a trader.
+// Used by the position memory feature to recall the AI's reasoning when a position was opened.
+// Returns empty string if no record is found (fails silently).
+func (s *DecisionStore) GetCotSummaryByCycle(traderID string, cycleNumber int) string {
+	if cycleNumber <= 0 {
+		return ""
+	}
+	var record DecisionRecordDB
+	err := s.db.Where("trader_id = ? AND cycle_number = ?", traderID, cycleNumber).
+		Select("cot_summary").
+		First(&record).Error
+	if err != nil {
+		return ""
+	}
+	return record.CotSummary
+}
+
+// GetRecentCotSummaries returns up to `limit` successful decision summaries within the last `withinHours` hours.
+// Results are ordered oldest→newest for natural narrative flow in the prompt.
+// withinHours=0 disables the time filter.
+func (s *DecisionStore) GetRecentCotSummaries(traderID string, withinHours, limit int) []string {
+	query := s.db.Where("trader_id = ? AND cot_summary != '' AND success = true", traderID)
+	if withinHours > 0 {
+		cutoff := time.Now().UTC().Add(-time.Duration(withinHours) * time.Hour)
+		query = query.Where("timestamp > ?", cutoff)
+	}
+	var records []DecisionRecordDB
+	query.Order("timestamp DESC").Limit(limit).Select("cot_summary", "timestamp").Find(&records)
+
+	result := make([]string, 0, len(records))
+	// Reverse to present oldest→newest
+	for i := len(records) - 1; i >= 0; i-- {
+		result = append(result, records[i].CotSummary)
+	}
+	return result
+}
+
 // GetLastCycleNumber gets the last cycle number for specified trader
 func (s *DecisionStore) GetLastCycleNumber(traderID string) (int, error) {
 	var cycleNumber *int

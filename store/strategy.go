@@ -193,13 +193,15 @@ type KlineConfig struct {
 
 // ExternalDataSource external data source configuration
 type ExternalDataSource struct {
-	Name        string            `json:"name"`         // data source name
-	Type        string            `json:"type"`         // type: "api" | "webhook"
-	URL         string            `json:"url"`          // API URL
-	Method      string            `json:"method"`       // HTTP method
-	Headers     map[string]string `json:"headers,omitempty"`
-	DataPath    string            `json:"data_path,omitempty"`    // JSON data path
-	RefreshSecs int               `json:"refresh_secs,omitempty"` // refresh interval (seconds)
+	Name         string            `json:"name"`                    // data source name
+	Type         string            `json:"type"`                    // type: "api" | "webhook"
+	URL          string            `json:"url"`                     // API URL
+	Method       string            `json:"method"`                  // HTTP method
+	Headers      map[string]string `json:"headers,omitempty"`
+	DataPath     string            `json:"data_path,omitempty"`     // JSON data path
+	RefreshSecs  int               `json:"refresh_secs,omitempty"`  // refresh interval (seconds)
+	Description  string            `json:"description,omitempty"`   // AI interpretation hint — tells AI what this data means and how to use it
+	ContextLabel string            `json:"context_label,omitempty"` // display title in prompt; defaults to Name if empty
 }
 
 // RiskControlConfig risk control configuration

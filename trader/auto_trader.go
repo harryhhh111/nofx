@@ -1003,6 +1003,33 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
 	}
 
+	// 7b. Load position memories — recall the AI's reasoning when each open position was created
+	if at.store != nil {
+		for _, pos := range positionInfos {
+			dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, pos.Side)
+			if err != nil || dbPos == nil || dbPos.OpeningCycle <= 0 {
+				continue
+			}
+			summary := at.store.Decision().GetCotSummaryByCycle(at.id, dbPos.OpeningCycle)
+			if summary != "" {
+				ctx.PositionMemories = append(ctx.PositionMemories, kernel.PositionMemory{
+					Symbol:     pos.Symbol,
+					Side:       pos.Side,
+					CotSummary: summary,
+				})
+			}
+		}
+		if len(ctx.PositionMemories) > 0 {
+			logger.Infof("🧠 [%s] Loaded position memories for %d open positions", at.name, len(ctx.PositionMemories))
+		}
+
+		// Load recent market judgments (last 6 hours, up to 3 summaries) for decision continuity
+		ctx.RecentMarketJudgments = at.store.Decision().GetRecentCotSummaries(at.id, 6, 3)
+		if len(ctx.RecentMarketJudgments) > 0 {
+			logger.Infof("📋 [%s] Loaded %d recent market judgments for AI context", at.name, len(ctx.RecentMarketJudgments))
+		}
+	}
+
 	// 8. Get quantitative data (if enabled in strategy config)
 	if strategyConfig.Indicators.EnableQuantData {
 		// Collect symbols to query (candidate coins + position coins)
@@ -1051,6 +1078,34 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		if ctx.PriceRankingData != nil {
 			logger.Infof("📈 [%s] Price ranking data ready for %d durations",
 				at.name, len(ctx.PriceRankingData.Durations))
+		}
+	}
+
+	// 12. Load external data sources (dynamic plugin — configured via strategy, no code change needed for new sources)
+	if len(strategyConfig.Indicators.ExternalDataSources) > 0 {
+		externalRaw, err := at.strategyEngine.FetchExternalData()
+		if err != nil {
+			logger.Infof("⚠️ [%s] Failed to fetch external data sources: %v", at.name, err)
+		} else {
+			for _, src := range strategyConfig.Indicators.ExternalDataSources {
+				data, ok := externalRaw[src.Name]
+				if !ok {
+					continue
+				}
+				dataBytes, _ := json.Marshal(data)
+				label := src.ContextLabel
+				if label == "" {
+					label = src.Name
+				}
+				ctx.ExternalDataItems = append(ctx.ExternalDataItems, kernel.ExternalDataItem{
+					Label:       label,
+					Description: src.Description,
+					Data:        string(dataBytes),
+				})
+			}
+			if len(ctx.ExternalDataItems) > 0 {
+				logger.Infof("🔌 [%s] Loaded %d external data items for AI context", at.name, len(ctx.ExternalDataItems))
+			}
 		}
 	}
 
@@ -2101,6 +2156,7 @@ func (at *AutoTrader) recordPositionChange(orderID, symbol, side, action string,
 			EntryTime:    nowMs,
 			Leverage:     leverage,
 			Status:       "OPEN",
+			OpeningCycle: at.callCount, // Record the AI decision cycle that opened this position
 			CreatedAt:    nowMs,
 			UpdatedAt:    nowMs,
 		}
