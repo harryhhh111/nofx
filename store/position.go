@@ -509,6 +509,18 @@ type RecentTrade struct {
 	HoldDuration string  `json:"hold_duration"`
 }
 
+// GetRecentClosedPositions returns recent closed positions that have an opening_cycle,
+// used to correlate the AI's original opening reasoning with actual trade outcomes.
+// Only positions opened after Phase 1 deployment (opening_cycle > 0) are returned.
+func (s *PositionStore) GetRecentClosedPositions(traderID string, limit int) ([]TraderPosition, error) {
+	var positions []TraderPosition
+	err := s.db.Where("trader_id = ? AND status = ? AND opening_cycle > 0", traderID, "CLOSED").
+		Order("exit_time DESC").
+		Limit(limit).
+		Find(&positions).Error
+	return positions, err
+}
+
 // GetRecentTrades gets recent closed trades
 func (s *PositionStore) GetRecentTrades(traderID string, limit int) ([]RecentTrade, error) {
 	var positions []TraderPosition

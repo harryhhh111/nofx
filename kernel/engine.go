@@ -123,6 +123,19 @@ type ExternalDataItem struct {
 	Data        string // JSON-serialized data content
 }
 
+// ClosedTradeReflection pairs a completed trade's outcome with the AI's original opening reasoning.
+// This creates a closed feedback loop: AI can see if its prior judgment was correct.
+type ClosedTradeReflection struct {
+	Symbol        string  // e.g. "BTCUSDT"
+	Side          string  // "long" or "short"
+	OpeningReason string  // cot_summary from the cycle that opened this position
+	EntryPrice    float64
+	ExitPrice     float64
+	RealizedPnL   float64
+	HoldDuration  string // e.g. "2h30m"
+	IsProfit      bool   // true if RealizedPnL > 0
+}
+
 // Context trading context (complete information passed to AI)
 type Context struct {
 	CurrentTime     string                             `json:"current_time"`
@@ -144,9 +157,10 @@ type Context struct {
 	BTCETHLeverage       int                        `json:"-"`
 	AltcoinLeverage      int                        `json:"-"`
 	Timeframes           []string                   `json:"-"`
-	PositionMemories     []PositionMemory           `json:"-"` // AI reasoning from when each open position was created
-	RecentMarketJudgments []string                  `json:"-"` // Recent AI summaries within a time window (oldest→newest)
-	ExternalDataItems    []ExternalDataItem         `json:"-"` // Results from configured external data sources
+	PositionMemories       []PositionMemory           `json:"-"` // AI reasoning from when each open position was created
+	RecentMarketJudgments  []string                   `json:"-"` // Recent AI summaries within a time window (oldest→newest)
+	ExternalDataItems      []ExternalDataItem         `json:"-"` // Results from configured external data sources
+	ClosedTradeReflections []ClosedTradeReflection    `json:"-"` // recent closed trade outcome vs opening reasoning
 }
 
 // Decision AI trading decision
@@ -1040,27 +1054,21 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		altcoinPosValueRatio = 1.0
 	}
 
-	// Apply adaptive risk budget multiplier based on account performance
-	riskMultiplier := calculateRiskMultiplier(tradingStats)
-	adjustedAltcoinLimit := accountEquity * altcoinPosValueRatio * riskMultiplier
-	adjustedBTCETHLimit := accountEquity * btcEthPosValueRatio * riskMultiplier
+	// NOTE: calculateRiskMultiplier is defined but not yet applied to prompt limits.
+	// Adaptive risk budget (Phase 4) is reserved for future activation after sufficient
+	// live-trading validation. The tradingStats parameter is accepted for forward compatibility.
+	_ = tradingStats // suppress unused warning; will be passed to calculateRiskMultiplier when enabled
 
-	// Prepend risk budget status notice when multiplier is adjusted
-	if riskMultiplier < 1.0 {
-		sb.WriteString(fmt.Sprintf("[Risk Budget Reduced to %.0f%%] Account in drawdown/loss phase. Position limits reduced automatically to protect capital.\n\n",
-			riskMultiplier*100))
-	} else if riskMultiplier > 1.0 {
-		sb.WriteString(fmt.Sprintf("[Risk Budget Expanded to %.0f%%] Account performing well. Position limits slightly increased to capture opportunity.\n\n",
-			riskMultiplier*100))
-	}
+	adjustedAltcoinLimit := accountEquity * altcoinPosValueRatio
+	adjustedBTCETHLimit := accountEquity * btcEthPosValueRatio
 
 	sb.WriteString("# Hard Constraints (Risk Control)\n\n")
 	sb.WriteString("## CODE ENFORCED (Backend validation, cannot be bypassed):\n")
 	sb.WriteString(fmt.Sprintf("- Max Positions: %d coins simultaneously\n", riskControl.MaxPositions))
-	sb.WriteString(fmt.Sprintf("- Position Value Limit (Altcoins): max %.0f USDT (= equity %.0f × %.1fx × risk %.0f%%)\n",
-		adjustedAltcoinLimit, accountEquity, altcoinPosValueRatio, riskMultiplier*100))
-	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx × risk %.0f%%)\n",
-		adjustedBTCETHLimit, accountEquity, btcEthPosValueRatio, riskMultiplier*100))
+	sb.WriteString(fmt.Sprintf("- Position Value Limit (Altcoins): max %.0f USDT (= equity %.0f × %.1fx)\n",
+		adjustedAltcoinLimit, accountEquity, altcoinPosValueRatio))
+	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
+		adjustedBTCETHLimit, accountEquity, btcEthPosValueRatio))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
 	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
 
@@ -1076,7 +1084,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
 	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
 	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
-	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, adjusted max is %.0f USDT\n",
+	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, max is %.0f USDT\n",
 		accountEquity, btcEthPosValueRatio, adjustedBTCETHLimit))
 	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
 
@@ -1114,7 +1122,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("1. Review \"Position Open Reasoning\" — evaluate whether your original thesis still holds before deciding to hold or close.\n")
 		sb.WriteString("2. Check positions → Should we take profit/stop-loss\n")
 		sb.WriteString("3. Scan candidate coins + multi-timeframe → Are there strong signals\n")
-		sb.WriteString("4. Write chain of thought first, then output structured JSON\n\n")
+		sb.WriteString("4. Write chain of thought first, then output structured JSON\n")
+		sb.WriteString("5. Review \"Recent Trade Reflections\" — if recent reasoning was repeatedly incorrect, apply higher skepticism to similar signals today.\n\n")
 	}
 
 	// 7. Output format
@@ -1284,6 +1293,21 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 				order.EntryTime, order.ExitTime, order.HoldDuration))
 		}
 		sb.WriteString("\n")
+	}
+
+	// Closed trade reflections — opening reasoning vs actual outcome (enables AI self-correction)
+	if len(ctx.ClosedTradeReflections) > 0 {
+		sb.WriteString("## Recent Trade Reflections (your opening reasoning vs actual result)\n")
+		for i, r := range ctx.ClosedTradeReflections {
+			verdict := "Correct"
+			if !r.IsProfit {
+				verdict = "Incorrect"
+			}
+			sb.WriteString(fmt.Sprintf("%d. %s %s | Entry %.4f Exit %.4f | %+.2f USDT [%s] | held %s\n",
+				i+1, r.Symbol, r.Side, r.EntryPrice, r.ExitPrice, r.RealizedPnL, verdict, r.HoldDuration))
+			sb.WriteString(fmt.Sprintf("   Your opening reasoning: %s\n", r.OpeningReason))
+		}
+		sb.WriteString("Note: Reflect on whether your reasoning patterns led to correct predictions. Adjust confidence accordingly.\n\n")
 	}
 
 	// Historical trading statistics (helps AI understand past performance)

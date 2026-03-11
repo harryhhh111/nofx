@@ -1003,10 +1003,12 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
 	}
 
-	// 7b. Load position memories — recall the AI's reasoning when each open position was created
+	// 7b. Load position memories — recall the AI's reasoning when each open position was created.
+	// Note: PositionInfo.Side is lowercase ("long"/"short") from exchange API,
+	// but DB stores uppercase ("LONG"/"SHORT") — must normalize before querying.
 	if at.store != nil {
 		for _, pos := range positionInfos {
-			dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, pos.Side)
+			dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, strings.ToUpper(pos.Side))
 			if err != nil || dbPos == nil || dbPos.OpeningCycle <= 0 {
 				continue
 			}
@@ -1027,6 +1029,36 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		ctx.RecentMarketJudgments = at.store.Decision().GetRecentCotSummaries(at.id, 6, 3)
 		if len(ctx.RecentMarketJudgments) > 0 {
 			logger.Infof("📋 [%s] Loaded %d recent market judgments for AI context", at.name, len(ctx.RecentMarketJudgments))
+		}
+
+		// 7c. Load closed trade reflections — link opening reasoning to actual outcomes for AI self-correction.
+		// Only positions opened after Phase 1 deployment (opening_cycle > 0) are included.
+		closedPositions, err := at.store.Position().GetRecentClosedPositions(at.id, 3)
+		if err == nil {
+			for _, pos := range closedPositions {
+				reason := at.store.Decision().GetCotSummaryByCycle(at.id, pos.OpeningCycle)
+				if reason == "" {
+					continue
+				}
+				holdDur := ""
+				if pos.ExitTime > 0 && pos.EntryTime > 0 {
+					dur := time.UnixMilli(pos.ExitTime).Sub(time.UnixMilli(pos.EntryTime))
+					holdDur = dur.Round(time.Minute).String()
+				}
+				ctx.ClosedTradeReflections = append(ctx.ClosedTradeReflections, kernel.ClosedTradeReflection{
+					Symbol:        pos.Symbol,
+					Side:          strings.ToLower(pos.Side),
+					OpeningReason: reason,
+					EntryPrice:    pos.EntryPrice,
+					ExitPrice:     pos.ExitPrice,
+					RealizedPnL:   pos.RealizedPnL,
+					HoldDuration:  holdDur,
+					IsProfit:      pos.RealizedPnL > 0,
+				})
+			}
+			if len(ctx.ClosedTradeReflections) > 0 {
+				logger.Infof("🔍 [%s] Loaded %d closed trade reflections for AI context", at.name, len(ctx.ClosedTradeReflections))
+			}
 		}
 	}
 
