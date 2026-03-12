@@ -428,6 +428,7 @@ type CreateTraderRequest struct {
 	SystemPromptTemplate string `json:"system_prompt_template"` // System prompt template name
 	UseAI500             bool   `json:"use_ai500"`
 	UseOITop             bool   `json:"use_oi_top"`
+	IsPaperMode          bool   `json:"is_paper_mode"` // paper trading: no real funds, uses in-memory exchange
 }
 
 type ModelConfig struct {
@@ -572,6 +573,14 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		scanIntervalMinutes = 3 // Default 3 minutes, not allowed to be less than 3
 	}
 
+	// For paper trading mode, skip real exchange balance query and use virtual balance
+	if req.IsPaperMode {
+		logger.Infof("📝 Paper mode trader creation — skipping exchange balance query, using virtual balance 10000 USDT")
+		if req.InitialBalance <= 0 {
+			req.InitialBalance = 10000.0
+		}
+	}
+
 	// Query exchange actual balance, override user input
 	actualBalance := req.InitialBalance // Default to use user input
 	exchanges, err := s.store.Exchange().List(userID)
@@ -581,10 +590,12 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	// Find matching exchange configuration
 	var exchangeCfg *store.Exchange
-	for _, ex := range exchanges {
-		if ex.ID == req.ExchangeID {
-			exchangeCfg = ex
-			break
+	if !req.IsPaperMode {
+		for _, ex := range exchanges {
+			if ex.ID == req.ExchangeID {
+				exchangeCfg = ex
+				break
+			}
 		}
 	}
 
@@ -705,6 +716,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		IsCrossMargin:        isCrossMargin,
 		ShowInCompetition:    showInCompetition,
 		ScanIntervalMinutes:  scanIntervalMinutes,
+		IsPaperMode:          req.IsPaperMode,
 		IsRunning:            false,
 	}
 
@@ -981,14 +993,16 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's AI model is not enabled, please enable the AI model first"})
 				return
 			}
-			// Check exchange
-			if fullCfg.Exchange == nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange does not exist, please check exchange configuration"})
-				return
-			}
-			if !fullCfg.Exchange.Enabled {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange is not enabled, please enable the exchange first"})
-				return
+			// Paper mode does not rely on a real exchange — skip exchange enabled check
+			if !fullCfg.Trader.IsPaperMode {
+				if fullCfg.Exchange == nil {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange does not exist, please check exchange configuration"})
+					return
+				}
+				if !fullCfg.Exchange.Enabled {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "Trader's exchange is not enabled, please enable the exchange first"})
+					return
+				}
 			}
 		}
 		// Check if there's a specific load error
@@ -2114,6 +2128,7 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			"exchange_id":         trader.ExchangeID,
 			"is_running":          isRunning,
 			"show_in_competition": trader.ShowInCompetition,
+			"is_paper_mode":       trader.IsPaperMode,
 			"initial_balance":     trader.InitialBalance,
 			"strategy_id":         trader.StrategyID,
 			"strategy_name":       strategyName,
@@ -2169,6 +2184,7 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"use_ai500":             traderConfig.UseAI500,
 		"use_oi_top":            traderConfig.UseOITop,
 		"is_running":            isRunning,
+		"is_paper_mode":         traderConfig.IsPaperMode,
 	}
 
 	c.JSON(http.StatusOK, result)

@@ -1089,11 +1089,21 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                       />
                     </div>
                     <div className="min-w-0">
-                      <div
-                        className="font-bold text-base md:text-lg truncate"
-                        style={{ color: '#EAECEF' }}
-                      >
-                        {trader.trader_name}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div
+                          className="font-bold text-base md:text-lg truncate"
+                          style={{ color: '#EAECEF' }}
+                        >
+                          {trader.trader_name}
+                        </div>
+                        {trader.is_paper_mode && (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-xs font-bold shrink-0"
+                            style={{ background: 'rgba(59,130,246,0.15)', color: '#3B82F6' }}
+                          >
+                            PAPER
+                          </span>
+                        )}
                       </div>
                       <div
                         className="text-xs md:text-sm truncate"

@@ -30,6 +30,7 @@ type Trader struct {
 	IsRunning           bool      `gorm:"column:is_running;default:false" json:"is_running"`
 	IsCrossMargin       bool      `gorm:"column:is_cross_margin;default:true" json:"is_cross_margin"`
 	ShowInCompetition   bool      `gorm:"column:show_in_competition;default:true" json:"show_in_competition"`
+	IsPaperMode         bool      `gorm:"column:is_paper_mode;default:false" json:"is_paper_mode"` // paper trading: no real funds used
 	CreatedAt           time.Time `gorm:"column:created_at;autoCreateTime" json:"created_at"`
 	UpdatedAt           time.Time `gorm:"column:updated_at;autoUpdateTime" json:"updated_at"`
 
@@ -58,15 +59,17 @@ type TraderFullConfig struct {
 }
 
 func (s *TraderStore) initTables() error {
-	// For PostgreSQL with existing table, skip AutoMigrate
+	// For PostgreSQL with existing table, only run incremental ALTER TABLE migrations
 	if s.db.Dialector.Name() == "postgres" {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'traders'`).Scan(&tableExists)
 		if tableExists > 0 {
+			// Incremental column additions for existing tables
+			s.db.Exec(`ALTER TABLE traders ADD COLUMN IF NOT EXISTS is_paper_mode BOOLEAN DEFAULT FALSE`)
 			return nil
 		}
 	}
-	// Use GORM AutoMigrate
+	// Use GORM AutoMigrate (new table or SQLite)
 	if err := s.db.AutoMigrate(&Trader{}); err != nil {
 		return fmt.Errorf("failed to migrate traders table: %w", err)
 	}
@@ -175,11 +178,17 @@ func (s *TraderStore) GetFullConfig(userID, traderID string) (*TraderFullConfig,
 		return nil, fmt.Errorf("failed to get AI model: %w", err)
 	}
 
-	// Get exchange
+	// Get exchange — paper mode can operate without a real exchange record
+	var exchangePtr *Exchange
 	var exchange Exchange
 	err = s.db.Where("id = ? AND user_id = ?", trader.ExchangeID, userID).First(&exchange).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to get exchange: %w", err)
+		if !trader.IsPaperMode {
+			return nil, fmt.Errorf("failed to get exchange: %w", err)
+		}
+		// Paper mode: exchange record missing is acceptable, leave exchangePtr nil
+	} else {
+		exchangePtr = &exchange
 	}
 
 	// Load associated strategy
@@ -195,7 +204,7 @@ func (s *TraderStore) GetFullConfig(userID, traderID string) (*TraderFullConfig,
 	return &TraderFullConfig{
 		Trader:   &trader,
 		AIModel:  &aiModel,
-		Exchange: &exchange,
+		Exchange: exchangePtr,
 		Strategy: strategy,
 	}, nil
 }

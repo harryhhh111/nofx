@@ -498,11 +498,17 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		}
 
 		if exchangeCfg == nil {
-			logger.Infof("⚠️ Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
-			continue
+			if traderCfg.IsPaperMode {
+				// Paper mode: exchange config missing is acceptable — create a placeholder
+				logger.Infof("📝 Paper trader %s: exchange %s not found, using placeholder config", traderCfg.Name, traderCfg.ExchangeID)
+				exchangeCfg = &store.Exchange{ID: traderCfg.ExchangeID, ExchangeType: "paper", AccountName: "paper", Enabled: true}
+			} else {
+				logger.Infof("⚠️ Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
+				continue
+			}
 		}
 
-		if !exchangeCfg.Enabled {
+		if !exchangeCfg.Enabled && !traderCfg.IsPaperMode {
 			logger.Infof("⚠️ Exchange %s for trader %s is not enabled, skipping", traderCfg.ExchangeID, traderCfg.Name)
 			continue
 		}
@@ -604,11 +610,16 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 		}
 
 		if exchangeCfg == nil {
-			logger.Infof("⚠️  Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
-			continue
+			if traderCfg.IsPaperMode {
+				logger.Infof("📝 Paper trader %s: exchange %s not found, using placeholder config", traderCfg.Name, traderCfg.ExchangeID)
+				exchangeCfg = &store.Exchange{ID: traderCfg.ExchangeID, ExchangeType: "paper", AccountName: "paper", Enabled: true}
+			} else {
+				logger.Infof("⚠️  Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
+				continue
+			}
 		}
 
-		if !exchangeCfg.Enabled {
+		if !exchangeCfg.Enabled && !traderCfg.IsPaperMode {
 			logger.Infof("⚠️  Exchange %s for trader %s is not enabled, skipping", traderCfg.ExchangeID, traderCfg.Name)
 			continue
 		}
@@ -668,6 +679,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		InitialBalance:       traderCfg.InitialBalance,
 		IsCrossMargin:        traderCfg.IsCrossMargin,
 		ShowInCompetition:    traderCfg.ShowInCompetition,
+		IsPaperMode:          traderCfg.IsPaperMode,
 		StrategyConfig:       strategyConfig,
 	}
 

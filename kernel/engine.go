@@ -107,12 +107,13 @@ type RecentOrder struct {
 	HoldDuration string  `json:"hold_duration"` // Hold duration, e.g. "2h30m"
 }
 
-// PositionMemory holds the AI's reasoning summary from when a position was originally opened.
-// Used to give the AI continuity — it can recall why it opened the position.
+// PositionMemory holds the AI's reasoning summary from when a position was originally opened,
+// plus the most recent hold-decision snapshot. Together these give the AI full continuity.
 type PositionMemory struct {
-	Symbol     string // trading pair, e.g. "BTCUSDT"
-	Side       string // "long" or "short"
-	CotSummary string // AI reasoning summary from the opening cycle
+	Symbol            string // trading pair, e.g. "BTCUSDT"
+	Side              string // "long" or "short"
+	CotSummary        string // AI reasoning summary from the opening cycle
+	LastReviewSummary string // structured snapshot from the last hold decision: "[cycle N, Xm ago, price P, pnl +Y] SL/TP | reasoning"
 }
 
 // ExternalDataItem holds the result of a single external data source fetch.
@@ -1151,6 +1152,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 	sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
 	sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd\n")
+	sb.WriteString("- When action is `hold`: include stop_loss, take_profit to reconfirm exit levels; include reasoning to explain why you are holding\n")
 	sb.WriteString("- **IMPORTANT**: All numeric values must be calculated numbers, NOT formulas/expressions (e.g., use `27.76` not `3000 * 0.01`)\n\n")
 
 	// 8. Custom Prompt
@@ -1267,6 +1269,26 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 			sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, pm.CotSummary))
 		}
 		sb.WriteString("\n")
+	}
+
+	// Position last review — most recent hold-decision snapshot for each open position
+	if len(ctx.PositionMemories) > 0 {
+		hasReview := false
+		for _, pm := range ctx.PositionMemories {
+			if pm.LastReviewSummary != "" {
+				hasReview = true
+				break
+			}
+		}
+		if hasReview {
+			sb.WriteString("## Your Last Review of These Positions\n")
+			for _, pm := range ctx.PositionMemories {
+				if pm.LastReviewSummary != "" {
+					sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, pm.LastReviewSummary))
+				}
+			}
+			sb.WriteString("\n")
+		}
 	}
 
 	// Recent market analysis — provide continuity across decision cycles

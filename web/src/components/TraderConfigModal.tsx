@@ -33,6 +33,7 @@ interface FormState {
   strategy_id: string
   is_cross_margin: boolean
   show_in_competition: boolean
+  is_paper_mode: boolean
   scan_interval_minutes: number
   initial_balance?: number
 }
@@ -64,6 +65,7 @@ export function TraderConfigModal({
     strategy_id: '',
     is_cross_margin: true,
     show_in_competition: true,
+    is_paper_mode: false,
     scan_interval_minutes: 3,
   })
   const [isSaving, setIsSaving] = useState(false)
@@ -103,6 +105,7 @@ export function TraderConfigModal({
       setFormData({
         ...traderData,
         strategy_id: traderData.strategy_id || '',
+        is_paper_mode: traderData.is_paper_mode ?? false, // ensure boolean, not undefined
       })
     } else if (!isEditMode) {
       setFormData({
@@ -112,6 +115,7 @@ export function TraderConfigModal({
         strategy_id: '',
         is_cross_margin: true,
         show_in_competition: true,
+        is_paper_mode: false,
         scan_interval_minutes: 3,
       })
     }
@@ -167,6 +171,8 @@ export function TraderConfigModal({
         is_cross_margin: formData.is_cross_margin,
         show_in_competition: formData.show_in_competition,
         scan_interval_minutes: formData.scan_interval_minutes,
+        // paper mode is only set during creation; ignored in edit mode
+        ...(isEditMode ? {} : { is_paper_mode: formData.is_paper_mode }),
       }
 
       // 只在编辑模式时包含initial_balance
@@ -312,6 +318,63 @@ export function TraderConfigModal({
                   })()}
                 </div>
               </div>
+            </div>
+
+            {/* Trading mode — interactive when creating, read-only when editing */}
+            <div>
+              <label className="text-sm text-[#EAECEF] block mb-2">
+                {t('tradingMode', language)}
+              </label>
+              {isEditMode ? (
+                /* Edit mode: read-only badge, cannot switch to avoid accidental real-fund exposure */
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`px-3 py-1.5 rounded text-sm font-medium ${
+                      formData.is_paper_mode
+                        ? 'bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/40'
+                        : 'bg-[#F0B90B]/20 text-[#F0B90B] border border-[#F0B90B]/40'
+                    }`}
+                  >
+                    {formData.is_paper_mode ? t('paperTrading', language) : t('realTrading', language)}
+                  </span>
+                  <span className="text-xs text-[#848E9C]">
+                    {language === 'zh' ? '交易模式创建后不可更改' : 'Trading mode cannot be changed after creation'}
+                  </span>
+                </div>
+              ) : (
+                /* Create mode: interactive toggle */
+                <>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange('is_paper_mode', false)}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${
+                        !formData.is_paper_mode
+                          ? 'bg-[#F0B90B] text-black'
+                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                      }`}
+                    >
+                      {t('realTrading', language)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleInputChange('is_paper_mode', true)}
+                      className={`flex-1 px-3 py-2 rounded text-sm ${
+                        formData.is_paper_mode
+                          ? 'bg-[#3B82F6] text-white'
+                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                      }`}
+                    >
+                      {t('paperTrading', language)}
+                    </button>
+                  </div>
+                  {formData.is_paper_mode && (
+                    <p className="text-xs text-[#3B82F6] mt-1">
+                      {t('paperTradingHint', language)}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           </div>
 

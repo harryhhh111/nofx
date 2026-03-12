@@ -98,6 +98,7 @@ export interface TraderInfo {
   exchange_id?: string
   is_running?: boolean
   show_in_competition?: boolean
+  is_paper_mode?: boolean
   strategy_id?: string
   strategy_name?: string
   custom_prompt?: string
@@ -167,6 +168,7 @@ export interface CreateTraderRequest {
   scan_interval_minutes?: number
   is_cross_margin?: boolean
   show_in_competition?: boolean // 是否在竞技场显示
+  is_paper_mode?: boolean       // 模拟交易模式：不使用真实资金
   // 以下字段为向后兼容保留，新版使用策略配置
   btc_eth_leverage?: number
   altcoin_leverage?: number
@@ -241,6 +243,7 @@ export interface TraderConfigData {
   strategy_name?: string  // 策略名称
   is_cross_margin: boolean
   show_in_competition: boolean  // 是否在竞技场显示
+  is_paper_mode?: boolean       // 模拟交易模式
   scan_interval_minutes: number
   initial_balance: number
   is_running: boolean

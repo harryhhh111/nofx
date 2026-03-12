@@ -496,3 +496,134 @@ func TestPhase6_EndToEnd(t *testing.T) {
 	t.Logf("   opening_cycle=%d → cot_summary=%q", openingCycle, reason)
 	t.Logf("   closed: entry=%.2f exit=%.2f pnl=%.2f IsProfit=%v", cp.EntryPrice, cp.ExitPrice, cp.RealizedPnL, isProfit)
 }
+
+// ============================================================================
+// Phase 7 — UpdatePositionReviewSummary 单元测试
+// ============================================================================
+
+// TestUpdatePositionReviewSummary_Basic 验证写入 → 查询，last_review_summary 和 last_review_cycle 正确存储
+func TestUpdatePositionReviewSummary_Basic(t *testing.T) {
+	db := setupMemoryTestDB(t)
+	posStore := NewPositionStore(db)
+	traderID := "trader-001"
+	now := time.Now().UTC().UnixMilli()
+
+	// 创建一个 OPEN 持仓
+	pos := &TraderPosition{
+		TraderID: traderID, ExchangeID: "ex", ExchangeType: "binance",
+		Symbol: "BTCUSDT", Side: "LONG", Quantity: 0.01,
+		EntryPrice: 93000, Leverage: 5, Status: "OPEN",
+		EntryTime: now, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := posStore.Create(pos); err != nil {
+		t.Fatalf("Create position failed: %v", err)
+	}
+
+	snapshot := "[cycle 5, 30m ago, price 93500.0000, pnl +50.00 USDT +0.54%, peak 0.80%] SL:92000.0000 TP:96000.0000 conf:75 | EMA structure intact, holding"
+
+	// 写入审查快照
+	if err := posStore.UpdatePositionReviewSummary(traderID, "BTCUSDT", "LONG", 5, snapshot); err != nil {
+		t.Fatalf("UpdatePositionReviewSummary failed: %v", err)
+	}
+
+	// 查回验证
+	dbPos, err := posStore.GetOpenPositionBySymbol(traderID, "BTCUSDT", "LONG")
+	if err != nil {
+		t.Fatalf("GetOpenPositionBySymbol failed: %v", err)
+	}
+	if dbPos.LastReviewSummary != snapshot {
+		t.Errorf("LastReviewSummary = %q, want %q", dbPos.LastReviewSummary, snapshot)
+	}
+	if dbPos.LastReviewCycle != 5 {
+		t.Errorf("LastReviewCycle = %d, want 5", dbPos.LastReviewCycle)
+	}
+}
+
+// TestUpdatePositionReviewSummary_Overwrite 验证多次写入时，只保留最新一条
+func TestUpdatePositionReviewSummary_Overwrite(t *testing.T) {
+	db := setupMemoryTestDB(t)
+	posStore := NewPositionStore(db)
+	traderID := "trader-001"
+	now := time.Now().UTC().UnixMilli()
+
+	pos := &TraderPosition{
+		TraderID: traderID, ExchangeID: "ex", ExchangeType: "binance",
+		Symbol: "ETHUSDT", Side: "SHORT", Quantity: 0.1,
+		EntryPrice: 2500, Leverage: 5, Status: "OPEN",
+		EntryTime: now, CreatedAt: now, UpdatedAt: now,
+	}
+	if err := posStore.Create(pos); err != nil {
+		t.Fatalf("Create position failed: %v", err)
+	}
+
+	// 第一次写入（cycle 3）
+	if err := posStore.UpdatePositionReviewSummary(traderID, "ETHUSDT", "SHORT", 3, "first review"); err != nil {
+		t.Fatalf("First update failed: %v", err)
+	}
+	// 第二次写入（cycle 7）应覆盖
+	if err := posStore.UpdatePositionReviewSummary(traderID, "ETHUSDT", "SHORT", 7, "second review, updated"); err != nil {
+		t.Fatalf("Second update failed: %v", err)
+	}
+
+	dbPos, err := posStore.GetOpenPositionBySymbol(traderID, "ETHUSDT", "SHORT")
+	if err != nil {
+		t.Fatalf("GetOpenPositionBySymbol failed: %v", err)
+	}
+	if dbPos.LastReviewSummary != "second review, updated" {
+		t.Errorf("LastReviewSummary = %q, want 'second review, updated'", dbPos.LastReviewSummary)
+	}
+	if dbPos.LastReviewCycle != 7 {
+		t.Errorf("LastReviewCycle = %d, want 7", dbPos.LastReviewCycle)
+	}
+}
+
+// TestPhase7_EndToEnd 端到端验证完整审查快照链路：
+// 开仓 → hold 写快照 → GetOpenPositionBySymbol 读出 → 验证 LastReviewSummary 非空且正确
+func TestPhase7_EndToEnd(t *testing.T) {
+	db := setupMemoryTestDB(t)
+	posStore := NewPositionStore(db)
+
+	traderID := "trader-p7"
+	now := time.Now().UTC().UnixMilli()
+
+	// Step 1: 开仓
+	err := posStore.Create(&TraderPosition{
+		TraderID: traderID, ExchangeID: "ex", ExchangeType: "binance",
+		Symbol: "SOLUSDT", Side: "LONG", Quantity: 1.0,
+		EntryPrice: 150.0, Leverage: 5, Status: "OPEN",
+		EntryTime: now, CreatedAt: now, UpdatedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("Create position failed: %v", err)
+	}
+
+	// Step 2: 模拟第一个决策周期 hold，写入审查快照
+	snapshot1 := "[cycle 3, 10m ago, price 151.2000, pnl +12.00 USDT +0.80%, peak 0.80%] SL:145.0000 TP:165.0000 conf:72 | Uptrend intact, holding long"
+	if err := posStore.UpdatePositionReviewSummary(traderID, "SOLUSDT", "LONG", 3, snapshot1); err != nil {
+		t.Fatalf("UpdatePositionReviewSummary (cycle 3) failed: %v", err)
+	}
+
+	// Step 3: 模拟第二个决策周期 hold，覆盖快照
+	snapshot2 := "[cycle 6, 10m ago, price 153.5000, pnl +35.00 USDT +2.33%, peak 2.40%] SL:148.0000 TP:168.0000 conf:80 | Momentum accelerating, raised SL"
+	if err := posStore.UpdatePositionReviewSummary(traderID, "SOLUSDT", "LONG", 6, snapshot2); err != nil {
+		t.Fatalf("UpdatePositionReviewSummary (cycle 6) failed: %v", err)
+	}
+
+	// Step 4: 模拟 buildTradingContext 步骤 7b 读取
+	dbPos, err := posStore.GetOpenPositionBySymbol(traderID, "SOLUSDT", "LONG")
+	if err != nil {
+		t.Fatalf("GetOpenPositionBySymbol failed: %v", err)
+	}
+	if dbPos.LastReviewSummary == "" {
+		t.Fatal("LastReviewSummary is empty, expected snapshot to be written")
+	}
+	if dbPos.LastReviewSummary != snapshot2 {
+		t.Errorf("LastReviewSummary = %q, want latest snapshot", dbPos.LastReviewSummary)
+	}
+	if dbPos.LastReviewCycle != 6 {
+		t.Errorf("LastReviewCycle = %d, want 6", dbPos.LastReviewCycle)
+	}
+
+	t.Logf("✅ Phase 7 end-to-end chain verified:")
+	t.Logf("   LastReviewCycle=%d → LastReviewSummary=%q", dbPos.LastReviewCycle, dbPos.LastReviewSummary)
+}

@@ -19,6 +19,7 @@ import (
 	"nofx/trader/kucoin"
 	"nofx/trader/lighter"
 	"nofx/trader/okx"
+	"nofx/trader/paper"
 	"strings"
 	"sync"
 	"time"
@@ -105,6 +106,9 @@ type AutoTraderConfig struct {
 
 	// Competition visibility
 	ShowInCompetition bool // Whether to show in competition page
+
+	// Paper trading mode: when true, use in-memory PaperExchange instead of a real exchange
+	IsPaperMode bool
 
 	// Strategy configuration (use complete strategy config)
 	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
@@ -232,12 +236,26 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	var trader Trader
 	var err error
 
-	// Record position mode (general)
-	marginModeStr := "Cross Margin"
-	if !config.IsCrossMargin {
-		marginModeStr = "Isolated Margin"
+	// Paper trading mode: bypass real exchange initialization entirely
+	if config.IsPaperMode {
+		paperBalance := config.InitialBalance
+		if paperBalance <= 0 {
+			paperBalance = 10000.0 // default virtual USDT when not configured
+		}
+		logger.Infof("📝 [%s] Paper trading mode enabled — using in-memory PaperExchange with %.2f USDT (no real funds)", config.Name, paperBalance)
+		trader = paper.NewPaperExchangeWithBalance(paperBalance)
+		// Skip exchange switch and jump straight to post-init
+		goto postExchangeInit
 	}
-	logger.Infof("📊 [%s] Position mode: %s", config.Name, marginModeStr)
+
+	// Record position mode (general)
+	{
+		marginModeStr := "Cross Margin"
+		if !config.IsCrossMargin {
+			marginModeStr = "Isolated Margin"
+		}
+		logger.Infof("📊 [%s] Position mode: %s", config.Name, marginModeStr)
+	}
 
 	switch config.Exchange {
 	case "binance":
@@ -292,6 +310,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		return nil, fmt.Errorf("unsupported trading platform: %s", config.Exchange)
 	}
 
+postExchangeInit:
 	// Validate initial balance configuration, auto-fetch from exchange if 0
 	if config.InitialBalance <= 0 {
 		logger.Infof("📊 [%s] Initial balance not set, attempting to fetch current balance from exchange...", config.Name)
@@ -748,6 +767,37 @@ func (at *AutoTrader) runCycle() error {
 		} else {
 			actionRecord.Success = true
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
+
+			// For hold/wait decisions: write a structured review snapshot to the position record.
+			// This enables the next cycle's AI to see "what I was thinking last time" for this position.
+			if (d.Action == "hold" || d.Action == "wait") && at.store != nil && d.Reasoning != "" {
+				var posInfo *kernel.PositionInfo
+				for i := range ctx.Positions {
+					if ctx.Positions[i].Symbol == d.Symbol {
+						posInfo = &ctx.Positions[i]
+						break
+					}
+				}
+				if posInfo != nil {
+					agoMin := int(time.Now().UnixMilli()-posInfo.UpdateTime) / 60000
+					snapshot := fmt.Sprintf(
+						"[cycle %d, %dm ago, price %.4f, pnl %+.2f USDT %+.2f%%, peak %.2f%%] SL:%.4f TP:%.4f conf:%d | %s",
+						at.callCount, agoMin,
+						posInfo.MarkPrice, posInfo.UnrealizedPnL, posInfo.UnrealizedPnLPct, posInfo.PeakPnLPct,
+						d.StopLoss, d.TakeProfit, d.Confidence,
+						d.Reasoning,
+					)
+					// posInfo.Side is "long"/"short"; DB stores uppercase "LONG"/"SHORT"
+					if err := at.store.Position().UpdatePositionReviewSummary(
+						at.id, d.Symbol, strings.ToUpper(posInfo.Side), at.callCount, snapshot,
+					); err != nil {
+						logger.Infof("⚠️ [%s] Failed to update review snapshot for %s: %v", at.name, d.Symbol, err)
+					} else {
+						logger.Infof("📝 [%s] Updated review snapshot for %s %s (cycle %d)", at.name, d.Symbol, posInfo.Side, at.callCount)
+					}
+				}
+			}
+
 			// Brief delay after successful execution
 			time.Sleep(1 * time.Second)
 		}
@@ -1009,16 +1059,22 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	if at.store != nil {
 		for _, pos := range positionInfos {
 			dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, strings.ToUpper(pos.Side))
-			if err != nil || dbPos == nil || dbPos.OpeningCycle <= 0 {
+			if err != nil || dbPos == nil {
 				continue
 			}
-			summary := at.store.Decision().GetCotSummaryByCycle(at.id, dbPos.OpeningCycle)
-			if summary != "" {
-				ctx.PositionMemories = append(ctx.PositionMemories, kernel.PositionMemory{
-					Symbol:     pos.Symbol,
-					Side:       pos.Side,
-					CotSummary: summary,
-				})
+			memory := kernel.PositionMemory{
+				Symbol: pos.Symbol,
+				Side:   pos.Side,
+			}
+			// Opening reasoning: requires opening_cycle > 0 (Phase 1 deployment onwards)
+			if dbPos.OpeningCycle > 0 {
+				memory.CotSummary = at.store.Decision().GetCotSummaryByCycle(at.id, dbPos.OpeningCycle)
+			}
+			// Last review snapshot: written on every hold/wait decision for this position
+			memory.LastReviewSummary = dbPos.LastReviewSummary
+			// Only include if we have at least one piece of memory to show
+			if memory.CotSummary != "" || memory.LastReviewSummary != "" {
+				ctx.PositionMemories = append(ctx.PositionMemories, memory)
 			}
 		}
 		if len(ctx.PositionMemories) > 0 {
@@ -2087,11 +2143,14 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	var fee float64
 
 	// Exchanges with OrderSync: Skip immediate order recording, let OrderSync handle it
-	// This ensures accurate data from GetTrades API and avoids duplicate records
-	switch at.exchange {
-	case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster", "kucoin", "gate":
-		logger.Infof("  📝 Order submitted (id: %s), will be synced by OrderSync", orderID)
-		return
+	// This ensures accurate data from GetTrades API and avoids duplicate records.
+	// Paper mode never runs OrderSync, so always fall through to manual recording.
+	if !at.config.IsPaperMode {
+		switch at.exchange {
+		case "binance", "lighter", "hyperliquid", "bybit", "okx", "bitget", "aster", "kucoin", "gate":
+			logger.Infof("  📝 Order submitted (id: %s), will be synced by OrderSync", orderID)
+			return
+		}
 	}
 
 	// For exchanges without OrderSync (e.g., Binance): record immediately and poll for fill data
