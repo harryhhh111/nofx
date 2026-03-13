@@ -251,7 +251,7 @@ func (cfg *BacktestConfig) ToStrategyConfig() *store.StrategyConfig {
 		Indicators: store.IndicatorConfig{
 			Klines: store.KlineConfig{
 				PrimaryTimeframe:     primaryTF,
-				PrimaryCount:         30,
+				PrimaryCount:         50,
 				LongerTimeframe:      longerTF,
 				LongerCount:          10,
 				EnableMultiTimeframe: len(cfg.Timeframes) > 1,

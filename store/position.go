@@ -99,6 +99,7 @@ type TraderPosition struct {
 	Status             string  `gorm:"column:status;default:OPEN;index:idx_positions_status" json:"status"`
 	CloseReason        string  `gorm:"column:close_reason;default:''" json:"close_reason"`
 	Source             string  `gorm:"column:source;default:system" json:"source"`
+	OpeningDecisionID  int64   `gorm:"column:opening_decision_id;default:0" json:"opening_decision_id"` // FK to decision_records.id
 	CreatedAt          int64   `gorm:"column:created_at" json:"created_at"`   // Unix milliseconds UTC
 	UpdatedAt          int64   `gorm:"column:updated_at" json:"updated_at"`   // Unix milliseconds UTC
 }
@@ -141,6 +142,9 @@ func (s *PositionStore) InitTables() error {
 					s.db.Exec(fmt.Sprintf(`ALTER TABLE trader_positions ALTER COLUMN %s TYPE BIGINT USING EXTRACT(EPOCH FROM %s) * 1000`, col, col))
 				}
 			}
+
+			// Add opening_decision_id column if not present
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_decision_id BIGINT DEFAULT 0`)
 
 			// Just ensure index exists
 			s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_exchange_pos_unique ON trader_positions(exchange_id, exchange_position_id) WHERE exchange_position_id != ''`)
@@ -361,6 +365,20 @@ func (s *PositionStore) GetOpenPositionBySymbol(traderID, symbol, side string) (
 		return nil, nil
 	}
 	return nil, err
+}
+
+// UpdateOpeningDecisionID links a position to the decision record that triggered it
+func (s *PositionStore) UpdateOpeningDecisionID(positionID int64, decisionID int64) error {
+	return s.db.Model(&TraderPosition{}).
+		Where("id = ?", positionID).
+		Update("opening_decision_id", decisionID).Error
+}
+
+// GetDecisionIDForPosition returns the opening_decision_id for a position (0 if not set)
+func (s *PositionStore) GetDecisionIDForPosition(positionID int64) int64 {
+	var id int64
+	s.db.Model(&TraderPosition{}).Select("opening_decision_id").Where("id = ?", positionID).Scan(&id)
+	return id
 }
 
 // GetClosedPositions gets closed positions
@@ -1213,4 +1231,111 @@ func (s *PositionStore) SyncClosedPositions(traderID, exchangeID, exchangeType s
 		}
 	}
 	return created, skipped, nil
+}
+
+// ============================================================================
+// Paper Trading Query Methods
+// ============================================================================
+
+// GetOpenPositionsBySource returns open positions filtered by source tag (e.g. "paper")
+func (s *PositionStore) GetOpenPositionsBySource(traderID, source string) ([]*TraderPosition, error) {
+	var positions []*TraderPosition
+	err := s.db.Where("trader_id = ? AND status = ? AND source = ?", traderID, "OPEN", source).
+		Order("entry_time DESC").
+		Find(&positions).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query open positions by source: %w", err)
+	}
+	for _, pos := range positions {
+		if pos.EntryQuantity == 0 {
+			pos.EntryQuantity = pos.Quantity
+		}
+	}
+	return positions, nil
+}
+
+// GetOpenPositionBySymbolAndSource returns the most recent open position for a given symbol/side/source
+func (s *PositionStore) GetOpenPositionBySymbolAndSource(traderID, symbol, side, source string) (*TraderPosition, error) {
+	var pos TraderPosition
+	err := s.db.Where("trader_id = ? AND symbol = ? AND side = ? AND status = ? AND source = ?",
+		traderID, symbol, strings.ToUpper(side), "OPEN", source).
+		Order("entry_time DESC").
+		First(&pos).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to query position by symbol and source: %w", err)
+	}
+	if pos.EntryQuantity == 0 {
+		pos.EntryQuantity = pos.Quantity
+	}
+	return &pos, nil
+}
+
+// GetPaperBalance calculates paper trading virtual cash from DB records.
+// Formula (restart-safe, pure DB computation):
+//
+//	cash = initialBalance
+//	       + Σ(closed_positions.realized_pnl)   [gains/losses]
+//	       - Σ(all_positions.fee)                [all fees paid]
+//	       - Σ(open_positions.margin)            [currently locked margin]
+//
+// where margin = entry_price × quantity / leverage for each open position.
+func (s *PositionStore) GetPaperBalance(traderID string, initialBalance float64) (cash, lockedMargin float64, err error) {
+	// 1. Sum NET realized PnL from closed paper positions.
+	// realized_pnl is stored as NET (fees already deducted), so we do NOT subtract TotalFee separately.
+	var closedNetPnL float64
+	if dbErr := s.db.Model(&TraderPosition{}).
+		Select("COALESCE(SUM(realized_pnl), 0)").
+		Where("trader_id = ? AND source = ? AND status = ?", traderID, "paper", "CLOSED").
+		Scan(&closedNetPnL).Error; dbErr != nil {
+		return 0, 0, fmt.Errorf("failed to aggregate closed paper positions: %w", dbErr)
+	}
+
+	// 2. Get all open paper positions to compute fees, margin, and partial-close gains.
+	var openPositions []*TraderPosition
+	if dbErr := s.db.Where("trader_id = ? AND source = ? AND status = ?", traderID, "paper", "OPEN").
+		Find(&openPositions).Error; dbErr != nil {
+		return 0, 0, fmt.Errorf("failed to query open paper positions: %w", dbErr)
+	}
+
+	var openFees, openMargins, openPartialPnL float64
+	for _, pos := range openPositions {
+		openFees += pos.Fee // opening fee only (partial close fees are embedded in RealizedPnL)
+		openPartialPnL += pos.RealizedPnL // net gains from partial closes already realized
+		if pos.Leverage > 0 && pos.EntryPrice > 0 && pos.Quantity > 0 {
+			openMargins += pos.EntryPrice * pos.Quantity / float64(pos.Leverage)
+		}
+	}
+
+	// Formula:
+	//   cash = initialBalance
+	//          + Σ(closed.realized_pnl)   [net PnL, fees already embedded]
+	//          + Σ(open.realized_pnl)     [net gains from partial closes on still-open positions]
+	//          - Σ(open.fee)              [opening fees not yet recovered on open positions]
+	//          - Σ(open.margin)           [currently locked margin]
+	cash = initialBalance + closedNetPnL + openPartialPnL - openFees - openMargins
+	lockedMargin = openMargins
+	return cash, lockedMargin, nil
+}
+
+// GetClosedPositionsBySource returns closed positions filtered by source, ordered by exit_time DESC.
+func (s *PositionStore) GetClosedPositionsBySource(traderID, source string, startTimeMs int64, limit int) ([]*TraderPosition, error) {
+	var positions []*TraderPosition
+	q := s.db.Where("trader_id = ? AND source = ? AND status = ? AND exit_time >= ?",
+		traderID, source, "CLOSED", startTimeMs).
+		Order("exit_time DESC")
+	if limit > 0 {
+		q = q.Limit(limit)
+	}
+	if err := q.Find(&positions).Error; err != nil {
+		return nil, fmt.Errorf("failed to query closed positions by source: %w", err)
+	}
+	return positions, nil
+}
+
+// DeletePaperPositions deletes all paper trading positions for a trader (used for reset).
+func (s *PositionStore) DeletePaperPositions(traderID string) error {
+	return s.db.Where("trader_id = ? AND source = ?", traderID, "paper").Delete(&TraderPosition{}).Error
 }

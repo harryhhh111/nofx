@@ -53,7 +53,8 @@ type PositionInfo struct {
 	PeakPnLPct       float64 `json:"peak_pnl_pct"` // Historical peak profit percentage
 	LiquidationPrice float64 `json:"liquidation_price"`
 	MarginUsed       float64 `json:"margin_used"`
-	UpdateTime       int64   `json:"update_time"` // Position update timestamp (milliseconds)
+	UpdateTime       int64   `json:"update_time"`    // Position update timestamp (milliseconds)
+	OpeningReason    string  `json:"opening_reason"` // Why this position was opened (from decision CotSummary)
 }
 
 // AccountInfo account information
@@ -128,6 +129,15 @@ type Context struct {
 	BTCETHLeverage     int                          `json:"-"`
 	AltcoinLeverage int                                `json:"-"`
 	Timeframes      []string                           `json:"-"`
+	RecentDecisions []RecentDecisionItem               `json:"-"` // Last N decision summaries for temporal context
+}
+
+// RecentDecisionItem is a condensed past decision for LLM prompt injection
+type RecentDecisionItem struct {
+	CycleNum  int    // Scan cycle number
+	Timestamp string // Formatted time string
+	Summary   string // CotSummary (2-4 sentences)
+	Actions   string // Executed actions, e.g. "open_long BTCUSDT, hold ETHUSDT"
 }
 
 // Decision AI trading decision

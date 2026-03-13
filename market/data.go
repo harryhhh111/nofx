@@ -1342,3 +1342,21 @@ func GetBoxData(symbol string) (*BoxData, error) {
 
 	return calculateBoxData(klines, currentPrice), nil
 }
+
+// GetCurrentPrice fetches only the latest close price for a symbol from CoinAnk.
+// This is a lightweight alternative to Get() when only the current price is needed.
+func GetCurrentPrice(symbol string) (float64, error) {
+	symbol = Normalize(symbol)
+	if IsXyzDexAsset(symbol) {
+		klines, err := getKlinesFromHyperliquid(symbol, "1m", 1)
+		if err != nil || len(klines) == 0 {
+			return 0, fmt.Errorf("failed to get price for %s from Hyperliquid: %v", symbol, err)
+		}
+		return klines[len(klines)-1].Close, nil
+	}
+	klines, err := getKlinesFromCoinAnk(symbol, "1m", "binance", 1)
+	if err != nil || len(klines) == 0 {
+		return 0, fmt.Errorf("failed to get price for %s: %v", symbol, err)
+	}
+	return klines[len(klines)-1].Close, nil
+}

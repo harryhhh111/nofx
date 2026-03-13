@@ -370,8 +370,16 @@ export function TraderDashboardPage({
                                 <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-nofx-green rounded-full border-2 border-[#0B0E11] shadow-[0_0_8px_rgba(14,203,129,0.8)] animate-pulse" />
                             </div>
                             <div className="flex flex-col">
-                                <span className="text-3xl tracking-tight text-nofx-text font-semibold">
+                                <span className="text-3xl tracking-tight text-nofx-text font-semibold flex items-center gap-2">
                                     {selectedTrader.trader_name}
+                                    {currentExchange?.exchange_type === 'paper' && (
+                                        <span
+                                            className="text-xs font-bold px-2 py-0.5 rounded-md"
+                                            style={{ background: 'rgba(249, 115, 22, 0.2)', color: '#F97316', border: '1px solid rgba(249, 115, 22, 0.4)' }}
+                                        >
+                                            PAPER
+                                        </span>
+                                    )}
                                 </span>
                                 <span className="text-xs font-mono text-nofx-text-muted opacity-60 flex items-center gap-2">
                                     <div className="w-1.5 h-1.5 bg-nofx-gold rounded-full" />

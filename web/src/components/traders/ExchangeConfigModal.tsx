@@ -30,6 +30,7 @@ const SUPPORTED_EXCHANGE_TEMPLATES = [
   { exchange_type: 'hyperliquid', name: 'Hyperliquid', type: 'dex' as const },
   { exchange_type: 'aster', name: 'Aster DEX', type: 'dex' as const },
   { exchange_type: 'lighter', name: 'Lighter', type: 'dex' as const },
+  { exchange_type: 'paper', name: 'Paper Trading', type: 'paper' as const },
 ]
 
 interface ExchangeConfigModalProps {
@@ -132,8 +133,8 @@ function ExchangeCard({
       <span
         className="text-xs px-2 py-0.5 rounded-full"
         style={{
-          background: template.type === 'cex' ? 'rgba(240, 185, 11, 0.2)' : 'rgba(139, 92, 246, 0.2)',
-          color: template.type === 'cex' ? '#F0B90B' : '#A78BFA',
+          background: template.type === 'cex' ? 'rgba(240, 185, 11, 0.2)' : template.type === 'paper' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(139, 92, 246, 0.2)',
+          color: template.type === 'cex' ? '#F0B90B' : template.type === 'paper' ? '#F97316' : '#A78BFA',
         }}
       >
         {template.type.toUpperCase()}
@@ -312,7 +313,9 @@ export function ExchangeConfigModal({
 
     setIsSaving(true)
     try {
-      if (currentExchangeType === 'binance' || currentExchangeType === 'bybit') {
+      if (currentExchangeType === 'paper') {
+        await onSave(exchangeId, exchangeType, trimmedAccountName, '', '', '', false)
+      } else if (currentExchangeType === 'binance' || currentExchangeType === 'bybit') {
         if (!apiKey.trim() || !secretKey.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet)
       } else if (currentExchangeType === 'okx' || currentExchangeType === 'bitget' || currentExchangeType === 'kucoin') {
@@ -339,6 +342,7 @@ export function ExchangeConfigModal({
   const stepLabels = language === 'zh' ? ['选择交易所', '配置账户'] : ['Select Exchange', 'Configure']
   const cexExchanges = SUPPORTED_EXCHANGE_TEMPLATES.filter(t => t.type === 'cex')
   const dexExchanges = SUPPORTED_EXCHANGE_TEMPLATES.filter(t => t.type === 'dex')
+  const paperExchanges = SUPPORTED_EXCHANGE_TEMPLATES.filter(t => t.type === 'paper')
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto backdrop-blur-sm">
@@ -448,6 +452,23 @@ export function ExchangeConfigModal({
                     ))}
                   </div>
                 </div>
+
+                {/* Paper Trading */}
+                <div className="space-y-3">
+                  <div className="text-xs font-medium uppercase tracking-wide" style={{ color: '#F97316' }}>
+                    {language === 'zh' ? '模拟交易' : 'Simulation'}
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                    {paperExchanges.map((template) => (
+                      <ExchangeCard
+                        key={template.exchange_type}
+                        template={template}
+                        selected={selectedExchangeType === template.exchange_type}
+                        onClick={() => handleSelectExchange(template.exchange_type)}
+                      />
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -466,23 +487,25 @@ export function ExchangeConfigModal({
                     {selectedTemplate.type.toUpperCase()} • {selectedTemplate.exchange_type}
                   </div>
                 </div>
-                <a
-                  href={exchangeRegistrationLinks[currentExchangeType || '']?.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
-                  style={{ background: 'rgba(240, 185, 11, 0.1)', border: '1px solid rgba(240, 185, 11, 0.3)' }}
-                >
-                  <UserPlus className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                  <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
-                    {language === 'zh' ? '注册' : 'Register'}
-                  </span>
-                  {exchangeRegistrationLinks[currentExchangeType || '']?.hasReferral && (
-                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(14, 203, 129, 0.2)', color: '#0ECB81' }}>
-                      {language === 'zh' ? '优惠' : 'Bonus'}
+                {currentExchangeType !== 'paper' && (
+                  <a
+                    href={exchangeRegistrationLinks[currentExchangeType || '']?.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
+                    style={{ background: 'rgba(240, 185, 11, 0.1)', border: '1px solid rgba(240, 185, 11, 0.3)' }}
+                  >
+                    <UserPlus className="w-4 h-4" style={{ color: '#F0B90B' }} />
+                    <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
+                      {language === 'zh' ? '注册' : 'Register'}
                     </span>
-                  )}
-                </a>
+                    {exchangeRegistrationLinks[currentExchangeType || '']?.hasReferral && (
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(14, 203, 129, 0.2)', color: '#0ECB81' }}>
+                        {language === 'zh' ? '优惠' : 'Bonus'}
+                      </span>
+                    )}
+                  </a>
+                )}
               </div>
 
               {/* Account Name */}
@@ -723,6 +746,25 @@ export function ExchangeConfigModal({
                     <input type="number" min={0} max={255} value={lighterApiKeyIndex} onChange={(e) => setLighterApiKeyIndex(parseInt(e.target.value) || 0)} className="w-full px-4 py-3 rounded-xl" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }} />
                   </div>
                 </>
+              )}
+
+              {/* Paper Trading Info */}
+              {currentExchangeType === 'paper' && (
+                <div className="p-4 rounded-xl" style={{ background: 'rgba(249, 115, 22, 0.1)', border: '1px solid rgba(249, 115, 22, 0.3)' }}>
+                  <div className="flex items-start gap-3">
+                    <span style={{ fontSize: '20px' }}>🧪</span>
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold" style={{ color: '#F97316' }}>
+                        {language === 'zh' ? '模拟盘 — 无需 API Key' : 'Paper Trading — No API Key Required'}
+                      </div>
+                      <div className="text-xs" style={{ color: '#848E9C' }}>
+                        {language === 'zh'
+                          ? '所有交易在虚拟账户中模拟执行，不涉及真实资产。可随时重置账户余额。'
+                          : 'All trades are simulated in a virtual account. No real assets involved. You can reset the balance at any time.'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
 
               {/* Buttons */}

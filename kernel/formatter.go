@@ -70,6 +70,15 @@ func formatContextData(ctx *Context, lang Language) string {
 		}
 	}
 
+	// 5b. 近期决策记录（时序自我感知）
+	if len(ctx.RecentDecisions) > 0 {
+		if lang == LangChinese {
+			sb.WriteString(formatRecentDecisionsZH(ctx.RecentDecisions))
+		} else {
+			sb.WriteString(formatRecentDecisionsEN(ctx.RecentDecisions))
+		}
+	}
+
 	// 5. 当前持仓
 	if len(ctx.Positions) > 0 {
 		if lang == LangChinese {
@@ -259,6 +268,11 @@ func formatCurrentPositionsZH(ctx *Context) string {
 			}
 		}
 
+		// 显示开仓理由（如果有）
+		if pos.OpeningReason != "" {
+			sb.WriteString(fmt.Sprintf("   🧠 开仓理由: %s\n", pos.OpeningReason))
+		}
+
 		sb.WriteString("\n")
 	}
 
@@ -281,6 +295,7 @@ func formatCandidateCoinsZH(ctx *Context) string {
 				// K线数据（多时间框架）
 				if mdata.TimeframeData != nil {
 					sb.WriteString(formatKlineDataZH(coin.Symbol, mdata.TimeframeData, ctx.Timeframes))
+				sb.WriteString(formatMarketStructureSummaryZH(mdata.CurrentPrice, mdata.TimeframeData))
 				}
 			}
 		}
@@ -525,6 +540,11 @@ func formatCurrentPositionsEN(ctx *Context) string {
 			}
 		}
 
+		// Show opening reason if available
+		if pos.OpeningReason != "" {
+			sb.WriteString(fmt.Sprintf("   🧠 Opening Reason: %s\n", pos.OpeningReason))
+		}
+
 		sb.WriteString("\n")
 	}
 
@@ -545,6 +565,7 @@ func formatCandidateCoinsEN(ctx *Context) string {
 
 				if mdata.TimeframeData != nil {
 					sb.WriteString(formatKlineDataEN(coin.Symbol, mdata.TimeframeData, ctx.Timeframes))
+				sb.WriteString(formatMarketStructureSummaryEN(mdata.CurrentPrice, mdata.TimeframeData))
 				}
 			}
 		}
@@ -632,4 +653,155 @@ func getOIInterpretationEN(oiChange, priceChange string) string {
 	} else {
 		return OIInterpretation.OIDown_PriceDown.EN
 	}
+}
+
+// formatMarketStructureSummaryZH 根据已有K线数据生成市场结构摘要（中文）
+// 使用较长时间框架的K线范围、EMA位置来给LLM提供趋势背景
+func formatMarketStructureSummaryZH(currentPrice float64, tfData map[string]*market.TimeframeSeriesData) string {
+	// 优先使用较长时间框架（更能反映趋势）
+	preferOrder := []string{"1d", "4h", "1h", "15m", "5m"}
+	var trendTF *market.TimeframeSeriesData
+	var trendTFName string
+	for _, tf := range preferOrder {
+		if d, ok := tfData[tf]; ok && len(d.Klines) >= 5 {
+			trendTF = d
+			trendTFName = tf
+			break
+		}
+	}
+	if trendTF == nil {
+		return ""
+	}
+
+	// 计算区间高低点
+	rangeHigh := trendTF.Klines[0].High
+	rangeLow := trendTF.Klines[0].Low
+	for _, k := range trendTF.Klines {
+		if k.High > rangeHigh {
+			rangeHigh = k.High
+		}
+		if k.Low < rangeLow {
+			rangeLow = k.Low
+		}
+	}
+
+	// 当前价格在区间中的位置百分比
+	var positionPct float64
+	if rangeHigh > rangeLow {
+		positionPct = (currentPrice - rangeLow) / (rangeHigh - rangeLow) * 100
+	}
+
+	// 趋势判断（EMA20 vs EMA50 vs 当前价格）
+	trendLabel := ""
+	if len(trendTF.EMA20Values) > 0 && len(trendTF.EMA50Values) > 0 {
+		ema20 := trendTF.EMA20Values[len(trendTF.EMA20Values)-1]
+		ema50 := trendTF.EMA50Values[len(trendTF.EMA50Values)-1]
+		if ema20 > 0 && ema50 > 0 {
+			if currentPrice > ema20 && ema20 > ema50 {
+				trendLabel = "上升趋势 (价格>EMA20>EMA50)"
+			} else if currentPrice < ema20 && ema20 < ema50 {
+				trendLabel = "下降趋势 (价格<EMA20<EMA50)"
+			} else if currentPrice > ema20 && ema20 < ema50 {
+				trendLabel = "短期反弹 (价格>EMA20，但EMA20<EMA50)"
+			} else if currentPrice < ema20 && ema20 > ema50 {
+				trendLabel = "短期回调 (价格<EMA20，但EMA20>EMA50)"
+			} else {
+				trendLabel = "震荡整理"
+			}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("**市场结构** (%s, 近%d根K线): 区间高点 %.4f | 区间低点 %.4f | 当前价格位于区间 %.1f%%",
+		trendTFName, len(trendTF.Klines), rangeHigh, rangeLow, positionPct))
+	if trendLabel != "" {
+		sb.WriteString(fmt.Sprintf(" | 趋势: %s", trendLabel))
+	}
+	sb.WriteString("\n\n")
+	return sb.String()
+}
+
+// formatMarketStructureSummaryEN generates market structure summary from existing kline data (English)
+func formatMarketStructureSummaryEN(currentPrice float64, tfData map[string]*market.TimeframeSeriesData) string {
+	preferOrder := []string{"1d", "4h", "1h", "15m", "5m"}
+	var trendTF *market.TimeframeSeriesData
+	var trendTFName string
+	for _, tf := range preferOrder {
+		if d, ok := tfData[tf]; ok && len(d.Klines) >= 5 {
+			trendTF = d
+			trendTFName = tf
+			break
+		}
+	}
+	if trendTF == nil {
+		return ""
+	}
+
+	rangeHigh := trendTF.Klines[0].High
+	rangeLow := trendTF.Klines[0].Low
+	for _, k := range trendTF.Klines {
+		if k.High > rangeHigh {
+			rangeHigh = k.High
+		}
+		if k.Low < rangeLow {
+			rangeLow = k.Low
+		}
+	}
+
+	var positionPct float64
+	if rangeHigh > rangeLow {
+		positionPct = (currentPrice - rangeLow) / (rangeHigh - rangeLow) * 100
+	}
+
+	trendLabel := ""
+	if len(trendTF.EMA20Values) > 0 && len(trendTF.EMA50Values) > 0 {
+		ema20 := trendTF.EMA20Values[len(trendTF.EMA20Values)-1]
+		ema50 := trendTF.EMA50Values[len(trendTF.EMA50Values)-1]
+		if ema20 > 0 && ema50 > 0 {
+			if currentPrice > ema20 && ema20 > ema50 {
+				trendLabel = "Uptrend (Price>EMA20>EMA50)"
+			} else if currentPrice < ema20 && ema20 < ema50 {
+				trendLabel = "Downtrend (Price<EMA20<EMA50)"
+			} else if currentPrice > ema20 && ema20 < ema50 {
+				trendLabel = "Short-term bounce (Price>EMA20 but EMA20<EMA50)"
+			} else if currentPrice < ema20 && ema20 > ema50 {
+				trendLabel = "Short-term pullback (Price<EMA20 but EMA20>EMA50)"
+			} else {
+				trendLabel = "Consolidation"
+			}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("**Market Structure** (%s, last %d bars): Range High %.4f | Range Low %.4f | Price at %.1f%% of range",
+		trendTFName, len(trendTF.Klines), rangeHigh, rangeLow, positionPct))
+	if trendLabel != "" {
+		sb.WriteString(fmt.Sprintf(" | Trend: %s", trendLabel))
+	}
+	sb.WriteString("\n\n")
+	return sb.String()
+}
+
+// formatRecentDecisionsZH formats the last N decision summaries in Chinese for LLM temporal awareness
+func formatRecentDecisionsZH(decisions []RecentDecisionItem) string {
+	var sb strings.Builder
+	sb.WriteString("## 近期决策记录（AI自身历史判断，供连贯推理参考）\n\n")
+	for _, d := range decisions {
+		sb.WriteString(fmt.Sprintf("- **第%d轮** (%s): %s → 执行: %s\n",
+			d.CycleNum, d.Timestamp, d.Summary, d.Actions))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// formatRecentDecisionsEN formats the last N decision summaries in English for LLM temporal awareness
+func formatRecentDecisionsEN(decisions []RecentDecisionItem) string {
+	var sb strings.Builder
+	sb.WriteString("## Recent Decision History (AI's own past reasoning, for coherent multi-cycle analysis)\n\n")
+	for _, d := range decisions {
+		sb.WriteString(fmt.Sprintf("- **Cycle #%d** (%s): %s → Actions: %s\n",
+			d.CycleNum, d.Timestamp, d.Summary, d.Actions))
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }

@@ -18,6 +18,7 @@ import (
 	"nofx/trader/hyperliquid"
 	"nofx/trader/kucoin"
 	"nofx/trader/lighter"
+	"nofx/trader/paper"
 	"nofx/trader/okx"
 	"strings"
 	"sync"
@@ -288,12 +289,20 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 			return nil, fmt.Errorf("failed to initialize LIGHTER trader: %w", err)
 		}
 		logger.Infof("✓ LIGHTER trader initialized successfully")
+	case "paper":
+		logger.Infof("[Paper] [%s] Paper trading mode (simulated, no real exchange calls)", config.Name)
+		if config.InitialBalance <= 0 {
+			config.InitialBalance = 10000.0
+			logger.Infof("[Paper] [%s] Using default initial balance 10000 USDT", config.Name)
+		}
+		trader = paper.NewPaperTrader(config.ID, config.InitialBalance, st)
 	default:
 		return nil, fmt.Errorf("unsupported trading platform: %s", config.Exchange)
 	}
 
 	// Validate initial balance configuration, auto-fetch from exchange if 0
-	if config.InitialBalance <= 0 {
+	// Paper trading sets balance directly, no need to fetch from exchange
+	if config.Exchange != "paper" && config.InitialBalance <= 0 {
 		logger.Infof("📊 [%s] Initial balance not set, attempting to fetch current balance from exchange...", config.Name)
 		account, err := trader.GetBalance()
 		if err != nil {
@@ -760,6 +769,23 @@ func (at *AutoTrader) runCycle() error {
 		logger.Infof("⚠ Failed to save decision record: %v", err)
 	}
 
+	// 10. Link newly opened positions to this decision record (post-save, so record.ID is populated)
+	if record.ID > 0 && at.store != nil {
+		for _, d := range record.Decisions {
+			if d.Success && (d.Action == "open_long" || d.Action == "open_short") {
+				side := "long"
+				if d.Action == "open_short" {
+					side = "short"
+				}
+				if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, d.Symbol, side); err == nil && dbPos != nil && dbPos.OpeningDecisionID == 0 {
+					if err := at.store.Position().UpdateOpeningDecisionID(dbPos.ID, record.ID); err != nil {
+						logger.Infof("⚠ Failed to link position %d to decision %d: %v", dbPos.ID, record.ID, err)
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -842,10 +868,14 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 		var updateTime int64
 		// Priority 1: Get from database (trader_positions table) - most accurate
+		var openingReason string
 		if at.store != nil {
 			if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, symbol, side); err == nil && dbPos != nil {
 				if dbPos.EntryTime > 0 {
 					updateTime = dbPos.EntryTime
+				}
+				if dbPos.OpeningDecisionID > 0 {
+					openingReason = at.store.Decision().GetDecisionSummaryByID(dbPos.OpeningDecisionID)
 				}
 			}
 		}
@@ -881,6 +911,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			LiquidationPrice: liquidationPrice,
 			MarginUsed:       marginUsed,
 			UpdateTime:       updateTime,
+			OpeningReason:    openingReason,
 		})
 	}
 
@@ -1001,6 +1032,24 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		}
 	} else {
 		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
+	}
+
+	// 7b. Inject recent decision history for temporal self-awareness
+	if at.store != nil {
+		recentSummaries, err := at.store.Decision().GetRecentCotSummaries(at.id, 3)
+		if err != nil {
+			logger.Infof("⚠️ [%s] Failed to get recent decision summaries: %v", at.name, err)
+		} else if len(recentSummaries) > 0 {
+			for _, s := range recentSummaries {
+				ctx.RecentDecisions = append(ctx.RecentDecisions, kernel.RecentDecisionItem{
+					CycleNum:  s.CycleNumber,
+					Timestamp: s.Timestamp.UTC().Format("01-02 15:04 UTC"),
+					Summary:   s.CotSummary,
+					Actions:   s.Actions,
+				})
+			}
+			logger.Infof("🧠 [%s] Injected %d recent decision summaries into context", at.name, len(recentSummaries))
+		}
 	}
 
 	// 8. Get quantitative data (if enabled in strategy config)

@@ -72,6 +72,9 @@ func (s *ExchangeStore) initTables() error {
 	// Fix empty account_name for existing records
 	s.db.Model(&Exchange{}).Where("account_name = '' OR account_name IS NULL").Update("account_name", "Default")
 
+	// Ensure paper trading exchange record exists (idempotent)
+	s.ensurePaperExchange()
+
 	return nil
 }
 
@@ -327,4 +330,25 @@ func (s *ExchangeStore) CreateLegacy(userID, id, name, typ string, enabled bool,
 		AsterPrivateKey:       crypto.EncryptedString(asterPrivateKey),
 	}
 	return s.db.Where("id = ?", id).FirstOrCreate(exchange).Error
+}
+
+// ensurePaperExchange creates a paper trading exchange record if it doesn't exist.
+// This allows users to select "paper" as the exchange when creating a trader.
+func (s *ExchangeStore) ensurePaperExchange() {
+	var count int64
+	s.db.Model(&Exchange{}).Where("exchange_type = ?", "paper").Count(&count)
+	if count > 0 {
+		return
+	}
+	paper := &Exchange{
+		ID:           "paper-trading",
+		ExchangeType: "paper",
+		AccountName:  "Paper Trading",
+		Name:         "Paper Trading (Simulated)",
+		Type:         "paper",
+		Enabled:      true,
+	}
+	if err := s.db.FirstOrCreate(paper, "id = ?", paper.ID).Error; err != nil {
+		logger.Warnf("Failed to create paper exchange record: %v", err)
+	}
 }

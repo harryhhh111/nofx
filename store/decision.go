@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -455,4 +456,80 @@ func (s *DecisionStore) GetTradersLatestDigests(traderIDs []string, sortBy, orde
 	}
 
 	return digests, nil
+}
+
+// RecentDecisionSummary is a lightweight summary of a past decision cycle for LLM context injection
+type RecentDecisionSummary struct {
+	CycleNumber int       // Scan cycle number
+	Timestamp   time.Time // When the decision was made
+	CotSummary  string    // 2-4 sentence reasoning summary
+	Actions     string    // Comma-separated action list, e.g. "open_long BTCUSDT, hold ETHUSDT"
+}
+
+// GetRecentCotSummaries returns the last n decision summaries for a trader,
+// ordered newest-first. Used to inject temporal context into the LLM prompt.
+func (s *DecisionStore) GetRecentCotSummaries(traderID string, n int) ([]RecentDecisionSummary, error) {
+	var records []DecisionRecordDB
+	err := s.db.Select("cycle_number, timestamp, cot_summary, decisions").
+		Where("trader_id = ? AND success = ?", traderID, true).
+		Order("timestamp DESC").
+		Limit(n).
+		Find(&records).Error
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]RecentDecisionSummary, 0, len(records))
+	for _, r := range records {
+		// Parse decisions JSON to extract action list
+		actions := extractActionList(r.Decisions)
+		summaries = append(summaries, RecentDecisionSummary{
+			CycleNumber: r.CycleNumber,
+			Timestamp:   r.Timestamp,
+			CotSummary:  r.CotSummary,
+			Actions:     actions,
+		})
+	}
+	return summaries, nil
+}
+
+// GetDecisionSummaryByID returns the CotSummary for a specific decision record ID.
+// Returns empty string if ID is 0 or record not found.
+func (s *DecisionStore) GetDecisionSummaryByID(id int64) string {
+	if id <= 0 {
+		return ""
+	}
+	var record DecisionRecordDB
+	err := s.db.Select("cot_summary").Where("id = ?", id).First(&record).Error
+	if err != nil {
+		return ""
+	}
+	return record.CotSummary
+}
+
+// extractActionList parses a JSON array of DecisionAction and returns a short action string
+func extractActionList(decisionsJSON string) string {
+	if decisionsJSON == "" || decisionsJSON == "[]" || decisionsJSON == "null" {
+		return "wait"
+	}
+	var actions []DecisionAction
+	if err := json.Unmarshal([]byte(decisionsJSON), &actions); err != nil {
+		return "wait"
+	}
+	if len(actions) == 0 {
+		return "wait"
+	}
+	parts := make([]string, 0, len(actions))
+	for _, a := range actions {
+		if a.Symbol != "" {
+			parts = append(parts, a.Action+" "+a.Symbol)
+		} else {
+			parts = append(parts, a.Action)
+		}
+	}
+	result := strings.Join(parts, ", ")
+	if len(result) > 120 {
+		result = result[:117] + "..."
+	}
+	return result
 }

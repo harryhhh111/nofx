@@ -36,6 +36,7 @@ type TraderOrder struct {
 	WorkingType       string  `gorm:"column:working_type;default:CONTRACT_PRICE" json:"working_type"`
 	PriceProtect      bool    `gorm:"column:price_protect;default:false" json:"price_protect"`
 	OrderAction       string  `gorm:"column:order_action;default:''" json:"order_action"`
+	Source            string  `gorm:"column:source;not null;default:system;index:idx_orders_source" json:"source"`
 	RelatedPositionID int64   `gorm:"column:related_position_id;default:0" json:"related_position_id"`
 	CreatedAt         int64   `gorm:"column:created_at" json:"created_at"`         // Unix milliseconds UTC
 	UpdatedAt         int64   `gorm:"column:updated_at" json:"updated_at"`         // Unix milliseconds UTC
@@ -132,6 +133,9 @@ func (s *OrderStore) InitTables() error {
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_status ON trader_orders(status)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_fills_trader_id ON trader_fills(trader_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_fills_order_id ON trader_fills(order_id)`)
+			// Migrate: add source column if not exists
+			s.db.Exec(`ALTER TABLE trader_orders ADD COLUMN IF NOT EXISTS source VARCHAR(50) NOT NULL DEFAULT 'system'`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_source ON trader_orders(source)`)
 			return nil
 		}
 	}
@@ -420,4 +424,9 @@ func (s *OrderStore) GetRecentFillSymbolsByExchange(exchangeID string, sinceMs i
 		return nil, err
 	}
 	return symbols, nil
+}
+
+// DeletePaperOrders deletes all paper trading orders for a trader (used for reset).
+func (s *OrderStore) DeletePaperOrders(traderID string) error {
+	return s.db.Where("trader_id = ? AND source = ?", traderID, "paper").Delete(&TraderOrder{}).Error
 }
