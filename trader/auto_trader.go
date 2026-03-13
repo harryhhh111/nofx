@@ -45,13 +45,13 @@ type AutoTraderConfig struct {
 	BybitSecretKey string
 
 	// OKX API configuration
-	OKXAPIKey    string
-	OKXSecretKey string
+	OKXAPIKey     string
+	OKXSecretKey  string
 	OKXPassphrase string
 
 	// Bitget API configuration
-	BitgetAPIKey    string
-	BitgetSecretKey string
+	BitgetAPIKey     string
+	BitgetSecretKey  string
 	BitgetPassphrase string
 
 	// Gate API configuration
@@ -59,8 +59,8 @@ type AutoTraderConfig struct {
 	GateSecretKey string
 
 	// KuCoin API configuration
-	KuCoinAPIKey    string
-	KuCoinSecretKey string
+	KuCoinAPIKey     string
+	KuCoinSecretKey  string
 	KuCoinPassphrase string
 
 	// Hyperliquid configuration
@@ -125,9 +125,9 @@ type AutoTrader struct {
 	config                AutoTraderConfig
 	trader                Trader // Use Trader interface (supports multiple platforms)
 	mcpClient             mcp.AIClient
-	store                 *store.Store             // Data storage (decision records, etc.)
+	store                 *store.Store           // Data storage (decision records, etc.)
 	strategyEngine        *kernel.StrategyEngine // Strategy engine (uses strategy configuration)
-	cycleNumber           int                      // Current cycle number
+	cycleNumber           int                    // Current cycle number
 	initialBalance        float64
 	dailyPnL              float64
 	customPrompt          string // Custom trading strategy prompt
@@ -244,6 +244,33 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		}
 		logger.Infof("📝 [%s] Paper trading mode enabled — using in-memory PaperExchange with %.2f USDT (no real funds)", config.Name, paperBalance)
 		trader = paper.NewPaperExchangeWithBalance(paperBalance)
+		// Restore OPEN positions and virtual balance from DB so that after restart,
+		// current positions and account total_pnl match position history.
+		if st != nil {
+			if pe, ok := trader.(*paper.PaperExchange); ok {
+				openPositions, err := st.Position().GetOpenPositions(config.ID)
+				if err == nil && len(openPositions) > 0 {
+					for _, pos := range openPositions {
+						qty := pos.Quantity
+						if pos.EntryQuantity > 0 {
+							qty = pos.EntryQuantity
+						}
+						if qty <= 0 {
+							continue
+						}
+						pe.RestorePosition(pos.Symbol, pos.Side, pos.EntryPrice, qty, pos.Leverage)
+					}
+					logger.Infof("📝 [%s] Restored %d open position(s) from DB into PaperExchange", config.Name, len(openPositions))
+				}
+				// Sync virtual balance = initial + sum(realized PnL from DB) so account API matches position history
+				fullStats, err := st.Position().GetFullStats(config.ID)
+				if err == nil && fullStats != nil {
+					restoredBalance := paperBalance + fullStats.TotalPnL
+					pe.SetVirtualBalance(restoredBalance)
+					logger.Infof("📝 [%s] Restored virtual balance to %.2f (initial %.2f + realized PnL %.2f from DB)", config.Name, restoredBalance, paperBalance, fullStats.TotalPnL)
+				}
+			}
+		}
 		// Skip exchange switch and jump straight to post-init
 		goto postExchangeInit
 	}
@@ -2347,22 +2374,22 @@ func (at *AutoTrader) recordOrderFill(orderRecordID int64, exchangeOrderID, symb
 	normalizedSymbol := market.Normalize(symbol)
 
 	fill := &store.TraderFill{
-		TraderID:         at.id,
-		ExchangeID:       at.exchangeID,
-		ExchangeType:     at.exchange,
-		OrderID:          orderRecordID,
-		ExchangeOrderID:  exchangeOrderID,
-		ExchangeTradeID:  tradeID,
-		Symbol:           normalizedSymbol,
-		Side:             side,
-		Price:            price,
-		Quantity:         quantity,
-		QuoteQuantity:    price * quantity,
-		Commission:       fee,
-		CommissionAsset:  "USDT",
-		RealizedPnL:      0, // Will be calculated for close orders
-		IsMaker:          false, // Market orders are usually taker
-		CreatedAt:        time.Now().UTC().UnixMilli(),
+		TraderID:        at.id,
+		ExchangeID:      at.exchangeID,
+		ExchangeType:    at.exchange,
+		OrderID:         orderRecordID,
+		ExchangeOrderID: exchangeOrderID,
+		ExchangeTradeID: tradeID,
+		Symbol:          normalizedSymbol,
+		Side:            side,
+		Price:           price,
+		Quantity:        quantity,
+		QuoteQuantity:   price * quantity,
+		Commission:      fee,
+		CommissionAsset: "USDT",
+		RealizedPnL:     0,     // Will be calculated for close orders
+		IsMaker:         false, // Market orders are usually taker
+		CreatedAt:       time.Now().UTC().UnixMilli(),
 	}
 
 	// Calculate realized PnL for close orders
@@ -2490,4 +2517,3 @@ func getSideFromAction(action string) string {
 func (at *AutoTrader) GetOpenOrders(symbol string) ([]OpenOrder, error) {
 	return at.trader.GetOpenOrders(symbol)
 }
-

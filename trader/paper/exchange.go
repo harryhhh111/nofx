@@ -117,6 +117,15 @@ func (p *PaperExchange) GetBalance() (map[string]interface{}, error) {
 	}, nil
 }
 
+// SetVirtualBalance sets the virtual balance (used when restoring from DB after restart,
+// so that account total_pnl matches position history realized PnL).
+func (p *PaperExchange) SetVirtualBalance(balance float64) {
+	p.mu.Lock()
+	p.virtualBalance = balance
+	p.mu.Unlock()
+	logger.Infof("[PaperExchange] Virtual balance set to %.2f USDT", balance)
+}
+
 // GetPositions returns all open paper positions with live unrealized PnL.
 func (p *PaperExchange) GetPositions() ([]map[string]interface{}, error) {
 	p.mu.Lock()
@@ -156,6 +165,34 @@ func (p *PaperExchange) GetPositions() ([]map[string]interface{}, error) {
 		})
 	}
 	return result, nil
+}
+
+// RestorePosition restores a position from DB into memory (used after service restart).
+// Does not call the market; entry price and quantity are taken from the persisted record.
+// If a position with the same symbol+side already exists, it is skipped to avoid duplicate.
+func (p *PaperExchange) RestorePosition(symbol, side string, entryPrice, quantity float64, leverage int) {
+	if quantity <= 0 {
+		return
+	}
+	side = strings.ToUpper(side)
+	if side != "LONG" && side != "SHORT" {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	key := posKey(symbol, side)
+	if _, ok := p.positions[key]; ok {
+		return // already present (e.g. from same run)
+	}
+	p.positions[key] = &paperPosition{
+		Symbol:     strings.ToUpper(symbol),
+		Side:       side,
+		EntryPrice: entryPrice,
+		Quantity:   quantity,
+		Leverage:   leverage,
+		OpenTime:   time.Now(),
+	}
+	logger.Infof("[PaperExchange] Restored position %s %s qty=%.4f entry=%.4f lev=%dx", symbol, side, quantity, entryPrice, leverage)
 }
 
 // OpenLong opens a simulated long position. If one already exists, quantity is added.
