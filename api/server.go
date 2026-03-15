@@ -2009,10 +2009,11 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 		}
 	}
 
-	// Validate exchange type
+	// Validate exchange type (paper = 模拟盘/虚拟交易所，无需 API Key)
 	validTypes := map[string]bool{
 		"binance": true, "bybit": true, "okx": true, "bitget": true,
 		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true,
+		"paper": true,
 	}
 	if !validTypes[req.ExchangeType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid exchange type: %s", req.ExchangeType)})
