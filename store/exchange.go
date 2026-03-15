@@ -176,6 +176,8 @@ func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 		return "Aster DEX", "dex"
 	case "lighter":
 		return "LIGHTER DEX", "dex"
+	case "paper":
+		return "Paper Trading", "paper"
 	default:
 		return exchangeType + " Exchange", "cex"
 	}
