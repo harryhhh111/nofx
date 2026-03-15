@@ -169,8 +169,8 @@ export function TraderConfigModal({
         scan_interval_minutes: formData.scan_interval_minutes,
       }
 
-      // 只在编辑模式时包含initial_balance
-      if (isEditMode && formData.initial_balance !== undefined) {
+      // Always include initial_balance so the backend can use it (especially for paper trading)
+      if (formData.initial_balance !== undefined && formData.initial_balance > 0) {
         saveData.initial_balance = formData.initial_balance
       }
 

@@ -594,6 +594,14 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		logger.Infof("⚠️ Exchange %s configuration not found, using user input for initial balance", req.ExchangeID)
 	} else if !exchangeCfg.Enabled {
 		logger.Infof("⚠️ Exchange %s not enabled, using user input for initial balance", req.ExchangeID)
+	} else if exchangeCfg.ExchangeType == "paper" {
+		// Paper trading: use user-provided initial balance directly (no exchange API to query)
+		if actualBalance <= 0 {
+			actualBalance = 10000.0 // default if user didn't specify
+			logger.Infof("[Paper] No initial balance provided, defaulting to %.2f USDT", actualBalance)
+		} else {
+			logger.Infof("[Paper] Using user-provided initial balance: %.2f USDT", actualBalance)
+		}
 	} else {
 		// Create temporary trader based on exchange type to query balance
 		var tempTrader trader.Trader

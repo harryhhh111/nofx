@@ -86,11 +86,12 @@ func (p *PaperTrader) GetBalance() (map[string]interface{}, error) {
 	totalEquity := cash + lockedMargin + unrealizedPnL
 
 	return map[string]interface{}{
-		"total_equity":      totalEquity,
-		"available_balance": cash,
-		"unrealized_pnl":    unrealizedPnL,
-		"margin_used":       lockedMargin,
-		"source":            paperSource,
+		// Use field names matching AutoTrader.GetAccountInfo() expectations
+		"totalEquity":           totalEquity,
+		"availableBalance":      cash,
+		"totalUnrealizedProfit": unrealizedPnL,
+		"margin_used":           lockedMargin,
+		"source":                paperSource,
 	}, nil
 }
 
@@ -126,17 +127,18 @@ func (p *PaperTrader) GetPositions() ([]map[string]interface{}, error) {
 		}
 
 		result = append(result, map[string]interface{}{
-			"symbol":          pos.Symbol,
-			"side":            pos.Side,
-			"positionSide":    pos.Side,
-			"entryPrice":      pos.EntryPrice,
-			"markPrice":       currentPrice,
-			"positionAmt":     pos.Quantity,
-			"unrealizedProfit": unrealizedPnL,
-			"pnlPct":          pnlPct,
-			"leverage":        pos.Leverage,
-			"marginUsed":      margin,
-			"source":          paperSource,
+			"symbol":           pos.Symbol,
+			"side":             pos.Side,
+			"positionSide":     pos.Side,
+			"entryPrice":       pos.EntryPrice,
+			"markPrice":        currentPrice,
+			"positionAmt":      pos.Quantity,
+			"unRealizedProfit": unrealizedPnL,   // camelCase to match AutoTrader.GetPositions()
+			"liquidationPrice": 0.0,              // no liquidation in paper trading
+			"pnlPct":           pnlPct,
+			"leverage":         float64(pos.Leverage), // float64 for type assertion compatibility
+			"marginUsed":       margin,
+			"source":           paperSource,
 		})
 	}
 
