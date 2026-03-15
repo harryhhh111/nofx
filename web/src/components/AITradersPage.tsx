@@ -773,7 +773,12 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           lighter_api_key_index: lighterApiKeyIndex || 0,
         }
 
-        await toast.promise(api.createExchangeEncrypted(createRequest), {
+        // Paper trading has no API keys — no need for encrypted transmission
+        const createFn = exchangeType === 'paper'
+          ? api.createExchange(createRequest)
+          : api.createExchangeEncrypted(createRequest)
+
+        await toast.promise(createFn, {
           loading: language === 'zh' ? '正在创建交易所账户…' : 'Creating exchange account...',
           success: language === 'zh' ? '交易所账户已创建' : 'Exchange account created',
           error: language === 'zh' ? '创建交易所账户失败' : 'Failed to create exchange account',

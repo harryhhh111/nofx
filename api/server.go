@@ -1981,31 +1981,39 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 			return
 		}
 	} else {
-		// Transport encryption enabled, require encrypted payload
-		var encryptedPayload crypto.EncryptedPayload
-		if err := json.Unmarshal(bodyBytes, &encryptedPayload); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format, encrypted transmission required"})
-			return
-		}
+		// Transport encryption enabled
+		// First try to detect if this is a plaintext paper trading request (no sensitive credentials)
+		var plainReq CreateExchangeRequest
+		if json.Unmarshal(bodyBytes, &plainReq) == nil && plainReq.ExchangeType == "paper" {
+			// Paper trading has no API keys — allow plaintext even when encryption is enabled
+			req = plainReq
+		} else {
+			// Require encrypted payload for all other exchange types
+			var encryptedPayload crypto.EncryptedPayload
+			if err := json.Unmarshal(bodyBytes, &encryptedPayload); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format, encrypted transmission required"})
+				return
+			}
 
-		if encryptedPayload.WrappedKey == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "This endpoint only supports encrypted transmission",
-				"code":    "ENCRYPTION_REQUIRED",
-				"message": "Encrypted transmission is required for security reasons",
-			})
-			return
-		}
+			if encryptedPayload.WrappedKey == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":   "This endpoint only supports encrypted transmission",
+					"code":    "ENCRYPTION_REQUIRED",
+					"message": "Encrypted transmission is required for security reasons",
+				})
+				return
+			}
 
-		decrypted, err := s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to decrypt data"})
-			return
-		}
+			decrypted, err := s.cryptoHandler.cryptoService.DecryptSensitiveData(&encryptedPayload)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to decrypt data"})
+				return
+			}
 
-		if err := json.Unmarshal([]byte(decrypted), &req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse decrypted data"})
-			return
+			if err := json.Unmarshal([]byte(decrypted), &req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to parse decrypted data"})
+				return
+			}
 		}
 	}
 
