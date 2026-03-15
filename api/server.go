@@ -2631,10 +2631,14 @@ func (s *Server) getKlinesFromCoinank(symbol, interval, exchange string, limit i
 			logger.Warnf("⚠️ CoinAnk free API doesn't support %s, falling back to Binance data", coinankExchange)
 			coinankKlines, err = coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, limit, coinankInterval)
 			if err != nil {
-				return nil, fmt.Errorf("coinank API error (fallback): %w", err)
+				// CoinAnk Binance fallback also failed — try direct Binance futures API
+				logger.Warnf("⚠️ CoinAnk Binance fallback failed (%v), trying direct Binance futures API", err)
+				return market.NewAPIClient().GetKlines(symbol, interval, limit)
 			}
 		} else {
-			return nil, fmt.Errorf("coinank API error: %w", err)
+			// CoinAnk Binance request failed — try direct Binance futures API
+			logger.Warnf("⚠️ CoinAnk Binance request failed (%v), trying direct Binance futures API", err)
+			return market.NewAPIClient().GetKlines(symbol, interval, limit)
 		}
 	}
 
