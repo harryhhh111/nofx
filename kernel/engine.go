@@ -1071,7 +1071,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
 		adjustedBTCETHLimit, accountEquity, btcEthPosValueRatio))
 	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
-	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
+	// 明确区分 BTC/ETH 与山寨币最小仓位，避免小本金时 AI 出 12~59 导致 BTC/ETH 被校验拒绝
+	sb.WriteString("- Min Position Size (CODE ENFORCED): BTC/ETH ≥60 USDT, Altcoins ≥12 USDT. For small accounts, use ≥60 for BTC/ETH or only open altcoins within limit.\n\n")
 
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",

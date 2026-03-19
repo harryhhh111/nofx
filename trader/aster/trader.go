@@ -1013,6 +1013,7 @@ func (t *AsterTrader) SetStopLoss(symbol string, positionSide string, quantity, 
 		"stopPrice":    priceStr,
 		"quantity":     qtyStr,
 		"timeInForce":  "GTC",
+		"reduceOnly":   "true", // 必须：仅平仓，否则触发时可能被当作开反向仓导致不平仓或拒单
 	}
 
 	_, err = t.request("POST", "/fapi/v3/order", params)
@@ -1054,6 +1055,7 @@ func (t *AsterTrader) SetTakeProfit(symbol string, positionSide string, quantity
 		"stopPrice":    priceStr,
 		"quantity":     qtyStr,
 		"timeInForce":  "GTC",
+		"reduceOnly":   "true", // 必须：仅平仓，否则触发时可能被当作开反向仓
 	}
 
 	_, err = t.request("POST", "/fapi/v3/order", params)
