@@ -16,14 +16,21 @@ const RISK_DEFAULTS: Partial<RiskControlConfig> = {
   min_stop_loss_distance_altcoin: 2.0,
 }
 
+/** Merge config with defaults — any zero/undefined/null value falls back to default */
 function withDefaults(config: RiskControlConfig): RiskControlConfig {
-  const result = { ...RISK_DEFAULTS } as Record<string, unknown>
-  for (const [key, value] of Object.entries(config)) {
-    if (value !== undefined && value !== null && value !== 0) {
-      result[key] = value
-    }
+  return {
+    max_positions: config.max_positions || RISK_DEFAULTS.max_positions!,
+    btc_eth_max_leverage: config.btc_eth_max_leverage || RISK_DEFAULTS.btc_eth_max_leverage!,
+    altcoin_max_leverage: config.altcoin_max_leverage || RISK_DEFAULTS.altcoin_max_leverage!,
+    btc_eth_max_position_value_ratio: config.btc_eth_max_position_value_ratio || RISK_DEFAULTS.btc_eth_max_position_value_ratio!,
+    altcoin_max_position_value_ratio: config.altcoin_max_position_value_ratio || RISK_DEFAULTS.altcoin_max_position_value_ratio!,
+    max_margin_usage: config.max_margin_usage || RISK_DEFAULTS.max_margin_usage!,
+    min_position_size: config.min_position_size || RISK_DEFAULTS.min_position_size!,
+    min_risk_reward_ratio: config.min_risk_reward_ratio || RISK_DEFAULTS.min_risk_reward_ratio!,
+    min_confidence: config.min_confidence || RISK_DEFAULTS.min_confidence!,
+    min_stop_loss_distance_btc_eth: config.min_stop_loss_distance_btc_eth || RISK_DEFAULTS.min_stop_loss_distance_btc_eth!,
+    min_stop_loss_distance_altcoin: config.min_stop_loss_distance_altcoin || RISK_DEFAULTS.min_stop_loss_distance_altcoin!,
   }
-  return result as RiskControlConfig
 }
 
 interface RiskControlEditorProps {
