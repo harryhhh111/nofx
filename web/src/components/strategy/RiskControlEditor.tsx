@@ -1,6 +1,31 @@
 import { Shield, AlertTriangle } from 'lucide-react'
 import type { RiskControlConfig } from '../../types'
 
+// Default values — must match backend store.GetDefaultStrategyConfig() and kernel.GetRiskControlConfig()
+const RISK_DEFAULTS: Partial<RiskControlConfig> = {
+  max_positions: 3,
+  btc_eth_max_leverage: 5,
+  altcoin_max_leverage: 5,
+  btc_eth_max_position_value_ratio: 5,
+  altcoin_max_position_value_ratio: 1,
+  max_margin_usage: 0.9,
+  min_position_size: 12,
+  min_risk_reward_ratio: 3,
+  min_confidence: 75,
+  min_stop_loss_distance_btc_eth: 1.5,
+  min_stop_loss_distance_altcoin: 2.0,
+}
+
+function withDefaults(config: RiskControlConfig): RiskControlConfig {
+  const result = { ...RISK_DEFAULTS } as Record<string, unknown>
+  for (const [key, value] of Object.entries(config)) {
+    if (value !== undefined && value !== null && value !== 0) {
+      result[key] = value
+    }
+  }
+  return result as RiskControlConfig
+}
+
 interface RiskControlEditorProps {
   config: RiskControlConfig
   onChange: (config: RiskControlConfig) => void
@@ -9,11 +34,12 @@ interface RiskControlEditorProps {
 }
 
 export function RiskControlEditor({
-  config,
+  config: rawConfig,
   onChange,
   disabled,
   language,
 }: RiskControlEditorProps) {
+  const config = withDefaults(rawConfig)
   const t = (key: string) => {
     const translations: Record<string, Record<string, string>> = {
       positionLimits: { zh: '仓位限制', en: 'Position Limits' },
@@ -42,6 +68,12 @@ export function RiskControlEditor({
       minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT' },
       minConfidence: { zh: '最小信心度', en: 'Min Confidence' },
       minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry' },
+      stopLossDistance: { zh: '最小止损距离（代码强制）', en: 'Min Stop Loss Distance (CODE ENFORCED)' },
+      stopLossDistanceDesc: { zh: '止损价与入场价的最小距离百分比，防止止损过近被扫', en: 'Min distance % between stop loss and entry, prevents tight stops from being swept' },
+      btcEthSLDist: { zh: 'BTC/ETH 止损距离', en: 'BTC/ETH SL Distance' },
+      btcEthSLDistDesc: { zh: 'BTC/ETH 最小止损距离百分比', en: 'BTC/ETH min stop loss distance %' },
+      altcoinSLDist: { zh: '山寨币止损距离', en: 'Altcoin SL Distance' },
+      altcoinSLDistDesc: { zh: '山寨币最小止损距离百分比', en: 'Altcoin min stop loss distance %' },
     }
     return translations[key]?.[language] || key
   }
@@ -79,7 +111,7 @@ export function RiskControlEditor({
             </p>
             <input
               type="number"
-              value={config.max_positions ?? 3}
+              value={config.max_positions}
               onChange={(e) =>
                 updateField('max_positions', parseInt(e.target.value) || 3)
               }
@@ -116,7 +148,7 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.btc_eth_max_leverage ?? 5}
+                value={config.btc_eth_max_leverage}
                 onChange={(e) =>
                   updateField('btc_eth_max_leverage', parseInt(e.target.value))
                 }
@@ -129,7 +161,7 @@ export function RiskControlEditor({
                 className="w-12 text-center font-mono"
                 style={{ color: '#F0B90B' }}
               >
-                {config.btc_eth_max_leverage ?? 5}x
+                {config.btc_eth_max_leverage}x
               </span>
             </div>
           </div>
@@ -147,7 +179,7 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.altcoin_max_leverage ?? 5}
+                value={config.altcoin_max_leverage}
                 onChange={(e) =>
                   updateField('altcoin_max_leverage', parseInt(e.target.value))
                 }
@@ -160,7 +192,7 @@ export function RiskControlEditor({
                 className="w-12 text-center font-mono"
                 style={{ color: '#F0B90B' }}
               >
-                {config.altcoin_max_leverage ?? 5}x
+                {config.altcoin_max_leverage}x
               </span>
             </div>
           </div>
@@ -189,7 +221,7 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.btc_eth_max_position_value_ratio ?? 5}
+                value={config.btc_eth_max_position_value_ratio}
                 onChange={(e) =>
                   updateField('btc_eth_max_position_value_ratio', parseFloat(e.target.value))
                 }
@@ -203,7 +235,7 @@ export function RiskControlEditor({
                 className="w-12 text-center font-mono"
                 style={{ color: '#0ECB81' }}
               >
-                {config.btc_eth_max_position_value_ratio ?? 5}x
+                {config.btc_eth_max_position_value_ratio}x
               </span>
             </div>
           </div>
@@ -221,7 +253,7 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.altcoin_max_position_value_ratio ?? 1}
+                value={config.altcoin_max_position_value_ratio}
                 onChange={(e) =>
                   updateField('altcoin_max_position_value_ratio', parseFloat(e.target.value))
                 }
@@ -235,7 +267,7 @@ export function RiskControlEditor({
                 className="w-12 text-center font-mono"
                 style={{ color: '#0ECB81' }}
               >
-                {config.altcoin_max_position_value_ratio ?? 1}x
+                {config.altcoin_max_position_value_ratio}x
               </span>
             </div>
           </div>
@@ -266,7 +298,7 @@ export function RiskControlEditor({
               <span style={{ color: '#848E9C' }}>1:</span>
               <input
                 type="number"
-                value={config.min_risk_reward_ratio ?? 3}
+                value={config.min_risk_reward_ratio}
                 onChange={(e) =>
                   updateField('min_risk_reward_ratio', parseFloat(e.target.value) || 3)
                 }
@@ -297,7 +329,7 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={(config.max_margin_usage ?? 0.9) * 100}
+                value={(config.max_margin_usage) * 100}
                 onChange={(e) =>
                   updateField('max_margin_usage', parseInt(e.target.value) / 100)
                 }
@@ -307,7 +339,7 @@ export function RiskControlEditor({
                 className="flex-1 accent-green-500"
               />
               <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
-                {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
+                {Math.round((config.max_margin_usage) * 100)}%
               </span>
             </div>
           </div>
@@ -337,7 +369,7 @@ export function RiskControlEditor({
             <div className="flex items-center">
               <input
                 type="number"
-                value={config.min_position_size ?? 12}
+                value={config.min_position_size}
                 onChange={(e) =>
                   updateField('min_position_size', parseFloat(e.target.value) || 12)
                 }
@@ -370,7 +402,7 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.min_confidence ?? 75}
+                value={config.min_confidence}
                 onChange={(e) =>
                   updateField('min_confidence', parseInt(e.target.value))
                 }
@@ -380,8 +412,87 @@ export function RiskControlEditor({
                 className="flex-1 accent-green-500"
               />
               <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
-                {config.min_confidence ?? 75}
+                {config.min_confidence}
               </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stop Loss Distance */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <AlertTriangle className="w-5 h-5" style={{ color: '#F6465D' }} />
+          <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+            {t('stopLossDistance')}
+          </h3>
+        </div>
+        <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
+          {t('stopLossDistanceDesc')}
+        </p>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #F6465D' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('btcEthSLDist')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('btcEthSLDistDesc')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={config.min_stop_loss_distance_btc_eth}
+                onChange={(e) =>
+                  updateField('min_stop_loss_distance_btc_eth', parseFloat(e.target.value) || 0)
+                }
+                disabled={disabled}
+                min={0}
+                max={10}
+                step={0.5}
+                className="w-20 px-3 py-2 rounded"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span style={{ color: '#F6465D' }}>%</span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #F6465D' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {t('altcoinSLDist')}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {t('altcoinSLDistDesc')}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={config.min_stop_loss_distance_altcoin}
+                onChange={(e) =>
+                  updateField('min_stop_loss_distance_altcoin', parseFloat(e.target.value) || 0)
+                }
+                disabled={disabled}
+                min={0}
+                max={10}
+                step={0.5}
+                className="w-20 px-3 py-2 rounded"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              />
+              <span style={{ color: '#F6465D' }}>%</span>
             </div>
           </div>
         </div>
