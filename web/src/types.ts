@@ -611,6 +611,10 @@ export interface RiskControlConfig {
   min_position_size: number;       // Min position size in USDT (CODE ENFORCED)
   min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
   min_confidence: number;          // Min AI confidence to open position (AI guided)
+
+  // Min stop loss distance % from entry (CODE ENFORCED)
+  min_stop_loss_distance_btc_eth: number;   // BTC/ETH min stop loss distance %
+  min_stop_loss_distance_altcoin: number;   // Altcoin min stop loss distance %
 }
 
 // Debate Arena Types

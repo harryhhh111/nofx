@@ -255,9 +255,19 @@ func NewStrategyEngine(config *store.StrategyConfig) *StrategyEngine {
 	}
 }
 
-// GetRiskControlConfig gets risk control configuration
+// GetRiskControlConfig gets risk control configuration with defaults for zero values.
+// Zero means "not configured" (use defaults); negative means "disabled".
 func (e *StrategyEngine) GetRiskControlConfig() store.RiskControlConfig {
-	return e.config.RiskControl
+	rc := e.config.RiskControl
+	// Apply defaults for new fields that may be zero in existing configs
+	// Negative values explicitly disable the check (kept as-is)
+	if rc.MinStopLossDistanceBTCETH == 0 {
+		rc.MinStopLossDistanceBTCETH = 1.5
+	}
+	if rc.MinStopLossDistanceAltcoin == 0 {
+		rc.MinStopLossDistanceAltcoin = 2.0
+	}
+	return rc
 }
 
 // GetLanguage returns the language from config or falls back to auto-detection
@@ -338,7 +348,15 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		return nil, fmt.Errorf("AI API call failed: %w", err)
 	}
 
-	// 5. Parse AI response
+	// 5. Build current prices map for stop loss distance validation
+	currentPrices := make(map[string]float64)
+	for symbol, md := range ctx.MarketDataMap {
+		if md != nil && md.CurrentPrice > 0 {
+			currentPrices[symbol] = md.CurrentPrice
+		}
+	}
+
+	// 6. Parse AI response
 	decision, err := parseFullDecisionResponse(
 		aiResponse,
 		ctx.Account.TotalEquity,
@@ -346,6 +364,9 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.AltcoinMaxLeverage,
 		riskConfig.BTCETHMaxPositionValueRatio,
 		riskConfig.AltcoinMaxPositionValueRatio,
+		riskConfig.MinStopLossDistanceBTCETH,
+		riskConfig.MinStopLossDistanceAltcoin,
+		currentPrices,
 	)
 
 	// 5b. Retry once with error feedback when decision validation fails
@@ -364,6 +385,9 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 				riskConfig.AltcoinMaxLeverage,
 				riskConfig.BTCETHMaxPositionValueRatio,
 				riskConfig.AltcoinMaxPositionValueRatio,
+				riskConfig.MinStopLossDistanceBTCETH,
+				riskConfig.MinStopLossDistanceAltcoin,
+				currentPrices,
 			)
 			if retryParseErr == nil {
 				logger.Infof("✅ Retry succeeded after feedback correction")
@@ -1078,6 +1102,10 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
 	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f (take_profit / stop_loss)\n", riskControl.MinRiskRewardRatio))
+	if riskControl.MinStopLossDistanceBTCETH > 0 || riskControl.MinStopLossDistanceAltcoin > 0 {
+		sb.WriteString(fmt.Sprintf("- Min Stop Loss Distance: BTC/ETH ≥%.1f%% | Altcoins ≥%.1f%% from entry (too-tight stops get swept by normal volatility)\n",
+			riskControl.MinStopLossDistanceBTCETH, riskControl.MinStopLossDistanceAltcoin))
+	}
 	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
 
 	// Position sizing guidance
@@ -1843,7 +1871,7 @@ func formatFloatSlice(values []float64) string {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, currentPrices map[string]float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
@@ -1856,7 +1884,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
+	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minSLDistBTCETH, minSLDistAltcoin, currentPrices); err != nil {
 		return &FullDecision{
 			CoTTrace:   cotTrace,
 			CoTSummary: cotSummary,
@@ -2053,16 +2081,16 @@ func compactArrayOpen(s string) string {
 // Decision Validation
 // ============================================================================
 
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, currentPrices map[string]float64) error {
 	for i := range decisions {
-		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
+		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minSLDistBTCETH, minSLDistAltcoin, currentPrices); err != nil {
 			return fmt.Errorf("decision #%d validation failed: %w", i+1, err)
 		}
 	}
 	return nil
 }
 
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) error {
+func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, currentPrices map[string]float64) error {
 	validActions := map[string]bool{
 		"open_long":   true,
 		"open_short":  true,
@@ -2158,6 +2186,33 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if riskRewardRatio < 3.0 {
 			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥3.0:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
 				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
+		}
+
+		// Minimum stop loss distance check: prevent stop losses too close to current price
+		var minStopLossDistancePct float64
+		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
+			minStopLossDistancePct = minSLDistBTCETH
+		} else {
+			minStopLossDistancePct = minSLDistAltcoin
+		}
+		if minStopLossDistancePct > 0 {
+			// Use actual current price if available, otherwise fall back to SL/TP midpoint
+			refPrice := (d.StopLoss + d.TakeProfit) / 2
+			if currentPrices != nil {
+				if cp, ok := currentPrices[d.Symbol]; ok && cp > 0 {
+					refPrice = cp
+				}
+			}
+			var slDistPct float64
+			if d.Action == "open_long" {
+				slDistPct = (refPrice - d.StopLoss) / refPrice * 100
+			} else {
+				slDistPct = (d.StopLoss - refPrice) / refPrice * 100
+			}
+			if slDistPct < minStopLossDistancePct {
+				return fmt.Errorf("stop loss too close to entry (%.2f%%), must be ≥%.1f%% for %s [current: %.2f stop loss: %.2f take profit: %.2f]",
+					slDistPct, minStopLossDistancePct, d.Symbol, refPrice, d.StopLoss, d.TakeProfit)
+			}
 		}
 	}
 
