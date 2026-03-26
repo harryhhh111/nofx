@@ -228,11 +228,6 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
-
-	// Min stop loss distance % from entry for BTC/ETH (CODE ENFORCED, default: 1.5)
-	MinStopLossDistanceBTCETH float64 `json:"min_stop_loss_distance_btc_eth"`
-	// Min stop loss distance % from entry for altcoins (CODE ENFORCED, default: 2.0)
-	MinStopLossDistanceAltcoin float64 `json:"min_stop_loss_distance_altcoin"`
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -320,8 +315,6 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinPositionSize:                 12,  // Min 12 USDT per position (CODE ENFORCED)
 			MinRiskRewardRatio:              3.0, // Min 3:1 profit/loss ratio (AI guided)
 			MinConfidence:                   75,  // Min 75% confidence (AI guided)
-			MinStopLossDistanceBTCETH:       1.5, // BTC/ETH min stop loss distance % (CODE ENFORCED)
-			MinStopLossDistanceAltcoin:      2.0, // Altcoin min stop loss distance % (CODE ENFORCED)
 		},
 	}
 

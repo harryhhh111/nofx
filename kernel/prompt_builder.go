@@ -193,7 +193,6 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 ### Risk First
 - Margin usage must not exceed 30%
 - Must stop-loss when single position loss reaches -5%
-- **Stop loss distance**: Do NOT set stop loss too close to entry price. Too-tight stops get swept by normal volatility
 - Capital protection first, profit second
 
 ### Trailing Take-Profit
