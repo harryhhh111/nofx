@@ -124,7 +124,17 @@ export function TraderConfigModal({
   if (!isOpen) return null
 
   const handleInputChange = (field: keyof FormState, value: any) => {
-    setFormData((prev) => ({ ...prev, [field]: value }))
+    setFormData((prev) => {
+      const next = { ...prev, [field]: value }
+      // Auto-enable paper mode when a paper exchange is selected
+      if (field === 'exchange_id' && !isEditMode) {
+        const selectedEx = availableExchanges.find(e => e.id === value)
+        if (selectedEx?.exchange_type === 'paper') {
+          next.is_paper_mode = true
+        }
+      }
+      return next
+    })
   }
 
   const handleFetchCurrentBalance = async () => {
@@ -325,56 +335,65 @@ export function TraderConfigModal({
               <label className="text-sm text-[#EAECEF] block mb-2">
                 {t('tradingMode', language)}
               </label>
-              {isEditMode ? (
-                /* Edit mode: read-only badge, cannot switch to avoid accidental real-fund exposure */
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`px-3 py-1.5 rounded text-sm font-medium ${
-                      formData.is_paper_mode
-                        ? 'bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/40'
-                        : 'bg-[#F0B90B]/20 text-[#F0B90B] border border-[#F0B90B]/40'
-                    }`}
-                  >
-                    {formData.is_paper_mode ? t('paperTrading', language) : t('realTrading', language)}
-                  </span>
-                  <span className="text-xs text-[#848E9C]">
-                    {language === 'zh' ? '交易模式创建后不可更改' : 'Trading mode cannot be changed after creation'}
-                  </span>
-                </div>
-              ) : (
-                /* Create mode: interactive toggle */
-                <>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleInputChange('is_paper_mode', false)}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${
-                        !formData.is_paper_mode
-                          ? 'bg-[#F0B90B] text-black'
-                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
-                      }`}
-                    >
-                      {t('realTrading', language)}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInputChange('is_paper_mode', true)}
-                      className={`flex-1 px-3 py-2 rounded text-sm ${
-                        formData.is_paper_mode
-                          ? 'bg-[#3B82F6] text-white'
-                          : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
-                      }`}
-                    >
-                      {t('paperTrading', language)}
-                    </button>
-                  </div>
-                  {formData.is_paper_mode && (
-                    <p className="text-xs text-[#3B82F6] mt-1">
-                      {t('paperTradingHint', language)}
-                    </p>
-                  )}
-                </>
-              )}
+              {(() => {
+                const isPaperExchange = availableExchanges.find(e => e.id === formData.exchange_id)?.exchange_type === 'paper'
+                const isLocked = isEditMode || isPaperExchange
+
+                if (isLocked) {
+                  return (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-3 py-1.5 rounded text-sm font-medium ${
+                          formData.is_paper_mode
+                            ? 'bg-[#3B82F6]/20 text-[#3B82F6] border border-[#3B82F6]/40'
+                            : 'bg-[#F0B90B]/20 text-[#F0B90B] border border-[#F0B90B]/40'
+                        }`}
+                      >
+                        {formData.is_paper_mode ? t('paperTrading', language) : t('realTrading', language)}
+                      </span>
+                      <span className="text-xs text-[#848E9C]">
+                        {isPaperExchange
+                          ? (language === 'zh' ? '模拟盘交易所自动启用模拟模式' : 'Paper exchange enables paper mode automatically')
+                          : (language === 'zh' ? '交易模式创建后不可更改' : 'Trading mode cannot be changed after creation')}
+                      </span>
+                    </div>
+                  )
+                }
+
+                return (
+                  <>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleInputChange('is_paper_mode', false)}
+                        className={`flex-1 px-3 py-2 rounded text-sm ${
+                          !formData.is_paper_mode
+                            ? 'bg-[#F0B90B] text-black'
+                            : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                        }`}
+                      >
+                        {t('realTrading', language)}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInputChange('is_paper_mode', true)}
+                        className={`flex-1 px-3 py-2 rounded text-sm ${
+                          formData.is_paper_mode
+                            ? 'bg-[#3B82F6] text-white'
+                            : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                        }`}
+                      >
+                        {t('paperTrading', language)}
+                      </button>
+                    </div>
+                    {formData.is_paper_mode && (
+                      <p className="text-xs text-[#3B82F6] mt-1">
+                        {t('paperTradingHint', language)}
+                      </p>
+                    )}
+                  </>
+                )
+              })()}
             </div>
           </div>
 

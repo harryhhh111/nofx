@@ -573,6 +573,18 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		scanIntervalMinutes = 3 // Default 3 minutes, not allowed to be less than 3
 	}
 
+	// Auto-detect paper mode: if the selected exchange is type "paper", force paper mode
+	exchanges, err := s.store.Exchange().List(userID)
+	if err != nil {
+		logger.Infof("⚠️ Failed to get exchange config: %v", err)
+	}
+	for _, ex := range exchanges {
+		if ex.ID == req.ExchangeID && ex.ExchangeType == "paper" {
+			req.IsPaperMode = true
+			break
+		}
+	}
+
 	// For paper trading mode, skip real exchange balance query and use virtual balance
 	if req.IsPaperMode {
 		logger.Infof("📝 Paper mode trader creation — skipping exchange balance query, using virtual balance 10000 USDT")
@@ -583,10 +595,6 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	// Query exchange actual balance, override user input
 	actualBalance := req.InitialBalance // Default to use user input
-	exchanges, err := s.store.Exchange().List(userID)
-	if err != nil {
-		logger.Infof("⚠️ Failed to get exchange config, using user input for initial balance: %v", err)
-	}
 
 	// Find matching exchange configuration
 	var exchangeCfg *store.Exchange
@@ -2025,6 +2033,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 	validTypes := map[string]bool{
 		"binance": true, "bybit": true, "okx": true, "bitget": true,
 		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true,
+		"paper": true,
 	}
 	if !validTypes[req.ExchangeType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid exchange type: %s", req.ExchangeType)})
@@ -3464,6 +3473,7 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 	// Return static list of supported exchange types
 	// Note: ID is empty for supported exchanges (they are templates, not actual accounts)
 	supportedExchanges := []SafeExchangeConfig{
+		{ExchangeType: "paper", Name: "Paper Trading", Type: "paper"},
 		{ExchangeType: "binance", Name: "Binance Futures", Type: "cex"},
 		{ExchangeType: "bybit", Name: "Bybit Futures", Type: "cex"},
 		{ExchangeType: "okx", Name: "OKX Futures", Type: "cex"},
