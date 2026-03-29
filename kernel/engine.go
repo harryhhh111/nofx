@@ -262,10 +262,10 @@ func (e *StrategyEngine) GetRiskControlConfig() store.RiskControlConfig {
 	// Apply defaults for new fields that may be zero in existing configs
 	// Negative values explicitly disable the check (kept as-is)
 	if rc.MinStopLossDistanceBTCETH == 0 {
-		rc.MinStopLossDistanceBTCETH = 1.5
+		rc.MinStopLossDistanceBTCETH = 3.0
 	}
 	if rc.MinStopLossDistanceAltcoin == 0 {
-		rc.MinStopLossDistanceAltcoin = 2.0
+		rc.MinStopLossDistanceAltcoin = 4.0
 	}
 	return rc
 }

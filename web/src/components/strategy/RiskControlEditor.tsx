@@ -12,8 +12,8 @@ const RISK_DEFAULTS: Partial<RiskControlConfig> = {
   min_position_size: 12,
   min_risk_reward_ratio: 3,
   min_confidence: 75,
-  min_stop_loss_distance_btc_eth: 1.5,
-  min_stop_loss_distance_altcoin: 2.0,
+  min_stop_loss_distance_btc_eth: 3.0,
+  min_stop_loss_distance_altcoin: 4.0,
 }
 
 /** Merge config with defaults — any zero/undefined/null value falls back to default */
