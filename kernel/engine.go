@@ -262,10 +262,13 @@ func (e *StrategyEngine) GetRiskControlConfig() store.RiskControlConfig {
 	// Apply defaults for new fields that may be zero in existing configs
 	// Negative values explicitly disable the check (kept as-is)
 	if rc.MinStopLossDistanceBTCETH == 0 {
-		rc.MinStopLossDistanceBTCETH = 3.0
+		rc.MinStopLossDistanceBTCETH = 1.5
 	}
 	if rc.MinStopLossDistanceAltcoin == 0 {
-		rc.MinStopLossDistanceAltcoin = 4.0
+		rc.MinStopLossDistanceAltcoin = 2.5
+	}
+	if rc.MinRiskRewardRatio == 0 {
+		rc.MinRiskRewardRatio = 2.0
 	}
 	return rc
 }
@@ -366,6 +369,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.AltcoinMaxPositionValueRatio,
 		riskConfig.MinStopLossDistanceBTCETH,
 		riskConfig.MinStopLossDistanceAltcoin,
+		riskConfig.MinRiskRewardRatio,
 		currentPrices,
 	)
 
@@ -387,6 +391,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 				riskConfig.AltcoinMaxPositionValueRatio,
 				riskConfig.MinStopLossDistanceBTCETH,
 				riskConfig.MinStopLossDistanceAltcoin,
+				riskConfig.MinRiskRewardRatio,
 				currentPrices,
 			)
 			if retryParseErr == nil {
@@ -1871,7 +1876,7 @@ func formatFloatSlice(values []float64) string {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, currentPrices map[string]float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, minRiskRewardRatio float64, currentPrices map[string]float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
@@ -1884,7 +1889,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minSLDistBTCETH, minSLDistAltcoin, currentPrices); err != nil {
+	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minSLDistBTCETH, minSLDistAltcoin, minRiskRewardRatio, currentPrices); err != nil {
 		return &FullDecision{
 			CoTTrace:   cotTrace,
 			CoTSummary: cotSummary,
@@ -2081,16 +2086,16 @@ func compactArrayOpen(s string) string {
 // Decision Validation
 // ============================================================================
 
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, currentPrices map[string]float64) error {
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, minRiskRewardRatio float64, currentPrices map[string]float64) error {
 	for i := range decisions {
-		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minSLDistBTCETH, minSLDistAltcoin, currentPrices); err != nil {
+		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minSLDistBTCETH, minSLDistAltcoin, minRiskRewardRatio, currentPrices); err != nil {
 			return fmt.Errorf("decision #%d validation failed: %w", i+1, err)
 		}
 	}
 	return nil
 }
 
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, currentPrices map[string]float64) error {
+func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64, minSLDistBTCETH, minSLDistAltcoin float64, minRiskRewardRatio float64, currentPrices map[string]float64) error {
 	validActions := map[string]bool{
 		"open_long":   true,
 		"open_short":  true,
@@ -2183,9 +2188,9 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			}
 		}
 
-		if riskRewardRatio < 3.0 {
-			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥3.0:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
-				riskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
+		if minRiskRewardRatio > 0 && riskRewardRatio < minRiskRewardRatio {
+			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 [risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
+				riskRewardRatio, minRiskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
 
 		// Minimum stop loss distance check: prevent stop losses too close to current price
