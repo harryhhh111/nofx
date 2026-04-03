@@ -338,6 +338,16 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// 2. Build System Prompt using strategy engine
 	riskConfig := engine.GetRiskControlConfig()
+
+	// Adjust risk parameters based on trading mode
+	switch strings.ToLower(strings.TrimSpace(variant)) {
+	case "aggressive":
+		riskConfig.MinRiskRewardRatio = 1.5
+	case "conservative":
+		riskConfig.MinRiskRewardRatio = 2.5
+	// balanced / scalping: use config default
+	}
+
 	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant, ctx.TradingStats)
 
 	// 3. Build User Prompt using strategy engine
@@ -1067,11 +1077,51 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	// 2. Trading mode variant
 	switch strings.ToLower(strings.TrimSpace(variant)) {
 	case "aggressive":
-		sb.WriteString("## Mode: Aggressive\n- Prioritize capturing trend breakouts, can build positions in batches when confidence ≥ 70\n- Allow higher positions, but must strictly set stop-loss and explain risk-reward ratio\n\n")
+		sb.WriteString("## Mode: Aggressive — Maximize Opportunity Capture\n")
+		sb.WriteString("**Trading Philosophy:** Act decisively when you see setups. Missing a good trade is worse than taking a slightly imperfect one.\n")
+		sb.WriteString("- Actively seek breakout and momentum entries. You don't need perfect confirmation — one strong signal with supporting context is enough.\n")
+		sb.WriteString("- **Entry timing matters**: Enter at pullbacks to support, breakout retests, or key structure levels — NOT at the middle of a range. Good entries make tight stops safe.\n")
+		sb.WriteString("- Place stop loss just below the nearest structure level (swing low for longs, swing high for shorts). Use ATR as a minimum distance reference.\n")
+		sb.WriteString("- Target risk-reward ≥1.5:1. Quick, high-probability trades with moderate targets are ideal.\n")
+		sb.WriteString("- Confidence threshold: ≥60 is sufficient to open positions.\n")
+		sb.WriteString("- You may use up to the full position size limit. Favor larger positions on high-conviction setups.\n")
+		sb.WriteString("- If the market has ANY directional bias, you should be looking for entries, not reasons to stay out.\n\n")
 	case "conservative":
-		sb.WriteString("## Mode: Conservative\n- Only open positions when multiple signals resonate\n- Prioritize cash preservation, must pause for multiple periods after consecutive losses\n\n")
+		sb.WriteString("## Mode: Conservative — Capital Preservation First\n")
+		sb.WriteString("**Trading Philosophy:** Protect capital above all. Only trade when the setup is near-perfect.\n")
+		sb.WriteString("- Require multiple confirming signals across timeframes before entering (trend + momentum + volume/OI alignment).\n")
+		sb.WriteString("- Use wider stop losses (≥1.5x ATR) to avoid being stopped out by noise.\n")
+		sb.WriteString("- Target risk-reward ≥2.5:1. Only take trades with significant upside potential.\n")
+		sb.WriteString("- Confidence threshold: ≥80. If you're not highly confident, wait.\n")
+		sb.WriteString("- Use conservative position sizing: 50-70%% of maximum allowed.\n")
+		sb.WriteString("- After consecutive losses, reduce position sizes further or pause trading.\n")
+		sb.WriteString("- When in doubt, the correct action is WAIT. Cash is a position.\n\n")
 	case "scalping":
-		sb.WriteString("## Mode: Scalping\n- Focus on short-term momentum, smaller profit targets but require quick action\n- If price doesn't move as expected within two bars, immediately reduce position or stop-loss\n\n")
+		sb.WriteString("## Mode: Scalping\n")
+		sb.WriteString("- Focus on short-term momentum, smaller profit targets but require quick action.\n")
+		sb.WriteString("- If price doesn't move as expected within two bars, immediately reduce position or stop-loss.\n\n")
+	default: // balanced
+		sb.WriteString("## Mode: Balanced — Disciplined Opportunism\n")
+		sb.WriteString("**Trading Philosophy:** Trade when the odds are in your favor, but don't force it.\n")
+		sb.WriteString("- Look for clear setups with at least 2 confirming signals (e.g., trend direction + momentum, or structure + volume).\n")
+		sb.WriteString("- Set stop losses at logical technical levels using market structure and ATR as reference.\n")
+		sb.WriteString("- Target risk-reward ≥2:1. Good setups with reasonable targets.\n")
+		sb.WriteString("- Confidence threshold: ≥70 to open positions.\n")
+		sb.WriteString("- Use moderate position sizing: 60-80%% of maximum allowed.\n")
+		sb.WriteString("- Balance between capturing opportunities and managing risk.\n\n")
+	}
+
+	// Adjust confidence threshold based on trading mode
+	modeConfidence := riskControl.MinConfidence
+	switch strings.ToLower(strings.TrimSpace(variant)) {
+	case "aggressive":
+		if modeConfidence > 60 {
+			modeConfidence = 60
+		}
+	case "conservative":
+		if modeConfidence < 80 {
+			modeConfidence = 80
+		}
 	}
 
 	// 3. Hard constraints (risk control)
@@ -1103,15 +1153,11 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	// 明确区分 BTC/ETH 与山寨币最小仓位，避免小本金时 AI 出 12~59 导致 BTC/ETH 被校验拒绝
 	sb.WriteString("- Min Position Size (CODE ENFORCED): BTC/ETH ≥60 USDT, Altcoins ≥12 USDT. For small accounts, use ≥60 for BTC/ETH or only open altcoins within limit.\n\n")
 
-	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
+	sb.WriteString("## AI GUIDED (Recommended):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
-	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f (take_profit / stop_loss)\n", riskControl.MinRiskRewardRatio))
-	if riskControl.MinStopLossDistanceBTCETH > 0 || riskControl.MinStopLossDistanceAltcoin > 0 {
-		sb.WriteString(fmt.Sprintf("- Min Stop Loss Distance: BTC/ETH ≥%.1f%% | Altcoins ≥%.1f%% from entry (too-tight stops get swept by normal volatility)\n",
-			riskControl.MinStopLossDistanceBTCETH, riskControl.MinStopLossDistanceAltcoin))
-	}
-	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
+	sb.WriteString("- Stop Loss & Take Profit: Set based on market structure (support/resistance levels, ATR as volatility reference). The system will validate risk-reward ratio.\n")
+	sb.WriteString("- Focus on your market analysis. The backend enforces risk limits — your job is to find good setups.\n\n")
 
 	// Position sizing guidance
 	sb.WriteString("## Position Sizing Guidance\n")
@@ -1123,29 +1169,58 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		accountEquity, btcEthPosValueRatio, adjustedBTCETHLimit))
 	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
 
-	// 4. Trading frequency (editable)
+	// 4. Trading frequency (editable, mode-aware)
 	if promptSections.TradingFrequency != "" {
 		sb.WriteString(promptSections.TradingFrequency)
 		sb.WriteString("\n\n")
 	} else {
 		sb.WriteString("# ⏱️ Trading Frequency Awareness\n\n")
-		sb.WriteString("- Excellent traders: 2-4 trades/day ≈ 0.1-0.2 trades/hour\n")
-		sb.WriteString("- >2 trades/hour = Overtrading\n")
-		sb.WriteString("- Single position hold time ≥ 30-60 minutes\n")
-		sb.WriteString("If you find yourself trading every period → standards too low; if closing positions < 30 minutes → too impatient.\n\n")
+		switch strings.ToLower(strings.TrimSpace(variant)) {
+		case "aggressive":
+			sb.WriteString("- Active trading is expected. 4-8 trades/day is reasonable for this mode.\n")
+			sb.WriteString("- Position hold time ≥ 15 minutes minimum.\n")
+			sb.WriteString("- Quick entries and exits are fine when the setup is clear.\n\n")
+		case "conservative":
+			sb.WriteString("- Quality over quantity. 1-2 trades/day maximum.\n")
+			sb.WriteString("- >1 trade/hour = Overtrading for conservative mode.\n")
+			sb.WriteString("- Single position hold time ≥ 1-4 hours. Be patient.\n")
+			sb.WriteString("- If no high-conviction setup exists, trading zero times today is perfectly acceptable.\n\n")
+		default: // balanced
+			sb.WriteString("- Target: 2-4 trades/day ≈ 0.1-0.2 trades/hour.\n")
+			sb.WriteString("- >2 trades/hour = Overtrading.\n")
+			sb.WriteString("- Single position hold time ≥ 30-60 minutes.\n\n")
+		}
 	}
 
-	// 5. Entry standards (editable)
+	// 5. Entry standards (editable, mode-aware)
 	if promptSections.EntryStandards != "" {
 		sb.WriteString(promptSections.EntryStandards)
 		sb.WriteString("\n\nYou have the following indicator data:\n")
 		e.writeAvailableIndicators(&sb)
-		sb.WriteString(fmt.Sprintf("\n**Confidence ≥ %d** required to open positions.\n\n", riskControl.MinConfidence))
+		sb.WriteString(fmt.Sprintf("\n**Confidence ≥ %d** required to open positions.\n\n", modeConfidence))
 	} else {
-		sb.WriteString("# 🎯 Entry Standards (Strict)\n\n")
-		sb.WriteString("Only open positions when multiple signals resonate. You have:\n")
-		e.writeAvailableIndicators(&sb)
-		sb.WriteString(fmt.Sprintf("\nFeel free to use any effective analysis method, but **confidence ≥ %d** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.\n\n", riskControl.MinConfidence))
+		switch strings.ToLower(strings.TrimSpace(variant)) {
+		case "aggressive":
+			sb.WriteString("# 🎯 Entry Standards — Opportunity-Driven\n\n")
+			sb.WriteString("Look for actionable setups. One strong signal with supporting context is enough. You have:\n")
+			e.writeAvailableIndicators(&sb)
+			sb.WriteString(fmt.Sprintf("\nUse any effective analysis method. **Confidence ≥ %d** required to open positions. "+
+				"Do not over-filter — sideways consolidation with a directional lean is tradable. "+
+				"Avoid only: pure noise with zero directional evidence.\n\n", modeConfidence))
+		case "conservative":
+			sb.WriteString("# 🎯 Entry Standards — High Conviction Only\n\n")
+			sb.WriteString("Only open positions when multiple signals strongly align across timeframes. You have:\n")
+			e.writeAvailableIndicators(&sb)
+			sb.WriteString(fmt.Sprintf("\nRequire trend + momentum + volume/OI confirmation. **Confidence ≥ %d** required to open positions. "+
+				"Avoid: single-indicator entries, contradictory signals, unclear structure, sideways consolidation, "+
+				"reopening immediately after closing. When uncertain, WAIT.\n\n", modeConfidence))
+		default: // balanced
+			sb.WriteString("# 🎯 Entry Standards\n\n")
+			sb.WriteString("Open positions when clear setups emerge with at least 2 confirming signals. You have:\n")
+			e.writeAvailableIndicators(&sb)
+			sb.WriteString(fmt.Sprintf("\nUse any effective analysis method, but **confidence ≥ %d** required to open positions. "+
+				"Avoid low-quality entries: single indicators, contradictory signals, or reopening immediately after closing.\n\n", modeConfidence))
+		}
 	}
 
 	// 6. Decision process (editable)
@@ -2166,11 +2241,19 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			}
 		}
 
+		// Use actual current price as entry price reference; fall back to 20% estimate
 		var entryPrice float64
-		if d.Action == "open_long" {
-			entryPrice = d.StopLoss + (d.TakeProfit-d.StopLoss)*0.2
-		} else {
-			entryPrice = d.StopLoss - (d.StopLoss-d.TakeProfit)*0.2
+		if currentPrices != nil {
+			if cp, ok := currentPrices[d.Symbol]; ok && cp > 0 {
+				entryPrice = cp
+			}
+		}
+		if entryPrice == 0 {
+			if d.Action == "open_long" {
+				entryPrice = d.StopLoss + (d.TakeProfit-d.StopLoss)*0.2
+			} else {
+				entryPrice = d.StopLoss - (d.StopLoss-d.TakeProfit)*0.2
+			}
 		}
 
 		var riskPercent, rewardPercent, riskRewardRatio float64
@@ -2193,7 +2276,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 				riskRewardRatio, minRiskRewardRatio, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
 		}
 
-		// Minimum stop loss distance check: prevent stop losses too close to current price
+		// Minimum stop loss distance: soft warning only (AI GUIDED, not code enforced)
 		var minStopLossDistancePct float64
 		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
 			minStopLossDistancePct = minSLDistBTCETH
@@ -2201,7 +2284,6 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			minStopLossDistancePct = minSLDistAltcoin
 		}
 		if minStopLossDistancePct > 0 {
-			// Use actual current price if available, otherwise fall back to SL/TP midpoint
 			refPrice := (d.StopLoss + d.TakeProfit) / 2
 			if currentPrices != nil {
 				if cp, ok := currentPrices[d.Symbol]; ok && cp > 0 {
@@ -2215,8 +2297,8 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 				slDistPct = (d.StopLoss - refPrice) / refPrice * 100
 			}
 			if slDistPct < minStopLossDistancePct {
-				return fmt.Errorf("stop loss too close to entry (%.2f%%), must be ≥%.1f%% for %s [current: %.2f stop loss: %.2f take profit: %.2f]",
-					slDistPct, minStopLossDistancePct, d.Symbol, refPrice, d.StopLoss, d.TakeProfit)
+				logger.Warnf("⚠️ Stop loss distance (%.2f%%) below recommended %.1f%% for %s [current: %.2f stop loss: %.2f]",
+					slDistPct, minStopLossDistancePct, d.Symbol, refPrice, d.StopLoss)
 			}
 		}
 	}

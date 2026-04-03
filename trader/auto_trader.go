@@ -668,8 +668,12 @@ func (at *AutoTrader) runCycle() error {
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
 	// 5. Use strategy engine to call AI for decision
-	logger.Infof("🤖 Requesting AI analysis and decision... [Strategy Engine]")
-	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced")
+	variant := "balanced"
+	if cfg := at.strategyEngine.GetConfig(); cfg != nil && cfg.PromptVariant != "" {
+		variant = cfg.PromptVariant
+	}
+	logger.Infof("🤖 Requesting AI analysis and decision... [Strategy Engine] [Mode: %s]", variant)
+	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, variant)
 
 	if aiDecision != nil && aiDecision.AIRequestDurationMs > 0 {
 		record.AIRequestDurationMs = aiDecision.AIRequestDurationMs

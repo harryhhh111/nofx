@@ -42,6 +42,8 @@ type StrategyConfig struct {
 	CoinSource CoinSourceConfig `json:"coin_source"`
 	// quantitative data configuration
 	Indicators IndicatorConfig `json:"indicators"`
+	// trading mode variant: "aggressive" | "balanced" | "conservative" | "scalping"
+	PromptVariant string `json:"prompt_variant,omitempty"`
 	// custom prompt (appended at the end)
 	CustomPrompt string `json:"custom_prompt,omitempty"`
 	// risk control configuration
@@ -259,7 +261,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 	}
 
 	config := StrategyConfig{
-		Language: normalizedLang,
+		Language:      normalizedLang,
+		PromptVariant: "balanced",
 		CoinSource: CoinSourceConfig{
 			SourceType: "ai500",
 			UseAI500:   true,

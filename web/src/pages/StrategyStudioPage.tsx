@@ -137,9 +137,11 @@ export function StrategyStudioPage() {
       if (active) {
         setSelectedStrategy(active)
         setEditingConfig(active.config)
+        setSelectedVariant(active.config?.prompt_variant || 'balanced')
       } else if (data.strategies?.length > 0) {
         setSelectedStrategy(data.strategies[0])
         setEditingConfig(data.strategies[0].config)
+        setSelectedVariant(data.strategies[0].config?.prompt_variant || 'balanced')
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -234,6 +236,7 @@ export function StrategyStudioPage() {
         }
         setSelectedStrategy(newStrategy)
         setEditingConfig(defaultConfig)
+        setSelectedVariant(defaultConfig.prompt_variant || 'balanced')
         setHasChanges(false)
       }
     } catch (err) {
@@ -730,6 +733,7 @@ export function StrategyStudioPage() {
                   onClick={() => {
                     setSelectedStrategy(strategy)
                     setEditingConfig(strategy.config)
+                    setSelectedVariant(strategy.config?.prompt_variant || 'balanced')
                     setHasChanges(false)
                     setPromptPreview(null)
                     setAiTestResult(null)
@@ -978,7 +982,11 @@ export function StrategyStudioPage() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <select
                     value={selectedVariant}
-                    onChange={(e) => setSelectedVariant(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedVariant(e.target.value)
+                      setEditingConfig(prev => prev ? { ...prev, prompt_variant: e.target.value } : prev)
+                      setHasChanges(true)
+                    }}
                     className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold"
                   >
                     <option value="balanced">{t('balanced')}</option>
@@ -1069,7 +1077,11 @@ export function StrategyStudioPage() {
                   <div className="flex items-center gap-2">
                     <select
                       value={selectedVariant}
-                      onChange={(e) => setSelectedVariant(e.target.value)}
+                      onChange={(e) => {
+                        setSelectedVariant(e.target.value)
+                        setEditingConfig(prev => prev ? { ...prev, prompt_variant: e.target.value } : prev)
+                        setHasChanges(true)
+                      }}
                       className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
                     >
                       <option value="balanced">{t('balanced')}</option>

@@ -472,6 +472,8 @@ export interface StrategyConfig {
   // Language setting: "zh" for Chinese, "en" for English
   // Determines the language used for data formatting and prompt generation
   language?: 'zh' | 'en';
+  // Trading mode: "aggressive" | "balanced" | "conservative" | "scalping"
+  prompt_variant?: string;
   coin_source: CoinSourceConfig;
   indicators: IndicatorConfig;
   custom_prompt?: string;
