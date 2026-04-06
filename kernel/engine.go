@@ -54,6 +54,9 @@ type PositionInfo struct {
 	LiquidationPrice float64 `json:"liquidation_price"`
 	MarginUsed       float64 `json:"margin_used"`
 	UpdateTime       int64   `json:"update_time"` // Position update timestamp (milliseconds)
+	AccumulatedFee   float64 `json:"accumulated_fee"`   // Total fees paid so far (opening)
+	EstimatedCloseFee float64 `json:"estimated_close_fee"` // Estimated fee to close this position
+	NetPnL           float64 `json:"net_pnl"`           // UnrealizedPnL - AccumulatedFee - EstimatedCloseFee
 }
 
 // AccountInfo account information
@@ -107,12 +110,13 @@ type RecentOrder struct {
 	HoldDuration string  `json:"hold_duration"` // Hold duration, e.g. "2h30m"
 }
 
-// PositionMemory holds the AI's reasoning summary from when a position was originally opened,
+// PositionMemory holds the AI's reasoning from when a position was originally opened,
 // plus the most recent hold-decision snapshot. Together these give the AI full continuity.
 type PositionMemory struct {
 	Symbol            string // trading pair, e.g. "BTCUSDT"
 	Side              string // "long" or "short"
-	CotSummary        string // AI reasoning summary from the opening cycle
+	OpeningReasoning  string // Position-specific reasoning from the AI when this trade was opened
+	CotSummary        string // AI reasoning summary from the opening cycle (fallback if OpeningReasoning is empty)
 	LastReviewSummary string // structured snapshot from the last hold decision: "[cycle N, Xm ago, price P, pnl +Y] SL/TP | reasoning"
 }
 
@@ -1229,11 +1233,17 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("\n\n")
 	} else {
 		sb.WriteString("# 📋 Decision Process\n\n")
-		sb.WriteString("1. Review \"Position Open Reasoning\" — evaluate whether your original thesis still holds before deciding to hold or close.\n")
-		sb.WriteString("2. Check positions → Should we take profit/stop-loss\n")
-		sb.WriteString("3. Scan candidate coins + multi-timeframe → Are there strong signals\n")
-		sb.WriteString("4. Write chain of thought first, then output structured JSON\n")
-		sb.WriteString("5. Review \"Recent Trade Reflections\" — if recent reasoning was repeatedly incorrect, apply higher skepticism to similar signals today.\n\n")
+		sb.WriteString("For each open position:\n")
+		sb.WriteString("1. Read \"Position Open Reasoning\" — what conditions justified this trade?\n")
+		sb.WriteString("2. Check current market data — are those specific conditions still true?\n")
+		sb.WriteString("   - If YES → thesis valid → HOLD (do not close due to short-term fluctuations)\n")
+		sb.WriteString("   - If NO (conditions reversed) → thesis invalidated → close position (accept fee cost)\n")
+		sb.WriteString("3. Check Net PnL (after fees) — if closing now would result in net loss AND thesis is still valid → HOLD\n")
+		sb.WriteString("4. Check if target price reached AND Net PnL > 0 → take profit\n\n")
+		sb.WriteString("For new opportunities:\n")
+		sb.WriteString("5. Scan candidate coins + multi-timeframe → Are there strong signals?\n")
+		sb.WriteString("6. Review \"Recent Trade Reflections\" — if recent reasoning was repeatedly incorrect, apply higher skepticism to similar signals today.\n")
+		sb.WriteString("7. Write chain of thought first, then output structured JSON\n\n")
 	}
 
 	// 7. Output format
@@ -1375,7 +1385,13 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	if len(ctx.PositionMemories) > 0 {
 		sb.WriteString("## Position Open Reasoning (your analysis when these positions were opened)\n")
 		for _, pm := range ctx.PositionMemories {
-			sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, pm.CotSummary))
+			reasoning := pm.OpeningReasoning
+			if reasoning == "" {
+				reasoning = pm.CotSummary // fallback for older positions
+			}
+			if reasoning != "" {
+				sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, reasoning))
+			}
 		}
 		sb.WriteString("\n")
 	}

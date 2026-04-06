@@ -143,6 +143,7 @@ type AutoTrader struct {
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
 	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
 	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
+	pendingOpenReasoning  map[string]string  // Pending opening reasoning (symbol_SIDE -> reasoning), written to DB on next context build
 	lastBalanceSyncTime   time.Time          // Last balance sync time
 	userID                string             // User ID
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
@@ -407,6 +408,7 @@ postExchangeInit:
 		monitorWg:             sync.WaitGroup{},
 		peakPnLCache:          make(map[string]float64),
 		peakPnLCacheMutex:     sync.RWMutex{},
+		pendingOpenReasoning:  make(map[string]string),
 		lastBalanceSyncTime:   time.Now(),
 		userID:                userID,
 	}, nil
@@ -799,6 +801,19 @@ func (at *AutoTrader) runCycle() error {
 			actionRecord.Success = true
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
 
+			// For open decisions: cache the position-specific reasoning for lazy write to DB.
+			// OrderSync exchanges create position records asynchronously (~30s later),
+			// so we store reasoning in memory and flush it in buildTradingContext on next cycle.
+			if (d.Action == "open_long" || d.Action == "open_short") && d.Reasoning != "" {
+				side := "LONG"
+				if d.Action == "open_short" {
+					side = "SHORT"
+				}
+				pendingKey := market.Normalize(d.Symbol) + "_" + side
+				at.pendingOpenReasoning[pendingKey] = d.Reasoning
+				logger.Infof("📝 [%s] Cached opening reasoning for %s %s (pending DB write)", at.name, d.Symbol, side)
+			}
+
 			// For hold/wait decisions: write a structured review snapshot to the position record.
 			// This enables the next cycle's AI to see "what I was thinking last time" for this position.
 			if (d.Action == "hold" || d.Action == "wait") && at.store != nil && d.Reasoning != "" {
@@ -922,12 +937,14 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		currentPositionKeys[posKey] = true
 
 		var updateTime int64
+		var accumulatedFee float64
 		// Priority 1: Get from database (trader_positions table) - most accurate
 		if at.store != nil {
 			if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, symbol, side); err == nil && dbPos != nil {
 				if dbPos.EntryTime > 0 {
 					updateTime = dbPos.EntryTime
 				}
+				accumulatedFee = dbPos.Fee
 			}
 		}
 		// Priority 2: Get from exchange API (Bybit: createdTime, OKX: createdTime)
@@ -949,19 +966,27 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		peakPnlPct := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
 
+		// Estimate closing fee: notional × taker fee rate (~0.055% for most exchanges)
+		positionNotional := quantity * markPrice
+		estimatedCloseFee := positionNotional * 0.00055
+		netPnL := unrealizedPnl - accumulatedFee - estimatedCloseFee
+
 		positionInfos = append(positionInfos, kernel.PositionInfo{
-			Symbol:           symbol,
-			Side:             side,
-			EntryPrice:       entryPrice,
-			MarkPrice:        markPrice,
-			Quantity:         quantity,
-			Leverage:         leverage,
-			UnrealizedPnL:    unrealizedPnl,
-			UnrealizedPnLPct: pnlPct,
-			PeakPnLPct:       peakPnlPct,
-			LiquidationPrice: liquidationPrice,
-			MarginUsed:       marginUsed,
-			UpdateTime:       updateTime,
+			Symbol:            symbol,
+			Side:              side,
+			EntryPrice:        entryPrice,
+			MarkPrice:         markPrice,
+			Quantity:          quantity,
+			Leverage:          leverage,
+			UnrealizedPnL:     unrealizedPnl,
+			UnrealizedPnLPct:  pnlPct,
+			PeakPnLPct:        peakPnlPct,
+			LiquidationPrice:  liquidationPrice,
+			MarginUsed:        marginUsed,
+			UpdateTime:        updateTime,
+			AccumulatedFee:    accumulatedFee,
+			EstimatedCloseFee: estimatedCloseFee,
+			NetPnL:            netPnL,
 		})
 	}
 
@@ -1097,14 +1122,31 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 				Symbol: pos.Symbol,
 				Side:   pos.Side,
 			}
-			// Opening reasoning: requires opening_cycle > 0 (Phase 1 deployment onwards)
-			if dbPos.OpeningCycle > 0 {
+
+			// Flush pending opening reasoning to DB (lazy write for OrderSync exchanges)
+			pendingKey := market.Normalize(pos.Symbol) + "_" + strings.ToUpper(pos.Side)
+			if reasoning, ok := at.pendingOpenReasoning[pendingKey]; ok && dbPos.OpeningReasoning == "" {
+				if err := at.store.Position().UpdatePositionOpeningReasoning(
+					at.id, dbPos.Symbol, strings.ToUpper(pos.Side), reasoning,
+				); err != nil {
+					logger.Infof("⚠️ [%s] Failed to flush opening reasoning for %s: %v", at.name, pos.Symbol, err)
+				} else {
+					logger.Infof("📝 [%s] Flushed opening reasoning for %s %s to DB", at.name, pos.Symbol, pos.Side)
+					dbPos.OpeningReasoning = reasoning
+				}
+				delete(at.pendingOpenReasoning, pendingKey)
+			}
+
+			// Position-specific opening reasoning (preferred, stored directly on position)
+			memory.OpeningReasoning = dbPos.OpeningReasoning
+			// Fallback: cycle-level CotSummary (for positions opened before this feature)
+			if memory.OpeningReasoning == "" && dbPos.OpeningCycle > 0 {
 				memory.CotSummary = at.store.Decision().GetCotSummaryByCycle(at.id, dbPos.OpeningCycle)
 			}
 			// Last review snapshot: written on every hold/wait decision for this position
 			memory.LastReviewSummary = dbPos.LastReviewSummary
 			// Only include if we have at least one piece of memory to show
-			if memory.CotSummary != "" || memory.LastReviewSummary != "" {
+			if memory.OpeningReasoning != "" || memory.CotSummary != "" || memory.LastReviewSummary != "" {
 				ctx.PositionMemories = append(ctx.PositionMemories, memory)
 			}
 		}
