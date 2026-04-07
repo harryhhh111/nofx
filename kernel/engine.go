@@ -11,7 +11,6 @@ import (
 	"nofx/market"
 	"nofx/provider/hyperliquid"
 	"nofx/provider/nofxos"
-	"nofx/security"
 	"nofx/store"
 	"strings"
 	"time"
@@ -32,9 +31,22 @@ type PositionInfo struct {
 	UnrealizedPnL    float64 `json:"unrealized_pnl"`
 	UnrealizedPnLPct float64 `json:"unrealized_pnl_pct"`
 	PeakPnLPct       float64 `json:"peak_pnl_pct"` // Historical peak profit percentage
-	LiquidationPrice float64 `json:"liquidation_price"`
-	MarginUsed       float64 `json:"margin_used"`
-	UpdateTime       int64   `json:"update_time"` // Position update timestamp (milliseconds)
+	LiquidationPrice  float64 `json:"liquidation_price"`
+	MarginUsed        float64 `json:"margin_used"`
+	UpdateTime        int64   `json:"update_time"`         // Position update timestamp (milliseconds)
+	AccumulatedFee    float64 `json:"accumulated_fee"`     // Total fees paid so far (opening)
+	EstimatedCloseFee float64 `json:"estimated_close_fee"` // Estimated fee to close this position
+	NetPnL            float64 `json:"net_pnl"`             // UnrealizedPnL - AccumulatedFee - EstimatedCloseFee
+}
+
+// PositionMemory holds the AI's reasoning from when a position was originally opened,
+// plus the most recent hold-decision snapshot.
+type PositionMemory struct {
+	Symbol            string // trading pair, e.g. "BTCUSDT"
+	Side              string // "long" or "short"
+	OpeningReasoning  string // Position-specific reasoning from the AI when this trade was opened
+	CotSummary        string // AI reasoning summary from the opening cycle (fallback if OpeningReasoning is empty)
+	LastReviewSummary string // structured snapshot from the last hold decision
 }
 
 // AccountInfo account information
@@ -109,6 +121,15 @@ type Context struct {
 	BTCETHLeverage     int                                `json:"-"`
 	AltcoinLeverage    int                                `json:"-"`
 	Timeframes         []string                           `json:"-"`
+	PositionMemories   []PositionMemory                   `json:"-"` // AI reasoning from when each open position was created
+	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
+}
+
+// ExternalDataItem holds the result of a single external data source fetch.
+type ExternalDataItem struct {
+	Label       string // display title shown in prompt
+	Description string // AI interpretation hint
+	Data        string // JSON-serialized data content
 }
 
 // Decision AI trading decision
@@ -612,18 +633,14 @@ func (e *StrategyEngine) FetchExternalData() (map[string]interface{}, error) {
 }
 
 func (e *StrategyEngine) fetchSingleExternalSource(source store.ExternalDataSource) (interface{}, error) {
-	// SSRF Protection: Validate URL before making request
-	if err := security.ValidateURL(source.URL); err != nil {
-		return nil, fmt.Errorf("external source URL validation failed: %w", err)
-	}
-
+	// ExternalDataSources are configured by the admin in strategy config (trusted URLs),
+	// so we skip SSRF validation to allow localhost/internal services like Kronos.
 	timeout := time.Duration(source.RefreshSecs) * time.Second
 	if timeout == 0 {
 		timeout = 30 * time.Second
 	}
 
-	// Use SSRF-safe HTTP client
-	client := security.SafeHTTPClient(timeout)
+	client := &http.Client{Timeout: timeout}
 
 	req, err := http.NewRequest(source.Method, source.URL, nil)
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"nofx/auth"
+	"strconv"
 	"nofx/crypto"
 	"nofx/logger"
 	"nofx/manager"
@@ -113,6 +114,13 @@ func (s *Server) setupRoutes() {
 		// Public strategy market (no authentication required)
 		s.route(api, "GET", "/strategies/public", "Public strategy market", s.handlePublicStrategies)
 		s.route(api, "POST", "/strategies/estimate-tokens", "Estimate token usage for a strategy config", s.handleEstimateTokens)
+
+		// Decision digest (lightweight, no authentication required)
+		decisions := api.Group("/decisions")
+		{
+			decisions.GET("/digest", s.handleGetDecisionDigest)
+			decisions.GET("/digest/list", s.handleGetDecisionDigestList)
+		}
 
 		// Authentication related routes (no authentication required)
 		s.route(api, "POST", "/register", "Register new user", s.handleRegister)
@@ -629,4 +637,69 @@ func (s *Server) Shutdown() error {
 // SetTelegramReloadCh sets the channel used to signal the Telegram bot to reload
 func (s *Server) SetTelegramReloadCh(ch chan<- struct{}) {
 	s.telegramReloadCh = ch
+}
+
+// handleGetDecisionDigest gets the latest decision digest for a specific trader.
+func (s *Server) handleGetDecisionDigest(c *gin.Context) {
+	traderID := c.Query("trader_id")
+	if traderID == "" {
+		SafeBadRequest(c, "trader_id is required")
+		return
+	}
+
+	_, err := s.store.Trader().GetByID(traderID)
+	if err != nil {
+		SafeNotFound(c, "Trader")
+		return
+	}
+
+	digest, err := s.store.Decision().GetLatestDigest(traderID)
+	if err != nil {
+		SafeNotFound(c, "Decision record")
+		return
+	}
+
+	c.JSON(http.StatusOK, digest)
+}
+
+// handleGetDecisionDigestList gets a sorted list of latest decision digests for all traders.
+func (s *Server) handleGetDecisionDigestList(c *gin.Context) {
+	sortBy := c.DefaultQuery("sort_by", "timestamp")
+	order := c.DefaultQuery("order", "desc")
+	limit := 50
+	if limitStr := c.Query("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+			if limit > 200 {
+				limit = 200
+			}
+		}
+	}
+
+	validSortFields := map[string]bool{"timestamp": true, "trader_id": true, "success": true}
+	if !validSortFields[sortBy] {
+		sortBy = "timestamp"
+	}
+	if order != "asc" && order != "desc" {
+		order = "desc"
+	}
+
+	traders, err := s.store.Trader().ListAll()
+	if err != nil {
+		SafeInternalError(c, "Get trader list", err)
+		return
+	}
+
+	traderIDs := make([]string, len(traders))
+	for i, t := range traders {
+		traderIDs[i] = t.ID
+	}
+
+	digests, err := s.store.Decision().GetTradersLatestDigests(traderIDs, sortBy, order, limit)
+	if err != nil {
+		SafeInternalError(c, "Get decision digest list", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, digests)
 }

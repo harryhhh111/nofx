@@ -336,6 +336,38 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		sb.WriteString("Current Positions: None\n\n")
 	}
 
+	// Position open reasoning — recall why each current position was opened
+	if len(ctx.PositionMemories) > 0 {
+		sb.WriteString("## Position Open Reasoning (your analysis when these positions were opened)\n")
+		for _, pm := range ctx.PositionMemories {
+			reasoning := pm.OpeningReasoning
+			if reasoning == "" {
+				reasoning = pm.CotSummary
+			}
+			if reasoning != "" {
+				sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, reasoning))
+			}
+		}
+		sb.WriteString("\n")
+
+		hasReview := false
+		for _, pm := range ctx.PositionMemories {
+			if pm.LastReviewSummary != "" {
+				hasReview = true
+				break
+			}
+		}
+		if hasReview {
+			sb.WriteString("## Your Last Review of These Positions\n")
+			for _, pm := range ctx.PositionMemories {
+				if pm.LastReviewSummary != "" {
+					sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, pm.LastReviewSummary))
+				}
+			}
+			sb.WriteString("\n")
+		}
+	}
+
 	// Candidate coins (exclude coins already in positions to avoid duplicate data)
 	positionSymbols := make(map[string]bool)
 	for _, pos := range ctx.Positions {
@@ -394,6 +426,15 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	}
 
 	sb.WriteString("---\n\n")
+	// External data sources (Kronos predictions, etc.)
+	for _, item := range ctx.ExternalDataItems {
+		sb.WriteString(fmt.Sprintf("## External Data: %s\n", item.Label))
+		if item.Description != "" {
+			sb.WriteString(fmt.Sprintf("Context: %s\n", item.Description))
+		}
+		sb.WriteString(fmt.Sprintf("Data: %s\n\n", item.Data))
+	}
+
 	sb.WriteString("Now please analyze and output your decision (Chain of Thought + JSON)\n")
 
 	return sb.String()

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"nofx/kernel"
 	"nofx/logger"
+	"nofx/market"
 	"nofx/store"
 	"nofx/wallet"
 	"strings"
@@ -271,6 +272,18 @@ func (at *AutoTrader) runCycle() error {
 		} else {
 			actionRecord.Success = true
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
+
+			// Cache opening reasoning for lazy flush to DB on next buildTradingContext
+			if (d.Action == "open_long" || d.Action == "open_short") && d.Reasoning != "" {
+				side := "LONG"
+				if d.Action == "open_short" {
+					side = "SHORT"
+				}
+				pendingKey := market.Normalize(d.Symbol) + "_" + side
+				at.pendingOpenReasoning[pendingKey] = d.Reasoning
+				logger.Infof("📝 [%s] Cached opening reasoning for %s %s", at.name, d.Symbol, side)
+			}
+
 			// Brief delay after successful execution
 			time.Sleep(1 * time.Second)
 		}
@@ -364,12 +377,14 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		currentPositionKeys[posKey] = true
 
 		var updateTime int64
+		var accumulatedFee float64
 		// Priority 1: Get from database (trader_positions table) - most accurate
 		if at.store != nil {
 			if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, symbol, side); err == nil && dbPos != nil {
 				if dbPos.EntryTime > 0 {
 					updateTime = dbPos.EntryTime
 				}
+				accumulatedFee = dbPos.Fee
 			}
 		}
 		// Priority 2: Get from exchange API (Bybit: createdTime, OKX: createdTime)
@@ -391,19 +406,27 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		peakPnlPct := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
 
+		// Estimate closing fee and calculate net PnL
+		positionNotional := quantity * markPrice
+		estimatedCloseFee := positionNotional * 0.00055 // taker fee ~5.5bps
+		netPnL := unrealizedPnl - accumulatedFee - estimatedCloseFee
+
 		positionInfos = append(positionInfos, kernel.PositionInfo{
-			Symbol:           symbol,
-			Side:             side,
-			EntryPrice:       entryPrice,
-			MarkPrice:        markPrice,
-			Quantity:         quantity,
-			Leverage:         leverage,
-			UnrealizedPnL:    unrealizedPnl,
-			UnrealizedPnLPct: pnlPct,
-			PeakPnLPct:       peakPnlPct,
-			LiquidationPrice: liquidationPrice,
-			MarginUsed:       marginUsed,
-			UpdateTime:       updateTime,
+			Symbol:            symbol,
+			Side:              side,
+			EntryPrice:        entryPrice,
+			MarkPrice:         markPrice,
+			Quantity:          quantity,
+			Leverage:          leverage,
+			UnrealizedPnL:     unrealizedPnl,
+			UnrealizedPnLPct:  pnlPct,
+			PeakPnLPct:        peakPnlPct,
+			LiquidationPrice:  liquidationPrice,
+			MarginUsed:        marginUsed,
+			UpdateTime:        updateTime,
+			AccumulatedFee:    accumulatedFee,
+			EstimatedCloseFee: estimatedCloseFee,
+			NetPnL:            netPnL,
 		})
 	}
 
@@ -526,6 +549,44 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
 	}
 
+	// 7b. Load position memories + flush pending reasoning
+	if at.store != nil {
+		for _, pos := range positionInfos {
+			dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, strings.ToUpper(pos.Side))
+			if err != nil || dbPos == nil {
+				continue
+			}
+			memory := kernel.PositionMemory{
+				Symbol: pos.Symbol,
+				Side:   pos.Side,
+			}
+
+			// Flush pending opening reasoning to DB
+			pendingKey := market.Normalize(pos.Symbol) + "_" + strings.ToUpper(pos.Side)
+			if reasoning, ok := at.pendingOpenReasoning[pendingKey]; ok && dbPos.OpeningReasoning == "" {
+				if err := at.store.Position().UpdatePositionOpeningReasoning(
+					at.id, dbPos.Symbol, strings.ToUpper(pos.Side), reasoning,
+				); err != nil {
+					logger.Infof("⚠️ [%s] Failed to flush opening reasoning for %s: %v", at.name, pos.Symbol, err)
+				} else {
+					logger.Infof("📝 [%s] Flushed opening reasoning for %s %s to DB", at.name, pos.Symbol, pos.Side)
+					dbPos.OpeningReasoning = reasoning
+				}
+				delete(at.pendingOpenReasoning, pendingKey)
+			}
+
+			memory.OpeningReasoning = dbPos.OpeningReasoning
+			memory.LastReviewSummary = dbPos.LastReviewSummary
+
+			if memory.OpeningReasoning != "" || memory.CotSummary != "" || memory.LastReviewSummary != "" {
+				ctx.PositionMemories = append(ctx.PositionMemories, memory)
+			}
+		}
+		if len(ctx.PositionMemories) > 0 {
+			logger.Infof("🧠 [%s] Loaded position memories for %d open positions", at.name, len(ctx.PositionMemories))
+		}
+	}
+
 	// 8. Get quantitative data (if enabled in strategy config)
 	if strategyConfig.Indicators.EnableQuantData {
 		// Collect symbols to query (candidate coins + position coins)
@@ -574,6 +635,34 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		if ctx.PriceRankingData != nil {
 			logger.Infof("📈 [%s] Price ranking data ready for %d durations",
 				at.name, len(ctx.PriceRankingData.Durations))
+		}
+	}
+
+	// 12. Load external data sources (Kronos, etc.)
+	if len(strategyConfig.Indicators.ExternalDataSources) > 0 {
+		externalRaw, err := at.strategyEngine.FetchExternalData()
+		if err != nil {
+			logger.Infof("⚠️ [%s] Failed to fetch external data sources: %v", at.name, err)
+		} else {
+			for _, src := range strategyConfig.Indicators.ExternalDataSources {
+				data, ok := externalRaw[src.Name]
+				if !ok {
+					continue
+				}
+				dataBytes, _ := json.Marshal(data)
+				label := src.Name
+				if src.ContextLabel != "" {
+					label = src.ContextLabel
+				}
+				ctx.ExternalDataItems = append(ctx.ExternalDataItems, kernel.ExternalDataItem{
+					Label:       label,
+					Description: src.Description,
+					Data:        string(dataBytes),
+				})
+			}
+			if len(ctx.ExternalDataItems) > 0 {
+				logger.Infof("🔌 [%s] Loaded %d external data items for AI context", at.name, len(ctx.ExternalDataItems))
+			}
 		}
 	}
 

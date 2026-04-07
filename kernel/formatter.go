@@ -229,9 +229,6 @@ func formatCurrentPositionsZH(ctx *Context) string {
 	sb.WriteString("## 当前持仓\n\n")
 
 	for i, pos := range ctx.Positions {
-		// Calculate drawdown
-		drawdown := pos.UnrealizedPnLPct - pos.PeakPnLPct
-
 		sb.WriteString(fmt.Sprintf("%d. %s %s | ", i+1, pos.Symbol, strings.ToUpper(pos.Side)))
 		sb.WriteString(fmt.Sprintf("进场 %.4f 当前 %.4f | ", pos.EntryPrice, pos.MarkPrice))
 		sb.WriteString(fmt.Sprintf("数量 %.4f | ", pos.Quantity))
@@ -243,10 +240,10 @@ func formatCurrentPositionsZH(ctx *Context) string {
 		sb.WriteString(fmt.Sprintf("保证金 %.0f USDT | ", pos.MarginUsed))
 		sb.WriteString(fmt.Sprintf("强平价 %.4f\n", pos.LiquidationPrice))
 
-		// Add analysis hints
-		if drawdown < -0.30*pos.PeakPnLPct && pos.PeakPnLPct > 0.02 {
-			sb.WriteString(fmt.Sprintf("   ⚠️ **止盈提示**: 当前盈亏从峰值 %.2f%% 回撤到 %.2f%%，回撤幅度 %.2f%%，建议考虑止盈\n",
-				pos.PeakPnLPct, pos.UnrealizedPnLPct, (drawdown/pos.PeakPnLPct)*100))
+		// 手续费与净盈亏信息
+		if pos.AccumulatedFee > 0 || pos.EstimatedCloseFee > 0 {
+			sb.WriteString(fmt.Sprintf("   💰 已付手续费: %.4f USDT | 预估平仓手续费: %.4f USDT | 净盈亏(扣费后): %+.4f USDT\n",
+				pos.AccumulatedFee, pos.EstimatedCloseFee, pos.NetPnL))
 		}
 
 		if pos.UnrealizedPnLPct < -4.0 {
@@ -497,8 +494,6 @@ func formatCurrentPositionsEN(ctx *Context) string {
 	sb.WriteString("## Current Positions\n\n")
 
 	for i, pos := range ctx.Positions {
-		drawdown := pos.UnrealizedPnLPct - pos.PeakPnLPct
-
 		sb.WriteString(fmt.Sprintf("%d. %s %s | ", i+1, pos.Symbol, strings.ToUpper(pos.Side)))
 		sb.WriteString(fmt.Sprintf("Entry %.4f Current %.4f | ", pos.EntryPrice, pos.MarkPrice))
 		sb.WriteString(fmt.Sprintf("Qty %.4f | ", pos.Quantity))
@@ -510,10 +505,10 @@ func formatCurrentPositionsEN(ctx *Context) string {
 		sb.WriteString(fmt.Sprintf("Margin %.0f USDT | ", pos.MarginUsed))
 		sb.WriteString(fmt.Sprintf("Liq Price %.4f\n", pos.LiquidationPrice))
 
-		// Analysis hints
-		if drawdown < -0.30*pos.PeakPnLPct && pos.PeakPnLPct > 0.02 {
-			sb.WriteString(fmt.Sprintf("   ⚠️ **Take Profit Alert**: PnL dropped from peak %.2f%% to %.2f%%, drawdown %.2f%%, consider taking profit\n",
-				pos.PeakPnLPct, pos.UnrealizedPnLPct, (drawdown/pos.PeakPnLPct)*100))
+		// Fee and net P&L information
+		if pos.AccumulatedFee > 0 || pos.EstimatedCloseFee > 0 {
+			sb.WriteString(fmt.Sprintf("   💰 Paid Fee: %.4f USDT | Est. Close Fee: %.4f USDT | Net PnL (after fees): %+.4f USDT\n",
+				pos.AccumulatedFee, pos.EstimatedCloseFee, pos.NetPnL))
 		}
 
 		if pos.UnrealizedPnLPct < -4.0 {

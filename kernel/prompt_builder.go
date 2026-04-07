@@ -60,9 +60,14 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - 单个持仓亏损达到-5%必须止损
 - 优先保护资本，再考虑盈利
 
-### 跟踪止盈
-- 当持仓盈亏从峰值回撤30%时，考虑部分或全部止盈
-- 例如：Peak PnL +5%，Current PnL +3.5% → 回撤了30%，应该止盈
+### 论点驱动的持仓管理
+对每个持仓，按顺序检查：
+1. **硬止损**：价格触及止损价 → 必须平仓
+2. **论点验证**：对照你的开仓理由，检查当时依据的关键条件（价格突破、OI方向、趋势共振等）是否仍然成立
+   - 核心条件已反转 → 论点失效，允许止损平仓（即使亏手续费）
+   - 核心条件仍成立 → 继续持有，不要因为短期波动而平仓
+3. **目标达成**：价格达到止盈目标 → 平仓止盈，但要确认净利润（扣除手续费后）为正
+4. **手续费意识**：每次平仓都有手续费成本（已付开仓费 + 平仓费）。如果净盈亏(Net PnL)为负，除非论点已失效，否则应继续持有
 
 ### 顺势交易
 - 只在多个时间框架趋势一致时进场
@@ -72,7 +77,6 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 
 ### 分批操作
 - 分批建仓：第一次开仓不超过目标仓位的50%
-- 分批止盈：盈利3%平33%，盈利5%平50%，盈利8%全平
 - 只在盈利仓位上加仓，永远不要追亏损
 
 ## 输出格式要求
@@ -115,9 +119,10 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 
 1. **永远不要**混淆已实现盈亏和未实现盈亏
 2. **永远记得**考虑杠杆对盈亏的放大作用
-3. **永远关注**Peak PnL，这是判断止盈的关键指标
-4. **永远结合**持仓量(OI)变化来判断趋势真实性
-5. **永远遵守**风险管理规则，保护资本是第一位的
+3. **永远对照开仓理由**验证论点是否仍然成立，不要因短期波动轻易平仓
+4. **永远关注净盈亏(Net PnL)**，这才是扣除手续费后的真实盈亏
+5. **永远结合**持仓量(OI)变化来判断趋势真实性
+6. **永远遵守**风险管理规则，保护资本是第一位的
 
 现在，请仔细分析接下来提供的交易数据，并做出专业的决策。`
 }
@@ -137,8 +142,8 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
 
 2. **分析现有持仓**（如果有）:
    - 是否触发止损条件？
-   - 是否触发跟踪止盈条件？
-   - 是否适合加仓？
+   - 对照开仓理由，核心条件是否仍然成立？
+   - 净盈亏(扣除手续费)是否值得平仓？
 
 3. **分析候选币种**（如果有）:
    - 技术形态是否符合进场条件？
@@ -158,7 +163,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
     "symbol": "PIPPINUSDT",
     "action": "PARTIAL_CLOSE",
     "confidence": 85,
-    "reasoning": "当前PnL +2.96%，接近历史峰值+2.99%（回撤仅0.03%）。建议部分平仓锁定利润，因为：1) 持仓时间仅11分钟，已获得3%收益；2) 5分钟K线显示价格接近短期阻力位；3) 成交量开始萎缩，上涨动能减弱。建议平仓50%，剩余仓位设置跟踪止盈在峰值回撤20%处。"
+    "reasoning": "开仓理由是突破0.1820阻力+OI增加。当前价格接近止盈目标0.1900，已获得+3%收益，净盈亏(扣除手续费)为正。5分钟K线显示价格接近短期阻力位，成交量开始萎缩。建议部分平仓锁定利润。"
   },
   {
     "symbol": "HUSDT",
@@ -195,9 +200,14 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 - Must stop-loss when single position loss reaches -5%
 - Capital protection first, profit second
 
-### Trailing Take-Profit
-- Consider partial/full profit-taking when PnL pulls back 30% from peak
-- Example: Peak PnL +5%, Current PnL +3.5% → 30% drawdown, should take profit
+### Thesis-Driven Position Management
+For each open position, check in order:
+1. **Hard stop-loss**: Price hit stop-loss level → must close
+2. **Thesis validation**: Compare current market data against your opening reasoning. Check whether the key conditions (price breakout, OI direction, trend alignment, etc.) still hold
+   - Core conditions reversed → thesis invalidated, close position (even if it costs fees)
+   - Core conditions still hold → continue holding, do NOT close due to short-term noise
+3. **Target reached**: Price reached take-profit target → close, but confirm Net PnL (after fees) is positive
+4. **Fee awareness**: Every close has a fee cost (paid opening fee + closing fee). If Net PnL is negative, keep holding UNLESS the thesis is invalidated
 
 ### Trend Following
 - Only enter when trends align across multiple timeframes
@@ -207,7 +217,6 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 
 ### Scale Operations
 - Scale-in: First entry max 50% of target position
-- Scale-out: Close 33% at +3%, 50% at +5%, 100% at +8%
 - Only add to winning positions, never average down losers
 
 ## Output Format Requirements
@@ -250,9 +259,10 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 
 1. **Never** confuse realized and unrealized P&L
 2. **Always remember** leverage amplifies both gains and losses
-3. **Always watch** Peak PnL - it's key for take-profit decisions
-4. **Always combine** OI changes to validate trend authenticity
-5. **Always follow** risk management rules - capital protection is priority #1
+3. **Always validate** your opening thesis against current market data before closing — do NOT close due to short-term noise
+4. **Always check** Net PnL (after fees) — this is your real profit/loss, not the unrealized PnL
+5. **Always combine** OI changes to validate trend authenticity
+6. **Always follow** risk management rules - capital protection is priority #1
 
 Now, please carefully analyze the trading data provided next and make professional decisions.`
 }
@@ -272,8 +282,8 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
 
 2. **Analyze Existing Positions** (if any):
    - Is stop-loss triggered?
-   - Is trailing take-profit triggered?
-   - Is it suitable to scale-in?
+   - Compare current market against opening reasoning — are core conditions still valid?
+   - Is Net PnL (after fees) worth closing?
 
 3. **Analyze Candidate Coins** (if any):
    - Does technical pattern meet entry criteria?
@@ -293,7 +303,7 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
     "symbol": "PIPPINUSDT",
     "action": "PARTIAL_CLOSE",
     "confidence": 85,
-    "reasoning": "Current PnL +2.96%, near historical peak +2.99% (only 0.03% pullback). Suggest partial close to lock profits because: 1) Only 11 minutes holding time with 3% gain; 2) 5M chart shows price approaching short-term resistance; 3) Volume declining, upward momentum weakening. Recommend closing 50%, set trailing stop at 20% pullback from peak for remainder."
+    "reasoning": "Opening thesis was breakout above 0.1820 resistance + OI increase. Price has reached near take-profit target with +3% gain, Net PnL (after fees) is positive. 5M chart shows price approaching short-term resistance, volume declining. Recommend partial close to lock profits."
   },
   {
     "symbol": "HUSDT",

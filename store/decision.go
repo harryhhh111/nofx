@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -310,4 +311,86 @@ func (s *DecisionStore) GetLastCycleNumber(traderID string) (int, error) {
 		return 0, nil
 	}
 	return *cycleNumber, nil
+}
+
+// ============================================================================
+// Decision Digest (lightweight API for external consumers)
+// ============================================================================
+
+// DecisionDigest is a lightweight decision summary excluding verbose prompts and raw response.
+type DecisionDigest struct {
+	TraderID            string           `json:"trader_id"`
+	CycleNumber         int              `json:"cycle_number"`
+	Timestamp           time.Time        `json:"timestamp"`
+	CoTTrace            string           `json:"cot_trace"`
+	Decisions           []DecisionAction `json:"decisions"`
+	Success             bool             `json:"success"`
+	ErrorMessage        string           `json:"error_message,omitempty"`
+	AIRequestDurationMs int64            `json:"ai_request_duration_ms"`
+}
+
+func (db *DecisionRecordDB) toDigest() *DecisionDigest {
+	digest := &DecisionDigest{
+		TraderID:            db.TraderID,
+		CycleNumber:         db.CycleNumber,
+		Timestamp:           db.Timestamp,
+		CoTTrace:            db.CoTTrace,
+		Success:             db.Success,
+		ErrorMessage:        db.ErrorMessage,
+		AIRequestDurationMs: db.AIRequestDurationMs,
+	}
+	json.Unmarshal([]byte(db.Decisions), &digest.Decisions)
+	return digest
+}
+
+// GetLatestDigest gets the latest decision digest for a specific trader.
+func (s *DecisionStore) GetLatestDigest(traderID string) (*DecisionDigest, error) {
+	var record DecisionRecordDB
+	err := s.db.Where("trader_id = ?", traderID).
+		Order("timestamp DESC").
+		First(&record).Error
+	if err != nil {
+		return nil, err
+	}
+	return record.toDigest(), nil
+}
+
+// GetTradersLatestDigests gets the latest decision digest for each specified trader, with sorting.
+func (s *DecisionStore) GetTradersLatestDigests(traderIDs []string, sortBy, order string, limit int) ([]*DecisionDigest, error) {
+	if len(traderIDs) == 0 {
+		return nil, nil
+	}
+
+	digests := make([]*DecisionDigest, 0, len(traderIDs))
+	for _, tid := range traderIDs {
+		var record DecisionRecordDB
+		err := s.db.Where("trader_id = ?", tid).Order("timestamp DESC").First(&record).Error
+		if err != nil {
+			continue
+		}
+		digests = append(digests, record.toDigest())
+	}
+
+	// Sort
+	switch sortBy {
+	case "trader_id":
+		sort.Slice(digests, func(i, j int) bool {
+			if order == "asc" {
+				return digests[i].TraderID < digests[j].TraderID
+			}
+			return digests[i].TraderID > digests[j].TraderID
+		})
+	default: // timestamp
+		sort.Slice(digests, func(i, j int) bool {
+			if order == "asc" {
+				return digests[i].Timestamp.Before(digests[j].Timestamp)
+			}
+			return digests[i].Timestamp.After(digests[j].Timestamp)
+		})
+	}
+
+	if limit > 0 && len(digests) > limit {
+		digests = digests[:limit]
+	}
+	return digests, nil
 }

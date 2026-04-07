@@ -302,12 +302,12 @@ var TradingRules = struct {
 	},
 
 	ExitSignals: map[string]BilingualRuleDef{
-		"TrailingStop": {
-			Value:    0.30,
-			DescZH:   "当盈亏从峰值回撤30%时平仓止盈",
-			DescEN:   "Close position when PnL pulls back 30% from peak",
-			ReasonZH: "锁定大部分利润，避免盈利回吐。例如：峰值+5%，回撤到+3.5%时平仓",
-			ReasonEN: "Lock in most profits, avoid profit giveback. E.g., Peak +5%, close at +3.5%",
+		"ThesisInvalidation": {
+			Value:    "dynamic",
+			DescZH:   "当开仓理由中的核心条件被市场数据证伪时平仓",
+			DescEN:   "Close position when core conditions from opening reasoning are invalidated by market data",
+			ReasonZH: "论点驱动的平仓：只在开仓逻辑不再成立时退出，而非机械的百分比规则",
+			ReasonEN: "Thesis-driven exits: close only when the opening logic no longer holds, not by mechanical percentage rules",
 		},
 		"StopLoss": {
 			Value:    -0.05,
@@ -315,6 +315,13 @@ var TradingRules = struct {
 			DescEN:   "Hard stop-loss at -5%",
 			ReasonZH: "严格控制单笔最大损失",
 			ReasonEN: "Strictly control maximum single-trade loss",
+		},
+		"FeeAwareTakeProfit": {
+			Value:    "net_pnl > 0",
+			DescZH:   "止盈时确认净盈亏(扣除手续费后)为正",
+			DescEN:   "When taking profit, confirm Net PnL (after fees) is positive",
+			ReasonZH: "避免表面盈利实际亏手续费的交易",
+			ReasonEN: "Avoid trades that appear profitable but lose money after fees",
 		},
 	},
 
@@ -325,17 +332,6 @@ var TradingRules = struct {
 			DescEN:   "Only add to winning positions, max 2 additions, price must be 1% above avg cost",
 			ReasonZH: "顺势加仓，不追亏损",
 			ReasonEN: "Add to winners, never average down losers",
-		},
-		"ScaleOut": {
-			Value: []map[string]interface{}{
-				{"pnl": 0.03, "close_pct": 0.33},
-				{"pnl": 0.05, "close_pct": 0.50},
-				{"pnl": 0.08, "close_pct": 1.00},
-			},
-			DescZH:   "分批止盈：盈利3%时平33%，5%时平50%，8%时全平",
-			DescEN:   "Scale-out: Close 33% at +3%, 50% at +5%, 100% at +8%",
-			ReasonZH: "在保证利润的同时让盈利奔跑",
-			ReasonEN: "Lock profits while letting winners run",
 		},
 	},
 }

@@ -116,6 +116,10 @@ type TraderPosition struct {
 	Status             string  `gorm:"column:status;default:OPEN;index:idx_positions_status" json:"status"`
 	CloseReason        string  `gorm:"column:close_reason;default:''" json:"close_reason"`
 	Source             string  `gorm:"column:source;default:system" json:"source"`
+	OpeningCycle       int     `gorm:"column:opening_cycle;default:0" json:"opening_cycle"`
+	OpeningReasoning   string  `gorm:"column:opening_reasoning;default:''" json:"opening_reasoning"`
+	LastReviewSummary  string  `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
+	LastReviewCycle    int     `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
 	CreatedAt          int64   `gorm:"column:created_at" json:"created_at"`   // Unix milliseconds UTC
 	UpdatedAt          int64   `gorm:"column:updated_at" json:"updated_at"`   // Unix milliseconds UTC
 }
@@ -161,6 +165,11 @@ func (s *PositionStore) InitTables() error {
 
 			// Just ensure index exists
 			s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_exchange_pos_unique ON trader_positions(exchange_id, exchange_position_id) WHERE exchange_position_id != ''`)
+			// Position memory columns
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_cycle INTEGER DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_reasoning TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS last_review_summary TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS last_review_cycle INTEGER DEFAULT 0`)
 			return nil
 		}
 	}
@@ -192,6 +201,24 @@ func (s *PositionStore) Create(pos *TraderPosition) error {
 		pos.EntryQuantity = pos.Quantity
 	}
 	return s.db.Create(pos).Error
+}
+
+// UpdatePositionOpeningReasoning writes the AI's position-specific reasoning when opening a trade.
+func (s *PositionStore) UpdatePositionOpeningReasoning(traderID, symbol, side string, reasoning string) error {
+	return s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Update("opening_reasoning", reasoning).Error
+}
+
+// UpdatePositionReviewSummary writes the AI's latest hold-decision snapshot to the position.
+func (s *PositionStore) UpdatePositionReviewSummary(traderID, symbol, side string, cycle int, summary string) error {
+	return s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Updates(map[string]interface{}{
+			"last_review_summary": summary,
+			"last_review_cycle":   cycle,
+			"updated_at":          time.Now().UnixMilli(),
+		}).Error
 }
 
 // ClosePosition closes position
