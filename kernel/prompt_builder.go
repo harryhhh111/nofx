@@ -74,6 +74,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - 不要在支撑和阻力的中间区域入场——止损和止盈空间都不理想
 - 止损不要紧贴支撑/阻力位，要留出缓冲空间（参考ATR14），防止正常波动的假突破扫掉止损
 - 如果止损距离不足以覆盖正常波动（参考ATR14），说明入场位不够理想，应放弃或等更好的入场位
+- **如果缺少K线数据或ATR数据，禁止开新仓位**，只能 HOLD 或 WAIT。不要用"估计"或"假设"替代真实数据
 
 ### 顺势交易
 - 只在多个时间框架趋势一致时进场
@@ -221,6 +222,7 @@ For each open position, check in order:
 - Do NOT enter in the middle zone between support and resistance — stop-loss and take-profit geometry is poor there
 - Set stop-loss with a buffer beyond support/resistance (reference ATR14), not right at the level — prevents false breakout sweeps
 - If stop distance from entry is insufficient to survive normal volatility (reference ATR14), the setup is too tight — skip or wait for a better entry
+- **If K-line data or ATR data is missing, do NOT open new positions** — only HOLD or WAIT. Never use "estimated" or "assumed" values as substitutes for real data
 
 ### Trend Following
 - Only enter when trends align across multiple timeframes
