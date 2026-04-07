@@ -273,15 +273,35 @@ func (at *AutoTrader) runCycle() error {
 			actionRecord.Success = true
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
 
-			// Cache opening reasoning for lazy flush to DB on next buildTradingContext
-			if (d.Action == "open_long" || d.Action == "open_short") && d.Reasoning != "" {
+			// Save opening reasoning: try immediate DB write, fallback to cache + background retry
+			if (d.Action == "open_long" || d.Action == "open_short") && d.Reasoning != "" && at.store != nil {
 				side := "LONG"
 				if d.Action == "open_short" {
 					side = "SHORT"
 				}
-				pendingKey := market.Normalize(d.Symbol) + "_" + side
-				at.pendingOpenReasoning[pendingKey] = d.Reasoning
-				logger.Infof("📝 [%s] Cached opening reasoning for %s %s", at.name, d.Symbol, side)
+				normalizedSymbol := market.Normalize(d.Symbol)
+				pendingKey := normalizedSymbol + "_" + side
+				reasoning := d.Reasoning
+
+				// Try immediate write (works if position record already exists)
+				if err := at.store.Position().UpdatePositionOpeningReasoning(at.id, normalizedSymbol, side, reasoning); err != nil {
+					// Position not yet in DB (OrderSync hasn't run), start background retry
+					at.pendingOpenReasoning[pendingKey] = reasoning
+					logger.Infof("📝 [%s] Position not yet in DB for %s %s, starting background retry", at.name, d.Symbol, side)
+					go func(traderID, symbol, s, r, pk string) {
+						for i := 0; i < 12; i++ { // retry every 5s for up to 60s
+							time.Sleep(5 * time.Second)
+							if err := at.store.Position().UpdatePositionOpeningReasoning(traderID, symbol, s, r); err == nil {
+								delete(at.pendingOpenReasoning, pk)
+								logger.Infof("📝 [%s] Background flush: saved opening reasoning for %s %s (attempt %d)", at.name, symbol, s, i+1)
+								return
+							}
+						}
+						logger.Infof("⚠️ [%s] Background flush failed for %s %s after 60s", at.name, symbol, s)
+					}(at.id, normalizedSymbol, side, reasoning, pendingKey)
+				} else {
+					logger.Infof("📝 [%s] Saved opening reasoning for %s %s to DB", at.name, d.Symbol, side)
+				}
 			}
 
 			// Brief delay after successful execution

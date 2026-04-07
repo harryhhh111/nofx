@@ -284,6 +284,11 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
+
+	// Stop loss ATR buffer multiplier (AI guided)
+	// Stop loss = support - (ATR14 × this value) for longs, resistance + (ATR14 × this value) for shorts
+	// 0 means use mode default: Conservative=1.5, Balanced=1.0, Aggressive=0.5, Scalping=0.3
+	StopLossATRBuffer float64 `json:"stop_loss_atr_buffer"`
 }
 
 // NewStrategyStore creates a new StrategyStore
