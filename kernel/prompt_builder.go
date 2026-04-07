@@ -73,7 +73,7 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - 只在两种位置入场：① 关键支撑/阻力位附近（反弹交易）② 突破确认后（趋势交易）
 - 不要在支撑和阻力的中间区域入场——止损和止盈空间都不理想
 - 止损不要紧贴支撑/阻力位，要留出缓冲空间（参考ATR14），防止正常波动的假突破扫掉止损
-- 如果止损距离 < 1 × ATR14，说明入场位不够理想，应放弃或等更好的入场位
+- 如果止损距离不足以覆盖正常波动（参考ATR14），说明入场位不够理想，应放弃或等更好的入场位
 
 ### 顺势交易
 - 只在多个时间框架趋势一致时进场
@@ -155,7 +155,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
    - 技术形态是否符合进场条件？
    - 持仓量变化是否支持趋势？
    - 多个时间框架是否共振？
-   - 入场质量：是否在支撑/阻力附近？止损距离是否 ≥ 1 × ATR14？
+   - 入场质量：是否在支撑/阻力附近？止损距离是否足够覆盖正常波动（参考ATR14）？
 
 4. **输出决策**:
    - 使用规定的JSON格式
@@ -220,7 +220,7 @@ For each open position, check in order:
 - Only enter at two types of positions: ① Near key support/resistance (reversal trades) ② After breakout confirmation (trend trades)
 - Do NOT enter in the middle zone between support and resistance — stop-loss and take-profit geometry is poor there
 - Set stop-loss with a buffer beyond support/resistance (reference ATR14), not right at the level — prevents false breakout sweeps
-- If stop distance from entry < 1 × ATR14, the setup is too tight — skip or wait for a better entry
+- If stop distance from entry is insufficient to survive normal volatility (reference ATR14), the setup is too tight — skip or wait for a better entry
 
 ### Trend Following
 - Only enter when trends align across multiple timeframes
@@ -302,7 +302,7 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
    - Does technical pattern meet entry criteria?
    - Do OI changes support the trend?
    - Do multiple timeframes align?
-   - Entry quality: near support/resistance? Stop distance ≥ 1 × ATR14?
+   - Entry quality: near support/resistance? Stop distance sufficient to survive normal volatility (reference ATR14)?
 
 4. **Output Decision**:
    - Use the specified JSON format

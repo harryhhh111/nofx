@@ -93,7 +93,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf(" = %.1f\n", 2088-9.14*atrBuffer))
 	sb.WriteString("- Entry quality: only enter at ① near key support/resistance (reversal) or ② after breakout confirmation (trend)\n")
 	sb.WriteString("  Do NOT enter in the middle zone between support and resistance — poor stop/target geometry\n")
-	sb.WriteString("- If your stop distance (entry to stop) < 1 × ATR14, the trade setup is too tight — skip or wait for better entry\n\n")
+	sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14, the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
 
 	// Position sizing guidance
 	sb.WriteString("## Position Sizing Guidance\n")
