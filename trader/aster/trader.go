@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 )
@@ -264,63 +263,102 @@ func (t *AsterTrader) normalize(v interface{}) (interface{}, error) {
 	}
 }
 
-// sign Sign request parameters
+// EIP-712 domain separator for Aster v3 API
+// Domain: { name: "AsterSignTransaction", version: "1", chainId: 1666, verifyingContract: 0x0 }
+var asterDomainSeparator []byte
+
+func init() {
+	domainTypeHash := crypto.Keccak256([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"))
+	nameHash := crypto.Keccak256([]byte("AsterSignTransaction"))
+	versionHash := crypto.Keccak256([]byte("1"))
+	chainID := common.LeftPadBytes(big.NewInt(1666).Bytes(), 32)
+	contract := common.LeftPadBytes(common.Address{}.Bytes(), 32) // 0x0000...0000
+
+	domainData := make([]byte, 0, 5*32)
+	domainData = append(domainData, domainTypeHash...)   // 32 bytes (keccak256 output)
+	domainData = append(domainData, nameHash...)          // 32 bytes
+	domainData = append(domainData, versionHash...)       // 32 bytes
+	domainData = append(domainData, chainID...)           // 32 bytes
+	domainData = append(domainData, contract...)          // 32 bytes
+	asterDomainSeparator = crypto.Keccak256(domainData)
+}
+
+// getServerTime fetches Aster server time to avoid clock skew issues.
+// Falls back to local time if the request fails.
+func (t *AsterTrader) getServerTime() int64 {
+	resp, err := t.client.Get(t.baseURL + "/fapi/v3/time")
+	if err != nil {
+		return time.Now().UnixMilli()
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return time.Now().UnixMilli()
+	}
+	var result struct {
+		ServerTime int64 `json:"serverTime"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || result.ServerTime == 0 {
+		return time.Now().UnixMilli()
+	}
+	return result.ServerTime
+}
+
+// sign signs request parameters using EIP-712 TypedData (Aster v3 API)
+// Reference: https://github.com/AsterDEX/api-docs/blob/master/aster-finance-futures-api-v3.md
 func (t *AsterTrader) sign(params map[string]interface{}, nonce uint64) error {
-	// Add timestamp and receive window
+	// Use server time to avoid clock skew (Aster rejects nonce >5s from server time)
+	serverTimeMs := t.getServerTime()
+	serverTimeMicro := serverTimeMs * 1000
+
+	// Add standard fields
 	params["recvWindow"] = "50000"
-	params["timestamp"] = strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
+	params["timestamp"] = strconv.FormatInt(serverTimeMs, 10)
+	params["user"] = t.user
+	params["signer"] = t.signer
+	params["nonce"] = fmt.Sprintf("%d", serverTimeMicro)
 
-	// Normalize parameters to JSON string
-	jsonStr, err := t.normalizeAndStringify(params)
-	if err != nil {
-		return err
+	// Build URL-encoded parameter string (sorted by key for deterministic output)
+	keys := make([]string, 0, len(params))
+	for k := range params {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 
-	// ABI encoding: (string, address, address, uint256)
-	addrUser := common.HexToAddress(t.user)
-	addrSigner := common.HexToAddress(t.signer)
-	nonceBig := new(big.Int).SetUint64(nonce)
-
-	tString, _ := abi.NewType("string", "", nil)
-	tAddress, _ := abi.NewType("address", "", nil)
-	tUint256, _ := abi.NewType("uint256", "", nil)
-
-	arguments := abi.Arguments{
-		{Type: tString},
-		{Type: tAddress},
-		{Type: tAddress},
-		{Type: tUint256},
+	q := url.Values{}
+	for _, k := range keys {
+		q.Set(k, fmt.Sprintf("%v", params[k]))
 	}
+	msg := q.Encode()
 
-	packed, err := arguments.Pack(jsonStr, addrUser, addrSigner, nonceBig)
-	if err != nil {
-		return fmt.Errorf("ABI encoding failed: %w", err)
-	}
+	// EIP-712 struct hash: keccak256(typeHash || keccak256(msg))
+	messageTypeHash := crypto.Keccak256([]byte("Message(string msg)"))
+	msgHash := crypto.Keccak256([]byte(msg))
 
-	// Keccak256 hash
-	hash := crypto.Keccak256(packed)
+	structData := make([]byte, 0, 2*32)
+	structData = append(structData, messageTypeHash...)
+	structData = append(structData, msgHash...)
+	structHash := crypto.Keccak256(structData)
 
-	// Ethereum signed message prefix
-	prefixedMsg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(hash), hash)
-	msgHash := crypto.Keccak256Hash([]byte(prefixedMsg))
+	// EIP-712 digest: \x19\x01 || domainSeparator || structHash
+	digest := make([]byte, 0, 2+32+32)
+	digest = append(digest, 0x19, 0x01)
+	digest = append(digest, asterDomainSeparator...)
+	digest = append(digest, structHash...)
+	hash := crypto.Keccak256(digest)
 
 	// ECDSA signature
-	sig, err := crypto.Sign(msgHash.Bytes(), t.privateKey)
+	sig, err := crypto.Sign(hash, t.privateKey)
 	if err != nil {
 		return fmt.Errorf("signature failed: %w", err)
 	}
 
-	// Convert v from 0/1 to 27/28
 	if len(sig) != 65 {
 		return fmt.Errorf("signature length abnormal: %d", len(sig))
 	}
 	sig[64] += 27
 
-	// Add signature parameters
-	params["user"] = t.user
-	params["signer"] = t.signer
 	params["signature"] = "0x" + hex.EncodeToString(sig)
-	params["nonce"] = nonce
 
 	return nil
 }
