@@ -87,13 +87,14 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		}
 	}
 	sb.WriteString("## Stop-Loss & Entry Quality\n")
-	sb.WriteString(fmt.Sprintf("- Stop-loss buffer: set stop-loss at least %.1f × ATR14 BEYOND the support/resistance level (not right at it)\n", atrBuffer))
-	sb.WriteString("  Example (long): support at 2088, ATR14=9.14 → stop = 2088 - 9.14×")
+	sb.WriteString("- **IMPORTANT: Use 15m or 1h ATR14 for stop-loss evaluation, NOT the 3m ATR** (3m ATR is too small for meaningful stop-loss distances)\n")
+	sb.WriteString(fmt.Sprintf("- Stop-loss buffer: set stop-loss at least %.1f × ATR14(15m or 1h) BEYOND the support/resistance level (not right at it)\n", atrBuffer))
+	sb.WriteString("  Example (long): support at 2088, 15m ATR14=9.14 → stop = 2088 - 9.14×")
 	sb.WriteString(fmt.Sprintf("%.1f", atrBuffer))
 	sb.WriteString(fmt.Sprintf(" = %.1f\n", 2088-9.14*atrBuffer))
 	sb.WriteString("- Entry quality: only enter at ① near key support/resistance (reversal) or ② after breakout confirmation (trend)\n")
 	sb.WriteString("  Do NOT enter in the middle zone between support and resistance — poor stop/target geometry\n")
-	sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14, the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
+	sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14(15m or 1h), the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
 
 	// Position sizing guidance
 	sb.WriteString("## Position Sizing Guidance\n")
