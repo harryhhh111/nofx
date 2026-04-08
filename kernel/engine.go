@@ -161,6 +161,7 @@ type FullDecision struct {
 	SystemPrompt        string     `json:"system_prompt"`
 	UserPrompt          string     `json:"user_prompt"`
 	CoTTrace            string     `json:"cot_trace"`
+	CoTSummary          string     `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
 	Decisions           []Decision `json:"decisions"`
 	RawResponse         string     `json:"raw_response"`
 	Timestamp           time.Time  `json:"timestamp"`

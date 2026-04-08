@@ -110,6 +110,7 @@ func (at *AutoTrader) runCycle() error {
 		record.SystemPrompt = aiDecision.SystemPrompt // Save system prompt
 		record.InputPrompt = aiDecision.UserPrompt
 		record.CoTTrace = aiDecision.CoTTrace
+		record.CotSummary = aiDecision.CoTSummary
 		record.RawResponse = aiDecision.RawResponse // Save raw AI response for debugging
 		if len(aiDecision.Decisions) > 0 {
 			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
@@ -274,14 +275,21 @@ func (at *AutoTrader) runCycle() error {
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("✓ %s %s succeeded", d.Symbol, d.Action))
 
 			// Save opening reasoning: try immediate DB write, fallback to cache + background retry
-			if (d.Action == "open_long" || d.Action == "open_short") && d.Reasoning != "" && at.store != nil {
+			if (d.Action == "open_long" || d.Action == "open_short") && at.store != nil {
 				side := "LONG"
 				if d.Action == "open_short" {
 					side = "SHORT"
 				}
 				normalizedSymbol := market.Normalize(d.Symbol)
 				pendingKey := normalizedSymbol + "_" + side
+				// Prefer per-position reasoning from JSON, fallback to cycle-level CoTSummary
 				reasoning := d.Reasoning
+				if reasoning == "" && aiDecision != nil && aiDecision.CoTSummary != "" {
+					reasoning = aiDecision.CoTSummary
+				}
+				if reasoning == "" {
+					reasoning = fmt.Sprintf("[%s %s] reasoning not provided by AI", d.Symbol, d.Action)
+				}
 
 				// Try immediate write (works if position record already exists)
 				if err := at.store.Position().UpdatePositionOpeningReasoning(at.id, normalizedSymbol, side, reasoning); err != nil {

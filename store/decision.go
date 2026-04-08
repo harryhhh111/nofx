@@ -23,6 +23,7 @@ type DecisionRecordDB struct {
 	SystemPrompt        string    `gorm:"column:system_prompt;default:''"`
 	InputPrompt         string    `gorm:"column:input_prompt;default:''"`
 	CoTTrace            string    `gorm:"column:cot_trace;default:''"`
+	CotSummary          string    `gorm:"column:cot_summary;default:''"`
 	DecisionJSON        string    `gorm:"column:decision_json;default:''"`
 	RawResponse         string    `gorm:"column:raw_response;default:''"`
 	CandidateCoins      string    `gorm:"column:candidate_coins;default:''"`
@@ -45,6 +46,7 @@ type DecisionRecord struct {
 	SystemPrompt        string             `json:"system_prompt"`
 	InputPrompt         string             `json:"input_prompt"`
 	CoTTrace            string             `json:"cot_trace"`
+	CotSummary          string             `json:"cot_summary"`
 	DecisionJSON        string             `json:"decision_json"`
 	RawResponse         string             `json:"raw_response"` // Raw AI response for debugging
 	CandidateCoins      []string           `json:"candidate_coins"`
@@ -117,6 +119,7 @@ func (s *DecisionStore) initTables() error {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'decision_records'`).Scan(&tableExists)
 		if tableExists > 0 {
+			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS cot_summary TEXT DEFAULT ''`)
 			return nil
 		}
 	}
@@ -133,6 +136,7 @@ func (db *DecisionRecordDB) toRecord() *DecisionRecord {
 		SystemPrompt:        db.SystemPrompt,
 		InputPrompt:         db.InputPrompt,
 		CoTTrace:            db.CoTTrace,
+		CotSummary:          db.CotSummary,
 		DecisionJSON:        db.DecisionJSON,
 		RawResponse:         db.RawResponse,
 		Success:             db.Success,
@@ -165,6 +169,7 @@ func (s *DecisionStore) LogDecision(record *DecisionRecord) error {
 		SystemPrompt:        record.SystemPrompt,
 		InputPrompt:         record.InputPrompt,
 		CoTTrace:            record.CoTTrace,
+		CotSummary:          record.CotSummary,
 		DecisionJSON:        record.DecisionJSON,
 		RawResponse:         record.RawResponse,
 		CandidateCoins:      string(candidateCoinsJSON),
@@ -323,6 +328,7 @@ type DecisionDigest struct {
 	CycleNumber         int              `json:"cycle_number"`
 	Timestamp           time.Time        `json:"timestamp"`
 	CoTTrace            string           `json:"cot_trace"`
+	CotSummary          string           `json:"cot_summary"`
 	Decisions           []DecisionAction `json:"decisions"`
 	Success             bool             `json:"success"`
 	ErrorMessage        string           `json:"error_message,omitempty"`
@@ -335,6 +341,7 @@ func (db *DecisionRecordDB) toDigest() *DecisionDigest {
 		CycleNumber:         db.CycleNumber,
 		Timestamp:           db.Timestamp,
 		CoTTrace:            db.CoTTrace,
+		CotSummary:          db.CotSummary,
 		Success:             db.Success,
 		ErrorMessage:        db.ErrorMessage,
 		AIRequestDurationMs: db.AIRequestDurationMs,

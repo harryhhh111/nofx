@@ -25,8 +25,11 @@ var (
 	reInvisibleRunes = regexp.MustCompile("[\u200B\u200C\u200D\uFEFF]")
 
 	// XML tag extraction (supports any characters in reasoning chain)
-	reReasoningTag = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
-	reDecisionTag  = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	reReasoningTag        = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
+	reReasoningSummaryTag = regexp.MustCompile(`(?s)<reasoning_summary>(.*?)</reasoning_summary>`)
+	reDecisionTag         = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	// Strip data source names from summary
+	reDataSourceInSummary = regexp.MustCompile(`(?i)\b(ai500|oi[_\s]?top)\b`)
 )
 
 // ============================================================================
@@ -229,26 +232,55 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
+	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
 	decisions, err := extractDecisions(aiResponse)
 	if err != nil {
 		return &FullDecision{
-			CoTTrace:  cotTrace,
-			Decisions: []Decision{},
+			CoTTrace:   cotTrace,
+			CoTSummary: cotSummary,
+			Decisions:  []Decision{},
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
 	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
 		return &FullDecision{
-			CoTTrace:  cotTrace,
-			Decisions: decisions,
+			CoTTrace:   cotTrace,
+			CoTSummary: cotSummary,
+			Decisions:  decisions,
 		}, fmt.Errorf("decision validation failed: %w", err)
 	}
 
 	return &FullDecision{
-		CoTTrace:  cotTrace,
-		Decisions: decisions,
+		CoTTrace:   cotTrace,
+		CoTSummary: cotSummary,
+		Decisions:  decisions,
 	}, nil
+}
+
+const maxSummaryLen = 500
+
+func sanitizeCotSummary(s string) string {
+	s = reDataSourceInSummary.ReplaceAllString(s, "")
+	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(s, " "))
+}
+
+// extractCoTSummary extracts refined summary: prioritize <reasoning_summary> tag, fallback to cotTrace[:500]
+func extractCoTSummary(response string, cotTrace string) string {
+	if match := reReasoningSummaryTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
+		s := strings.TrimSpace(match[1])
+		if s != "" {
+			logger.Infof("✓ Extracted reasoning summary using <reasoning_summary> tag")
+			return sanitizeCotSummary(s)
+		}
+	}
+	if cotTrace == "" {
+		return ""
+	}
+	if len(cotTrace) <= maxSummaryLen {
+		return sanitizeCotSummary(cotTrace)
+	}
+	return sanitizeCotSummary(cotTrace[:maxSummaryLen] + "...")
 }
 
 func extractCoTTrace(response string) string {
