@@ -205,9 +205,16 @@ func (s *PositionStore) Create(pos *TraderPosition) error {
 
 // UpdatePositionOpeningReasoning writes the AI's position-specific reasoning when opening a trade.
 func (s *PositionStore) UpdatePositionOpeningReasoning(traderID, symbol, side string, reasoning string) error {
-	return s.db.Model(&TraderPosition{}).
+	result := s.db.Model(&TraderPosition{}).
 		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
-		Update("opening_reasoning", reasoning).Error
+		Update("opening_reasoning", reasoning)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("no matching OPEN position found for %s %s %s", traderID, symbol, side)
+	}
+	return nil
 }
 
 // UpdatePositionReviewSummary writes the AI's latest hold-decision snapshot to the position.
