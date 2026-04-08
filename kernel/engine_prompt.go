@@ -68,7 +68,9 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
-	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: ≥1:%.1f — calculated as (take_profit - entry) / (entry - stop_loss) for longs, (entry - take_profit) / (stop_loss - entry) for shorts. The REWARD must be ≥ %.1f× the RISK. If not, do NOT open the position.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio))
+	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: target ≥1:%.1f. Formula: reward = |take_profit - entry|, risk = |entry - stop_loss|, ratio = reward / risk.\n", riskControl.MinRiskRewardRatio))
+	sb.WriteString(fmt.Sprintf("  **You MUST calculate and write the ratio in your reasoning before opening any position.** Example: \"entry 2244, SL 2218, TP 2300 → risk=26, reward=56, ratio=2.15 (target ≥%.1f ✓)\"\n", riskControl.MinRiskRewardRatio))
+	sb.WriteString(fmt.Sprintf("  If ratio < %.1f, strongly consider skipping. If ratio is close (within 80%% of target, i.e. ≥%.1f), acceptable with strong signals.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
 	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
 
 	// Stop-loss ATR buffer guidance (mode-aware)
