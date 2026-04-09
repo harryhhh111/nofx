@@ -322,6 +322,14 @@ func (s *DecisionStore) GetLastCycleNumber(traderID string) (int, error) {
 // Decision Digest (lightweight API for external consumers)
 // ============================================================================
 
+// CoTTraceEntry represents a single CoT trace entry for recent history.
+type CoTTraceEntry struct {
+	CycleNumber int       `json:"cycle_number"`
+	Timestamp   time.Time `json:"timestamp"`
+	CoTTrace    string    `json:"cot_trace"`
+	CotSummary  string    `json:"cot_summary"`
+}
+
 // DecisionDigest is a lightweight decision summary excluding verbose prompts and raw response.
 type DecisionDigest struct {
 	TraderID            string           `json:"trader_id"`
@@ -329,6 +337,7 @@ type DecisionDigest struct {
 	Timestamp           time.Time        `json:"timestamp"`
 	CoTTrace            string           `json:"cot_trace"`
 	CotSummary          string           `json:"cot_summary"`
+	RecentCoTTraces     []CoTTraceEntry  `json:"recent_cot_traces"`
 	Decisions           []DecisionAction `json:"decisions"`
 	Success             bool             `json:"success"`
 	ErrorMessage        string           `json:"error_message,omitempty"`
@@ -350,51 +359,85 @@ func (db *DecisionRecordDB) toDigest() *DecisionDigest {
 	return digest
 }
 
+// getLatestCoTTraces returns the most recent N CoT traces for a trader.
+func (s *DecisionStore) getLatestCoTTraces(traderID string, n int) ([]CoTTraceEntry, error) {
+	if n <= 0 {
+		return nil, nil
+	}
+	var dbRecords []DecisionRecordDB
+	err := s.db.Where("trader_id = ?", traderID).
+		Order("timestamp DESC").
+		Limit(n).
+		Select("cycle_number", "timestamp", "cot_trace", "cot_summary").
+		Find(&dbRecords).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CoTTraceEntry, 0, len(dbRecords))
+	for _, r := range dbRecords {
+		out = append(out, CoTTraceEntry{CycleNumber: r.CycleNumber, Timestamp: r.Timestamp, CoTTrace: r.CoTTrace, CotSummary: r.CotSummary})
+	}
+	return out, nil
+}
+
 // GetLatestDigest gets the latest decision digest for a specific trader.
+// Includes the most recent 3 CoT traces for context.
 func (s *DecisionStore) GetLatestDigest(traderID string) (*DecisionDigest, error) {
 	var record DecisionRecordDB
 	err := s.db.Where("trader_id = ?", traderID).
 		Order("timestamp DESC").
 		First(&record).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query latest decision digest for trader %s: %w", traderID, err)
 	}
-	return record.toDigest(), nil
+	digest := record.toDigest()
+	digest.RecentCoTTraces, _ = s.getLatestCoTTraces(traderID, 3)
+	return digest, nil
 }
 
 // GetTradersLatestDigests gets the latest decision digest for each specified trader, with sorting.
+// If traderIDs is empty, queries all traders with decision records.
 func (s *DecisionStore) GetTradersLatestDigests(traderIDs []string, sortBy, order string, limit int) ([]*DecisionDigest, error) {
-	if len(traderIDs) == 0 {
-		return nil, nil
+	queryIDs := traderIDs
+	if len(queryIDs) == 0 {
+		if err := s.db.Model(&DecisionRecordDB{}).Distinct("trader_id").Pluck("trader_id", &queryIDs).Error; err != nil {
+			return nil, fmt.Errorf("failed to get distinct trader IDs: %w", err)
+		}
 	}
 
-	digests := make([]*DecisionDigest, 0, len(traderIDs))
-	for _, tid := range traderIDs {
+	digests := make([]*DecisionDigest, 0, len(queryIDs))
+	for _, tid := range queryIDs {
 		var record DecisionRecordDB
 		err := s.db.Where("trader_id = ?", tid).Order("timestamp DESC").First(&record).Error
 		if err != nil {
 			continue
 		}
-		digests = append(digests, record.toDigest())
+		d := record.toDigest()
+		d.RecentCoTTraces, _ = s.getLatestCoTTraces(tid, 3)
+		digests = append(digests, d)
 	}
 
 	// Sort
-	switch sortBy {
-	case "trader_id":
-		sort.Slice(digests, func(i, j int) bool {
-			if order == "asc" {
+	isAsc := order == "asc"
+	sort.Slice(digests, func(i, j int) bool {
+		switch sortBy {
+		case "trader_id":
+			if isAsc {
 				return digests[i].TraderID < digests[j].TraderID
 			}
 			return digests[i].TraderID > digests[j].TraderID
-		})
-	default: // timestamp
-		sort.Slice(digests, func(i, j int) bool {
-			if order == "asc" {
+		case "success":
+			if isAsc {
+				return !digests[i].Success && digests[j].Success
+			}
+			return digests[i].Success && !digests[j].Success
+		default: // timestamp
+			if isAsc {
 				return digests[i].Timestamp.Before(digests[j].Timestamp)
 			}
 			return digests[i].Timestamp.After(digests[j].Timestamp)
-		})
-	}
+		}
+	})
 
 	if limit > 0 && len(digests) > limit {
 		digests = digests[:limit]
