@@ -4,14 +4,13 @@ services:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.backend
-    container_name: nofx-trading
+    container_name: nofx-trading_opt
     restart: unless-stopped
-    stop_grace_period: 30s  # Allow the app 30 seconds for graceful shutdown
+    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8080"
-      - "6060:6060"  # pprof profiling
+      - "${NOFX_PPROF_PORT:-6071}:6060"  # pprof profiling (host port configurable via .env)
     volumes:
-      - ./.env:/app/.env
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
@@ -19,6 +18,14 @@ services:
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
+      # Database Configuration
+      - DB_TYPE=${DB_TYPE:-sqlite}
+      - DB_HOST=${DB_HOST:-}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - DB_NAME=${DB_NAME:-}
+      - DB_SSLMODE=${DB_SSLMODE:-disable}
     networks:
       - nofx-network
     healthcheck:
@@ -33,7 +40,7 @@ services:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.frontend
-    container_name: nofx-frontend
+    container_name: nofx-frontend_opt
     restart: unless-stopped
     ports:
       - "${NOFX_FRONTEND_PORT:-3000}:80"
