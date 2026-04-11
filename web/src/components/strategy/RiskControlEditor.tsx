@@ -144,7 +144,7 @@ export function RiskControlEditor({
             {ts(riskControl.positionValueRatioDesc, language)}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div
             className="p-4 rounded-lg"
             style={{ background: '#0B0E11', border: '1px solid #0ECB81' }}
@@ -350,6 +350,34 @@ export function RiskControlEditor({
               />
               <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
                 {config.min_confidence ?? 75}
+              </span>
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.minCloseConfidence, language)}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {ts(riskControl.minCloseConfidenceDesc, language)}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                value={config.min_close_confidence ?? 85}
+                onChange={(e) =>
+                  updateField('min_close_confidence', parseInt(e.target.value))
+                }
+                disabled={disabled}
+                min={70}
+                max={95}
+                className="flex-1 accent-yellow-500"
+              />
+              <span className="w-12 text-center font-mono" style={{ color: '#F0B90B' }}>
+                {config.min_close_confidence ?? 85}
               </span>
             </div>
           </div>

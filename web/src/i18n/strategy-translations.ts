@@ -170,6 +170,8 @@ export const riskControl = {
   minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT', es: 'Valor mínimo en USDT' },
   minConfidence: { zh: '最小信心度', en: 'Min Confidence', es: 'Confianza Mínima' },
   minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry', es: 'Umbral de confianza AI' },
+  minCloseConfidence: { zh: '提前平仓最小信心度', en: 'Min Early-Close Confidence', es: 'Confianza Mínima de Cierre Temprano' },
+  minCloseConfidenceDesc: { zh: 'AI 主动提前平仓的信心度阈值', en: 'AI confidence threshold for proactive early exits', es: 'Umbral de confianza AI para cierres tempranos' },
 };
 
 // ============================================================================

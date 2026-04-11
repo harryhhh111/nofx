@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/provider/hyperliquid"
 	"nofx/provider/nofxos"
 	"nofx/store"
+	"os"
 	"strings"
 	"time"
 )
@@ -22,21 +22,23 @@ import (
 
 // PositionInfo position information
 type PositionInfo struct {
-	Symbol           string  `json:"symbol"`
-	Side             string  `json:"side"` // "long" or "short"
-	EntryPrice       float64 `json:"entry_price"`
-	MarkPrice        float64 `json:"mark_price"`
-	Quantity         float64 `json:"quantity"`
-	Leverage         int     `json:"leverage"`
-	UnrealizedPnL    float64 `json:"unrealized_pnl"`
-	UnrealizedPnLPct float64 `json:"unrealized_pnl_pct"`
-	PeakPnLPct       float64 `json:"peak_pnl_pct"` // Historical peak profit percentage
+	Symbol            string  `json:"symbol"`
+	Side              string  `json:"side"` // "long" or "short"
+	EntryPrice        float64 `json:"entry_price"`
+	MarkPrice         float64 `json:"mark_price"`
+	Quantity          float64 `json:"quantity"`
+	Leverage          int     `json:"leverage"`
+	UnrealizedPnL     float64 `json:"unrealized_pnl"`
+	UnrealizedPnLPct  float64 `json:"unrealized_pnl_pct"`
+	PeakPnLPct        float64 `json:"peak_pnl_pct"` // Historical peak profit percentage
 	LiquidationPrice  float64 `json:"liquidation_price"`
 	MarginUsed        float64 `json:"margin_used"`
 	UpdateTime        int64   `json:"update_time"`         // Position update timestamp (milliseconds)
 	AccumulatedFee    float64 `json:"accumulated_fee"`     // Total fees paid so far (opening)
 	EstimatedCloseFee float64 `json:"estimated_close_fee"` // Estimated fee to close this position
 	NetPnL            float64 `json:"net_pnl"`             // UnrealizedPnL - AccumulatedFee - EstimatedCloseFee
+	StopLossPrice     float64 `json:"stop_loss_price"`     // Active stop-loss order price on exchange (0 if none)
+	TakeProfitPrice   float64 `json:"take_profit_price"`   // Active take-profit order price on exchange (0 if none)
 }
 
 // PositionMemory holds the AI's reasoning from when a position was originally opened,

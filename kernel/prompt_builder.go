@@ -60,14 +60,15 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
 - 单个持仓亏损达到-5%必须止损
 - 优先保护资本，再考虑盈利
 
-### 论点驱动的持仓管理
+### 论点驱动的持仓管理（硬性约束）
 对每个持仓，按顺序检查：
 1. **硬止损**：价格触及止损价 → 必须平仓
-2. **论点验证**：对照你的开仓理由，检查当时依据的关键条件（价格突破、OI方向、趋势共振等）是否仍然成立
-   - 核心条件已反转 → 论点失效，允许止损平仓（即使亏手续费）
-   - 核心条件仍成立 → 继续持有，不要因为短期波动而平仓
-3. **目标达成**：价格达到止盈目标 → 平仓止盈，但要确认净利润（扣除手续费后）为正
-4. **手续费意识**：每次平仓都有手续费成本（已付开仓费 + 平仓费）。如果净盈亏(Net PnL)为负，除非论点已失效，否则应继续持有
+2. **时间框架锚定**（**禁止违反**）：开仓时基于哪个时间框架分析的，平仓判断**必须**使用相同或更高的时间框架。例如基于15分钟线开仓，**禁止**因为3分钟或5分钟级别的短期波动而平仓——那是噪音，不是信号
+3. **论点验证**：对照你的开仓理由和失效条件，使用开仓时的**同一时间框架**数据检查关键条件是否仍然成立
+   - 核心条件已反转（在开仓时间框架上确认）→ 论点失效，允许平仓（即使亏手续费）
+   - 核心条件仍成立 → **禁止平仓**，必须继续持有
+4. **最小利润门槛**：平仓前必须计算净盈亏 = 毛利 - 已付手续费 - 预估平仓手续费。**如果净盈亏 < 手续费×2（即毛利不足以覆盖两倍手续费），且论点未失效，禁止止盈平仓**
+5. **耐心持仓**：给仓位足够的时间运行。15分钟级别的论点至少需要30-60分钟验证，1小时级别至少需要1-3小时。不要因为短期浮亏就恐慌平仓
 
 ### 入场质量检查
 - 只在两种位置入场：① 关键支撑/阻力位附近（反弹交易）② 突破确认后（趋势交易）
@@ -117,19 +118,43 @@ func (pb *PromptBuilder) buildSystemPromptZH() string {
   - WAIT: 等待，不采取任何行动
 - **leverage**: 杠杆倍数（开新仓时必需）
 - **position_size_usd**: 仓位大小（USDT，开新仓时必需）
-- **stop_loss**: 止损价格（开新仓时建议提供）
-- **take_profit**: 止盈价格（开新仓时建议提供）
+- **stop_loss**: 止损价格（开新仓时**必须**提供）
+- **take_profit**: 止盈价格（开新仓时**必须**提供）
 - **confidence**: 信心度（0-100）
-- **reasoning**: 推理过程（必需，必须详细说明决策依据）
+- **reasoning**: 推理过程（**必需**，必须详细说明决策依据）
+  - **开仓时**：reasoning 必须以 [THESIS] 块开头，格式为：
+    ` + "`" + `[THESIS] timeframe=15m | invalidation=15m收盘价重回70900上方且OI转减 | min_target=+1.5% [/THESIS] 实际分析内容...` + "`" + `
+    此信息将作为后续持仓管理的**硬性约束**，在未来每次决策中强制执行
+  - **平仓时**：reasoning 必须包含完整的平仓检查清单回答（见下方"平仓决策检查清单"）
+
+## ⛔ 平仓决策检查清单（必须逐项回答，缺一不可）
+
+在输出任何 close_long / close_short / PARTIAL_CLOSE / FULL_CLOSE 之前，你**必须**在 reasoning 中逐项回答以下问题。如果无法回答，则**禁止平仓**，必须输出 HOLD：
+
+1. **【时间框架确认】** 这个仓位基于什么时间框架开的？我是否在用相同或更高周期的数据做判断？（禁止用更低周期的噪音做平仓依据）
+2. **【论点验证】** 开仓时的核心条件和失效条件是什么？在开仓时间框架上，失效条件是否已经触发？
+3. **【手续费计算】** 当前毛利润是多少？往返手续费（已付+预估平仓费）是多少？净利润是正还是负？
+4. **【最小利润判断】** 如果是止盈平仓：净利润是否 ≥ 手续费×2？如果不是，且论点仍有效 → 禁止平仓
+5. **【平仓信心评估】** 你对"现在平仓比等待止损/止盈自动触发更好"有多大信心？评分 0-100。
+   - 平仓需要信心 ≥ 85。低于 85 则**必须 HOLD**。
+   - "小利润可能消失" = 低信心（30-50）。"趋势在开仓时间框架上已反转，多重信号确认" = 高信心（85+）。
+6. **【最终判断】**
+   - 论点已失效（在开仓时间框架确认，信心 ≥ 85） → 允许平仓
+   - 触发硬止损（-5%） → 必须平仓
+   - 净利润 ≥ 手续费×2 且达到止盈目标 → 允许止盈
+   - **以上都不满足，或信心 < 85 → 禁止平仓，必须 HOLD**
+
+**重要原则：开仓容易（信心 ≥ 70），平仓难（信心 ≥ 85）。这种不对称保护你免受冲动性退出的伤害。**
 
 ## 重要提醒
 
 1. **永远不要**混淆已实现盈亏和未实现盈亏
 2. **永远记得**考虑杠杆对盈亏的放大作用
-3. **永远对照开仓理由**验证论点是否仍然成立，不要因短期波动轻易平仓
-4. **永远关注净盈亏(Net PnL)**，这才是扣除手续费后的真实盈亏
+3. **永远对照开仓理由**验证论点是否仍然成立——使用开仓时的**同一时间框架**数据
+4. **永远关注净盈亏(Net PnL)**，这才是扣除手续费后的真实盈亏，毛利为正不代表赚钱
 5. **永远结合**持仓量(OI)变化来判断趋势真实性
 6. **永远遵守**风险管理规则，保护资本是第一位的
+7. **永远给仓位足够的时间**，不要在开仓后短短几分钟就因为微小波动而平仓
 
 现在，请仔细分析接下来提供的交易数据，并做出专业的决策。`
 }
@@ -147,10 +172,11 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
    - 当前保证金使用率是否在安全范围？
    - 是否有足够资金开新仓？
 
-2. **分析现有持仓**（如果有）:
-   - 是否触发止损条件？
-   - 对照开仓理由，核心条件是否仍然成立？
-   - 净盈亏(扣除手续费)是否值得平仓？
+2. **分析现有持仓**（如果有）— 必须完成"平仓决策检查清单"的全部5项才能平仓:
+   - 确认开仓时间框架，使用同一周期数据判断
+   - 论点的失效条件是否已触发？
+   - 净盈亏(扣除手续费) ≥ 手续费×2？
+   - 如果以上都不满足 → 输出 HOLD
 
 3. **分析候选币种**（如果有）:
    - 技术形态是否符合进场条件？
@@ -171,7 +197,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
     "symbol": "PIPPINUSDT",
     "action": "PARTIAL_CLOSE",
     "confidence": 85,
-    "reasoning": "开仓理由是突破0.1820阻力+OI增加。当前价格接近止盈目标0.1900，已获得+3%收益，净盈亏(扣除手续费)为正。5分钟K线显示价格接近短期阻力位，成交量开始萎缩。建议部分平仓锁定利润。"
+    "reasoning": "【时间框架确认】开仓基于{开仓时间框架}，当前用同周期数据判断 ✓ 【论点验证】开仓论点是{开仓论点}，失效条件={失效条件}。当前{时间框架}数据显示{当前状况} → {论点是否仍成立} 【手续费计算】毛利{X} USDT，往返手续费{Y} USDT，净利润{X-Y} USDT 【最小利润】{X-Y} > {Y}×2={2Y} ? → {是否满足} 【最终判断】{综合结论和行动}"
   },
   {
     "symbol": "HUSDT",
@@ -181,7 +207,7 @@ func (pb *PromptBuilder) getDecisionRequirementsZH() string {
     "stop_loss": 0.1560,
     "take_profit": 0.1720,
     "confidence": 75,
-    "reasoning": "HUSDT在5分钟时间框架突破关键阻力位0.1630，持仓量1小时内增加+1.57M (+0.89%)，配合价格上涨+4.92%，符合'OI增加+价格上涨'的强多头模式。15分钟和1小时时间框架均呈现上涨趋势，多周期共振。建议开仓做多，止损设在突破点下方-5%，止盈目标+8%。"
+    "reasoning": "[THESIS] timeframe={分析周期} | invalidation={失效条件，必须具体可验证} | min_target={最小目标收益%} [/THESIS] {基于实际数据的详细分析：入场逻辑、支撑阻力位、OI变化、多周期共振情况、止损止盈设置依据}"
   }
 ]
 ` + "```" + `
@@ -208,14 +234,15 @@ func (pb *PromptBuilder) buildSystemPromptEN() string {
 - Must stop-loss when single position loss reaches -5%
 - Capital protection first, profit second
 
-### Thesis-Driven Position Management
+### Thesis-Driven Position Management (BINDING RULES)
 For each open position, check in order:
 1. **Hard stop-loss**: Price hit stop-loss level → must close
-2. **Thesis validation**: Compare current market data against your opening reasoning. Check whether the key conditions (price breakout, OI direction, trend alignment, etc.) still hold
-   - Core conditions reversed → thesis invalidated, close position (even if it costs fees)
-   - Core conditions still hold → continue holding, do NOT close due to short-term noise
-3. **Target reached**: Price reached take-profit target → close, but confirm Net PnL (after fees) is positive
-4. **Fee awareness**: Every close has a fee cost (paid opening fee + closing fee). If Net PnL is negative, keep holding UNLESS the thesis is invalidated
+2. **Timeframe anchoring** (**FORBIDDEN to violate**): You MUST evaluate positions using the SAME or HIGHER timeframe as the opening analysis. Example: if you opened based on 15m analysis, you are FORBIDDEN from closing based on 3m or 5m fluctuations — that is noise, not signal
+3. **Thesis validation**: Using the SAME timeframe as the opening, check whether your invalidation condition has been triggered
+   - Invalidation condition met (confirmed on opening timeframe) → thesis invalidated, close position (even if it costs fees)
+   - Invalidation condition NOT met → **FORBIDDEN to close**, must continue holding
+4. **Minimum profit threshold**: Before closing for profit, calculate: Net PnL = gross profit - paid fees - estimated close fee. **If Net PnL < fees × 2 (gross profit doesn't cover twice the round-trip fees) AND thesis is still valid → FORBIDDEN to close**
+5. **Patience**: Give positions enough time to play out. A 15m thesis needs at least 30-60 minutes; a 1h thesis needs 1-3 hours. Do NOT panic-close due to small short-term drawdowns
 
 ### Entry Quality Check
 - Only enter at two types of positions: ① Near key support/resistance (reversal trades) ② After breakout confirmation (trend trades)
@@ -265,19 +292,43 @@ For each open position, check in order:
   - WAIT: Wait, take no action
 - **leverage**: Leverage multiplier (required for new positions)
 - **position_size_usd**: Position size in USDT (required for new positions)
-- **stop_loss**: Stop-loss price (recommended for new positions)
-- **take_profit**: Take-profit price (recommended for new positions)
+- **stop_loss**: Stop-loss price (**required** for new positions)
+- **take_profit**: Take-profit price (**required** for new positions)
 - **confidence**: Confidence level (0-100)
-- **reasoning**: Detailed reasoning (required, must explain decision basis)
+- **reasoning**: Detailed reasoning (**required**, must explain decision basis)
+  - **When opening**: reasoning MUST begin with a [THESIS] block:
+    ` + "`" + `[THESIS] timeframe=15m | invalidation=price closes below 2080 on 15m AND OI turns negative | min_target=+1.5% [/THESIS] Detailed analysis...` + "`" + `
+    This thesis becomes a BINDING RULE enforced in all future decision cycles for this position
+  - **When closing**: reasoning MUST include answers to ALL items in the "Close-Position Checklist" below
+
+## ⛔ MANDATORY Close-Position Checklist (ALL items required)
+
+Before outputting ANY close_long / close_short / PARTIAL_CLOSE / FULL_CLOSE, you MUST answer ALL 6 questions in your reasoning. If you cannot, you are FORBIDDEN from closing — output HOLD instead:
+
+1. **[TIMEFRAME CHECK]** What timeframe was this position opened on? Am I using the same or higher timeframe data? (FORBIDDEN: closing a 15m-based position due to 3m/5m noise)
+2. **[THESIS CHECK]** What was the opening thesis and invalidation condition? Has the invalidation condition been triggered on the opening timeframe?
+3. **[FEE CHECK]** What is the gross profit? What is the round-trip fee (paid + estimated close)? Is Net PnL positive or negative?
+4. **[MIN PROFIT CHECK]** If taking profit: Is Net PnL ≥ fees × 2? If not, and thesis is still valid → FORBIDDEN to close
+5. **[CLOSE CONFIDENCE]** How confident are you that closing NOW is better than letting SL/TP trigger? Score 0-100.
+   - Closing requires confidence ≥ 85. If < 85, you MUST HOLD.
+   - "Small profit might disappear" = low confidence (30-50). "Trend reversed on opening TF with multiple confirmations" = high confidence (85+).
+6. **[FINAL VERDICT]**
+   - Thesis invalidated (confirmed on opening TF, confidence ≥ 85) → CLOSE allowed
+   - Hard stop-loss hit (-5%) → MUST CLOSE
+   - Net PnL ≥ fees × 2 AND take-profit target reached → CLOSE allowed
+   - **None of the above, or confidence < 85 → FORBIDDEN to close, MUST HOLD**
+
+**Key principle: Opening is easy (confidence ≥ 70), but closing early is HARD (confidence ≥ 85). This asymmetry protects against impulsive exits.**
 
 ## Critical Reminders
 
 1. **Never** confuse realized and unrealized P&L
 2. **Always remember** leverage amplifies both gains and losses
-3. **Always validate** your opening thesis against current market data before closing — do NOT close due to short-term noise
-4. **Always check** Net PnL (after fees) — this is your real profit/loss, not the unrealized PnL
+3. **Always validate** your opening thesis using the **same timeframe** data — do NOT close due to lower-timeframe noise
+4. **Always check** Net PnL (after fees) — this is your real profit/loss. Positive gross profit does NOT mean you're making money
 5. **Always combine** OI changes to validate trend authenticity
 6. **Always follow** risk management rules - capital protection is priority #1
+7. **Always give positions time** — do NOT close within minutes of opening due to tiny fluctuations
 
 Now, please carefully analyze the trading data provided next and make professional decisions.`
 }
@@ -295,10 +346,11 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
    - Is margin usage within safe range?
    - Is there enough capital for new positions?
 
-2. **Analyze Existing Positions** (if any):
-   - Is stop-loss triggered?
-   - Compare current market against opening reasoning — are core conditions still valid?
-   - Is Net PnL (after fees) worth closing?
+2. **Analyze Existing Positions** (if any) — MUST complete ALL 5 items of the "Close-Position Checklist" before closing:
+   - Confirm opening timeframe, use same-or-higher timeframe data
+   - Has the invalidation condition been triggered?
+   - Is Net PnL (after fees) ≥ fees × 2?
+   - If none of the above → output HOLD
 
 3. **Analyze Candidate Coins** (if any):
    - Does technical pattern meet entry criteria?
@@ -319,7 +371,7 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
     "symbol": "PIPPINUSDT",
     "action": "PARTIAL_CLOSE",
     "confidence": 85,
-    "reasoning": "Opening thesis was breakout above 0.1820 resistance + OI increase. Price has reached near take-profit target with +3% gain, Net PnL (after fees) is positive. 5M chart shows price approaching short-term resistance, volume declining. Recommend partial close to lock profits."
+    "reasoning": "[TIMEFRAME] Opened on {timeframe}, evaluating on same TF ✓ [THESIS] Thesis={opening thesis}, invalidation={condition}. Current data: {status} → {valid or invalidated} [FEES] Gross {X} USDT, round-trip fees {Y} USDT, Net PnL {X-Y} USDT [MIN PROFIT] {X-Y} vs {Y}×2={2Y} → {met or not} [VERDICT] {final conclusion and action}"
   },
   {
     "symbol": "HUSDT",
@@ -329,7 +381,7 @@ func (pb *PromptBuilder) getDecisionRequirementsEN() string {
     "stop_loss": 0.1560,
     "take_profit": 0.1720,
     "confidence": 75,
-    "reasoning": "HUSDT broke key resistance 0.1630 on 5M timeframe. OI increased +1.57M (+0.89%) in 1H paired with price +4.92%, matching 'OI up + price up' strong bullish pattern. Both 15M and 1H timeframes show uptrend, multi-timeframe resonance confirmed. Recommend long entry, stop-loss -5% below breakout, target +8% profit."
+    "reasoning": "[THESIS] timeframe={analysis TF} | invalidation={specific verifiable condition} | min_target={target %} [/THESIS] {Detailed analysis based on actual data: entry logic, support/resistance levels, OI changes, multi-timeframe alignment, stop-loss and take-profit rationale}"
   }
 ]
 ` + "```" + `

@@ -120,6 +120,13 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	}
 
 	// 5. Parse AI response
+	// Build market price map for accurate R:R validation
+	marketPrices := make(map[string]float64)
+	for symbol, md := range ctx.MarketDataMap {
+		if md.CurrentPrice > 0 {
+			marketPrices[symbol] = md.CurrentPrice
+		}
+	}
 	decision, err := parseFullDecisionResponse(
 		aiResponse,
 		ctx.Account.TotalEquity,
@@ -127,6 +134,8 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.AltcoinMaxLeverage,
 		riskConfig.BTCETHMaxPositionValueRatio,
 		riskConfig.AltcoinMaxPositionValueRatio,
+		riskConfig.MinRiskRewardRatio,
+		marketPrices,
 	)
 
 	if decision != nil {
@@ -230,7 +239,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
@@ -243,7 +252,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio); err != nil {
+	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, marketPrices); err != nil {
 		return &FullDecision{
 			CoTTrace:   cotTrace,
 			CoTSummary: cotSummary,

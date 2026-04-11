@@ -27,6 +27,11 @@ func validateStrategyConfig(config *store.StrategyConfig) []string {
 		config.Indicators.NofxOSAPIKey == "" {
 		warnings = append(warnings, "NofxOS API key is not configured. NofxOS data sources may not work properly.")
 	}
+	if config.RiskControl.MinCloseConfidence > 0 &&
+		config.RiskControl.MinConfidence > 0 &&
+		config.RiskControl.MinCloseConfidence < config.RiskControl.MinConfidence {
+		warnings = append(warnings, "Early-close confidence is lower than entry confidence. AI may exit positions too aggressively.")
+	}
 
 	return warnings
 }
@@ -41,6 +46,7 @@ func (s *Server) handleEstimateTokens(c *gin.Context) {
 		return
 	}
 
+	req.Config.ClampLimits()
 	estimate := req.Config.EstimateTokens()
 	c.JSON(http.StatusOK, estimate)
 }
@@ -69,9 +75,10 @@ func (s *Server) handlePublicStrategies(c *gin.Context) {
 
 		// Only include config if config_visible is true
 		if st.ConfigVisible {
-			var config store.StrategyConfig
-			json.Unmarshal([]byte(st.Config), &config)
-			item["config"] = config
+			config, parseErr := st.ParseConfig()
+			if parseErr == nil {
+				item["config"] = config
+			}
 		}
 
 		result = append(result, item)
@@ -99,8 +106,11 @@ func (s *Server) handleGetStrategies(c *gin.Context) {
 	// Convert to frontend format
 	result := make([]gin.H, 0, len(strategies))
 	for _, st := range strategies {
-		var config store.StrategyConfig
-		json.Unmarshal([]byte(st.Config), &config)
+		config, parseErr := st.ParseConfig()
+		if parseErr != nil {
+			SafeInternalError(c, "Failed to parse strategy config", parseErr)
+			return
+		}
 
 		result = append(result, gin.H{
 			"id":             st.ID,
@@ -137,8 +147,11 @@ func (s *Server) handleGetStrategy(c *gin.Context) {
 		return
 	}
 
-	var config store.StrategyConfig
-	json.Unmarshal([]byte(strategy.Config), &config)
+	config, parseErr := strategy.ParseConfig()
+	if parseErr != nil {
+		SafeInternalError(c, "Failed to parse strategy config", parseErr)
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":          strategy.ID,
@@ -182,6 +195,7 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 		defaultCfg := store.GetDefaultStrategyConfig(lang)
 		req.Config = &defaultCfg
 	}
+	req.Config.ClampLimits()
 
 	// Serialize configuration
 	configJSON, err := json.Marshal(req.Config)
@@ -271,6 +285,7 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 			return
 		}
 	}
+	mergedConfig.ClampLimits()
 
 	// Preserve existing name/description when not supplied
 	name := req.Name
@@ -415,8 +430,11 @@ func (s *Server) handleGetActiveStrategy(c *gin.Context) {
 		return
 	}
 
-	var config store.StrategyConfig
-	json.Unmarshal([]byte(strategy.Config), &config)
+	config, parseErr := strategy.ParseConfig()
+	if parseErr != nil {
+		SafeInternalError(c, "Failed to parse strategy config", parseErr)
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"id":          strategy.ID,
@@ -469,6 +487,7 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 	if req.PromptVariant == "" {
 		req.PromptVariant = "balanced"
 	}
+	req.Config.ClampLimits()
 
 	// Create strategy engine to build prompt
 	engine := kernel.NewStrategyEngine(&req.Config)
@@ -515,6 +534,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	if req.PromptVariant == "" {
 		req.PromptVariant = "balanced"
 	}
+	req.Config.ClampLimits()
 
 	// Create strategy engine to build prompt
 	engine := kernel.NewStrategyEngine(&req.Config)

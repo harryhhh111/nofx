@@ -365,6 +365,36 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
 
+	// Pre-fetch open/pending orders to find active SL/TP for each position
+	type slTP struct{ sl, tp float64 }
+	activeCondOrders := make(map[string]slTP)
+	for _, pos := range positions {
+		sym, _ := pos["symbol"].(string)
+		sd, _ := pos["side"].(string)
+		if sym == "" || sd == "" {
+			continue
+		}
+		orders, oErr := at.trader.GetOpenOrders(sym)
+		if oErr != nil {
+			continue
+		}
+		key := sym + "_" + sd
+		entry := activeCondOrders[key]
+		for _, o := range orders {
+			switch o.Type {
+			case "STOP_MARKET", "STOP":
+				if o.StopPrice > 0 {
+					entry.sl = o.StopPrice
+				}
+			case "TAKE_PROFIT_MARKET", "TAKE_PROFIT":
+				if o.StopPrice > 0 {
+					entry.tp = o.StopPrice
+				}
+			}
+		}
+		activeCondOrders[key] = entry
+	}
+
 	var positionInfos []kernel.PositionInfo
 	totalMarginUsed := 0.0
 
@@ -439,6 +469,8 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		estimatedCloseFee := positionNotional * 0.00055 // taker fee ~5.5bps
 		netPnL := unrealizedPnl - accumulatedFee - estimatedCloseFee
 
+		condEntry := activeCondOrders[posKey]
+
 		positionInfos = append(positionInfos, kernel.PositionInfo{
 			Symbol:            symbol,
 			Side:              side,
@@ -455,6 +487,8 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			AccumulatedFee:    accumulatedFee,
 			EstimatedCloseFee: estimatedCloseFee,
 			NetPnL:            netPnL,
+			StopLossPrice:     condEntry.sl,
+			TakeProfitPrice:   condEntry.tp,
 		})
 	}
 

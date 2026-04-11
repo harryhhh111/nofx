@@ -17,6 +17,13 @@ const (
 	MaxTimeframes     = 4
 	MinKlineCount     = 10
 	MaxKlineCount     = 30
+
+	DefaultMinConfidence      = 75
+	MinMinConfidence          = 60
+	MaxMinConfidence          = 90
+	DefaultMinCloseConfidence = 85
+	MinMinCloseConfidence     = 70
+	MaxMinCloseConfidence     = 95
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -56,6 +63,26 @@ func (c *StrategyConfig) ClampLimits() {
 	// Clamp max positions
 	if c.RiskControl.MaxPositions > MaxPositions {
 		c.RiskControl.MaxPositions = MaxPositions
+	}
+
+	// Clamp AI confidence thresholds to safe product ranges.
+	if c.RiskControl.MinConfidence <= 0 {
+		c.RiskControl.MinConfidence = DefaultMinConfidence
+	}
+	if c.RiskControl.MinConfidence < MinMinConfidence {
+		c.RiskControl.MinConfidence = MinMinConfidence
+	}
+	if c.RiskControl.MinConfidence > MaxMinConfidence {
+		c.RiskControl.MinConfidence = MaxMinConfidence
+	}
+	if c.RiskControl.MinCloseConfidence <= 0 {
+		c.RiskControl.MinCloseConfidence = DefaultMinCloseConfidence
+	}
+	if c.RiskControl.MinCloseConfidence < MinMinCloseConfidence {
+		c.RiskControl.MinCloseConfidence = MinMinCloseConfidence
+	}
+	if c.RiskControl.MinCloseConfidence > MaxMinCloseConfidence {
+		c.RiskControl.MinCloseConfidence = MaxMinCloseConfidence
 	}
 
 }
@@ -284,6 +311,8 @@ type RiskControlConfig struct {
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
 	// Min AI confidence to open position (AI guided)
 	MinConfidence int `json:"min_confidence"`
+	// Min AI confidence to proactively close before exchange SL/TP triggers (AI guided)
+	MinCloseConfidence int `json:"min_close_confidence"`
 
 	// Stop loss ATR buffer multiplier (AI guided)
 	// Stop loss = support - (ATR14 × this value) for longs, resistance + (ATR14 × this value) for shorts
@@ -394,7 +423,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
 			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
 			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
-			MinConfidence:                75,  // Min 75% confidence (AI guided)
+			MinConfidence:                DefaultMinConfidence,
+			MinCloseConfidence:           DefaultMinCloseConfidence,
 		},
 	}
 
@@ -586,6 +616,7 @@ func (s *Strategy) ParseConfig() (*StrategyConfig, error) {
 	if err := json.Unmarshal([]byte(s.Config), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse strategy configuration: %w", err)
 	}
+	config.ClampLimits()
 	return &config, nil
 }
 

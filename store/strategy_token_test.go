@@ -110,3 +110,41 @@ func TestGetEffectiveCoinCount(t *testing.T) {
 		t.Errorf("ai500 coin count = %d, want 5", got)
 	}
 }
+
+func TestClampLimits_ConfidenceThresholds(t *testing.T) {
+	config := StrategyConfig{}
+	config.ClampLimits()
+
+	if config.RiskControl.MinConfidence != DefaultMinConfidence {
+		t.Errorf("default min confidence = %d, want %d", config.RiskControl.MinConfidence, DefaultMinConfidence)
+	}
+	if config.RiskControl.MinCloseConfidence != DefaultMinCloseConfidence {
+		t.Errorf("default min close confidence = %d, want %d", config.RiskControl.MinCloseConfidence, DefaultMinCloseConfidence)
+	}
+
+	config.RiskControl.MinConfidence = 20
+	config.RiskControl.MinCloseConfidence = 120
+	config.ClampLimits()
+
+	if config.RiskControl.MinConfidence != MinMinConfidence {
+		t.Errorf("clamped min confidence = %d, want %d", config.RiskControl.MinConfidence, MinMinConfidence)
+	}
+	if config.RiskControl.MinCloseConfidence != MaxMinCloseConfidence {
+		t.Errorf("clamped min close confidence = %d, want %d", config.RiskControl.MinCloseConfidence, MaxMinCloseConfidence)
+	}
+}
+
+func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
+	st := &Strategy{
+		Config: `{"language":"zh","risk_control":{"min_confidence":75}}`,
+	}
+
+	config, err := st.ParseConfig()
+	if err != nil {
+		t.Fatalf("ParseConfig() error = %v", err)
+	}
+
+	if config.RiskControl.MinCloseConfidence != DefaultMinCloseConfidence {
+		t.Errorf("min close confidence = %d, want %d", config.RiskControl.MinCloseConfidence, DefaultMinCloseConfidence)
+	}
+}
