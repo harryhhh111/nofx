@@ -73,8 +73,8 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
 		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
 	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: target ≥1:%.1f. Formula: reward = |take_profit - entry|, risk = |entry - stop_loss|, ratio = reward / risk.\n", riskControl.MinRiskRewardRatio))
-	sb.WriteString(fmt.Sprintf("  **You MUST calculate and write the ratio in your reasoning before opening any position.** Example: \"entry 2244, SL 2218, TP 2300 → risk=26, reward=56, ratio=2.15 (target ≥%.1f ✓)\"\n", riskControl.MinRiskRewardRatio))
-	sb.WriteString(fmt.Sprintf("  If ratio < %.1f, strongly consider skipping. If ratio is close (within 80%% of target, i.e. ≥%.1f), acceptable with strong signals.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
+	sb.WriteString(fmt.Sprintf("  **You MUST calculate and write the ratio in your reasoning before opening any position.** Format: \"entry {price}, SL {sl}, TP {tp} → risk={entry-sl}, reward={tp-entry}, ratio={reward/risk} (target ≥%.1f ✓/✗)\"\n", riskControl.MinRiskRewardRatio))
+	sb.WriteString(fmt.Sprintf("  If ratio < %.1f, strongly consider skipping. If ratio is close (within 80%% of target, i.e. ≥%.1f), acceptable with strong multi-signal confirmation.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
 	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
 
 	// Stop-loss ATR buffer guidance (mode-aware)
@@ -95,37 +95,32 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("## Stop-Loss & Entry Quality\n")
 	sb.WriteString("- **IMPORTANT: Use 15m or 1h ATR14 for stop-loss evaluation, NOT the 3m ATR** (3m ATR is too small for meaningful stop-loss distances)\n")
 	sb.WriteString(fmt.Sprintf("- Stop-loss buffer: set stop-loss at least %.1f × ATR14(15m or 1h) BEYOND the support/resistance level (not right at it)\n", atrBuffer))
-	sb.WriteString("  Example (long): support at 2088, 15m ATR14=9.14 → stop = 2088 - 9.14×")
-	sb.WriteString(fmt.Sprintf("%.1f", atrBuffer))
-	sb.WriteString(fmt.Sprintf(" = %.1f\n", 2088-9.14*atrBuffer))
+	sb.WriteString(fmt.Sprintf("  Formula (long): stop = support - ATR14(15m) × %.1f | (short): stop = resistance + ATR14(15m) × %.1f\n", atrBuffer, atrBuffer))
 	sb.WriteString("- Entry quality: only enter at ① near key support/resistance (reversal) or ② after breakout confirmation (trend)\n")
 	sb.WriteString("  Do NOT enter in the middle zone between support and resistance — poor stop/target geometry\n")
 	sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14(15m or 1h), the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
 
-	// Position sizing guidance — correct order: technicals first, then size
+	// Opening decision flow — technicals first, then sizing
 	sb.WriteString("## Opening Decision Flow (MUST follow this order)\n\n")
-	sb.WriteString("**Step 1: Technical levels FIRST (ignore leverage at this stage)**\n")
+	sb.WriteString("**Step 1: Technical levels FIRST (ignore leverage and position size at this stage)**\n")
 	sb.WriteString("- Find support/resistance on your analysis timeframe\n")
 	sb.WriteString("- Set SL = support - ATR buffer (long) or resistance + ATR buffer (short)\n")
 	sb.WriteString("- Set TP = target level from chart structure\n")
 	sb.WriteString("- Calculate R:R ratio = |TP - entry| / |entry - SL|\n")
-	sb.WriteString(fmt.Sprintf("- If R:R < %.1f → **SKIP the trade**, do NOT shrink SL to force a better ratio\n\n", riskControl.MinRiskRewardRatio))
+	sb.WriteString(fmt.Sprintf("- If R:R < %.1f → **SKIP the trade**. Do NOT shrink SL to force a better ratio.\n\n", riskControl.MinRiskRewardRatio))
 
-	sb.WriteString("**Step 2: Position size based on risk budget (leverage matters HERE)**\n")
-	maxRiskPct := 2.0
-	maxRiskUSD := accountEquity * maxRiskPct / 100
-	sb.WriteString(fmt.Sprintf("- Max risk per trade = equity × %.0f%% = %.0f × %.0f%% = **%.2f USDT**\n", maxRiskPct, accountEquity, maxRiskPct, maxRiskUSD))
-	sb.WriteString("- SL distance %% = |entry - SL| / entry\n")
-	sb.WriteString("- position_size_usd = max_risk / (SL_distance%% × leverage)\n")
-	sb.WriteString(fmt.Sprintf("- Example: SL distance=1.5%%, leverage=%dx → position = %.2f / (0.015 × %d) = %.0f USDT\n",
-		riskControl.BTCETHMaxLeverage, maxRiskUSD, riskControl.BTCETHMaxLeverage,
-		maxRiskUSD/(0.015*float64(riskControl.BTCETHMaxLeverage))))
+	sb.WriteString("**Step 2: Position size based on confidence (within configured limits)**\n")
+	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
+	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
+	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
 	sb.WriteString(fmt.Sprintf("- Position Value Limits: BTC/ETH max %.0f USDT | Altcoins max %.0f USDT\n",
 		accountEquity*btcEthPosValueRatio, accountEquity*altcoinPosValueRatio))
-	sb.WriteString("- If calculated size < min position size → trade not viable at this leverage, **reduce leverage or skip**\n\n")
+	sb.WriteString("- Accept the resulting loss amount if SL is hit — this is normal and expected.\n\n")
 
-	sb.WriteString("**FORBIDDEN**: Shrinking SL distance to fit a larger position. SL is determined by technicals, NOT by how much you want to trade.\n")
-	sb.WriteString("**FORBIDDEN**: Setting SL based on leverage (e.g., \"10x so I'll use -0.5% SL\"). SL must be based on chart structure + ATR buffer.\n\n")
+	sb.WriteString("**⛔ FORBIDDEN** (violation = invalid trade):\n")
+	sb.WriteString("- Shrinking SL to reduce potential loss. SL is determined by chart structure + ATR, NOT by position size or leverage.\n")
+	sb.WriteString("- Setting SL based on leverage (e.g., \"10x so I'll use -0.5%% SL\"). Leverage affects P&L magnitude, NOT where SL should be.\n")
+	sb.WriteString("- Choosing SL first then fitting TP to meet R:R. TP must come from real chart targets.\n\n")
 
 	// 4. Trading frequency (editable)
 	if promptSections.TradingFrequency != "" {
@@ -232,9 +227,9 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("```json\n[\n")
 		// Use the actual configured position value ratio for BTC/ETH in the example
 		examplePositionSize := accountEquity * btcEthPosValueRatio
-		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"[THESIS] timeframe=15m | invalidation=15m 收盘重新站上 97500 且 OI 转负 | min_target=+1.8%% [/THESIS] BTC 跌破 97500 支撑，OI 增加 +2.1%%，空头压力得到确认，目标看向 91000 一带。\"},\n",
+		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": \"{阻力位 + ATR缓冲}\", \"take_profit\": \"{目标支撑位}\", \"confidence\": 85, \"risk_usd\": \"{根据实际计算}\", \"reasoning\": \"[THESIS] timeframe={分析周期} | invalidation={具体可验证的失效条件} | min_target={目标收益%%} [/THESIS] {基于实际数据的详细分析}\"},\n",
 			riskControl.BTCETHMaxLeverage, examplePositionSize))
-		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] 开仓周期为 15m，当前使用 15m 数据判断。 [THESIS] 失效条件为跌破 2100 且 OI 转负；当前 15m 已满足。 [FEES] 净盈亏已重新计算。 [MIN PROFIT] 非止盈场景。 [CLOSE CONFIDENCE] 90。 [VERDICT] 开仓论点失效，执行平仓。\"}\n")
+		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] 开仓周期={TF}，当前使用同周期数据。 [THESIS] 失效条件={条件}；当前已触发。 [FEES] 毛利{X}，手续费{Y}，Net PnL={X-Y}。 [MIN PROFIT] {是否满足}。 [CLOSE CONFIDENCE] {0-100}。 [VERDICT] {结论}。\"}\n")
 		sb.WriteString("]\n```\n")
 		sb.WriteString("</decision>\n\n")
 		sb.WriteString("## 字段说明\n\n")
@@ -262,9 +257,9 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("```json\n[\n")
 		// Use the actual configured position value ratio for BTC/ETH in the example
 		examplePositionSize := accountEquity * btcEthPosValueRatio
-		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97000, \"take_profit\": 91000, \"confidence\": 85, \"risk_usd\": 300, \"reasoning\": \"BTC broke below 97500 support with OI increasing +2.1%%, confirming bearish pressure. Target 91000 resistance turned support.\"},\n",
+		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": \"{resistance + ATR buffer}\", \"take_profit\": \"{target support}\", \"confidence\": 85, \"risk_usd\": \"{calculated}\", \"reasoning\": \"[THESIS] timeframe={TF} | invalidation={specific verifiable condition} | min_target={target%%} [/THESIS] {Detailed analysis based on actual data}\"},\n",
 			riskControl.BTCETHMaxLeverage, examplePositionSize))
-		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"Opening thesis invalidated: price dropped below key support 2100 and OI turned negative.\"}\n")
+		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] Opened on {TF}, evaluating on same TF. [THESIS] Invalidation={condition}; currently triggered. [FEES] Gross {X}, fees {Y}, Net PnL {X-Y}. [MIN PROFIT] {met or N/A}. [CLOSE CONFIDENCE] {0-100}. [VERDICT] {conclusion}.\"}\n")
 		sb.WriteString("]\n```\n")
 		sb.WriteString("</decision>\n\n")
 		sb.WriteString("## Field Description\n\n")
