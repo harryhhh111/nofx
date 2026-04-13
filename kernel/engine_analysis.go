@@ -120,11 +120,29 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	}
 
 	// 5. Parse AI response
-	// Build market price map for accurate R:R validation
+	// Build market price map and min SL distance map for validation
 	marketPrices := make(map[string]float64)
+	minSLDistances := make(map[string]float64) // symbol -> min SL distance in price
+	atrBuffer := riskConfig.StopLossATRBuffer
+	if atrBuffer <= 0 {
+		atrBuffer = 1.0 // balanced default
+	}
 	for symbol, md := range ctx.MarketDataMap {
 		if md.CurrentPrice > 0 {
 			marketPrices[symbol] = md.CurrentPrice
+		}
+		// Find best ATR14: prefer 15m, fallback 1h, then any available timeframe
+		var bestATR float64
+		if md.TimeframeData != nil {
+			for _, tf := range []string{"15m", "1h", "30m", "4h"} {
+				if tfData, ok := md.TimeframeData[tf]; ok && tfData.ATR14 > 0 {
+					bestATR = tfData.ATR14
+					break
+				}
+			}
+		}
+		if bestATR > 0 {
+			minSLDistances[symbol] = bestATR * atrBuffer
 		}
 	}
 	decision, err := parseFullDecisionResponse(
@@ -136,6 +154,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.AltcoinMaxPositionValueRatio,
 		riskConfig.MinRiskRewardRatio,
 		marketPrices,
+		minSLDistances,
 	)
 
 	if decision != nil {
@@ -239,7 +258,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64, minSLDistances map[string]float64) (*FullDecision, error) {
 	cotTrace := extractCoTTrace(aiResponse)
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
@@ -252,12 +271,9 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	if err := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, marketPrices); err != nil {
-		return &FullDecision{
-			CoTTrace:   cotTrace,
-			CoTSummary: cotSummary,
-			Decisions:  decisions,
-		}, fmt.Errorf("decision validation failed: %w", err)
+	rejectedCount := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, marketPrices, minSLDistances)
+	if rejectedCount > 0 {
+		logger.Infof("⚠️ %d/%d decisions rejected during validation (converted to wait)", rejectedCount, len(decisions))
 	}
 
 	return &FullDecision{
