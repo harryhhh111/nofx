@@ -376,25 +376,6 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			RSIPeriods:        []int{7, 14},
 			ATRPeriods:        []int{14},
 			BOLLPeriods:       []int{20},
-			// Kronos K-line prediction model (supplementary signal)
-			ExternalDataSources: []ExternalDataSource{
-				{
-					Name:         "kronos_btc",
-					URL:          "http://localhost:8100/predict?symbol=BTCUSDT&timeframe=5m&pred_len=12&samples=5",
-					Method:       "GET",
-					RefreshSecs:  180,
-					ContextLabel: "Kronos BTC Forecast (Supplementary)",
-					Description:  "Kronos-base (102M params) K-line pattern prediction model. It only sees price/volume — no OI, no fund flows, no news. Backtested: BTC direction accuracy ~60%, price error ~0.3%, range hit rate 60-80%. Use as a supplementary signal (weight ~10%): if Kronos direction agrees with your analysis, increase confidence by +5-8. If it disagrees, decrease confidence by -3-5 but do NOT reverse your decision. NEVER open or close based on Kronos alone.",
-				},
-				{
-					Name:         "kronos_eth",
-					URL:          "http://localhost:8100/predict?symbol=ETHUSDT&timeframe=5m&pred_len=12&samples=5",
-					Method:       "GET",
-					RefreshSecs:  180,
-					ContextLabel: "Kronos ETH Forecast (Supplementary)",
-					Description:  "Kronos-base prediction for ETH. Direction accuracy ~30% (weaker than BTC), but price range hit rate ~80%. Use predicted range as expected price reference. Weight ~10%.",
-				},
-			},
 			// NofxOS unified API key
 			NofxOSAPIKey: "cm_568c67eae410d912c54c",
 			// Quant data
