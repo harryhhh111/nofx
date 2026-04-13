@@ -102,15 +102,30 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	sb.WriteString("  Do NOT enter in the middle zone between support and resistance — poor stop/target geometry\n")
 	sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14(15m or 1h), the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
 
-	// Position sizing guidance
-	sb.WriteString("## Position Sizing Guidance\n")
-	sb.WriteString("Calculate `position_size_usd` based on your confidence and the Position Value Limits above:\n")
-	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
-	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
-	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
-	sb.WriteString(fmt.Sprintf("- Example: With equity %.0f and BTC/ETH ratio %.1fx, max is %.0f USDT\n",
-		accountEquity, btcEthPosValueRatio, accountEquity*btcEthPosValueRatio))
-	sb.WriteString("- **DO NOT** just use available_balance as position_size_usd. Use the Position Value Limits!\n\n")
+	// Position sizing guidance — correct order: technicals first, then size
+	sb.WriteString("## Opening Decision Flow (MUST follow this order)\n\n")
+	sb.WriteString("**Step 1: Technical levels FIRST (ignore leverage at this stage)**\n")
+	sb.WriteString("- Find support/resistance on your analysis timeframe\n")
+	sb.WriteString("- Set SL = support - ATR buffer (long) or resistance + ATR buffer (short)\n")
+	sb.WriteString("- Set TP = target level from chart structure\n")
+	sb.WriteString("- Calculate R:R ratio = |TP - entry| / |entry - SL|\n")
+	sb.WriteString(fmt.Sprintf("- If R:R < %.1f → **SKIP the trade**, do NOT shrink SL to force a better ratio\n\n", riskControl.MinRiskRewardRatio))
+
+	sb.WriteString("**Step 2: Position size based on risk budget (leverage matters HERE)**\n")
+	maxRiskPct := 2.0
+	maxRiskUSD := accountEquity * maxRiskPct / 100
+	sb.WriteString(fmt.Sprintf("- Max risk per trade = equity × %.0f%% = %.0f × %.0f%% = **%.2f USDT**\n", maxRiskPct, accountEquity, maxRiskPct, maxRiskUSD))
+	sb.WriteString("- SL distance %% = |entry - SL| / entry\n")
+	sb.WriteString("- position_size_usd = max_risk / (SL_distance%% × leverage)\n")
+	sb.WriteString(fmt.Sprintf("- Example: SL distance=1.5%%, leverage=%dx → position = %.2f / (0.015 × %d) = %.0f USDT\n",
+		riskControl.BTCETHMaxLeverage, maxRiskUSD, riskControl.BTCETHMaxLeverage,
+		maxRiskUSD/(0.015*float64(riskControl.BTCETHMaxLeverage))))
+	sb.WriteString(fmt.Sprintf("- Position Value Limits: BTC/ETH max %.0f USDT | Altcoins max %.0f USDT\n",
+		accountEquity*btcEthPosValueRatio, accountEquity*altcoinPosValueRatio))
+	sb.WriteString("- If calculated size < min position size → trade not viable at this leverage, **reduce leverage or skip**\n\n")
+
+	sb.WriteString("**FORBIDDEN**: Shrinking SL distance to fit a larger position. SL is determined by technicals, NOT by how much you want to trade.\n")
+	sb.WriteString("**FORBIDDEN**: Setting SL based on leverage (e.g., \"10x so I'll use -0.5% SL\"). SL must be based on chart structure + ATR buffer.\n\n")
 
 	// 4. Trading frequency (editable)
 	if promptSections.TradingFrequency != "" {
