@@ -35,18 +35,35 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString(promptSections.RoleDefinition)
 		sb.WriteString("\n\n")
 	} else {
-		sb.WriteString("# You are a professional cryptocurrency trading AI\n\n")
-		sb.WriteString("Your task is to make trading decisions based on provided market data.\n\n")
+		if lang == LangChinese {
+			sb.WriteString("# 你是一个专业的加密货币交易 AI\n\n")
+			sb.WriteString("你的任务是根据提供的市场数据做出交易决策。\n\n")
+		} else {
+			sb.WriteString("# You are a professional cryptocurrency trading AI\n\n")
+			sb.WriteString("Your task is to make trading decisions based on provided market data.\n\n")
+		}
 	}
 
 	// 2. Trading mode variant
 	switch strings.ToLower(strings.TrimSpace(variant)) {
 	case "aggressive":
-		sb.WriteString("## Mode: Aggressive\n- Prioritize capturing trend breakouts, can build positions in batches when confidence ≥ 70\n- Allow higher positions, but must strictly set stop-loss and explain risk-reward ratio\n\n")
+		if lang == LangChinese {
+			sb.WriteString("## 模式：激进\n- 优先捕捉趋势突破，信心 ≥ 70 时可分批建仓\n- 允许较高仓位，但必须严格设定止损并说明风险回报比\n\n")
+		} else {
+			sb.WriteString("## Mode: Aggressive\n- Prioritize capturing trend breakouts, can build positions in batches when confidence ≥ 70\n- Allow higher positions, but must strictly set stop-loss and explain risk-reward ratio\n\n")
+		}
 	case "conservative":
-		sb.WriteString("## Mode: Conservative\n- Only open positions when multiple signals resonate\n- Prioritize cash preservation, must pause for multiple periods after consecutive losses\n\n")
+		if lang == LangChinese {
+			sb.WriteString("## 模式：保守\n- 仅在多信号共振时开仓\n- 优先保全资金，连续亏损后必须暂停多个周期\n\n")
+		} else {
+			sb.WriteString("## Mode: Conservative\n- Only open positions when multiple signals resonate\n- Prioritize cash preservation, must pause for multiple periods after consecutive losses\n\n")
+		}
 	case "scalping":
-		sb.WriteString("## Mode: Scalping\n- Focus on short-term momentum, smaller profit targets but require quick action\n- If price doesn't move as expected within two bars, immediately reduce position or stop-loss\n\n")
+		if lang == LangChinese {
+			sb.WriteString("## 模式：超短线\n- 专注短期动量，较小的盈利目标但要求快速行动\n- 若价格在两根K线内未按预期移动，立即减仓或止损\n\n")
+		} else {
+			sb.WriteString("## Mode: Scalping\n- Focus on short-term momentum, smaller profit targets but require quick action\n- If price doesn't move as expected within two bars, immediately reduce position or stop-loss\n\n")
+		}
 	}
 
 	// 3. Hard constraints (risk control)
@@ -59,23 +76,43 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		altcoinPosValueRatio = 1.0
 	}
 
-	sb.WriteString("# Hard Constraints (Risk Control)\n\n")
-	sb.WriteString("## CODE ENFORCED (Backend validation, cannot be bypassed):\n")
-	sb.WriteString(fmt.Sprintf("- Max Positions: %d coins simultaneously\n", riskControl.MaxPositions))
-	sb.WriteString(fmt.Sprintf("- Position Value Limit (Altcoins): max %.0f USDT (= equity %.0f × %.1fx)\n",
-		accountEquity*altcoinPosValueRatio, accountEquity, altcoinPosValueRatio))
-	sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
-		accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
-	sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
-	sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
+	if lang == LangChinese {
+		sb.WriteString("# 硬性约束（风控）\n\n")
+		sb.WriteString("## 代码强制执行（后端校验，无法绕过）：\n")
+		sb.WriteString(fmt.Sprintf("- 最大持仓数：同时 %d 个币种\n", riskControl.MaxPositions))
+		sb.WriteString(fmt.Sprintf("- 仓位价值上限（山寨币）：最大 %.0f USDT（= 净值 %.0f × %.1f 倍）\n",
+			accountEquity*altcoinPosValueRatio, accountEquity, altcoinPosValueRatio))
+		sb.WriteString(fmt.Sprintf("- 仓位价值上限（BTC/ETH）：最大 %.0f USDT（= 净值 %.0f × %.1f 倍）\n",
+			accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
+		sb.WriteString(fmt.Sprintf("- 最大保证金使用率：≤%.0f%%\n", riskControl.MaxMarginUsage*100))
+		sb.WriteString(fmt.Sprintf("- 最小仓位大小：≥%.0f USDT\n\n", riskControl.MinPositionSize))
 
-	sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
-	sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
-		riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
-	sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: target ≥1:%.1f. Formula: reward = |take_profit - entry|, risk = |entry - stop_loss|, ratio = reward / risk.\n", riskControl.MinRiskRewardRatio))
-	sb.WriteString(fmt.Sprintf("  **You MUST calculate and write the ratio in your reasoning before opening any position.** Format: \"entry {price}, SL {sl}, TP {tp} → risk={entry-sl}, reward={tp-entry}, ratio={reward/risk} (target ≥%.1f ✓/✗)\"\n", riskControl.MinRiskRewardRatio))
-	sb.WriteString(fmt.Sprintf("  If ratio < %.1f, strongly consider skipping. If ratio is close (within 80%% of target, i.e. ≥%.1f), acceptable with strong multi-signal confirmation.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
-	sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
+		sb.WriteString("## AI 指导（建议遵循）：\n")
+		sb.WriteString(fmt.Sprintf("- 交易杠杆：山寨币最高 %dx | BTC/ETH 最高 %dx\n",
+			riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
+		sb.WriteString(fmt.Sprintf("- 风险回报比：目标 ≥1:%.1f。公式：收益 = |止盈 - 入场|，风险 = |入场 - 止损|，比率 = 收益 / 风险。\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString(fmt.Sprintf("  **开仓前必须在 reasoning 中计算并写出比率。** 格式：\"入场 {价格}, 止损 {sl}, 止盈 {tp} → 风险={入场-止损}, 收益={止盈-入场}, 比率={收益/风险}（目标 ≥%.1f ✓/✗）\"\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString(fmt.Sprintf("  若比率 < %.1f，强烈建议跳过。若比率接近（在目标的 80%% 以内，即 ≥%.1f），在多重信号确认下可接受。\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
+		sb.WriteString(fmt.Sprintf("- 最低信心：≥%d 才能开仓\n\n", riskControl.MinConfidence))
+	} else {
+		sb.WriteString("# Hard Constraints (Risk Control)\n\n")
+		sb.WriteString("## CODE ENFORCED (Backend validation, cannot be bypassed):\n")
+		sb.WriteString(fmt.Sprintf("- Max Positions: %d coins simultaneously\n", riskControl.MaxPositions))
+		sb.WriteString(fmt.Sprintf("- Position Value Limit (Altcoins): max %.0f USDT (= equity %.0f × %.1fx)\n",
+			accountEquity*altcoinPosValueRatio, accountEquity, altcoinPosValueRatio))
+		sb.WriteString(fmt.Sprintf("- Position Value Limit (BTC/ETH): max %.0f USDT (= equity %.0f × %.1fx)\n",
+			accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
+		sb.WriteString(fmt.Sprintf("- Max Margin Usage: ≤%.0f%%\n", riskControl.MaxMarginUsage*100))
+		sb.WriteString(fmt.Sprintf("- Min Position Size: ≥%.0f USDT\n\n", riskControl.MinPositionSize))
+
+		sb.WriteString("## AI GUIDED (Recommended, you should follow):\n")
+		sb.WriteString(fmt.Sprintf("- Trading Leverage: Altcoins max %dx | BTC/ETH max %dx\n",
+			riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
+		sb.WriteString(fmt.Sprintf("- Risk-Reward Ratio: target ≥1:%.1f. Formula: reward = |take_profit - entry|, risk = |entry - stop_loss|, ratio = reward / risk.\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString(fmt.Sprintf("  **You MUST calculate and write the ratio in your reasoning before opening any position.** Format: \"entry {price}, SL {sl}, TP {tp} → risk={entry-sl}, reward={tp-entry}, ratio={reward/risk} (target ≥%.1f ✓/✗)\"\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString(fmt.Sprintf("  If ratio < %.1f, strongly consider skipping. If ratio is close (within 80%% of target, i.e. ≥%.1f), acceptable with strong multi-signal confirmation.\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
+		sb.WriteString(fmt.Sprintf("- Min Confidence: ≥%d to open position\n\n", riskControl.MinConfidence))
+	}
 
 	// Stop-loss ATR buffer guidance (mode-aware)
 	atrBuffer := riskControl.StopLossATRBuffer
@@ -92,59 +129,112 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 			atrBuffer = 1.0
 		}
 	}
-	sb.WriteString("## Stop-Loss & Entry Quality\n")
-	sb.WriteString("- **IMPORTANT: Use 15m or 1h ATR14 for stop-loss evaluation, NOT the 3m ATR** (3m ATR is too small for meaningful stop-loss distances)\n")
-	sb.WriteString(fmt.Sprintf("- Stop-loss buffer: set stop-loss at least %.1f × ATR14(15m or 1h) BEYOND the support/resistance level (not right at it)\n", atrBuffer))
-	sb.WriteString(fmt.Sprintf("  Formula (long): stop = support - ATR14(15m) × %.1f | (short): stop = resistance + ATR14(15m) × %.1f\n", atrBuffer, atrBuffer))
-	sb.WriteString("- Entry quality: only enter at ① near key support/resistance (reversal) or ② after breakout confirmation (trend)\n")
-	sb.WriteString("  Do NOT enter in the middle zone between support and resistance — poor stop/target geometry\n")
-	sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14(15m or 1h), the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
+	if lang == LangChinese {
+		sb.WriteString("## 止损与入场质量\n")
+		sb.WriteString("- **重要：使用 15m 或 1h ATR14 评估止损，不要用 3m ATR**（3m ATR 太小，止损距离没有意义）\n")
+		sb.WriteString(fmt.Sprintf("- 止损缓冲：止损设在支撑/阻力位之外至少 %.1f × ATR14(15m 或 1h)（不要刚好设在支撑/阻力位上）\n", atrBuffer))
+		sb.WriteString(fmt.Sprintf("  公式（做多）：止损 = 支撑 - ATR14(15m) × %.1f |（做空）：止损 = 阻力 + ATR14(15m) × %.1f\n", atrBuffer, atrBuffer))
+		sb.WriteString("- 入场质量：仅在 ① 关键支撑/阻力位附近（反转）或 ② 突破确认后（趋势）入场\n")
+		sb.WriteString("  不要在支撑和阻力之间的中间地带入场——止损/目标几何不佳\n")
+		sb.WriteString(fmt.Sprintf("- 若止损距离（入场到止损）< %.1f × ATR14(15m 或 1h)，则交易设置太紧——跳过或等待更好的入场点\n\n", atrBuffer))
 
-	// Opening decision flow — technicals first, then sizing
-	sb.WriteString("## Opening Decision Flow (MUST follow this order)\n\n")
-	sb.WriteString("**Step 1: Technical levels FIRST (ignore leverage and position size at this stage)**\n")
-	sb.WriteString("- Find support/resistance on your analysis timeframe\n")
-	sb.WriteString("- Set SL = support - ATR buffer (long) or resistance + ATR buffer (short)\n")
-	sb.WriteString("- Set TP = target level from chart structure\n")
-	sb.WriteString("- Calculate R:R ratio = |TP - entry| / |entry - SL|\n")
-	sb.WriteString(fmt.Sprintf("- If R:R < %.1f → **SKIP the trade**. Do NOT shrink SL to force a better ratio.\n\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString("## 开仓决策流程（必须按此顺序）\n\n")
+		sb.WriteString("**第一步：先确定技术位（此阶段忽略杠杆和仓位大小）**\n")
+		sb.WriteString("- 在你的分析时间框架上找到支撑/阻力\n")
+		sb.WriteString("- 设 止损 = 支撑 - ATR 缓冲（做多）或 阻力 + ATR 缓冲（做空）\n")
+		sb.WriteString("- 设 止盈 = 图表结构中的目标位\n")
+		sb.WriteString("- 计算 R:R 比率 = |止盈 - 入场| / |入场 - 止损|\n")
+		sb.WriteString(fmt.Sprintf("- 若 R:R < %.1f → **跳过该交易**。不要缩小止损来强行提高比率。\n\n", riskControl.MinRiskRewardRatio))
 
-	sb.WriteString("**Step 2: Position size based on confidence (within configured limits)**\n")
-	sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
-	sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
-	sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
-	sb.WriteString(fmt.Sprintf("- Position Value Limits: BTC/ETH max %.0f USDT | Altcoins max %.0f USDT\n",
-		accountEquity*btcEthPosValueRatio, accountEquity*altcoinPosValueRatio))
-	sb.WriteString("- Accept the resulting loss amount if SL is hit — this is normal and expected.\n\n")
+		sb.WriteString("**第二步：根据信心确定仓位大小（在配置限制内）**\n")
+		sb.WriteString("- 高信心（≥85）：使用最大仓位价值限制的 80-100%%\n")
+		sb.WriteString("- 中信心（70-84）：使用最大仓位价值限制的 50-80%%\n")
+		sb.WriteString("- 低信心（60-69）：使用最大仓位价值限制的 30-50%%\n")
+		sb.WriteString(fmt.Sprintf("- 仓位价值上限：BTC/ETH 最大 %.0f USDT | 山寨币最大 %.0f USDT\n",
+			accountEquity*btcEthPosValueRatio, accountEquity*altcoinPosValueRatio))
+		sb.WriteString("- 接受止损触发时的亏损金额——这是正常且预期的。\n\n")
 
-	sb.WriteString("**⛔ FORBIDDEN** (violation = invalid trade):\n")
-	sb.WriteString("- Shrinking SL to reduce potential loss. SL is determined by chart structure + ATR, NOT by position size or leverage.\n")
-	sb.WriteString("- Setting SL based on leverage (e.g., \"10x so I'll use -0.5%% SL\"). Leverage affects P&L magnitude, NOT where SL should be.\n")
-	sb.WriteString("- Choosing SL first then fitting TP to meet R:R. TP must come from real chart targets.\n\n")
+		sb.WriteString("**⛔ 禁止**（违反 = 无效交易）：\n")
+		sb.WriteString("- 缩小止损来减少潜在亏损。止损由图表结构 + ATR 决定，不由仓位大小或杠杆决定。\n")
+		sb.WriteString("- 基于杠杆设止损（如「10 倍杠杆所以用 -0.5%% 止损」）。杠杆影响盈亏幅度，不影响止损位置。\n")
+		sb.WriteString("- 先选止损再凑止盈来满足 R:R。止盈必须来自真实的图表目标。\n\n")
+	} else {
+		sb.WriteString("## Stop-Loss & Entry Quality\n")
+		sb.WriteString("- **IMPORTANT: Use 15m or 1h ATR14 for stop-loss evaluation, NOT the 3m ATR** (3m ATR is too small for meaningful stop-loss distances)\n")
+		sb.WriteString(fmt.Sprintf("- Stop-loss buffer: set stop-loss at least %.1f × ATR14(15m or 1h) BEYOND the support/resistance level (not right at it)\n", atrBuffer))
+		sb.WriteString(fmt.Sprintf("  Formula (long): stop = support - ATR14(15m) × %.1f | (short): stop = resistance + ATR14(15m) × %.1f\n", atrBuffer, atrBuffer))
+		sb.WriteString("- Entry quality: only enter at ① near key support/resistance (reversal) or ② after breakout confirmation (trend)\n")
+		sb.WriteString("  Do NOT enter in the middle zone between support and resistance — poor stop/target geometry\n")
+		sb.WriteString(fmt.Sprintf("- If your stop distance (entry to stop) < %.1f × ATR14(15m or 1h), the trade setup is too tight — skip or wait for better entry\n\n", atrBuffer))
+
+		sb.WriteString("## Opening Decision Flow (MUST follow this order)\n\n")
+		sb.WriteString("**Step 1: Technical levels FIRST (ignore leverage and position size at this stage)**\n")
+		sb.WriteString("- Find support/resistance on your analysis timeframe\n")
+		sb.WriteString("- Set SL = support - ATR buffer (long) or resistance + ATR buffer (short)\n")
+		sb.WriteString("- Set TP = target level from chart structure\n")
+		sb.WriteString("- Calculate R:R ratio = |TP - entry| / |entry - SL|\n")
+		sb.WriteString(fmt.Sprintf("- If R:R < %.1f → **SKIP the trade**. Do NOT shrink SL to force a better ratio.\n\n", riskControl.MinRiskRewardRatio))
+
+		sb.WriteString("**Step 2: Position size based on confidence (within configured limits)**\n")
+		sb.WriteString("- High confidence (≥85): Use 80-100%% of max position value limit\n")
+		sb.WriteString("- Medium confidence (70-84): Use 50-80%% of max position value limit\n")
+		sb.WriteString("- Low confidence (60-69): Use 30-50%% of max position value limit\n")
+		sb.WriteString(fmt.Sprintf("- Position Value Limits: BTC/ETH max %.0f USDT | Altcoins max %.0f USDT\n",
+			accountEquity*btcEthPosValueRatio, accountEquity*altcoinPosValueRatio))
+		sb.WriteString("- Accept the resulting loss amount if SL is hit — this is normal and expected.\n\n")
+
+		sb.WriteString("**⛔ FORBIDDEN** (violation = invalid trade):\n")
+		sb.WriteString("- Shrinking SL to reduce potential loss. SL is determined by chart structure + ATR, NOT by position size or leverage.\n")
+		sb.WriteString("- Setting SL based on leverage (e.g., \"10x so I'll use -0.5%% SL\"). Leverage affects P&L magnitude, NOT where SL should be.\n")
+		sb.WriteString("- Choosing SL first then fitting TP to meet R:R. TP must come from real chart targets.\n\n")
+	}
 
 	// 4. Trading frequency (editable)
 	if promptSections.TradingFrequency != "" {
 		sb.WriteString(promptSections.TradingFrequency)
 		sb.WriteString("\n\n")
 	} else {
-		sb.WriteString("# ⏱️ Trading Frequency Awareness\n\n")
-		sb.WriteString("- Excellent traders: 2-4 trades/day ≈ 0.1-0.2 trades/hour\n")
-		sb.WriteString("- >2 trades/hour = Overtrading\n")
-		sb.WriteString("- Single position hold time ≥ 30-60 minutes\n")
-		sb.WriteString("If you find yourself trading every period → standards too low; if closing positions < 30 minutes → too impatient.\n\n")
+		if lang == LangChinese {
+			sb.WriteString("# ⏱️ 交易频率意识\n\n")
+			sb.WriteString("- 优秀交易者：每天 2-4 笔交易 ≈ 每小时 0.1-0.2 笔\n")
+			sb.WriteString("- 每小时 >2 笔 = 过度交易\n")
+			sb.WriteString("- 单笔持仓时间 ≥ 30-60 分钟\n")
+			sb.WriteString("如果你发现自己每个周期都在交易 → 标准太低；如果平仓时间 < 30 分钟 → 太急躁。\n\n")
+		} else {
+			sb.WriteString("# ⏱️ Trading Frequency Awareness\n\n")
+			sb.WriteString("- Excellent traders: 2-4 trades/day ≈ 0.1-0.2 trades/hour\n")
+			sb.WriteString("- >2 trades/hour = Overtrading\n")
+			sb.WriteString("- Single position hold time ≥ 30-60 minutes\n")
+			sb.WriteString("If you find yourself trading every period → standards too low; if closing positions < 30 minutes → too impatient.\n\n")
+		}
 	}
 
 	// 5. Entry standards (editable)
 	if promptSections.EntryStandards != "" {
 		sb.WriteString(promptSections.EntryStandards)
-		sb.WriteString("\n\nYou have the following indicator data:\n")
+		if lang == LangChinese {
+			sb.WriteString("\n\n你拥有以下指标数据：\n")
+		} else {
+			sb.WriteString("\n\nYou have the following indicator data:\n")
+		}
 		e.writeAvailableIndicators(&sb)
-		sb.WriteString(fmt.Sprintf("\n**Confidence ≥ %d** required to open positions.\n\n", riskControl.MinConfidence))
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("\n**信心 ≥ %d** 才能开仓。\n\n", riskControl.MinConfidence))
+		} else {
+			sb.WriteString(fmt.Sprintf("\n**Confidence ≥ %d** required to open positions.\n\n", riskControl.MinConfidence))
+		}
 	} else {
-		sb.WriteString("# 🎯 Entry Standards (Strict)\n\n")
-		sb.WriteString("Only open positions when multiple signals resonate. You have:\n")
-		e.writeAvailableIndicators(&sb)
-		sb.WriteString(fmt.Sprintf("\nFeel free to use any effective analysis method, but **confidence ≥ %d** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.\n\n", riskControl.MinConfidence))
+		if lang == LangChinese {
+			sb.WriteString("# 🎯 入场标准（严格）\n\n")
+			sb.WriteString("仅在多信号共振时开仓。你拥有：\n")
+			e.writeAvailableIndicators(&sb)
+			sb.WriteString(fmt.Sprintf("\n可使用任何有效的分析方法，但**信心 ≥ %d** 才能开仓；避免单一指标、信号矛盾、横盘整理期入场、平仓后立即重新开仓等低质量行为。\n\n", riskControl.MinConfidence))
+		} else {
+			sb.WriteString("# 🎯 Entry Standards (Strict)\n\n")
+			sb.WriteString("Only open positions when multiple signals resonate. You have:\n")
+			e.writeAvailableIndicators(&sb)
+			sb.WriteString(fmt.Sprintf("\nFeel free to use any effective analysis method, but **confidence ≥ %d** required to open positions; avoid low-quality behaviors such as single indicators, contradictory signals, sideways consolidation, reopening immediately after closing, etc.\n\n", riskControl.MinConfidence))
+		}
 	}
 
 	// 6. Decision process (editable)
@@ -275,10 +365,17 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 
 	// 8. Custom Prompt
 	if e.config.CustomPrompt != "" {
-		sb.WriteString("# 📌 Personalized Trading Strategy\n\n")
-		sb.WriteString(e.config.CustomPrompt)
-		sb.WriteString("\n\n")
-		sb.WriteString("Note: The above personalized strategy is a supplement to the basic rules and cannot violate the basic risk control principles.\n")
+		if lang == LangChinese {
+			sb.WriteString("# 📌 个性化交易策略\n\n")
+			sb.WriteString(e.config.CustomPrompt)
+			sb.WriteString("\n\n")
+			sb.WriteString("注意：以上个性化策略是基本规则的补充，不能违反基本风控原则。\n")
+		} else {
+			sb.WriteString("# 📌 Personalized Trading Strategy\n\n")
+			sb.WriteString(e.config.CustomPrompt)
+			sb.WriteString("\n\n")
+			sb.WriteString("Note: The above personalized strategy is a supplement to the basic rules and cannot violate the basic risk control principles.\n")
+		}
 	}
 
 	return sb.String()
@@ -287,68 +384,134 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 	indicators := e.config.Indicators
 	kline := indicators.Klines
+	lang := e.GetLanguage()
 
-	sb.WriteString(fmt.Sprintf("- %s price series", kline.PrimaryTimeframe))
-	if kline.EnableMultiTimeframe {
-		sb.WriteString(fmt.Sprintf(" + %s K-line series\n", kline.LongerTimeframe))
+	if lang == LangChinese {
+		sb.WriteString(fmt.Sprintf("- %s 价格序列", kline.PrimaryTimeframe))
+		if kline.EnableMultiTimeframe {
+			sb.WriteString(fmt.Sprintf(" + %s K线序列\n", kline.LongerTimeframe))
+		} else {
+			sb.WriteString("\n")
+		}
 	} else {
-		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("- %s price series", kline.PrimaryTimeframe))
+		if kline.EnableMultiTimeframe {
+			sb.WriteString(fmt.Sprintf(" + %s K-line series\n", kline.LongerTimeframe))
+		} else {
+			sb.WriteString("\n")
+		}
 	}
 
 	if indicators.EnableEMA {
-		sb.WriteString("- EMA indicators")
+		if lang == LangChinese {
+			sb.WriteString("- EMA 指标")
+		} else {
+			sb.WriteString("- EMA indicators")
+		}
 		if len(indicators.EMAPeriods) > 0 {
-			sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.EMAPeriods))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("（周期：%v）", indicators.EMAPeriods))
+			} else {
+				sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.EMAPeriods))
+			}
 		}
 		sb.WriteString("\n")
 	}
 
 	if indicators.EnableMACD {
-		sb.WriteString("- MACD indicators\n")
+		if lang == LangChinese {
+			sb.WriteString("- MACD 指标\n")
+		} else {
+			sb.WriteString("- MACD indicators\n")
+		}
 	}
 
 	if indicators.EnableRSI {
-		sb.WriteString("- RSI indicators")
+		if lang == LangChinese {
+			sb.WriteString("- RSI 指标")
+		} else {
+			sb.WriteString("- RSI indicators")
+		}
 		if len(indicators.RSIPeriods) > 0 {
-			sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.RSIPeriods))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("（周期：%v）", indicators.RSIPeriods))
+			} else {
+				sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.RSIPeriods))
+			}
 		}
 		sb.WriteString("\n")
 	}
 
 	if indicators.EnableATR {
-		sb.WriteString("- ATR indicators")
+		if lang == LangChinese {
+			sb.WriteString("- ATR 指标")
+		} else {
+			sb.WriteString("- ATR indicators")
+		}
 		if len(indicators.ATRPeriods) > 0 {
-			sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.ATRPeriods))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("（周期：%v）", indicators.ATRPeriods))
+			} else {
+				sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.ATRPeriods))
+			}
 		}
 		sb.WriteString("\n")
 	}
 
 	if indicators.EnableBOLL {
-		sb.WriteString("- Bollinger Bands (BOLL) - Upper/Middle/Lower bands")
+		if lang == LangChinese {
+			sb.WriteString("- 布林带（BOLL）- 上轨/中轨/下轨")
+		} else {
+			sb.WriteString("- Bollinger Bands (BOLL) - Upper/Middle/Lower bands")
+		}
 		if len(indicators.BOLLPeriods) > 0 {
-			sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.BOLLPeriods))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("（周期：%v）", indicators.BOLLPeriods))
+			} else {
+				sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.BOLLPeriods))
+			}
 		}
 		sb.WriteString("\n")
 	}
 
 	if indicators.EnableVolume {
-		sb.WriteString("- Volume data\n")
+		if lang == LangChinese {
+			sb.WriteString("- 成交量数据\n")
+		} else {
+			sb.WriteString("- Volume data\n")
+		}
 	}
 
 	if indicators.EnableOI {
-		sb.WriteString("- Open Interest (OI) data\n")
+		if lang == LangChinese {
+			sb.WriteString("- 持仓量（OI）数据\n")
+		} else {
+			sb.WriteString("- Open Interest (OI) data\n")
+		}
 	}
 
 	if indicators.EnableFundingRate {
-		sb.WriteString("- Funding rate\n")
+		if lang == LangChinese {
+			sb.WriteString("- 资金费率\n")
+		} else {
+			sb.WriteString("- Funding rate\n")
+		}
 	}
 
 	if len(e.config.CoinSource.StaticCoins) > 0 || e.config.CoinSource.UseAI500 || e.config.CoinSource.UseOITop {
-		sb.WriteString("- AI500 / OI_Top filter tags (if available)\n")
+		if lang == LangChinese {
+			sb.WriteString("- AI500 / OI_Top 筛选标签（如可用）\n")
+		} else {
+			sb.WriteString("- AI500 / OI_Top filter tags (if available)\n")
+		}
 	}
 
 	if indicators.EnableQuantData {
-		sb.WriteString("- Quantitative data (institutional/retail fund flow, position changes, multi-period price changes)\n")
+		if lang == LangChinese {
+			sb.WriteString("- 量化数据（机构/散户资金流向、持仓变化、多周期价格变动）\n")
+		} else {
+			sb.WriteString("- Quantitative data (institutional/retail fund flow, position changes, multi-period price changes)\n")
+		}
 	}
 }
 
@@ -568,21 +731,35 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 						thesisBlock = strings.TrimSpace(reasoning[thesisStart+8:])
 					}
 				}
-				// Parse key-value pairs from thesis
+			// Parse key-value pairs from thesis
+			if lang == LangChinese {
+				sb.WriteString("**生效约束（来自开仓论点）：**\n")
+			} else {
 				sb.WriteString("**ACTIVE CONSTRAINTS (from opening thesis):**\n")
-				for _, part := range strings.Split(thesisBlock, "|") {
-					part = strings.TrimSpace(part)
-					if part != "" {
-						sb.WriteString(fmt.Sprintf("  - %s\n", part))
-					}
+			}
+			for _, part := range strings.Split(thesisBlock, "|") {
+				part = strings.TrimSpace(part)
+				if part != "" {
+					sb.WriteString(fmt.Sprintf("  - %s\n", part))
 				}
+			}
+			if lang == LangChinese {
+				sb.WriteString("  - **规则**：仅使用上述时间框架或更高框架评估此仓位。禁止基于更低周期噪音平仓。\n")
+				sb.WriteString("  - **规则**：止盈时 Net PnL 必须 ≥ 手续费×2。若未满足且 thesis 仍有效 → 必须 HOLD。\n")
+			} else {
 				sb.WriteString("  - **RULE**: Only use the above timeframe or higher to evaluate this position. FORBIDDEN to close based on lower timeframe noise.\n")
 				sb.WriteString("  - **RULE**: Net PnL must ≥ fees×2 for profit-taking. If not met and thesis valid → MUST HOLD.\n")
+			}
+		} else {
+			// Legacy unstructured format — still display as binding
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("**开仓论点（硬性约束）**：%s\n", reasoning))
+				sb.WriteString("  → 平仓前必须验证这些条件在相同时间框架上仍然成立。\n")
 			} else {
-				// Legacy unstructured format — still display as binding
 				sb.WriteString(fmt.Sprintf("**Opening thesis (BINDING)**: %s\n", reasoning))
 				sb.WriteString("  → You MUST verify these conditions still hold on the same timeframe before closing.\n")
 			}
+		}
 			sb.WriteString("\n")
 		}
 
@@ -594,7 +771,11 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 			}
 		}
 		if hasReview {
-			sb.WriteString("## Your Last Review of These Positions\n")
+			if lang == LangChinese {
+				sb.WriteString("## 你上次对这些持仓的评估\n")
+			} else {
+				sb.WriteString("## Your Last Review of These Positions\n")
+			}
 			for _, pm := range ctx.PositionMemories {
 				if pm.LastReviewSummary != "" {
 					sb.WriteString(fmt.Sprintf("- %s %s: %s\n", pm.Symbol, pm.Side, pm.LastReviewSummary))
@@ -612,7 +793,11 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		positionSymbols[normalizedSymbol] = true
 	}
 
-	sb.WriteString(fmt.Sprintf("## Candidate Coins (%d coins)\n\n", len(ctx.MarketDataMap)))
+	if lang == LangChinese {
+		sb.WriteString(fmt.Sprintf("## 候选币种（%d 个）\n\n", len(ctx.MarketDataMap)))
+	} else {
+		sb.WriteString(fmt.Sprintf("## Candidate Coins (%d coins)\n\n", len(ctx.MarketDataMap)))
+	}
 	displayedCount := 0
 	for _, coin := range ctx.CandidateCoins {
 		// Skip if this coin is already a position (data already shown in positions section)
@@ -664,14 +849,25 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	sb.WriteString("---\n\n")
 	// External data sources (Kronos predictions, etc.)
 	for _, item := range ctx.ExternalDataItems {
-		sb.WriteString(fmt.Sprintf("## External Data: %s\n", item.Label))
-		if item.Description != "" {
-			sb.WriteString(fmt.Sprintf("Context: %s\n", item.Description))
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("## 外部数据：%s\n", item.Label))
+			if item.Description != "" {
+				sb.WriteString(fmt.Sprintf("说明：%s\n", item.Description))
+			}
+		} else {
+			sb.WriteString(fmt.Sprintf("## External Data: %s\n", item.Label))
+			if item.Description != "" {
+				sb.WriteString(fmt.Sprintf("Context: %s\n", item.Description))
+			}
 		}
 		sb.WriteString(fmt.Sprintf("Data: %s\n\n", item.Data))
 	}
 
-	sb.WriteString("Now please analyze and output your decision (Chain of Thought + JSON)\n")
+	if lang == LangChinese {
+		sb.WriteString("现在请分析并输出你的决策（思维链 + JSON）\n")
+	} else {
+		sb.WriteString("Now please analyze and output your decision (Chain of Thought + JSON)\n")
+	}
 
 	return sb.String()
 }
@@ -788,8 +984,8 @@ func (e *StrategyEngine) formatPositionInfo(index int, pos PositionInfo, ctx *Co
 }
 
 func (e *StrategyEngine) formatCoinSourceTag(sources []string) string {
+	lang := e.GetLanguage()
 	if len(sources) > 1 {
-		// Multiple signal source combination
 		hasAI500 := false
 		hasOITop := false
 		hasOILow := false
@@ -810,9 +1006,15 @@ func (e *StrategyEngine) formatCoinSourceTag(sources []string) string {
 			}
 		}
 		if hasAI500 && hasOITop {
+			if lang == LangChinese {
+				return " (AI500+OI_Top 双信号)"
+			}
 			return " (AI500+OI_Top dual signal)"
 		}
 		if hasAI500 && hasOILow {
+			if lang == LangChinese {
+				return " (AI500+OI_Low 双信号)"
+			}
 			return " (AI500+OI_Low dual signal)"
 		}
 		if hasOITop && hasOILow {
@@ -824,16 +1026,28 @@ func (e *StrategyEngine) formatCoinSourceTag(sources []string) string {
 		if hasHyperAll || hasHyperMain {
 			return " (Hyperliquid)"
 		}
+		if lang == LangChinese {
+			return " (多来源)"
+		}
 		return " (Multiple sources)"
 	} else if len(sources) == 1 {
 		switch sources[0] {
 		case "ai500":
 			return " (AI500)"
 		case "oi_top":
+			if lang == LangChinese {
+				return " (OI_Top OI增长)"
+			}
 			return " (OI_Top OI increase)"
 		case "oi_low":
+			if lang == LangChinese {
+				return " (OI_Low OI减少)"
+			}
 			return " (OI_Low OI decrease)"
 		case "static":
+			if lang == LangChinese {
+				return " (手动选择)"
+			}
 			return " (Manual selection)"
 		case "hyper_all":
 			return " (Hyperliquid All)"
@@ -851,9 +1065,13 @@ func (e *StrategyEngine) formatCoinSourceTag(sources []string) string {
 func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 	var sb strings.Builder
 	indicators := e.config.Indicators
+	lang := e.GetLanguage()
 
-	// Clearly label the coin symbol
-	sb.WriteString(fmt.Sprintf("=== %s Market Data ===\n\n", data.Symbol))
+	if lang == LangChinese {
+		sb.WriteString(fmt.Sprintf("=== %s 市场数据 ===\n\n", data.Symbol))
+	} else {
+		sb.WriteString(fmt.Sprintf("=== %s Market Data ===\n\n", data.Symbol))
+	}
 	sb.WriteString(fmt.Sprintf("current_price = %.4f", data.CurrentPrice))
 
 	if indicators.EnableEMA {
@@ -871,15 +1089,28 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 	sb.WriteString("\n\n")
 
 	if indicators.EnableOI || indicators.EnableFundingRate {
-		sb.WriteString(fmt.Sprintf("Additional data for %s:\n\n", data.Symbol))
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("%s 附加数据：\n\n", data.Symbol))
+		} else {
+			sb.WriteString(fmt.Sprintf("Additional data for %s:\n\n", data.Symbol))
+		}
 
 		if indicators.EnableOI && data.OpenInterest != nil {
-			sb.WriteString(fmt.Sprintf("Open Interest: Latest: %.2f Average: %.2f\n\n",
-				data.OpenInterest.Latest, data.OpenInterest.Average))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("持仓量：最新 %.2f 平均 %.2f\n\n",
+					data.OpenInterest.Latest, data.OpenInterest.Average))
+			} else {
+				sb.WriteString(fmt.Sprintf("Open Interest: Latest: %.2f Average: %.2f\n\n",
+					data.OpenInterest.Latest, data.OpenInterest.Average))
+			}
 		}
 
 		if indicators.EnableFundingRate {
-			sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("资金费率：%.2e\n\n", data.FundingRate))
+			} else {
+				sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
+			}
 		}
 	}
 
@@ -887,39 +1118,70 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		timeframeOrder := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w"}
 		for _, tf := range timeframeOrder {
 			if tfData, ok := data.TimeframeData[tf]; ok {
-				sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest) ===\n\n", strings.ToUpper(tf)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("=== %s 周期（从旧到新）===\n\n", strings.ToUpper(tf)))
+				} else {
+					sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest) ===\n\n", strings.ToUpper(tf)))
+				}
 				e.formatTimeframeSeriesData(&sb, tfData, indicators)
 			}
 		}
 	} else {
-		// Compatible with old data format
 		if data.IntradaySeries != nil {
 			klineConfig := indicators.Klines
-			sb.WriteString(fmt.Sprintf("Intraday series (%s intervals, oldest → latest):\n\n", klineConfig.PrimaryTimeframe))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("日内序列（%s 间隔，从旧到新）：\n\n", klineConfig.PrimaryTimeframe))
+			} else {
+				sb.WriteString(fmt.Sprintf("Intraday series (%s intervals, oldest → latest):\n\n", klineConfig.PrimaryTimeframe))
+			}
 
 			if len(data.IntradaySeries.MidPrices) > 0 {
-				sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("中间价：%s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+				} else {
+					sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+				}
 			}
 
 			if indicators.EnableEMA && len(data.IntradaySeries.EMA20Values) > 0 {
-				sb.WriteString(fmt.Sprintf("EMA indicators (20-period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("EMA 指标（20周期）：%s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+				} else {
+					sb.WriteString(fmt.Sprintf("EMA indicators (20-period): %s\n\n", formatFloatSlice(data.IntradaySeries.EMA20Values)))
+				}
 			}
 
 			if indicators.EnableMACD && len(data.IntradaySeries.MACDValues) > 0 {
-				sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("MACD 指标：%s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+				} else {
+					sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
+				}
 			}
 
 			if indicators.EnableRSI {
 				if len(data.IntradaySeries.RSI7Values) > 0 {
-					sb.WriteString(fmt.Sprintf("RSI indicators (7-Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+					if lang == LangChinese {
+						sb.WriteString(fmt.Sprintf("RSI 指标（7周期）：%s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+					} else {
+						sb.WriteString(fmt.Sprintf("RSI indicators (7-Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI7Values)))
+					}
 				}
 				if len(data.IntradaySeries.RSI14Values) > 0 {
-					sb.WriteString(fmt.Sprintf("RSI indicators (14-Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
+					if lang == LangChinese {
+						sb.WriteString(fmt.Sprintf("RSI 指标（14周期）：%s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
+					} else {
+						sb.WriteString(fmt.Sprintf("RSI indicators (14-Period): %s\n\n", formatFloatSlice(data.IntradaySeries.RSI14Values)))
+					}
 				}
 			}
 
 			if indicators.EnableVolume && len(data.IntradaySeries.Volume) > 0 {
-				sb.WriteString(fmt.Sprintf("Volume: %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("成交量：%s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
+				} else {
+					sb.WriteString(fmt.Sprintf("Volume: %s\n\n", formatFloatSlice(data.IntradaySeries.Volume)))
+				}
 			}
 
 			if indicators.EnableATR {
@@ -928,29 +1190,56 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		}
 
 		if data.LongerTermContext != nil && indicators.Klines.EnableMultiTimeframe {
-			sb.WriteString(fmt.Sprintf("Longer-term context (%s timeframe):\n\n", indicators.Klines.LongerTimeframe))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("长周期上下文（%s 周期）：\n\n", indicators.Klines.LongerTimeframe))
+			} else {
+				sb.WriteString(fmt.Sprintf("Longer-term context (%s timeframe):\n\n", indicators.Klines.LongerTimeframe))
+			}
 
 			if indicators.EnableEMA {
-				sb.WriteString(fmt.Sprintf("20-Period EMA: %.3f vs. 50-Period EMA: %.3f\n\n",
-					data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("20周期 EMA：%.3f vs 50周期 EMA：%.3f\n\n",
+						data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
+				} else {
+					sb.WriteString(fmt.Sprintf("20-Period EMA: %.3f vs. 50-Period EMA: %.3f\n\n",
+						data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
+				}
 			}
 
 			if indicators.EnableATR {
-				sb.WriteString(fmt.Sprintf("3-Period ATR: %.3f vs. 14-Period ATR: %.3f\n\n",
-					data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("3周期 ATR：%.3f vs 14周期 ATR：%.3f\n\n",
+						data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
+				} else {
+					sb.WriteString(fmt.Sprintf("3-Period ATR: %.3f vs. 14-Period ATR: %.3f\n\n",
+						data.LongerTermContext.ATR3, data.LongerTermContext.ATR14))
+				}
 			}
 
 			if indicators.EnableVolume {
-				sb.WriteString(fmt.Sprintf("Current Volume: %.3f vs. Average Volume: %.3f\n\n",
-					data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("当前成交量：%.3f vs 平均成交量：%.3f\n\n",
+						data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
+				} else {
+					sb.WriteString(fmt.Sprintf("Current Volume: %.3f vs. Average Volume: %.3f\n\n",
+						data.LongerTermContext.CurrentVolume, data.LongerTermContext.AverageVolume))
+				}
 			}
 
 			if indicators.EnableMACD && len(data.LongerTermContext.MACDValues) > 0 {
-				sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("MACD 指标：%s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
+				} else {
+					sb.WriteString(fmt.Sprintf("MACD indicators: %s\n\n", formatFloatSlice(data.LongerTermContext.MACDValues)))
+				}
 			}
 
 			if indicators.EnableRSI && len(data.LongerTermContext.RSI14Values) > 0 {
-				sb.WriteString(fmt.Sprintf("RSI indicators (14-Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("RSI 指标（14周期）：%s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+				} else {
+					sb.WriteString(fmt.Sprintf("RSI indicators (14-Period): %s\n\n", formatFloatSlice(data.LongerTermContext.RSI14Values)))
+				}
 			}
 		}
 	}
@@ -959,23 +1248,40 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 }
 
 func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig) {
+	lang := e.GetLanguage()
 	if len(data.Klines) > 0 {
-		sb.WriteString("Time(UTC)      Open      High      Low       Close     Volume\n")
+		if lang == LangChinese {
+			sb.WriteString("时间(UTC)       开盘      最高      最低      收盘      成交量\n")
+		} else {
+			sb.WriteString("Time(UTC)      Open      High      Low       Close     Volume\n")
+		}
 		for i, k := range data.Klines {
 			t := time.Unix(k.Time/1000, 0).UTC()
 			timeStr := t.Format("01-02 15:04")
 			marker := ""
 			if i == len(data.Klines)-1 {
-				marker = "  <- current"
+				if lang == LangChinese {
+					marker = "  <- 当前"
+				} else {
+					marker = "  <- current"
+				}
 			}
 			sb.WriteString(fmt.Sprintf("%-14s %-9.4f %-9.4f %-9.4f %-9.4f %-12.2f%s\n",
 				timeStr, k.Open, k.High, k.Low, k.Close, k.Volume, marker))
 		}
 		sb.WriteString("\n")
 	} else if len(data.MidPrices) > 0 {
-		sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.MidPrices)))
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("中间价：%s\n\n", formatFloatSlice(data.MidPrices)))
+		} else {
+			sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.MidPrices)))
+		}
 		if indicators.EnableVolume && len(data.Volume) > 0 {
-			sb.WriteString(fmt.Sprintf("Volume: %s\n\n", formatFloatSlice(data.Volume)))
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("成交量：%s\n\n", formatFloatSlice(data.Volume)))
+			} else {
+				sb.WriteString(fmt.Sprintf("Volume: %s\n\n", formatFloatSlice(data.Volume)))
+			}
 		}
 	}
 
@@ -1024,11 +1330,20 @@ func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 		return ""
 	}
 
+	lang := e.GetLanguage()
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("📊 %s Quantitative Data:\n", data.Symbol))
+	if lang == LangChinese {
+		sb.WriteString(fmt.Sprintf("📊 %s 量化数据：\n", data.Symbol))
+	} else {
+		sb.WriteString(fmt.Sprintf("📊 %s Quantitative Data:\n", data.Symbol))
+	}
 
 	if len(data.PriceChange) > 0 {
-		sb.WriteString("Price Change: ")
+		if lang == LangChinese {
+			sb.WriteString("价格变动：")
+		} else {
+			sb.WriteString("Price Change: ")
+		}
 		timeframes := []string{"5m", "15m", "1h", "4h", "12h", "24h"}
 		parts := []string{}
 		for _, tf := range timeframes {
@@ -1041,12 +1356,20 @@ func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 	}
 
 	if indicators.EnableQuantNetflow && data.Netflow != nil {
-		sb.WriteString("Fund Flow (Netflow):\n")
+		if lang == LangChinese {
+			sb.WriteString("资金流向（Netflow）：\n")
+		} else {
+			sb.WriteString("Fund Flow (Netflow):\n")
+		}
 		timeframes := []string{"5m", "15m", "1h", "4h", "12h", "24h"}
 
 		if data.Netflow.Institution != nil {
 			if data.Netflow.Institution.Future != nil && len(data.Netflow.Institution.Future) > 0 {
-				sb.WriteString("  Institutional Futures:\n")
+				if lang == LangChinese {
+					sb.WriteString("  机构合约：\n")
+				} else {
+					sb.WriteString("  Institutional Futures:\n")
+				}
 				for _, tf := range timeframes {
 					if v, ok := data.Netflow.Institution.Future[tf]; ok {
 						sb.WriteString(fmt.Sprintf("    %s: %s\n", tf, formatFlowValue(v)))
@@ -1054,7 +1377,11 @@ func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 				}
 			}
 			if data.Netflow.Institution.Spot != nil && len(data.Netflow.Institution.Spot) > 0 {
-				sb.WriteString("  Institutional Spot:\n")
+				if lang == LangChinese {
+					sb.WriteString("  机构现货：\n")
+				} else {
+					sb.WriteString("  Institutional Spot:\n")
+				}
 				for _, tf := range timeframes {
 					if v, ok := data.Netflow.Institution.Spot[tf]; ok {
 						sb.WriteString(fmt.Sprintf("    %s: %s\n", tf, formatFlowValue(v)))
@@ -1065,7 +1392,11 @@ func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 
 		if data.Netflow.Personal != nil {
 			if data.Netflow.Personal.Future != nil && len(data.Netflow.Personal.Future) > 0 {
-				sb.WriteString("  Retail Futures:\n")
+				if lang == LangChinese {
+					sb.WriteString("  散户合约：\n")
+				} else {
+					sb.WriteString("  Retail Futures:\n")
+				}
 				for _, tf := range timeframes {
 					if v, ok := data.Netflow.Personal.Future[tf]; ok {
 						sb.WriteString(fmt.Sprintf("    %s: %s\n", tf, formatFlowValue(v)))
@@ -1073,7 +1404,11 @@ func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 				}
 			}
 			if data.Netflow.Personal.Spot != nil && len(data.Netflow.Personal.Spot) > 0 {
-				sb.WriteString("  Retail Spot:\n")
+				if lang == LangChinese {
+					sb.WriteString("  散户现货：\n")
+				} else {
+					sb.WriteString("  Retail Spot:\n")
+				}
 				for _, tf := range timeframes {
 					if v, ok := data.Netflow.Personal.Spot[tf]; ok {
 						sb.WriteString(fmt.Sprintf("    %s: %s\n", tf, formatFlowValue(v)))
@@ -1086,7 +1421,11 @@ func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 	if indicators.EnableQuantOI && len(data.OI) > 0 {
 		for exchange, oiData := range data.OI {
 			if len(oiData.Delta) > 0 {
-				sb.WriteString(fmt.Sprintf("Open Interest (%s):\n", exchange))
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("持仓量（%s）：\n", exchange))
+				} else {
+					sb.WriteString(fmt.Sprintf("Open Interest (%s):\n", exchange))
+				}
 				for _, tf := range []string{"5m", "15m", "1h", "4h", "12h", "24h"} {
 					if d, ok := oiData.Delta[tf]; ok {
 						sb.WriteString(fmt.Sprintf("    %s: %+.4f%% (%s)\n", tf, d.OIDeltaPercent, formatFlowValue(d.OIDeltaValue)))
