@@ -314,6 +314,13 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 		return err
 	}
 
+	if at.store != nil {
+		oid := store.FormatExchangeOrderIDFromMap(order)
+		if err := at.store.Position().SetPendingCloseReason(at.id, normalizedSymbol, "LONG", "ai", oid); err != nil {
+			logger.Warnf("SetPendingCloseReason(ai) failed trader=%s symbol=%s side=LONG: %v", at.id, normalizedSymbol, err)
+		}
+	}
+
 	// Record order ID
 	if orderID, ok := order["orderId"].(int64); ok {
 		actionRecord.OrderID = orderID
@@ -376,6 +383,13 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = close all
 	if err != nil {
 		return err
+	}
+
+	if at.store != nil {
+		oid := store.FormatExchangeOrderIDFromMap(order)
+		if err := at.store.Position().SetPendingCloseReason(at.id, normalizedSymbol, "SHORT", "ai", oid); err != nil {
+			logger.Warnf("SetPendingCloseReason(ai) failed trader=%s symbol=%s side=SHORT: %v", at.id, normalizedSymbol, err)
+		}
 	}
 
 	// Record order ID

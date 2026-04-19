@@ -130,7 +130,7 @@ func (pb *PositionBuilder) handleClose(
 		// Partial close: reduce quantity and update weighted average exit price
 		logger.Infof("  📉 Partial close: %s %s %.6f → %.6f (closed %.6f @ %.2f, PnL: %.2f)",
 			symbol, side, position.Quantity, position.Quantity-quantity, quantity, price, realizedPnL)
-		return pb.positionStore.ReducePositionQuantity(position.ID, quantity, price, fee, realizedPnL)
+		return pb.positionStore.ReducePositionQuantity(position.ID, quantity, price, fee, realizedPnL, orderID)
 	} else {
 		// Full close (or close with tolerance): mark as CLOSED
 		closeQty := quantity

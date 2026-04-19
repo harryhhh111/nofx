@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"nofx/logger"
+	"nofx/market"
 	"nofx/store"
 	"nofx/trader"
 	"nofx/trader/aster"
@@ -266,6 +267,18 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	}
 
 	logger.Infof("✅ Position closed successfully: symbol=%s, side=%s, qty=%.6f, result=%v", req.Symbol, req.Side, posQty, result)
+
+	normalizedSymbol := market.Normalize(req.Symbol)
+	if s.store != nil {
+		dbSide := "LONG"
+		if req.Side != "LONG" {
+			dbSide = "SHORT"
+		}
+		oid := store.FormatExchangeOrderIDFromMap(result)
+		if err := s.store.Position().SetPendingCloseReason(traderID, normalizedSymbol, dbSide, "manual", oid); err != nil {
+			logger.Warnf("SetPendingCloseReason(manual) failed trader=%s symbol=%s side=%s: %v", traderID, normalizedSymbol, dbSide, err)
+		}
+	}
 
 	// Record order to database (for chart markers and history)
 	s.recordClosePositionOrder(traderID, exchangeCfg.ID, exchangeCfg.ExchangeType, req.Symbol, req.Side, posQty, entryPrice, result)

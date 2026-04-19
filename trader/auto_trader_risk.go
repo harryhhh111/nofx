@@ -3,6 +3,8 @@ package trader
 import (
 	"fmt"
 	"nofx/logger"
+	"nofx/market"
+	"nofx/store"
 	"strings"
 	"time"
 )
@@ -114,17 +116,30 @@ func (at *AutoTrader) checkPositionDrawdown() {
 
 // emergencyClosePosition emergency close position function
 func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
+	normalizedSymbol := market.Normalize(symbol)
 	switch side {
 	case "long":
 		order, err := at.trader.CloseLong(symbol, 0) // 0 = close all
 		if err != nil {
 			return err
 		}
+		if at.store != nil {
+			oid := store.FormatExchangeOrderIDFromMap(order)
+			if err := at.store.Position().SetPendingCloseReason(at.id, normalizedSymbol, "LONG", "risk", oid); err != nil {
+				logger.Warnf("SetPendingCloseReason(risk) failed trader=%s symbol=%s side=LONG: %v", at.id, normalizedSymbol, err)
+			}
+		}
 		logger.Infof("✅ Emergency close long position succeeded, order ID: %v", order["orderId"])
 	case "short":
 		order, err := at.trader.CloseShort(symbol, 0) // 0 = close all
 		if err != nil {
 			return err
+		}
+		if at.store != nil {
+			oid := store.FormatExchangeOrderIDFromMap(order)
+			if err := at.store.Position().SetPendingCloseReason(at.id, normalizedSymbol, "SHORT", "risk", oid); err != nil {
+				logger.Warnf("SetPendingCloseReason(risk) failed trader=%s symbol=%s side=SHORT: %v", at.id, normalizedSymbol, err)
+			}
 		}
 		logger.Infof("✅ Emergency close short position succeeded, order ID: %v", order["orderId"])
 	default:

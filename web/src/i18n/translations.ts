@@ -985,6 +985,11 @@ export const translations = {
       pnl: 'P&L',
       duration: 'Duration',
       closedAt: 'Closed At',
+      closeReason: 'Close source',
+      closeReasonAi: 'AI',
+      closeReasonManual: 'Manual (UI)',
+      closeReasonRisk: 'Risk (drawdown)',
+      closeReasonSync: 'Exchange (SL/TP/other)',
     },
 
     // Data Page
@@ -2289,6 +2294,11 @@ export const translations = {
       pnl: '盈亏',
       duration: '持仓时长',
       closedAt: '平仓时间',
+      closeReason: '平仓来源',
+      closeReasonAi: 'AI 决策',
+      closeReasonManual: '手动（界面）',
+      closeReasonRisk: '风控（回撤）',
+      closeReasonSync: '交易所（止盈止损/其他）',
     },
 
     // Data Page
@@ -3395,6 +3405,11 @@ export const translations = {
       pnl: 'L/R',
       duration: 'Durasi',
       closedAt: 'Ditutup Pada',
+      closeReason: 'Sumber tutup',
+      closeReasonAi: 'AI',
+      closeReasonManual: 'Manual (UI)',
+      closeReasonRisk: 'Risiko (drawdown)',
+      closeReasonSync: 'Bursa (SL/TP/lain)',
     },
 
     // Data Page
