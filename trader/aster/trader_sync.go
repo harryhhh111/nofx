@@ -10,6 +10,33 @@ import (
 	"time"
 )
 
+func (t *AsterTrader) clearResidualOrdersForClosedSymbols(closedSymbols map[string]bool, positions []map[string]interface{}) {
+	if len(closedSymbols) == 0 {
+		return
+	}
+
+	activeSymbols := make(map[string]bool)
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		qty, _ := pos["positionAmt"].(float64)
+		if symbol == "" || qty == 0 {
+			continue
+		}
+		activeSymbols[market.Normalize(symbol)] = true
+	}
+
+	for symbol := range closedSymbols {
+		if activeSymbols[symbol] {
+			continue
+		}
+		if err := t.CancelAllOrders(symbol); err != nil {
+			logger.Infof("  ⚠️ Failed to cancel residual Aster orders for closed symbol %s: %v", symbol, err)
+			continue
+		}
+		logger.Infof("  ✅ Cleared residual Aster orders for closed symbol %s", symbol)
+	}
+}
+
 // SyncOrdersFromAster syncs Aster exchange order history to local database
 // Also creates/updates position records to ensure orders/fills/positions data consistency
 // exchangeID: Exchange account UUID (from exchanges.id)
@@ -42,6 +69,7 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 	positionStore := st.Position()
 	posBuilder := store.NewPositionBuilder(positionStore)
 	syncedCount := 0
+	closedSymbols := make(map[string]bool)
 
 	for _, trade := range trades {
 		// Check if trade already exists (use exchangeID which is UUID, not exchange type)
@@ -58,6 +86,9 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 		// - RealizedPnL != 0 means it's a close trade
 		// - RealizedPnL == 0 means it's an open trade
 		orderAction := deriveAsterOrderAction(trade.Side, trade.PositionSide, trade.RealizedPnL)
+		if orderAction == "close_long" || orderAction == "close_short" {
+			closedSymbols[symbol] = true
+		}
 
 		// Determine position side from order action
 		positionSide := "LONG"
@@ -136,6 +167,15 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 		syncedCount++
 		logger.Infof("  ✅ Synced trade: %s %s %s qty=%.6f price=%.6f pnl=%.2f fee=%.6f action=%s",
 			trade.TradeID, symbol, side, trade.Quantity, trade.Price, trade.RealizedPnL, trade.Fee, orderAction)
+	}
+
+	if len(closedSymbols) > 0 {
+		positions, posErr := t.GetPositions()
+		if posErr != nil {
+			logger.Infof("  ⚠️ Failed to refresh Aster positions for order cleanup: %v", posErr)
+		} else {
+			t.clearResidualOrdersForClosedSymbols(closedSymbols, positions)
+		}
 	}
 
 	logger.Infof("✅ Aster order sync completed: %d new trades synced", syncedCount)

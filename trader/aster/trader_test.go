@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/crypto"
@@ -237,6 +238,308 @@ func TestAsterTrader_CommonInterface(t *testing.T) {
 
 	// Run all common interface tests
 	suite.RunAllTests()
+}
+
+func TestAsterOpenLongUsesIOC(t *testing.T) {
+	var captured url.Values
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		case r.URL.Path == "/fapi/v1/leverage":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"leverage": 10})
+		case r.URL.Path == "/fapi/v3/ticker/price":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"symbol": "BTCUSDT", "price": "50000"})
+		case r.URL.Path == "/fapi/v3/exchangeInfo":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"symbols": []map[string]interface{}{
+					{
+						"symbol":            "BTCUSDT",
+						"pricePrecision":    1,
+						"quantityPrecision": 3,
+						"filters": []map[string]interface{}{
+							{"filterType": "PRICE_FILTER", "tickSize": "0.1"},
+							{"filterType": "LOT_SIZE", "stepSize": "0.001"},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/fapi/v3/order" && r.Method == "POST":
+			body, _ := io.ReadAll(r.Body)
+			captured, _ = url.ParseQuery(string(body))
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"orderId": 1,
+				"symbol":  "BTCUSDT",
+				"status":  "NEW",
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	if _, err := trader.OpenLong("BTCUSDT", 0.01, 10); err != nil {
+		t.Fatalf("OpenLong failed: %v", err)
+	}
+	if got := captured.Get("timeInForce"); got != asterAggressiveLimitTIF {
+		t.Fatalf("timeInForce = %q, want %q", got, asterAggressiveLimitTIF)
+	}
+}
+
+func TestAsterClearsResidualOrdersForClosedSymbols(t *testing.T) {
+	cancelCalls := 0
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE":
+			cancelCalls++
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	trader.clearResidualOrdersForClosedSymbols(
+		map[string]bool{"BTCUSDT": true},
+		[]map[string]interface{}{},
+	)
+	if cancelCalls == 0 {
+		t.Fatal("expected residual order cleanup to call CancelAllOrders at least once")
+	}
+}
+
+func TestAsterCloseLongUsesReduceOnly(t *testing.T) {
+	var captured url.Values
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/ticker/price":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"symbol": "BTCUSDT", "price": "50000"})
+		case r.URL.Path == "/fapi/v3/exchangeInfo":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"symbols": []map[string]interface{}{
+					{
+						"symbol":            "BTCUSDT",
+						"pricePrecision":    1,
+						"quantityPrecision": 3,
+						"filters": []map[string]interface{}{
+							{"filterType": "PRICE_FILTER", "tickSize": "0.1"},
+							{"filterType": "LOT_SIZE", "stepSize": "0.001"},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/fapi/v3/order" && r.Method == "POST":
+			body, _ := io.ReadAll(r.Body)
+			captured, _ = url.ParseQuery(string(body))
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"orderId": 1,
+				"symbol":  "BTCUSDT",
+				"status":  "FILLED",
+			})
+		case r.URL.Path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	if _, err := trader.CloseLong("BTCUSDT", 0.01); err != nil {
+		t.Fatalf("CloseLong failed: %v", err)
+	}
+	if got := captured.Get("reduceOnly"); got != "true" {
+		t.Fatalf("reduceOnly = %q, want %q", got, "true")
+	}
+}
+
+func TestAsterStopOrdersUseReduceOnly(t *testing.T) {
+	var captured []url.Values
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/exchangeInfo":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"symbols": []map[string]interface{}{
+					{
+						"symbol":            "BTCUSDT",
+						"pricePrecision":    1,
+						"quantityPrecision": 3,
+						"filters": []map[string]interface{}{
+							{"filterType": "PRICE_FILTER", "tickSize": "0.1"},
+							{"filterType": "LOT_SIZE", "stepSize": "0.001"},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/fapi/v3/order" && r.Method == "POST":
+			body, _ := io.ReadAll(r.Body)
+			values, _ := url.ParseQuery(string(body))
+			captured = append(captured, values)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"orderId": 1,
+				"symbol":  "BTCUSDT",
+				"status":  "NEW",
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	if err := trader.SetStopLoss("BTCUSDT", "LONG", 0.01, 49000); err != nil {
+		t.Fatalf("SetStopLoss failed: %v", err)
+	}
+	if err := trader.SetTakeProfit("BTCUSDT", "LONG", 0.01, 51000); err != nil {
+		t.Fatalf("SetTakeProfit failed: %v", err)
+	}
+	if len(captured) != 2 {
+		t.Fatalf("captured order count = %d, want 2", len(captured))
+	}
+	for i, values := range captured {
+		if got := values.Get("reduceOnly"); got != "true" {
+			t.Fatalf("order %d reduceOnly = %q, want %q", i, got, "true")
+		}
+	}
+}
+
+func TestAsterOpenLongFailsWhenPreCancelFails(t *testing.T) {
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE":
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"code": -2011,
+				"msg":  "cancel failed",
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	if _, err := trader.OpenLong("BTCUSDT", 0.01, 10); err == nil {
+		t.Fatal("expected OpenLong to fail when pre-cancel fails")
+	}
+}
+
+func TestAsterCloseLongKeepsOrdersWhenPositionRemains(t *testing.T) {
+	cancelCalls := 0
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/ticker/price":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"symbol": "BTCUSDT", "price": "50000"})
+		case r.URL.Path == "/fapi/v3/exchangeInfo":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"symbols": []map[string]interface{}{
+					{
+						"symbol":            "BTCUSDT",
+						"pricePrecision":    1,
+						"quantityPrecision": 3,
+						"filters": []map[string]interface{}{
+							{"filterType": "PRICE_FILTER", "tickSize": "0.1"},
+							{"filterType": "LOT_SIZE", "stepSize": "0.001"},
+						},
+					},
+				},
+			})
+		case r.URL.Path == "/fapi/v3/order" && r.Method == "POST":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"orderId": 1,
+				"symbol":  "BTCUSDT",
+				"status":  "PARTIALLY_FILLED",
+			})
+		case r.URL.Path == "/fapi/v3/positionRisk":
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{
+					"symbol":           "BTCUSDT",
+					"positionAmt":      "0.005",
+					"entryPrice":       "50000.00",
+					"markPrice":        "50500.00",
+					"unRealizedProfit": "10.00",
+					"liquidationPrice": "45000.00",
+					"leverage":         "10",
+				},
+			})
+		case r.URL.Path == "/fapi/v3/allOpenOrders" && r.Method == "DELETE":
+			cancelCalls++
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	if _, err := trader.CloseLong("BTCUSDT", 0.01); err != nil {
+		t.Fatalf("CloseLong failed: %v", err)
+	}
+	if cancelCalls != 0 {
+		t.Fatalf("cancelCalls = %d, want 0 when position remains", cancelCalls)
+	}
 }
 
 // ============================================================

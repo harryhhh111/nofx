@@ -9,11 +9,34 @@ import (
 	"strings"
 )
 
+const asterAggressiveLimitTIF = "IOC"
+
+func (t *AsterTrader) cancelOrdersIfFlat(symbol string) {
+	positions, err := t.GetPositions()
+	if err != nil {
+		logger.Infof("  Failed to refresh positions before residual order cleanup for %s: %v", symbol, err)
+		return
+	}
+
+	for _, pos := range positions {
+		if sym, _ := pos["symbol"].(string); sym == symbol {
+			logger.Infof("  %s still has an active position after close attempt, keeping existing protective orders", symbol)
+			return
+		}
+	}
+
+	if err := t.CancelAllOrders(symbol); err != nil {
+		logger.Infof("  Failed to cancel residual orders for flat symbol %s: %v", symbol, err)
+		return
+	}
+	logger.Infof("  Cleared residual orders for flat symbol %s", symbol)
+}
+
 // OpenLong Open long position
 func (t *AsterTrader) OpenLong(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	// Cancel all pending orders before opening position to prevent position stacking from residual orders
 	if err := t.CancelAllOrders(symbol); err != nil {
-		logger.Infof("  ⚠ Failed to cancel pending orders (continuing to open position): %v", err)
+		return nil, fmt.Errorf("failed to clear existing orders before opening %s: %w", symbol, err)
 	}
 
 	// Set leverage first (non-fatal if position already exists)
@@ -64,7 +87,9 @@ func (t *AsterTrader) OpenLong(symbol string, quantity float64, leverage int) (m
 		"positionSide": "BOTH",
 		"type":         "LIMIT",
 		"side":         "BUY",
-		"timeInForce":  "GTC",
+		// Use IOC for aggressive limit orders so old AI entry intent cannot sit on the book
+		// and fill much later at a structurally different time.
+		"timeInForce":  asterAggressiveLimitTIF,
 		"quantity":     qtyStr,
 		"price":        priceStr,
 	}
@@ -86,7 +111,7 @@ func (t *AsterTrader) OpenLong(symbol string, quantity float64, leverage int) (m
 func (t *AsterTrader) OpenShort(symbol string, quantity float64, leverage int) (map[string]interface{}, error) {
 	// Cancel all pending orders before opening position to prevent position stacking from residual orders
 	if err := t.CancelAllOrders(symbol); err != nil {
-		logger.Infof("  ⚠ Failed to cancel pending orders (continuing to open position): %v", err)
+		return nil, fmt.Errorf("failed to clear existing orders before opening %s: %w", symbol, err)
 	}
 
 	// Set leverage first (non-fatal if position already exists)
@@ -137,7 +162,9 @@ func (t *AsterTrader) OpenShort(symbol string, quantity float64, leverage int) (
 		"positionSide": "BOTH",
 		"type":         "LIMIT",
 		"side":         "SELL",
-		"timeInForce":  "GTC",
+		// Use IOC for aggressive limit orders so old AI entry intent cannot sit on the book
+		// and fill much later at a structurally different time.
+		"timeInForce":  asterAggressiveLimitTIF,
 		"quantity":     qtyStr,
 		"price":        priceStr,
 	}
@@ -212,9 +239,14 @@ func (t *AsterTrader) CloseLong(symbol string, quantity float64) (map[string]int
 		"positionSide": "BOTH",
 		"type":         "LIMIT",
 		"side":         "SELL",
-		"timeInForce":  "GTC",
+		// Use IOC so a close intent either executes immediately or disappears; do not leave
+		// stale reduce orders resting after the market has already moved.
+		"timeInForce":  asterAggressiveLimitTIF,
 		"quantity":     qtyStr,
 		"price":        priceStr,
+		// Aster docs define reduceOnly as the control that guarantees an order can
+		// only reduce/close a position and never flip it into the opposite side.
+		"reduceOnly":   "true",
 	}
 
 	body, err := t.request("POST", "/fapi/v3/order", params)
@@ -229,10 +261,9 @@ func (t *AsterTrader) CloseLong(symbol string, quantity float64) (map[string]int
 
 	logger.Infof("✓ Successfully closed long position: %s quantity: %s", symbol, qtyStr)
 
-	// Cancel all pending orders for this symbol after closing position (stop-loss/take-profit orders)
-	if err := t.CancelAllOrders(symbol); err != nil {
-		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
-	}
+	// Only clear residual orders after the symbol is actually flat. If this IOC
+	// close only partially fills, the remaining position must keep its protection.
+	t.cancelOrdersIfFlat(symbol)
 
 	return result, nil
 }
@@ -295,9 +326,14 @@ func (t *AsterTrader) CloseShort(symbol string, quantity float64) (map[string]in
 		"positionSide": "BOTH",
 		"type":         "LIMIT",
 		"side":         "BUY",
-		"timeInForce":  "GTC",
+		// Use IOC so a close intent either executes immediately or disappears; do not leave
+		// stale reduce orders resting after the market has already moved.
+		"timeInForce":  asterAggressiveLimitTIF,
 		"quantity":     qtyStr,
 		"price":        priceStr,
+		// Aster docs define reduceOnly as the control that guarantees an order can
+		// only reduce/close a position and never flip it into the opposite side.
+		"reduceOnly":   "true",
 	}
 
 	body, err := t.request("POST", "/fapi/v3/order", params)
@@ -312,10 +348,9 @@ func (t *AsterTrader) CloseShort(symbol string, quantity float64) (map[string]in
 
 	logger.Infof("✓ Successfully closed short position: %s quantity: %s", symbol, qtyStr)
 
-	// Cancel all pending orders for this symbol after closing position (stop-loss/take-profit orders)
-	if err := t.CancelAllOrders(symbol); err != nil {
-		logger.Infof("  ⚠ Failed to cancel pending orders: %v", err)
-	}
+	// Only clear residual orders after the symbol is actually flat. If this IOC
+	// close only partially fills, the remaining position must keep its protection.
+	t.cancelOrdersIfFlat(symbol)
 
 	return result, nil
 }
@@ -355,6 +390,9 @@ func (t *AsterTrader) SetStopLoss(symbol string, positionSide string, quantity, 
 		"stopPrice":    priceStr,
 		"quantity":     qtyStr,
 		"timeInForce":  "GTC",
+		// Aster docs explicitly recommend Reduce Only for TP/SL so these trigger
+		// as exits only and never open or add to a position.
+		"reduceOnly":   "true",
 	}
 
 	_, err = t.request("POST", "/fapi/v3/order", params)
@@ -396,6 +434,9 @@ func (t *AsterTrader) SetTakeProfit(symbol string, positionSide string, quantity
 		"stopPrice":    priceStr,
 		"quantity":     qtyStr,
 		"timeInForce":  "GTC",
+		// Aster docs explicitly recommend Reduce Only for TP/SL so these trigger
+		// as exits only and never open or add to a position.
+		"reduceOnly":   "true",
 	}
 
 	_, err = t.request("POST", "/fapi/v3/order", params)
