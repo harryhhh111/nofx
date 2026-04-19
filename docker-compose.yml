@@ -4,12 +4,12 @@ services:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.backend
-    container_name: nofx-trading
+    container_name: nofx-trading_opt
     restart: unless-stopped
     stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
     ports:
       - "${NOFX_BACKEND_PORT:-8080}:8080"
-      - "6060:6060"  # pprof profiling
+      - "${NOFX_PPROF_PORT:-6071}:6060"  # pprof profiling (host port configurable via .env)
     volumes:
       - ./data:/app/data
       - /etc/localtime:/etc/localtime:ro
@@ -40,7 +40,7 @@ services:
     build:
       context: .
       dockerfile: ./docker/Dockerfile.frontend
-    container_name: nofx-frontend
+    container_name: nofx-frontend_opt
     restart: unless-stopped
     ports:
       - "${NOFX_FRONTEND_PORT:-3000}:80"
