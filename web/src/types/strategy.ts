@@ -47,6 +47,7 @@ export interface StrategyConfig {
   coin_source: CoinSourceConfig;
   indicators: IndicatorConfig;
   custom_prompt?: string;
+  include_historical_context?: boolean;
   risk_control: RiskControlConfig;
   prompt_sections?: PromptSectionsConfig;
   // Grid trading configuration (only used when strategy_type is 'grid_trading')

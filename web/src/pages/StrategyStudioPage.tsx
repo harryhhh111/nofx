@@ -67,6 +67,7 @@ export function StrategyStudioPage() {
     coinSource: true,
     indicators: false,
     riskControl: false,
+    historyContext: false,
     promptSections: false,
     customPrompt: false,
     publishSettings: false,
@@ -588,6 +589,48 @@ export function StrategyStudioPage() {
           disabled={selectedStrategy?.is_default}
           language={language}
         />
+      ),
+    },
+    {
+      key: 'historyContext' as const,
+      icon: Clock,
+      color: '#60a5fa',
+      title: language === 'zh' ? '历史上下文' : 'Historical Context',
+      forStrategyType: 'ai_trading' as const,
+      content: editingConfig && (
+        <div className="space-y-3">
+          <div>
+            <p className="text-sm font-medium text-nofx-text">
+              {language === 'zh' ? '历史胜负影响开仓' : 'Historical PnL Influence'}
+            </p>
+            <p className="text-xs text-nofx-text-muted mt-1">
+              {language === 'zh'
+                ? '关闭后，AI 不再看到历史已平仓记录和历史胜负统计，但当前持仓和当前行情仍会正常参与决策。'
+                : 'When disabled, AI no longer sees closed-trade history or performance stats. Current positions and live market context still remain available.'}
+            </p>
+          </div>
+
+          <label className="flex items-start justify-between gap-4 p-3 rounded-lg bg-nofx-bg border border-nofx-gold/20">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-nofx-text">
+                {language === 'zh' ? '加载历史交易表现' : 'Include Historical Trading Context'}
+              </div>
+              <div className="text-xs text-nofx-text-muted mt-1">
+                {language === 'zh'
+                  ? '开启：AI 会参考历史亏损、胜率、近期已平仓记录。关闭：仅基于当前仓位和当前行情判断。'
+                  : 'On: AI can use losses, win rate, and recent closed trades. Off: AI decides from current positions and current market structure only.'}
+              </div>
+            </div>
+
+            <input
+              type="checkbox"
+              checked={editingConfig.include_historical_context ?? true}
+              onChange={(e) => updateConfig('include_historical_context', e.target.checked)}
+              disabled={selectedStrategy?.is_default}
+              className="mt-1 h-4 w-4 rounded border-nofx-gold/30 bg-nofx-bg text-nofx-gold focus:ring-nofx-gold disabled:opacity-50"
+            />
+          </label>
+        </div>
       ),
     },
     {

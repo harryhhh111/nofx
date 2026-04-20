@@ -61,10 +61,11 @@ export function IndicatorEditor({
         })
       }
     } else {
-      if (current.length >= 4) {
+      if (current.length >= 5) {
         // Show toast notification
         const toast = document.createElement('div')
         toast.textContent = language === 'zh' ? '最多选择 4 个时间维度' : 'Maximum 4 timeframes allowed'
+        toast.textContent = language === 'zh' ? '最多选择 5 个时间维度' : 'Maximum 5 timeframes allowed'
         toast.className = 'fixed top-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-sm z-50 shadow-lg'
         toast.style.cssText = 'background:#F6465D;color:#fff;'
         document.body.appendChild(toast)

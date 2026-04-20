@@ -14,7 +14,7 @@ import (
 const (
 	MaxCandidateCoins = 10
 	MaxPositions      = 3
-	MaxTimeframes     = 4
+	MaxTimeframes     = 5
 	MinKlineCount     = 10
 	MaxKlineCount     = 30
 
@@ -123,6 +123,9 @@ type StrategyConfig struct {
 	Indicators IndicatorConfig `json:"indicators"`
 	// custom prompt (appended at the end)
 	CustomPrompt string `json:"custom_prompt,omitempty"`
+	// whether AI should see historical closed trades and performance stats
+	// default: true. current open positions are NOT affected by this switch.
+	IncludeHistoricalContext *bool `json:"include_historical_context,omitempty"`
 	// risk control configuration
 	RiskControl RiskControlConfig `json:"risk_control"`
 	// editable sections of System Prompt
@@ -354,6 +357,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			UseOILow:   false,
 			OILowLimit: 3,
 		},
+		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{
 			Klines: KlineConfig{
 				PrimaryTimeframe:     "5m",
@@ -452,6 +456,19 @@ Only enter positions when multiple signals resonate. Freely use any effective an
 	}
 
 	return config
+}
+
+func boolPtr(v bool) *bool {
+	return &v
+}
+
+// ShouldIncludeHistoricalContext returns whether historical closed-trade context
+// should be provided to AI. Default is true for backward compatibility.
+func (c *StrategyConfig) ShouldIncludeHistoricalContext() bool {
+	if c == nil || c.IncludeHistoricalContext == nil {
+		return true
+	}
+	return *c.IncludeHistoricalContext
 }
 
 // Create create a strategy

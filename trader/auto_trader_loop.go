@@ -354,7 +354,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	// Use totalEquity directly if provided by trader (more accurate)
 	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
 		totalEquity = eq
-	} else {
+	} else if at.store == nil {
 		// Fallback: Total Equity = Wallet balance + Unrealized profit
 		totalEquity = totalWalletBalance + totalUnrealizedProfit
 	}
@@ -503,7 +503,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	var candidateCoins []kernel.CandidateCoin
 	if at.strategyEngine == nil {
 		logger.Infof("⚠️ [%s] No strategy engine configured, skipping candidate coins", at.name)
-	} else {
+	} else if at.store == nil {
 		coins, err := at.strategyEngine.GetCandidateCoins()
 		if err != nil {
 			// Log warning but don't fail - equity snapshot should still be saved
@@ -554,7 +554,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	}
 
 	// 7. Add recent closed trades (if store is available)
-	if at.store != nil {
+	if at.store != nil && strategyConfig.ShouldIncludeHistoricalContext() {
 		// Get recent 10 closed trades for AI context
 		recentTrades, err := at.store.Position().GetRecentTrades(at.id, 10)
 		if err != nil {
