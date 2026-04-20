@@ -503,7 +503,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	var candidateCoins []kernel.CandidateCoin
 	if at.strategyEngine == nil {
 		logger.Infof("⚠️ [%s] No strategy engine configured, skipping candidate coins", at.name)
-	} else if at.store == nil {
+	} else {
 		coins, err := at.strategyEngine.GetCandidateCoins()
 		if err != nil {
 			// Log warning but don't fail - equity snapshot should still be saved
