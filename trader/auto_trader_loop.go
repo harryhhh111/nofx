@@ -354,7 +354,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	// Use totalEquity directly if provided by trader (more accurate)
 	if eq, ok := balance["totalEquity"].(float64); ok && eq > 0 {
 		totalEquity = eq
-	} else if at.store == nil {
+	} else {
 		// Fallback: Total Equity = Wallet balance + Unrealized profit
 		totalEquity = totalWalletBalance + totalUnrealizedProfit
 	}
