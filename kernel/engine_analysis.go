@@ -425,20 +425,22 @@ func validateJSONFormat(jsonStr string) error {
 		return fmt.Errorf("JSON must start with [{ (whitespace allowed), actual: %s", trimmed[:min(20, len(trimmed))])
 	}
 
-	// Check for ~ in numeric fields only (not inside quoted strings like reasoning)
-	// Pattern: a ~ outside of quotes indicates approximate numbers which are not valid
+	// Check only JSON content outside quoted strings. Reasoning text may contain
+	// commas in prices like "$76,400", which are valid string content.
 	inQuote := false
 	for i := 0; i < len(jsonStr); i++ {
 		if jsonStr[i] == '"' && (i == 0 || jsonStr[i-1] != '\\') {
 			inQuote = !inQuote
+			continue
 		}
-		if jsonStr[i] == '~' && !inQuote {
+		if inQuote {
+			continue
+		}
+		if jsonStr[i] == '~' {
 			return fmt.Errorf("JSON cannot contain range symbol ~ outside strings, all numbers must be precise single values")
 		}
-	}
-
-	for i := 0; i < len(jsonStr)-4; i++ {
-		if jsonStr[i] >= '0' && jsonStr[i] <= '9' &&
+		if i <= len(jsonStr)-5 &&
+			jsonStr[i] >= '0' && jsonStr[i] <= '9' &&
 			jsonStr[i+1] == ',' &&
 			jsonStr[i+2] >= '0' && jsonStr[i+2] <= '9' &&
 			jsonStr[i+3] >= '0' && jsonStr[i+3] <= '9' &&
