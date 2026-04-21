@@ -12,6 +12,7 @@ func TestLeverageFallback(t *testing.T) {
 		accountEquity   float64
 		btcEthLeverage  int
 		altcoinLeverage int
+		marketPrices    map[string]float64
 		wantLeverage    int // Expected leverage after correction
 		wantError       bool
 	}{
@@ -28,6 +29,7 @@ func TestLeverageFallback(t *testing.T) {
 			accountEquity:   100,
 			btcEthLeverage:  10,
 			altcoinLeverage: 5, // Limit 5x
+			marketPrices:    map[string]float64{"SOLUSDT": 80},
 			wantLeverage:    5, // Should be corrected to 5
 			wantError:       false,
 		},
@@ -44,6 +46,7 @@ func TestLeverageFallback(t *testing.T) {
 			accountEquity:   100,
 			btcEthLeverage:  10, // Limit 10x
 			altcoinLeverage: 5,
+			marketPrices:    map[string]float64{"BTCUSDT": 95000},
 			wantLeverage:    10, // Should be corrected to 10
 			wantError:       false,
 		},
@@ -60,6 +63,7 @@ func TestLeverageFallback(t *testing.T) {
 			accountEquity:   100,
 			btcEthLeverage:  10,
 			altcoinLeverage: 5,
+			marketPrices:    map[string]float64{"ETHUSDT": 3750},
 			wantLeverage:    5, // Stays unchanged
 			wantError:       false,
 		},
@@ -76,6 +80,7 @@ func TestLeverageFallback(t *testing.T) {
 			accountEquity:   100,
 			btcEthLeverage:  10,
 			altcoinLeverage: 5,
+			marketPrices:    map[string]float64{"SOLUSDT": 80},
 			wantLeverage:    0,
 			wantError:       true,
 		},
@@ -84,7 +89,7 @@ func TestLeverageFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use default position value ratios for testing (10x for BTC/ETH, 1.5x for altcoins)
-			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, 3.0, nil)
+			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, 3.0, tt.marketPrices, nil)
 
 			// Check error status
 			if (err != nil) != tt.wantError {
@@ -99,7 +104,6 @@ func TestLeverageFallback(t *testing.T) {
 		})
 	}
 }
-
 
 // contains checks if string contains substring (helper function)
 func contains(s, substr string) bool {

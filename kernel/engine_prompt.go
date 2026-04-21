@@ -317,7 +317,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("```json\n[\n")
 		// Use the actual configured position value ratio for BTC/ETH in the example
 		examplePositionSize := accountEquity * btcEthPosValueRatio
-		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": \"{阻力位 + ATR缓冲}\", \"take_profit\": \"{目标支撑位}\", \"confidence\": 85, \"risk_usd\": \"{根据实际计算}\", \"reasoning\": \"[THESIS] timeframe={分析周期} | invalidation={具体可验证的失效条件} | min_target={目标收益%%} [/THESIS] {基于实际数据的详细分析}\"},\n",
+		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97500.0, \"take_profit\": 96200.0, \"confidence\": 85, \"risk_usd\": 32.5, \"reasoning\": \"[THESIS] timeframe={分析周期} | invalidation={具体可验证的失效条件} | min_target={目标收益%%} [/THESIS] {基于实际数据的详细分析}\"},\n",
 			riskControl.BTCETHMaxLeverage, examplePositionSize))
 		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] 开仓周期={TF}，当前使用同周期数据。 [THESIS] 失效条件={条件}；当前已触发。 [FEES] 毛利{X}，手续费{Y}，Net PnL={X-Y}。 [MIN PROFIT] {是否满足}。 [CLOSE CONFIDENCE] {0-100}。 [VERDICT] {结论}。\"}\n")
 		sb.WriteString("]\n```\n")
@@ -326,6 +326,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 		sb.WriteString(fmt.Sprintf("- `confidence`: 0-100（开仓建议 ≥ %d）\n", riskControl.MinConfidence))
 		sb.WriteString("- 开仓时必填：leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
+		sb.WriteString("- `stop_loss`、`take_profit`、`risk_usd` 必须是 JSON number，不能带引号\n")
 		sb.WriteString("- `reasoning`: **所有动作都必填**\n")
 		sb.WriteString("  - **开仓时（open_long/open_short）**：必须以 `[THESIS] timeframe=X | invalidation=condition | min_target=+X%% [/THESIS]` 开头，后面再写分析。这个 thesis 会成为后续周期的硬性约束。\n")
 		sb.WriteString("  - **平仓时**：必须包含平仓检查清单全部 6 项（[TIMEFRAME], [THESIS], [FEES], [MIN PROFIT], [CLOSE CONFIDENCE], [VERDICT]）\n")
@@ -347,7 +348,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("```json\n[\n")
 		// Use the actual configured position value ratio for BTC/ETH in the example
 		examplePositionSize := accountEquity * btcEthPosValueRatio
-		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": \"{resistance + ATR buffer}\", \"take_profit\": \"{target support}\", \"confidence\": 85, \"risk_usd\": \"{calculated}\", \"reasoning\": \"[THESIS] timeframe={TF} | invalidation={specific verifiable condition} | min_target={target%%} [/THESIS] {Detailed analysis based on actual data}\"},\n",
+		sb.WriteString(fmt.Sprintf("  {\"symbol\": \"BTCUSDT\", \"action\": \"open_short\", \"leverage\": %d, \"position_size_usd\": %.0f, \"stop_loss\": 97500.0, \"take_profit\": 96200.0, \"confidence\": 85, \"risk_usd\": 32.5, \"reasoning\": \"[THESIS] timeframe={TF} | invalidation={specific verifiable condition} | min_target={target%%} [/THESIS] {Detailed analysis based on actual data}\"},\n",
 			riskControl.BTCETHMaxLeverage, examplePositionSize))
 		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] Opened on {TF}, evaluating on same TF. [THESIS] Invalidation={condition}; currently triggered. [FEES] Gross {X}, fees {Y}, Net PnL {X-Y}. [MIN PROFIT] {met or N/A}. [CLOSE CONFIDENCE] {0-100}. [VERDICT] {conclusion}.\"}\n")
 		sb.WriteString("]\n```\n")
@@ -356,6 +357,7 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 		sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
 		sb.WriteString("- Required when opening: leverage, position_size_usd, stop_loss, take_profit, confidence, risk_usd, reasoning\n")
+		sb.WriteString("- `stop_loss`, `take_profit`, `risk_usd`: must be JSON numbers, not quoted strings\n")
 		sb.WriteString("- `reasoning`: **REQUIRED for ALL actions**\n")
 		sb.WriteString("  - **When opening (open_long/open_short)**: MUST begin with `[THESIS] timeframe=X | invalidation=condition | min_target=+X% [/THESIS]` followed by analysis. This becomes a BINDING RULE for future cycles.\n")
 		sb.WriteString("  - **When closing**: MUST include all 6 items of the Close-Position Checklist ([TIMEFRAME], [THESIS], [FEES], [MIN PROFIT], [CLOSE CONFIDENCE], [VERDICT])\n")

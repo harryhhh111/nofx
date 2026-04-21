@@ -12,6 +12,7 @@ import (
 	"nofx/provider/nofxos"
 	"nofx/store"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -156,6 +157,91 @@ type Decision struct {
 	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)
 	RiskUSD    float64 `json:"risk_usd,omitempty"`   // Maximum USD risk
 	Reasoning  string  `json:"reasoning"`
+}
+
+func (d *Decision) UnmarshalJSON(data []byte) error {
+	type rawDecision struct {
+		Symbol          string          `json:"symbol"`
+		Action          string          `json:"action"`
+		Leverage        int             `json:"leverage,omitempty"`
+		PositionSizeUSD json.RawMessage `json:"position_size_usd,omitempty"`
+		StopLoss        json.RawMessage `json:"stop_loss,omitempty"`
+		TakeProfit      json.RawMessage `json:"take_profit,omitempty"`
+		Price           json.RawMessage `json:"price,omitempty"`
+		Quantity        json.RawMessage `json:"quantity,omitempty"`
+		LevelIndex      int             `json:"level_index,omitempty"`
+		OrderID         string          `json:"order_id,omitempty"`
+		Confidence      int             `json:"confidence,omitempty"`
+		RiskUSD         json.RawMessage `json:"risk_usd,omitempty"`
+		Reasoning       string          `json:"reasoning"`
+	}
+
+	var raw rawDecision
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	var err error
+	d.Symbol = raw.Symbol
+	d.Action = raw.Action
+	d.Leverage = raw.Leverage
+	d.PositionSizeUSD, err = parseJSONNumber(raw.PositionSizeUSD, "position_size_usd")
+	if err != nil {
+		return err
+	}
+	d.StopLoss, err = parseJSONNumber(raw.StopLoss, "stop_loss")
+	if err != nil {
+		return err
+	}
+	d.TakeProfit, err = parseJSONNumber(raw.TakeProfit, "take_profit")
+	if err != nil {
+		return err
+	}
+	d.Price, err = parseJSONNumber(raw.Price, "price")
+	if err != nil {
+		return err
+	}
+	d.Quantity, err = parseJSONNumber(raw.Quantity, "quantity")
+	if err != nil {
+		return err
+	}
+	d.LevelIndex = raw.LevelIndex
+	d.OrderID = raw.OrderID
+	d.Confidence = raw.Confidence
+	d.RiskUSD, err = parseJSONNumber(raw.RiskUSD, "risk_usd")
+	if err != nil {
+		return err
+	}
+	d.Reasoning = raw.Reasoning
+
+	return nil
+}
+
+func parseJSONNumber(raw json.RawMessage, field string) (float64, error) {
+	if len(raw) == 0 {
+		return 0, nil
+	}
+
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return number, nil
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, fmt.Errorf("%s must be a number or numeric string", field)
+	}
+
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, nil
+	}
+
+	number, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be numeric, got %q", field, s)
+	}
+	return number, nil
 }
 
 // FullDecision AI's complete decision (including chain of thought)
