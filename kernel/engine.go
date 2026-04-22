@@ -114,6 +114,7 @@ type Context struct {
 	PromptVariant      string                             `json:"prompt_variant,omitempty"`
 	TradingStats       *TradingStats                      `json:"trading_stats,omitempty"`
 	RecentOrders       []RecentOrder                      `json:"recent_orders,omitempty"`
+	DrawdownAlerts     []DrawdownAlert                    `json:"drawdown_alerts,omitempty"`
 	MarketDataMap      map[string]*market.Data            `json:"-"`
 	MultiTFMarket      map[string]map[string]*market.Data `json:"-"`
 	OITopDataMap       map[string]*OITopData              `json:"-"`
@@ -126,6 +127,17 @@ type Context struct {
 	Timeframes         []string                           `json:"-"`
 	PositionMemories   []PositionMemory                   `json:"-"` // AI reasoning from when each open position was created
 	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
+}
+
+// DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
+// so it can decide whether to close the position.
+type DrawdownAlert struct {
+	Symbol         string  `json:"symbol"`
+	Side           string  `json:"side"`
+	CurrentPnLPct  float64 `json:"current_pnl_pct"`
+	PeakPnLPct     float64 `json:"peak_pnl_pct"`
+	DrawdownPct    float64 `json:"drawdown_pct"`
+	OpeningReason  string  `json:"opening_reason,omitempty"`
 }
 
 // ExternalDataItem holds the result of a single external data source fetch.

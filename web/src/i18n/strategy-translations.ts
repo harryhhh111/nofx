@@ -172,6 +172,19 @@ export const riskControl = {
   minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry', es: 'Umbral de confianza AI' },
   minCloseConfidence: { zh: '提前平仓最小信心度', en: 'Min Early-Close Confidence', es: 'Confianza Mínima de Cierre Temprano' },
   minCloseConfidenceDesc: { zh: 'AI 主动提前平仓的信心度阈值', en: 'AI confidence threshold for proactive early exits', es: 'Umbral de confianza AI para cierres tempranos' },
+  // Drawdown close
+  drawdownClose: { zh: '回撤平仓监控', en: 'Drawdown Close Monitor', es: 'Monitor de Drawdown' },
+  drawdownCloseDesc: { zh: '每分钟检测盈利仓位是否从峰值出现大幅回撤，触发时自动平仓或交给 AI 判断', en: 'Checks every minute whether a profitable position has drawn down from its peak, then closes or lets the AI decide', es: 'Monitoreo de drawdown cada minuto' },
+  drawdownCloseEnabled: { zh: '启用回撤监控', en: 'Enable Drawdown Monitor', es: 'Habilitar Monitor' },
+  drawdownCloseMinProfit: { zh: '最低触发收益率', en: 'Min Profit to Activate', es: 'Ganancia Mínima' },
+  drawdownCloseMinProfitDesc: { zh: '当前杠杆收益率高于此值时才开始监控回撤（%）', en: 'Drawdown is only measured once leveraged PnL exceeds this value (%)', es: 'PnL mínimo para activar (%)' },
+  drawdownCloseTrigger: { zh: '回撤触发阈值', en: 'Drawdown Trigger', es: 'Umbral de Drawdown' },
+  drawdownCloseTriggerDesc: { zh: '从峰值收益率回撤此百分比后触发动作（%）', en: 'Action is triggered when PnL drops this % from peak (%)', es: 'Caída desde el pico (%)' },
+  drawdownCloseMode: { zh: '触发后动作', en: 'Action on Trigger', es: 'Acción al Activar' },
+  drawdownCloseModeAuto: { zh: '自动平仓', en: 'Auto Close', es: 'Cierre Automático' },
+  drawdownCloseModeAI: { zh: 'AI 决策', en: 'AI Decide', es: 'Decisión AI' },
+  drawdownCloseModeAutoDesc: { zh: '条件触发后立即平仓', en: 'Close position immediately when triggered', es: 'Cierre inmediato' },
+  drawdownCloseModeAIDesc: { zh: '将告警注入下一次 AI 周期，由 AI 结合开仓理由决定是否平仓', en: 'Inject alert into next AI cycle; AI decides based on opening thesis', es: 'AI decide basado en la tesis de apertura' },
 };
 
 // ============================================================================

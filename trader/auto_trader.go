@@ -142,9 +142,13 @@ type AutoTrader struct {
 	positionFirstSeenTime map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
 	stopMonitorCh         chan struct{}      // Used to stop monitoring goroutine
 	monitorWg             sync.WaitGroup     // Used to wait for monitoring goroutine to finish
-	peakPnLCache          map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
-	peakPnLCacheMutex     sync.RWMutex       // Cache read-write lock
-	pendingOpenReasoning  map[string]string  // Pending opening reasoning (symbol_SIDE -> reasoning)
+	peakPnLCache            map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
+	peakPnLCacheMutex       sync.RWMutex       // Cache read-write lock
+	pendingOpenReasoning    map[string]string  // Pending opening reasoning (symbol_SIDE -> reasoning)
+	recentlyClosedByRisk   map[string]time.Time // Positions recently closed by risk monitor (symbol_side -> close time)
+	recentlyClosedByRiskMu sync.RWMutex         // Mutex for recentlyClosedByRisk
+	pendingDrawdownAlerts  []kernel.DrawdownAlert // Drawdown alerts queued for the next AI cycle (AI-decide mode)
+	pendingDrawdownAlertsMu sync.Mutex            // Mutex for pendingDrawdownAlerts
 	lastBalanceSyncTime   time.Time          // Last balance sync time
 	userID                string             // User ID
 	gridState             *GridState         // Grid trading state (only used when StrategyType == "grid_trading")
@@ -364,9 +368,10 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		positionFirstSeenTime: make(map[string]int64),
 		stopMonitorCh:         make(chan struct{}),
 		monitorWg:             sync.WaitGroup{},
-		peakPnLCache:          make(map[string]float64),
-		peakPnLCacheMutex:     sync.RWMutex{},
-		pendingOpenReasoning:  make(map[string]string),
+		peakPnLCache:           make(map[string]float64),
+		peakPnLCacheMutex:      sync.RWMutex{},
+		pendingOpenReasoning:   make(map[string]string),
+		recentlyClosedByRisk:   make(map[string]time.Time),
 		lastBalanceSyncTime:   time.Now(),
 		userID:                userID,
 	}, nil

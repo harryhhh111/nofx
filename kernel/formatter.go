@@ -80,6 +80,15 @@ func formatContextData(ctx *Context, lang Language) string {
 		}
 	}
 
+	// 5b. Drawdown alerts (AI-decide mode): surface these immediately after positions
+	if len(ctx.DrawdownAlerts) > 0 {
+		if lang == LangChinese {
+			sb.WriteString(formatDrawdownAlertsZH(ctx.DrawdownAlerts))
+		} else {
+			sb.WriteString(formatDrawdownAlertsEN(ctx.DrawdownAlerts))
+		}
+	}
+
 	// 6. Candidate coins (with market data)
 	if len(ctx.CandidateCoins) > 0 {
 		if lang == LangChinese {
@@ -628,4 +637,44 @@ func getOIInterpretationEN(oiChange, priceChange string) string {
 	} else {
 		return OIInterpretation.OIDown_PriceDown.EN
 	}
+}
+
+// ──────────────────────────────────────────────────────────────
+// Drawdown alert formatters (AI-decide mode)
+// ──────────────────────────────────────────────────────────────
+
+func formatDrawdownAlertsZH(alerts []DrawdownAlert) string {
+	var sb strings.Builder
+	sb.WriteString("## ⚠️ 回撤告警（需要你决策是否平仓）\n\n")
+	sb.WriteString("以下持仓已触发**回撤风控阈值**，但系统已切换为 AI 决策模式，\n")
+	sb.WriteString("**请你结合开仓理由、当前市场结构综合判断，明确决定是继续持有还是平仓。**\n\n")
+	for i, a := range alerts {
+		sb.WriteString(fmt.Sprintf("%d. **%s %s**\n", i+1, a.Symbol, strings.ToUpper(a.Side)))
+		sb.WriteString(fmt.Sprintf("   - 当前杠杆收益率：%+.2f%%\n", a.CurrentPnLPct))
+		sb.WriteString(fmt.Sprintf("   - 历史峰值收益率：%+.2f%%\n", a.PeakPnLPct))
+		sb.WriteString(fmt.Sprintf("   - 从峰值回撤幅度：%.2f%%\n", a.DrawdownPct))
+		if a.OpeningReason != "" {
+			sb.WriteString(fmt.Sprintf("   - 开仓理由：%s\n", a.OpeningReason))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+func formatDrawdownAlertsEN(alerts []DrawdownAlert) string {
+	var sb strings.Builder
+	sb.WriteString("## ⚠️ Drawdown Alerts (Your decision required)\n\n")
+	sb.WriteString("The following positions have hit the drawdown threshold. The system is in AI-decide mode:\n")
+	sb.WriteString("**Please evaluate each position against its opening thesis and current market structure, then explicitly decide to hold or close.**\n\n")
+	for i, a := range alerts {
+		sb.WriteString(fmt.Sprintf("%d. **%s %s**\n", i+1, a.Symbol, strings.ToUpper(a.Side)))
+		sb.WriteString(fmt.Sprintf("   - Current leveraged PnL: %+.2f%%\n", a.CurrentPnLPct))
+		sb.WriteString(fmt.Sprintf("   - Peak leveraged PnL:    %+.2f%%\n", a.PeakPnLPct))
+		sb.WriteString(fmt.Sprintf("   - Drawdown from peak:    %.2f%%\n", a.DrawdownPct))
+		if a.OpeningReason != "" {
+			sb.WriteString(fmt.Sprintf("   - Opening thesis: %s\n", a.OpeningReason))
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
 }

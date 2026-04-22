@@ -2,6 +2,7 @@ package trader
 
 import (
 	"fmt"
+	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/store"
@@ -34,6 +35,31 @@ func (at *AutoTrader) startDrawdownMonitor() {
 
 // checkPositionDrawdown checks position drawdown situation
 func (at *AutoTrader) checkPositionDrawdown() {
+	// Read drawdown config from strategy engine (with safe defaults)
+	minProfitPct := 5.0
+	triggerPct := 40.0
+	useAI := false
+	enabled := true
+	if at.strategyEngine != nil {
+		cfg := at.strategyEngine.GetConfig()
+		rc := cfg.RiskControl
+		if rc.DrawdownCloseMinProfitPct > 0 {
+			minProfitPct = rc.DrawdownCloseMinProfitPct
+		}
+		if rc.DrawdownCloseTriggerPct > 0 {
+			triggerPct = rc.DrawdownCloseTriggerPct
+		}
+		useAI = rc.DrawdownCloseUseAI
+		// DrawdownCloseEnabled defaults to true; only disable when explicitly set to false
+		// AND both thresholds are non-zero (i.e., config has been saved at least once).
+		if rc.DrawdownCloseMinProfitPct > 0 || rc.DrawdownCloseTriggerPct > 0 {
+			enabled = rc.DrawdownCloseEnabled
+		}
+	}
+	if !enabled {
+		return
+	}
+
 	// Get current positions
 	positions, err := at.trader.GetPositions()
 	if err != nil {
@@ -93,20 +119,55 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			drawdownPct = ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
 		}
 
-		// Check close position condition: profit > 5% and drawdown >= 40%
-		if currentPnLPct > 5.0 && drawdownPct >= 40.0 {
-			logger.Infof("🚨 Drawdown close position condition triggered: %s %s | Current profit: %.2f%% | Peak profit: %.2f%% | Drawdown: %.2f%%",
-				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
+		// Check close position condition
+		if currentPnLPct > minProfitPct && drawdownPct >= triggerPct {
+			logger.Infof("🚨 Drawdown condition triggered: %s %s | Current profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
+				symbol, side, currentPnLPct, peakPnLPct, drawdownPct, map[bool]string{true: "ai-decide", false: "auto-close"}[useAI])
 
-			// Execute close position
-			if err := at.emergencyClosePosition(symbol, side); err != nil {
-				logger.Infof("❌ Drawdown close position failed (%s %s): %v", symbol, side, err)
+			if useAI {
+				// AI-decide mode: queue an alert into the next AI cycle instead of closing immediately
+				normalizedSymbol := market.Normalize(symbol)
+				openingReason := ""
+				if at.store != nil {
+					sideUpper := strings.ToUpper(side)
+					if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, sideUpper); err == nil && dbPos != nil {
+						openingReason = dbPos.OpeningReasoning
+					}
+				}
+				alert := kernel.DrawdownAlert{
+					Symbol:        normalizedSymbol,
+					Side:          side,
+					CurrentPnLPct: currentPnLPct,
+					PeakPnLPct:    peakPnLPct,
+					DrawdownPct:   drawdownPct,
+					OpeningReason: openingReason,
+				}
+				at.pendingDrawdownAlertsMu.Lock()
+				// Deduplicate: replace existing alert for same symbol+side
+				replaced := false
+				for i, existing := range at.pendingDrawdownAlerts {
+					if existing.Symbol == alert.Symbol && existing.Side == alert.Side {
+						at.pendingDrawdownAlerts[i] = alert
+						replaced = true
+						break
+					}
+				}
+				if !replaced {
+					at.pendingDrawdownAlerts = append(at.pendingDrawdownAlerts, alert)
+				}
+				at.pendingDrawdownAlertsMu.Unlock()
+				logger.Infof("📋 [%s] Drawdown alert queued for AI decision: %s %s", at.name, symbol, side)
 			} else {
-				logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
-				// Clear cache for this position after closing
-				at.ClearPeakPnLCache(symbol, side)
+				// Auto-close mode: close immediately
+				if err := at.emergencyClosePosition(symbol, side); err != nil {
+					logger.Infof("❌ Drawdown close position failed (%s %s): %v", symbol, side, err)
+				} else {
+					logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
+					at.ClearPeakPnLCache(symbol, side)
+					at.saveRiskCloseDecision(symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
+				}
 			}
-		} else if currentPnLPct > 5.0 {
+		} else if currentPnLPct > minProfitPct {
 			// Record situations close to close position condition (for debugging)
 			logger.Infof("📊 Drawdown monitoring: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
@@ -129,6 +190,10 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 				logger.Warnf("SetPendingCloseReason(risk) failed trader=%s symbol=%s side=LONG: %v", at.id, normalizedSymbol, err)
 			}
 		}
+		// Mark position as recently closed so the next AI cycle ignores stale exchange data
+		at.recentlyClosedByRiskMu.Lock()
+		at.recentlyClosedByRisk[normalizedSymbol+"_long"] = time.Now()
+		at.recentlyClosedByRiskMu.Unlock()
 		logger.Infof("✅ Emergency close long position succeeded, order ID: %v", order["orderId"])
 	case "short":
 		order, err := at.trader.CloseShort(symbol, 0) // 0 = close all
@@ -141,6 +206,10 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 				logger.Warnf("SetPendingCloseReason(risk) failed trader=%s symbol=%s side=SHORT: %v", at.id, normalizedSymbol, err)
 			}
 		}
+		// Mark position as recently closed so the next AI cycle ignores stale exchange data
+		at.recentlyClosedByRiskMu.Lock()
+		at.recentlyClosedByRisk[normalizedSymbol+"_short"] = time.Now()
+		at.recentlyClosedByRiskMu.Unlock()
 		logger.Infof("✅ Emergency close short position succeeded, order ID: %v", order["orderId"])
 	default:
 		return fmt.Errorf("unknown position direction: %s", side)
@@ -186,6 +255,47 @@ func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 
 	posKey := symbol + "_" + side
 	delete(at.peakPnLCache, posKey)
+}
+
+// saveRiskCloseDecision saves a decision record for a risk-monitor-triggered position close.
+// This makes the close visible in the frontend decision card history.
+func (at *AutoTrader) saveRiskCloseDecision(symbol, side string, currentPnLPct, peakPnLPct, drawdownPct float64) {
+	if at.store == nil {
+		return
+	}
+
+	action := "close_long"
+	if side == "short" {
+		action = "close_short"
+	}
+	normalizedSymbol := market.Normalize(symbol)
+	reasoning := fmt.Sprintf(
+		"[风控自动平仓] %s %s — 当前收益 %.2f%%，峰值收益 %.2f%%，回撤幅度 %.2f%%，超过40%%阈值，触发强制平仓。",
+		normalizedSymbol, strings.ToUpper(side), currentPnLPct, peakPnLPct, drawdownPct,
+	)
+
+	actionRecord := store.DecisionAction{
+		Action:    action,
+		Symbol:    normalizedSymbol,
+		Reasoning: reasoning,
+		Timestamp: time.Now().UTC(),
+		Success:   true,
+	}
+	record := &store.DecisionRecord{
+		TraderID:     at.id,
+		CycleNumber:  0, // 0 indicates a system-generated (non-AI) record
+		Timestamp:    time.Now().UTC(),
+		CotSummary:   reasoning,
+		ExecutionLog: []string{fmt.Sprintf("✅ 风控平仓: %s %s", normalizedSymbol, strings.ToUpper(side))},
+		Decisions:    []store.DecisionAction{actionRecord},
+		Success:      true,
+	}
+
+	if err := at.store.Decision().LogDecision(record); err != nil {
+		logger.Warnf("⚠️ [%s] Failed to save risk-close decision record for %s %s: %v", at.name, symbol, side, err)
+	} else {
+		logger.Infof("📝 [%s] Risk-close decision record saved for %s %s", at.name, symbol, side)
+	}
 }
 
 // ============================================================================

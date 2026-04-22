@@ -85,6 +85,25 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.MinCloseConfidence = MaxMinCloseConfidence
 	}
 
+	// Drawdown-close defaults: treat zero values as "not yet configured" and apply defaults.
+	// DrawdownCloseEnabled defaults to true (opt-out model).
+	// We use a sentinel: if both min-profit and trigger are zero, assume first-time setup.
+	if c.RiskControl.DrawdownCloseMinProfitPct == 0 && c.RiskControl.DrawdownCloseTriggerPct == 0 {
+		c.RiskControl.DrawdownCloseEnabled = true
+		c.RiskControl.DrawdownCloseMinProfitPct = 5.0
+		c.RiskControl.DrawdownCloseTriggerPct = 40.0
+	}
+	// Clamp to sensible ranges
+	if c.RiskControl.DrawdownCloseMinProfitPct < 1.0 {
+		c.RiskControl.DrawdownCloseMinProfitPct = 1.0
+	}
+	if c.RiskControl.DrawdownCloseTriggerPct < 10.0 {
+		c.RiskControl.DrawdownCloseTriggerPct = 10.0
+	}
+	if c.RiskControl.DrawdownCloseTriggerPct > 90.0 {
+		c.RiskControl.DrawdownCloseTriggerPct = 90.0
+	}
+
 }
 
 // StrategyStore strategy storage
@@ -321,6 +340,19 @@ type RiskControlConfig struct {
 	// Stop loss = support - (ATR14 × this value) for longs, resistance + (ATR14 × this value) for shorts
 	// 0 means use mode default: Conservative=1.5, Balanced=1.0, Aggressive=0.5, Scalping=0.3
 	StopLossATRBuffer float64 `json:"stop_loss_atr_buffer"`
+
+	// ── Drawdown-based position close (risk monitor, runs every minute) ──────
+	// Whether the drawdown-close mechanism is enabled. Default: true.
+	DrawdownCloseEnabled bool `json:"drawdown_close_enabled"`
+	// Min unrealised leveraged profit (%) before drawdown is measured. Default: 5.0.
+	// Example: 5.0 means the mechanism only activates once the position is ≥5% in profit.
+	DrawdownCloseMinProfitPct float64 `json:"drawdown_close_min_profit_pct"`
+	// Drawdown threshold (%) relative to peak profit that triggers the close. Default: 40.0.
+	// Example: 40.0 means: if profit dropped from peak by ≥40%, close the position.
+	DrawdownCloseTriggerPct float64 `json:"drawdown_close_trigger_pct"`
+	// When true, instead of closing immediately the system injects a "drawdown alert"
+	// into the next AI cycle so the AI decides whether to close. Default: false (close immediately).
+	DrawdownCloseUseAI bool `json:"drawdown_close_use_ai"`
 }
 
 // NewStrategyStore creates a new StrategyStore

@@ -416,6 +416,18 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			continue
 		}
 
+		// Skip positions recently closed by risk monitor — exchange API may still show them as active
+		// for a short period after the close order fills.
+		riskKey := symbol + "_" + side
+		at.recentlyClosedByRiskMu.RLock()
+		closedAt, wasRecentlyClosed := at.recentlyClosedByRisk[riskKey]
+		at.recentlyClosedByRiskMu.RUnlock()
+		if wasRecentlyClosed && time.Since(closedAt) < 10*time.Minute {
+			logger.Infof("⚠️  [%s] Skipping stale position %s %s (risk-closed at %s, %.0fs ago)",
+				at.name, symbol, side, closedAt.Format("15:04:05"), time.Since(closedAt).Seconds())
+			continue
+		}
+
 		unrealizedPnl := pos["unRealizedProfit"].(float64)
 		liquidationPrice := pos["liquidationPrice"].(float64)
 
@@ -499,6 +511,15 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		}
 	}
 
+	// Clean up stale entries from the risk-close cache (older than 10 minutes)
+	at.recentlyClosedByRiskMu.Lock()
+	for key, t := range at.recentlyClosedByRisk {
+		if time.Since(t) > 10*time.Minute {
+			delete(at.recentlyClosedByRisk, key)
+		}
+	}
+	at.recentlyClosedByRiskMu.Unlock()
+
 	// 3. Use strategy engine to get candidate coins (must have strategy engine)
 	var candidateCoins []kernel.CandidateCoin
 	if at.strategyEngine == nil {
@@ -552,6 +573,16 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		Positions:      positionInfos,
 		CandidateCoins: candidateCoins,
 	}
+
+	// Inject pending drawdown alerts (AI-decide mode) and clear the queue
+	at.pendingDrawdownAlertsMu.Lock()
+	if len(at.pendingDrawdownAlerts) > 0 {
+		ctx.DrawdownAlerts = make([]kernel.DrawdownAlert, len(at.pendingDrawdownAlerts))
+		copy(ctx.DrawdownAlerts, at.pendingDrawdownAlerts)
+		at.pendingDrawdownAlerts = at.pendingDrawdownAlerts[:0]
+		logger.Infof("📋 [%s] Injected %d drawdown alert(s) into AI context", at.name, len(ctx.DrawdownAlerts))
+	}
+	at.pendingDrawdownAlertsMu.Unlock()
 
 	// 7. Add recent closed trades (if store is available)
 	if at.store != nil && strategyConfig.ShouldIncludeHistoricalContext() {

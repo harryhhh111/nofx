@@ -1,4 +1,4 @@
-import { Shield, AlertTriangle } from 'lucide-react'
+import { Shield, AlertTriangle, TrendingDown } from 'lucide-react'
 import type { RiskControlConfig } from '../../types'
 import { riskControl, ts } from '../../i18n/strategy-translations'
 
@@ -417,6 +417,143 @@ export function RiskControlEditor({
               ? '(0=自动: 保守1.5 / 平衡1.0 / 激进0.5 / 剥头皮0.3)'
               : '(0=auto: Conservative 1.5 / Balanced 1.0 / Aggressive 0.5 / Scalping 0.3)'}
           </span>
+        </div>
+      </div>
+
+      {/* Drawdown Close Monitor */}
+      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #F6465D33' }}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <TrendingDown className="w-5 h-5" style={{ color: '#F6465D' }} />
+            <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.drawdownClose, language)}
+            </h3>
+          </div>
+          {/* Enable / disable toggle */}
+          <button
+            type="button"
+            onClick={() => !disabled && updateField('drawdown_close_enabled', !(config.drawdown_close_enabled ?? true))}
+            disabled={disabled}
+            className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors"
+            style={{
+              background: (config.drawdown_close_enabled ?? true) ? '#F6465D22' : '#2B3139',
+              border: `1px solid ${(config.drawdown_close_enabled ?? true) ? '#F6465D' : '#5E6673'}`,
+              color: (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#848E9C',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ background: (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#5E6673' }}
+            />
+            {(config.drawdown_close_enabled ?? true)
+              ? ts(riskControl.drawdownCloseEnabled, language)
+              : (language === 'zh' ? '已禁用' : 'Disabled')}
+          </button>
+        </div>
+
+        <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
+          {ts(riskControl.drawdownCloseDesc, language)}
+        </p>
+
+        <div className="grid grid-cols-2 gap-4 mb-4" style={{ opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4, pointerEvents: (config.drawdown_close_enabled ?? true) ? 'auto' : 'none' }}>
+          {/* Min profit to activate */}
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.drawdownCloseMinProfit, language)}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {ts(riskControl.drawdownCloseMinProfitDesc, language)}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                value={config.drawdown_close_min_profit_pct ?? 5}
+                onChange={(e) => updateField('drawdown_close_min_profit_pct', parseFloat(e.target.value))}
+                disabled={disabled}
+                min={1}
+                max={30}
+                step={0.5}
+                className="flex-1 accent-red-500"
+              />
+              <span className="w-14 text-center font-mono" style={{ color: '#F6465D' }}>
+                {config.drawdown_close_min_profit_pct ?? 5}%
+              </span>
+            </div>
+          </div>
+
+          {/* Drawdown trigger */}
+          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.drawdownCloseTrigger, language)}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {ts(riskControl.drawdownCloseTriggerDesc, language)}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                value={config.drawdown_close_trigger_pct ?? 40}
+                onChange={(e) => updateField('drawdown_close_trigger_pct', parseFloat(e.target.value))}
+                disabled={disabled}
+                min={10}
+                max={90}
+                step={5}
+                className="flex-1 accent-red-500"
+              />
+              <span className="w-14 text-center font-mono" style={{ color: '#F6465D' }}>
+                {config.drawdown_close_trigger_pct ?? 40}%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Action mode: Auto Close vs AI Decide */}
+        <div style={{ opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4, pointerEvents: (config.drawdown_close_enabled ?? true) ? 'auto' : 'none' }}>
+          <p className="text-xs font-medium mb-2" style={{ color: '#EAECEF' }}>
+            {ts(riskControl.drawdownCloseMode, language)}
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Auto Close */}
+            <button
+              type="button"
+              onClick={() => !disabled && updateField('drawdown_close_use_ai', false)}
+              disabled={disabled}
+              className="p-3 rounded-lg text-left transition-colors"
+              style={{
+                background: !(config.drawdown_close_use_ai ?? false) ? '#F6465D22' : '#0B0E11',
+                border: `1px solid ${!(config.drawdown_close_use_ai ?? false) ? '#F6465D' : '#2B3139'}`,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <p className="text-sm font-medium mb-1" style={{ color: !(config.drawdown_close_use_ai ?? false) ? '#F6465D' : '#848E9C' }}>
+                {ts(riskControl.drawdownCloseModeAuto, language)}
+              </p>
+              <p className="text-xs" style={{ color: '#5E6673' }}>
+                {ts(riskControl.drawdownCloseModeAutoDesc, language)}
+              </p>
+            </button>
+
+            {/* AI Decide */}
+            <button
+              type="button"
+              onClick={() => !disabled && updateField('drawdown_close_use_ai', true)}
+              disabled={disabled}
+              className="p-3 rounded-lg text-left transition-colors"
+              style={{
+                background: (config.drawdown_close_use_ai ?? false) ? '#F0B90B22' : '#0B0E11',
+                border: `1px solid ${(config.drawdown_close_use_ai ?? false) ? '#F0B90B' : '#2B3139'}`,
+                cursor: disabled ? 'not-allowed' : 'pointer',
+              }}
+            >
+              <p className="text-sm font-medium mb-1" style={{ color: (config.drawdown_close_use_ai ?? false) ? '#F0B90B' : '#848E9C' }}>
+                {ts(riskControl.drawdownCloseModeAI, language)}
+              </p>
+              <p className="text-xs" style={{ color: '#5E6673' }}>
+                {ts(riskControl.drawdownCloseModeAIDesc, language)}
+              </p>
+            </button>
+          </div>
         </div>
       </div>
     </div>
