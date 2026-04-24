@@ -30,7 +30,7 @@ func orderedTimeframesForPrompt(timeframes []string) []string {
 	seen := make(map[string]struct{}, len(timeframes))
 	ordered := make([]string, 0, len(timeframes))
 
-	for _, tf := range timeframes {
+	for _, tf := range orderedTimeframesForPrompt(timeframes) {
 		norm := strings.TrimSpace(strings.ToLower(tf))
 		if norm == "" {
 			continue
@@ -425,6 +425,7 @@ func formatKlineDataZH(symbol string, tfData map[string]*market.TimeframeSeriesD
 	return sb.String()
 }
 
+
 // getOIInterpretationZH returns OI change interpretation (Chinese)
 func getOIInterpretationZH(oiChange, priceChange string) string {
 	if oiChange == "增加" && priceChange == "上涨" {
@@ -681,6 +682,7 @@ func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesD
 
 	return sb.String()
 }
+
 
 // getOIInterpretationEN returns OI change interpretation (English)
 func getOIInterpretationEN(oiChange, priceChange string) string {

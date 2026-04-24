@@ -109,23 +109,23 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	}
 
 	if lang == LangChinese {
-		sb.WriteString("# \u786c\u6027\u7ea6\u675f\uff08\u98ce\u63a7\uff09\n\n")
-		sb.WriteString("## \u4ee3\u7801\u5f3a\u5236\u6267\u884c\uff08\u540e\u7aef\u6821\u9a8c\uff0c\u65e0\u6cd5\u7ed5\u8fc7\uff09\uff1a\n")
-		sb.WriteString(fmt.Sprintf("- \u6700\u5927\u6301\u4ed3\u6570\uff1a\u540c\u65f6 %d \u4e2a\u5e01\u79cd\n", riskControl.MaxPositions))
-		sb.WriteString(fmt.Sprintf("- \u4ed3\u4f4d\u4ef7\u503c\u4e0a\u9650\uff08\u5c71\u5be8\u5e01\uff09\uff1a\u6700\u5927 %.0f USDT\uff08= \u51c0\u503c %.0f \u00d7 %.1f \u500d\uff09\n",
+		sb.WriteString("# ????????\n\n")
+		sb.WriteString("## ??????????????????\n")
+		sb.WriteString(fmt.Sprintf("- ???????? %d ???\n", riskControl.MaxPositions))
+		sb.WriteString(fmt.Sprintf("- ?????????????? %.0f USDT?= ?? %.0f ? %.1f ??\n",
 			accountEquity*altcoinPosValueRatio, accountEquity, altcoinPosValueRatio))
-		sb.WriteString(fmt.Sprintf("- \u4ed3\u4f4d\u4ef7\u503c\u4e0a\u9650\uff08BTC/ETH\uff09\uff1a\u6700\u5927 %.0f USDT\uff08= \u51c0\u503c %.0f \u00d7 %.1f \u500d\uff09\n",
+		sb.WriteString(fmt.Sprintf("- ???????BTC/ETH???? %.0f USDT?= ?? %.0f ? %.1f ??\n",
 			accountEquity*btcEthPosValueRatio, accountEquity, btcEthPosValueRatio))
-		sb.WriteString(fmt.Sprintf("- \u6700\u5927\u4fdd\u8bc1\u91d1\u4f7f\u7528\u7387\uff1a<= %.0f%%\n", riskControl.MaxMarginUsage*100))
-		sb.WriteString(fmt.Sprintf("- \u6700\u5c0f\u4ed3\u4f4d\u5927\u5c0f\uff1a>= %.0f USDT\n\n", riskControl.MinPositionSize))
+		sb.WriteString(fmt.Sprintf("- ?????????<= %.0f%%\n", riskControl.MaxMarginUsage*100))
+		sb.WriteString(fmt.Sprintf("- ???????>= %.0f USDT\n\n", riskControl.MinPositionSize))
 
-		sb.WriteString("## AI \u6307\u5bfc\uff08\u5efa\u8bae\u9075\u5b88\uff09\uff1a\n")
-		sb.WriteString(fmt.Sprintf("- \u4ea4\u6613\u6760\u6746\uff1a\u5c71\u5be8\u5e01\u6700\u9ad8 %dx | BTC/ETH \u6700\u9ad8 %dx\n",
+		sb.WriteString("## AI ?????????\n")
+		sb.WriteString(fmt.Sprintf("- ?????????? %dx | BTC/ETH ?? %dx\n",
 			riskControl.AltcoinMaxLeverage, riskControl.BTCETHMaxLeverage))
-		sb.WriteString(fmt.Sprintf("- \u98ce\u9669\u56de\u62a5\u6bd4\uff1a\u76ee\u6807 >= 1:%.1f\u3002\u516c\u5f0f\uff1a\u6536\u76ca = |\u6b62\u76c8 - \u5165\u573a|\uff0c\u98ce\u9669 = |\u5165\u573a - \u6b62\u635f|\uff0c\u6bd4\u7387 = \u6536\u76ca / \u98ce\u9669\u3002\n", riskControl.MinRiskRewardRatio))
-		sb.WriteString(fmt.Sprintf("  **\u5f00\u4ed3\u524d\u5fc5\u987b\u5728 reasoning \u4e2d\u8ba1\u7b97\u5e76\u5199\u51fa\u8be5\u6bd4\u7387\u3002** \u4f8b\u5982\uff1a\"entry {price}, SL {sl}, TP {tp} -> risk={entry-sl}, reward={tp-entry}, ratio={reward/risk}\uff08\u76ee\u6807 >= %.1f\uff09\"\n", riskControl.MinRiskRewardRatio))
-		sb.WriteString(fmt.Sprintf("  \u82e5\u6bd4\u7387 < %.1f\uff0c\u5f3a\u70c8\u5efa\u8bae\u8df3\u8fc7\uff1b\u82e5\u63a5\u8fd1\u76ee\u6807\uff08\u8fbe\u5230 %.1f \u4ee5\u4e0a\uff09\uff0c\u9700\u8981\u66f4\u5f3a\u7684\u591a\u5468\u671f\u5171\u632f\u786e\u8ba4\u3002\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
-		sb.WriteString(fmt.Sprintf("- \u6700\u4f4e\u5f00\u4ed3\u4fe1\u5fc3\uff1a>= %d\n\n", riskControl.MinConfidence))
+		sb.WriteString(fmt.Sprintf("- ???????? >= 1:%.1f?????? = |?? - ??|??? = |?? - ??|??? = ?? / ???\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString(fmt.Sprintf("  **?????? reasoning ??????????** ???\"entry {price}, SL {sl}, TP {tp} -> risk={entry-sl}, reward={tp-entry}, ratio={reward/risk}??? >= %.1f?\"\n", riskControl.MinRiskRewardRatio))
+		sb.WriteString(fmt.Sprintf("  ??? < %.1f???????????????? %.1f ?????????????????\n", riskControl.MinRiskRewardRatio, riskControl.MinRiskRewardRatio*0.8))
+		sb.WriteString(fmt.Sprintf("- ???????>= %d\n\n", riskControl.MinConfidence))
 	} else {
 		sb.WriteString("# Hard Constraints (Risk Control)\n\n")
 		sb.WriteString("## CODE ENFORCED (Backend validation, cannot be bypassed):\n")
@@ -162,6 +162,12 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		}
 	}
 	if lang == LangChinese {
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("- K线序列：%s\n", strings.Join(configuredTimeframes, ", ")))
+		} else {
+			sb.WriteString(fmt.Sprintf("- K-line series: %s\n", strings.Join(configuredTimeframes, ", ")))
+		}
+	} else if lang == LangChinese {
 		sb.WriteString("## 止损与入场质量\n")
 		sb.WriteString("- **重要：使用 15m 或 1h ATR14 评估止损，不要用 3m ATR**（3m ATR 太小，止损距离没有意义）\n")
 		sb.WriteString(fmt.Sprintf("- 止损缓冲：止损设在支撑/阻力位之外至少 %.1f × ATR14(15m 或 1h)（不要刚好设在支撑/阻力位上）\n", atrBuffer))
@@ -425,14 +431,14 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 
 	if len(configuredTimeframes) > 0 {
 		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("- K\u7ebf\u5e8f\u5217\uff1a%s\n", strings.Join(configuredTimeframes, ", ")))
+			sb.WriteString(fmt.Sprintf("- K????%s\n", strings.Join(configuredTimeframes, ", ")))
 		} else {
 			sb.WriteString(fmt.Sprintf("- K-line series: %s\n", strings.Join(configuredTimeframes, ", ")))
 		}
 	} else {
 		kline := indicators.Klines
 		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("- %s K\u7ebf\u5e8f\u5217\n", kline.PrimaryTimeframe))
+			sb.WriteString(fmt.Sprintf("- %s K???\n", kline.PrimaryTimeframe))
 		} else {
 			sb.WriteString(fmt.Sprintf("- %s price series\n", kline.PrimaryTimeframe))
 		}
@@ -778,35 +784,35 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 						thesisBlock = strings.TrimSpace(reasoning[thesisStart+8:])
 					}
 				}
-				// Parse key-value pairs from thesis
-				if lang == LangChinese {
-					sb.WriteString("**生效约束（来自开仓论点）：**\n")
-				} else {
-					sb.WriteString("**ACTIVE CONSTRAINTS (from opening thesis):**\n")
-				}
-				for _, part := range strings.Split(thesisBlock, "|") {
-					part = strings.TrimSpace(part)
-					if part != "" {
-						sb.WriteString(fmt.Sprintf("  - %s\n", part))
-					}
-				}
-				if lang == LangChinese {
-					sb.WriteString("  - **规则**：仅使用上述时间框架或更高框架评估此仓位。禁止基于更低周期噪音平仓。\n")
-					sb.WriteString("  - **规则**：止盈时 Net PnL 必须 ≥ 手续费×2。若未满足且 thesis 仍有效 → 必须 HOLD。\n")
-				} else {
-					sb.WriteString("  - **RULE**: Only use the above timeframe or higher to evaluate this position. FORBIDDEN to close based on lower timeframe noise.\n")
-					sb.WriteString("  - **RULE**: Net PnL must ≥ fees×2 for profit-taking. If not met and thesis valid → MUST HOLD.\n")
-				}
+			// Parse key-value pairs from thesis
+			if lang == LangChinese {
+				sb.WriteString("**生效约束（来自开仓论点）：**\n")
 			} else {
-				// Legacy unstructured format — still display as binding
-				if lang == LangChinese {
-					sb.WriteString(fmt.Sprintf("**开仓论点（硬性约束）**：%s\n", reasoning))
-					sb.WriteString("  → 平仓前必须验证这些条件在相同时间框架上仍然成立。\n")
-				} else {
-					sb.WriteString(fmt.Sprintf("**Opening thesis (BINDING)**: %s\n", reasoning))
-					sb.WriteString("  → You MUST verify these conditions still hold on the same timeframe before closing.\n")
+				sb.WriteString("**ACTIVE CONSTRAINTS (from opening thesis):**\n")
+			}
+			for _, part := range strings.Split(thesisBlock, "|") {
+				part = strings.TrimSpace(part)
+				if part != "" {
+					sb.WriteString(fmt.Sprintf("  - %s\n", part))
 				}
 			}
+			if lang == LangChinese {
+				sb.WriteString("  - **规则**：仅使用上述时间框架或更高框架评估此仓位。禁止基于更低周期噪音平仓。\n")
+				sb.WriteString("  - **规则**：止盈时 Net PnL 必须 ≥ 手续费×2。若未满足且 thesis 仍有效 → 必须 HOLD。\n")
+			} else {
+				sb.WriteString("  - **RULE**: Only use the above timeframe or higher to evaluate this position. FORBIDDEN to close based on lower timeframe noise.\n")
+				sb.WriteString("  - **RULE**: Net PnL must ≥ fees×2 for profit-taking. If not met and thesis valid → MUST HOLD.\n")
+			}
+		} else {
+			// Legacy unstructured format — still display as binding
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("**开仓论点（硬性约束）**：%s\n", reasoning))
+				sb.WriteString("  → 平仓前必须验证这些条件在相同时间框架上仍然成立。\n")
+			} else {
+				sb.WriteString(fmt.Sprintf("**Opening thesis (BINDING)**: %s\n", reasoning))
+				sb.WriteString("  → You MUST verify these conditions still hold on the same timeframe before closing.\n")
+			}
+		}
 			sb.WriteString("\n")
 		}
 
