@@ -142,6 +142,8 @@ type PositionStore struct {
 	db *gorm.DB
 }
 
+const pendingCloseReasonTTL = 30 * time.Minute
+
 // NewPositionStore creates position storage instance
 func NewPositionStore(db *gorm.DB) *PositionStore {
 	return &PositionStore{db: db}
@@ -238,18 +240,28 @@ func (s *PositionStore) UpdatePositionReviewSummary(traderID, symbol, side strin
 		}).Error
 }
 
-// effectiveCloseReasonFromPending picks close_reason when pending matches this fill's order id.
-func effectiveCloseReasonFromPending(pos TraderPosition, fillOrderID string, fallback string) string {
+// effectiveCloseReasonFromPending picks close_reason when pending matches this fill.
+// Some exchange trade APIs return a fill/trade id here instead of the order id
+// that was returned by CloseLong/CloseShort. Keep a recent pending attribution in
+// that case so AI/manual/risk closes are not mislabeled as exchange sync closes.
+func effectiveCloseReasonFromPending(pos TraderPosition, fillOrderID string, fallback string, fillTimeMs int64) string {
 	r := strings.TrimSpace(pos.PendingCloseReason)
 	if r == "" {
 		return fallback
 	}
 	pendOrd := strings.TrimSpace(pos.PendingCloseOrderID)
 	fill := strings.TrimSpace(fillOrderID)
-	if pendOrd != "" && fill != "" && pendOrd != fill {
+	if pendOrd != "" && fill != "" && pendOrd != fill && pendingCloseReasonExpired(pos, fillTimeMs) {
 		return fallback
 	}
 	return r
+}
+
+func pendingCloseReasonExpired(pos TraderPosition, fillTimeMs int64) bool {
+	if pos.UpdatedAt <= 0 || fillTimeMs <= 0 {
+		return false
+	}
+	return time.Duration(fillTimeMs-pos.UpdatedAt)*time.Millisecond > pendingCloseReasonTTL
 }
 
 // keepPendingAfterPartialClose is true when this partial fill belongs to the same tagged close order.
@@ -301,16 +313,23 @@ func (s *PositionStore) SetPendingCloseReason(traderID, symbol, side, reason, cl
 
 // ClosePosition closes position
 func (s *PositionStore) ClosePosition(id int64, exitPrice float64, exitOrderID string, realizedPnL float64, fee float64, closeReason string) error {
+	var pos TraderPosition
+	if err := s.db.First(&pos, id).Error; err != nil {
+		return fmt.Errorf("failed to get position: %w", err)
+	}
 	nowMs := time.Now().UTC().UnixMilli()
+	effective := effectiveCloseReasonFromPending(pos, exitOrderID, closeReason, nowMs)
 	return s.db.Model(&TraderPosition{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"exit_price":    exitPrice,
-		"exit_order_id": exitOrderID,
-		"exit_time":     nowMs,
-		"realized_pnl":  realizedPnL,
-		"fee":           fee,
-		"status":        "CLOSED",
-		"close_reason":  closeReason,
-		"updated_at":    nowMs,
+		"exit_price":             exitPrice,
+		"exit_order_id":          exitOrderID,
+		"exit_time":              nowMs,
+		"realized_pnl":           realizedPnL,
+		"fee":                    fee,
+		"status":                 "CLOSED",
+		"close_reason":           effective,
+		"pending_close_reason":   "",
+		"pending_close_order_id": "",
+		"updated_at":             nowMs,
 	}).Error
 }
 
@@ -371,7 +390,7 @@ func (s *PositionStore) ReducePositionQuantity(id int64, reduceQty float64, exit
 	// Check if position should be fully closed (quantity reduced to ~0)
 	const QUANTITY_TOLERANCE = 0.0001
 	if newQty <= QUANTITY_TOLERANCE {
-		closeReason := effectiveCloseReasonFromPending(pos, fillOrderID, "sync")
+		closeReason := effectiveCloseReasonFromPending(pos, fillOrderID, "sync", nowMs)
 		return s.db.Model(&TraderPosition{}).Where("id = ?", id).Updates(map[string]interface{}{
 			"quantity":               0,
 			"fee":                    newFee,
@@ -423,7 +442,7 @@ func (s *PositionStore) ClosePositionFully(id int64, exitPrice float64, exitOrde
 		quantity = pos.EntryQuantity
 	}
 
-	effective := effectiveCloseReasonFromPending(pos, exitOrderID, closeReason)
+	effective := effectiveCloseReasonFromPending(pos, exitOrderID, closeReason, exitTimeMs)
 
 	return s.db.Model(&TraderPosition{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"quantity":               quantity,
@@ -626,7 +645,7 @@ func (s *PositionStore) ClosePositionWithAccurateData(id int64, exitPrice float6
 	if err := s.db.First(&pos, id).Error; err != nil {
 		return fmt.Errorf("failed to get position: %w", err)
 	}
-	effective := effectiveCloseReasonFromPending(pos, exitOrderID, closeReason)
+	effective := effectiveCloseReasonFromPending(pos, exitOrderID, closeReason, exitTimeMs)
 	return s.db.Model(&TraderPosition{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"exit_price":             exitPrice,
 		"exit_order_id":          exitOrderID,

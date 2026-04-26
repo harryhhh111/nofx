@@ -72,14 +72,19 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 	closedSymbols := make(map[string]bool)
 
 	for _, trade := range trades {
-		// Check if trade already exists (use exchangeID which is UUID, not exchange type)
-		existing, err := orderStore.GetOrderByExchangeID(exchangeID, trade.TradeID)
-		if err == nil && existing != nil {
-			continue // Order already exists, skip
+		// Check if this fill already exists. Aster exposes both orderId and fill id;
+		// multiple fills can belong to the same order, so dedupe by trade/fill id.
+		existingFill, err := orderStore.GetFillByExchangeTradeID(exchangeID, trade.TradeID)
+		if err == nil && existingFill != nil {
+			continue
 		}
 
 		// Normalize symbol
 		symbol := market.Normalize(trade.Symbol)
+		exchangeOrderID := trade.OrderID
+		if exchangeOrderID == "" {
+			exchangeOrderID = trade.TradeID
+		}
 
 		// Determine order action based on side, positionSide, and realizedPnL
 		// Aster uses one-way position mode (BOTH), so we need to infer from PnL
@@ -105,7 +110,7 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 			TraderID:        traderID,
 			ExchangeID:      exchangeID,   // UUID
 			ExchangeType:    exchangeType, // Exchange type
-			ExchangeOrderID: trade.TradeID,
+			ExchangeOrderID: exchangeOrderID,
 			Symbol:          symbol,
 			Side:            side,
 			PositionSide:    "BOTH", // Aster uses one-way position mode
@@ -134,7 +139,7 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 			ExchangeID:      exchangeID,   // UUID
 			ExchangeType:    exchangeType, // Exchange type
 			OrderID:         orderRecord.ID,
-			ExchangeOrderID: trade.TradeID,
+			ExchangeOrderID: exchangeOrderID,
 			ExchangeTradeID: trade.TradeID,
 			Symbol:          symbol,
 			Side:            side,
@@ -157,7 +162,7 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 			traderID, exchangeID, exchangeType,
 			symbol, positionSide, orderAction,
 			trade.Quantity, trade.Price, trade.Fee, trade.RealizedPnL,
-			tradeTimeMs, trade.TradeID,
+			tradeTimeMs, exchangeOrderID,
 		); err != nil {
 			logger.Infof("  ⚠️ Failed to sync position for trade %s: %v", trade.TradeID, err)
 		} else {
