@@ -44,20 +44,7 @@ func (s *Server) handleLogout(c *gin.Context) {
 }
 
 // handleRegister Handle user registration request.
-// handleRegister allows registration only when no users exist yet (first-time setup).
-// This is a single-user system; subsequent registrations are permanently closed.
 func (s *Server) handleRegister(c *gin.Context) {
-	userCount, err := s.store.User().Count()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check user count"})
-		return
-	}
-
-	if userCount > 0 {
-		c.JSON(http.StatusForbidden, gin.H{"error": "System already initialized"})
-		return
-	}
-
 	var req struct {
 		Email    string `json:"email" binding:"required,email"`
 		Password string `json:"password" binding:"required,min=6"`
@@ -75,7 +62,7 @@ func (s *Server) handleRegister(c *gin.Context) {
 	}
 
 	// Check if email already exists
-	_, err = s.store.User().GetByEmail(req.Email)
+	_, err := s.store.User().GetByEmail(req.Email)
 	if err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Email already registered"})
 		return
