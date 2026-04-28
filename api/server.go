@@ -6,11 +6,12 @@ import (
 	"net"
 	"net/http"
 	"nofx/auth"
-	"strconv"
 	"nofx/crypto"
 	"nofx/logger"
 	"nofx/manager"
+	"nofx/provider/nofxos"
 	"nofx/store"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,6 +25,7 @@ type Server struct {
 	store                     *store.Store
 	cryptoHandler             *CryptoHandler
 	exchangeAccountStateCache *ExchangeAccountStateCache
+	nofxosClient              *nofxos.Client
 	httpServer                *http.Server
 	port                      int
 	telegramReloadCh          chan<- struct{} // signal Telegram bot to reload
@@ -48,6 +50,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		store:                     st,
 		cryptoHandler:             cryptoHandler,
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
+		nofxosClient:              initNofxosClient(),
 		port:                      port,
 	}
 
@@ -110,6 +113,7 @@ func (s *Server) setupRoutes() {
 		// Market data (no authentication required)
 		s.route(api, "GET", "/klines", "Candlestick data (?symbol=&interval=&limit=)", s.handleKlines)
 		s.route(api, "GET", "/symbols", "Available trading symbols", s.handleSymbols)
+		s.route(api, "GET", "/ai500/coins", "AI500 top-rated coin list (?limit=N, default 20, max 100)", s.handleAI500Coins)
 
 		// Public strategy market (no authentication required)
 		s.route(api, "GET", "/strategies/public", "Public strategy market", s.handlePublicStrategies)
