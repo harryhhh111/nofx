@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+// AI500 cache TTL - all strategies/users share the same cached data
+const ai500CacheTTL = 30 * time.Minute
+
 // CoinData represents AI500 coin information
 type CoinData struct {
 	Pair            string  `json:"pair"`             // Trading pair symbol (e.g.: BTCUSDT)
@@ -30,8 +33,21 @@ type AI500Response struct {
 	} `json:"data"`
 }
 
-// GetAI500List retrieves AI500 coin list with retry mechanism
+// GetAI500List retrieves AI500 coin list with caching.
+// Results are cached for ai500CacheTTL and shared across all callers.
 func (c *Client) GetAI500List() ([]CoinData, error) {
+	// Check cache first (read lock)
+	c.ai500CacheMu.RLock()
+	if c.ai500Cache != nil && time.Since(c.ai500CacheTime) < ai500CacheTTL {
+		result := make([]CoinData, len(c.ai500Cache))
+		copy(result, c.ai500Cache)
+		c.ai500CacheMu.RUnlock()
+		log.Printf("✓ AI500 cache hit (%d coins, cached %v ago)", len(result), time.Since(c.ai500CacheTime).Round(time.Second))
+		return result, nil
+	}
+	c.ai500CacheMu.RUnlock()
+
+	// Cache miss or expired - fetch from API with retry
 	maxRetries := 3
 	var lastErr error
 
@@ -46,6 +62,14 @@ func (c *Client) GetAI500List() ([]CoinData, error) {
 			if attempt > 1 {
 				log.Printf("✓ Retry attempt %d succeeded", attempt)
 			}
+
+			// Update cache (write lock)
+			c.ai500CacheMu.Lock()
+			c.ai500Cache = make([]CoinData, len(coins))
+			copy(c.ai500Cache, coins)
+			c.ai500CacheTime = time.Now()
+			c.ai500CacheMu.Unlock()
+
 			return coins, nil
 		}
 

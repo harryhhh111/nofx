@@ -26,6 +26,11 @@ type Client struct {
 	Timeout time.Duration
 	mu      sync.RWMutex
 	claw402 *Claw402DataClient // If set, routes requests through claw402
+
+	// AI500 cache (shared across all strategies/users)
+	ai500Cache     []CoinData
+	ai500CacheTime time.Time
+	ai500CacheMu   sync.RWMutex
 }
 
 var (
