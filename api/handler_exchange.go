@@ -264,7 +264,7 @@ func (s *Server) handleCreateExchange(c *gin.Context) {
 
 	// Validate exchange type
 	validTypes := map[string]bool{
-		"binance": true, "bybit": true, "okx": true, "bitget": true,
+		"paper": true, "binance": true, "bybit": true, "okx": true, "bitget": true,
 		"hyperliquid": true, "aster": true, "lighter": true, "gate": true, "kucoin": true, "indodax": true,
 	}
 	if !validTypes[req.ExchangeType] {
@@ -342,6 +342,7 @@ func (s *Server) handleGetSupportedExchanges(c *gin.Context) {
 	// Return static list of supported exchange types
 	// Note: ID is empty for supported exchanges (they are templates, not actual accounts)
 	supportedExchanges := []SafeExchangeConfig{
+		{ExchangeType: "paper", Name: "Paper Trading", Type: "paper"},
 		{ExchangeType: "binance", Name: "Binance Futures", Type: "cex"},
 		{ExchangeType: "bybit", Name: "Bybit Futures", Type: "cex"},
 		{ExchangeType: "okx", Name: "OKX Futures", Type: "cex"},

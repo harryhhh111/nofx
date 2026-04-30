@@ -21,6 +21,7 @@ import (
 	"nofx/trader/kucoin"
 	"nofx/trader/lighter"
 	"nofx/trader/okx"
+	"nofx/trader/paper"
 
 	"github.com/gin-gonic/gin"
 )
@@ -159,6 +160,14 @@ func probeExchangeAccountState(exchangeCfg *store.Exchange, userID string) Excha
 		return state
 	}
 
+	if exchangeCfg.ExchangeType == "paper" {
+		state.Status = exchangeAccountStatusOK
+		state.TotalEquity = 10000
+		state.AvailableBalance = 10000
+		state.DisplayBalance = formatDisplayBalance(10000, state.Asset)
+		return state
+	}
+
 	if status, code, message, missing := missingExchangeCredentials(exchangeCfg); missing {
 		state.Status = status
 		state.ErrorCode = code
@@ -224,6 +233,8 @@ func probeExchangeAccountState(exchangeCfg *store.Exchange, userID string) Excha
 
 func buildExchangeProbeTrader(exchangeCfg *store.Exchange, userID string) (trader.Trader, error) {
 	switch exchangeCfg.ExchangeType {
+	case "paper":
+		return paper.NewPaperTrader(10000, nil, ""), nil
 	case "binance":
 		return binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID), nil
 	case "bybit":
@@ -311,6 +322,8 @@ func formatDisplayBalance(value float64, asset string) string {
 
 func accountAssetForExchange(exchangeType string) string {
 	switch exchangeType {
+	case "paper":
+		return "USDT"
 	case "hyperliquid", "aster", "lighter":
 		return "USDC"
 	default:
@@ -320,6 +333,8 @@ func accountAssetForExchange(exchangeType string) string {
 
 func missingExchangeCredentials(exchangeCfg *store.Exchange) (status string, code string, message string, missing bool) {
 	switch exchangeCfg.ExchangeType {
+	case "paper":
+		return "", "", "", false
 	case "binance", "bybit", "gate", "indodax":
 		if exchangeCfg.APIKey == "" || exchangeCfg.SecretKey == "" {
 			return exchangeAccountStatusMissingCredentials, "MISSING_REQUIRED_FIELDS", "API key and secret key are required", true

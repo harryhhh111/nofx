@@ -160,6 +160,8 @@ func (s *ExchangeStore) GetByID(userID, id string) (*Exchange, error) {
 // getExchangeNameAndType returns the display name and type for an exchange type
 func getExchangeNameAndType(exchangeType string) (name string, typ string) {
 	switch exchangeType {
+	case "paper":
+		return "Paper Trading", "paper"
 	case "binance":
 		return "Binance Futures", "cex"
 	case "bybit":

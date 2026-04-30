@@ -21,6 +21,7 @@ import { getShortName } from './utils'
 
 // Supported exchange templates
 const SUPPORTED_EXCHANGE_TEMPLATES = [
+  { exchange_type: 'paper', name: 'Paper Trading', type: 'paper' as const },
   { exchange_type: 'binance', name: 'Binance Futures', type: 'cex' as const },
   { exchange_type: 'bybit', name: 'Bybit Futures', type: 'cex' as const },
   { exchange_type: 'okx', name: 'OKX Futures', type: 'cex' as const },
@@ -133,8 +134,8 @@ function ExchangeCard({
       <span
         className="text-xs px-2 py-0.5 rounded-full"
         style={{
-          background: template.type === 'cex' ? 'rgba(240, 185, 11, 0.2)' : 'rgba(139, 92, 246, 0.2)',
-          color: template.type === 'cex' ? '#F0B90B' : '#A78BFA',
+          background: template.type === 'paper' ? 'rgba(59, 130, 246, 0.2)' : template.type === 'cex' ? 'rgba(240, 185, 11, 0.2)' : 'rgba(139, 92, 246, 0.2)',
+          color: template.type === 'paper' ? '#3B82F6' : template.type === 'cex' ? '#F0B90B' : '#A78BFA',
         }}
       >
         {template.type.toUpperCase()}
@@ -314,7 +315,9 @@ export function ExchangeConfigModal({
 
     setIsSaving(true)
     try {
-      if (currentExchangeType === 'binance' || currentExchangeType === 'bybit' || currentExchangeType === 'indodax') {
+      if (currentExchangeType === 'paper') {
+        await onSave(exchangeId, exchangeType, trimmedAccountName, '', '', '', false)
+      } else if (currentExchangeType === 'binance' || currentExchangeType === 'bybit' || currentExchangeType === 'indodax') {
         if (!apiKey.trim() || !secretKey.trim()) return
         await onSave(exchangeId, exchangeType, trimmedAccountName, apiKey.trim(), secretKey.trim(), '', testnet)
       } else if (currentExchangeType === 'okx' || currentExchangeType === 'bitget' || currentExchangeType === 'kucoin') {
@@ -339,6 +342,7 @@ export function ExchangeConfigModal({
   }
 
   const stepLabels = [t('exchangeConfig.selectExchange', language), t('exchangeConfig.configure', language)]
+  const paperExchanges = SUPPORTED_EXCHANGE_TEMPLATES.filter(t => t.type === 'paper')
   const cexExchanges = SUPPORTED_EXCHANGE_TEMPLATES.filter(t => t.type === 'cex')
   const dexExchanges = SUPPORTED_EXCHANGE_TEMPLATES.filter(t => t.type === 'dex')
 
@@ -415,6 +419,24 @@ export function ExchangeConfigModal({
                   {t('exchangeConfig.chooseExchange', language)}
                 </div>
 
+                {/* Paper Trading */}
+                <div className="space-y-3">
+                  <div className="text-xs font-medium uppercase tracking-wide" style={{ color: '#3B82F6' }}>
+                    Paper Trading
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                    {paperExchanges.map((template) => (
+                      <ExchangeCard
+                        key={template.exchange_type}
+                        template={template}
+                        selected={selectedExchangeType === template.exchange_type}
+                        onClick={() => handleSelectExchange(template.exchange_type)}
+                        disabled={webCryptoStatus !== 'secure' && webCryptoStatus !== 'disabled'}
+                      />
+                    ))}
+                  </div>
+                </div>
+
                 {/* CEX */}
                 <div className="space-y-3">
                   <div className="text-xs font-medium uppercase tracking-wide" style={{ color: '#F0B90B' }}>
@@ -468,24 +490,39 @@ export function ExchangeConfigModal({
                     {selectedTemplate.type.toUpperCase()} • {selectedTemplate.exchange_type}
                   </div>
                 </div>
-                <a
-                  href={exchangeRegistrationLinks[currentExchangeType || '']?.url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
-                  style={{ background: 'rgba(240, 185, 11, 0.1)', border: '1px solid rgba(240, 185, 11, 0.3)' }}
-                >
-                  <UserPlus className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                  <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
-                    {t('exchangeConfig.register', language)}
-                  </span>
-                  {exchangeRegistrationLinks[currentExchangeType || '']?.hasReferral && (
-                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(14, 203, 129, 0.2)', color: '#0ECB81' }}>
-                      {t('exchangeConfig.bonus', language)}
+                {currentExchangeType !== 'paper' && exchangeRegistrationLinks[currentExchangeType || ''] && (
+                  <a
+                    href={exchangeRegistrationLinks[currentExchangeType || '']?.url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg transition-all hover:scale-105"
+                    style={{ background: 'rgba(240, 185, 11, 0.1)', border: '1px solid rgba(240, 185, 11, 0.3)' }}
+                  >
+                    <UserPlus className="w-4 h-4" style={{ color: '#F0B90B' }} />
+                    <span className="text-sm font-medium" style={{ color: '#F0B90B' }}>
+                      {t('exchangeConfig.register', language)}
                     </span>
-                  )}
-                </a>
+                    {exchangeRegistrationLinks[currentExchangeType || '']?.hasReferral && (
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(14, 203, 129, 0.2)', color: '#0ECB81' }}>
+                        {t('exchangeConfig.bonus', language)}
+                      </span>
+                    )}
+                  </a>
+                )}
               </div>
+
+              {currentExchangeType === 'paper' && (
+                <div className="p-4 rounded-xl" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                  <div className="text-sm font-semibold mb-1" style={{ color: '#3B82F6' }}>
+                    Paper Trading Mode
+                  </div>
+                  <div className="text-xs" style={{ color: '#848E9C' }}>
+                    {language === 'zh'
+                      ? '无需 API Key。系统使用虚拟资金模拟下单、持仓和盈亏，行情仍使用真实市场数据。'
+                      : 'No API key required. The system simulates orders, positions, and PnL with virtual funds while using live market data.'}
+                  </div>
+                </div>
+              )}
 
               {/* Account Name */}
               <div className="space-y-2">

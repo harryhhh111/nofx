@@ -19,6 +19,7 @@ import (
 	"nofx/trader/kucoin"
 	"nofx/trader/lighter"
 	"nofx/trader/okx"
+	"nofx/trader/paper"
 
 	"github.com/gin-gonic/gin"
 )
@@ -158,6 +159,8 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 	// Use ExchangeType (e.g., "binance") instead of ExchangeID (which is now UUID)
 	// Convert EncryptedString fields to string
 	switch exchangeCfg.ExchangeType {
+	case "paper":
+		tempTrader = paper.NewPaperTrader(fullConfig.Trader.InitialBalance, s.store, traderID)
 	case "binance":
 		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
 	case "hyperliquid":
@@ -333,13 +336,17 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 		orderAction = "close_short"
 	}
 
-	// Use entry price if exit price not available
-	if exitPrice == 0 {
-		exitPrice = quantity * 100 // Rough estimate if we don't have price
+	actualPrice := exitPrice
+	if avgPrice, ok := result["avgPrice"].(float64); ok && avgPrice > 0 {
+		actualPrice = avgPrice
+	}
+
+	if actualPrice == 0 {
+		actualPrice = quantity * 100 // Rough estimate if we don't have price
 	}
 
 	// Estimate fee (0.04% for Lighter taker)
-	fee := exitPrice * quantity * 0.0004
+	fee := actualPrice * quantity * 0.0004
 
 	// Create order record - DIRECTLY as FILLED (Lighter market orders fill immediately)
 	orderRecord := &store.TraderOrder{
@@ -356,7 +363,7 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 		Price:           0, // Market order
 		Status:          "FILLED",
 		FilledQuantity:  quantity,
-		AvgFillPrice:    exitPrice,
+		AvgFillPrice:    actualPrice,
 		Commission:      fee,
 		FilledAt:        time.Now().UTC().UnixMilli(),
 		CreatedAt:       time.Now().UTC().UnixMilli(),
@@ -381,9 +388,9 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 		ExchangeTradeID: tradeID,
 		Symbol:          symbol,
 		Side:            getSideFromAction(orderAction),
-		Price:           exitPrice,
+		Price:           actualPrice,
 		Quantity:        quantity,
-		QuoteQuantity:   exitPrice * quantity,
+		QuoteQuantity:   actualPrice * quantity,
 		Commission:      fee,
 		CommissionAsset: "USDT",
 		RealizedPnL:     0,
@@ -395,6 +402,18 @@ func (s *Server) recordClosePositionOrder(traderID, exchangeID, exchangeType, sy
 		logger.Infof("  ⚠️ Failed to record fill: %v", err)
 	} else {
 		logger.Infof("  ✅ Fill record created: price=%.6f qty=%.6f", exitPrice, quantity)
+	}
+	if exchangeType == "paper" {
+		normalizedSymbol := market.Normalize(symbol)
+		posBuilder := store.NewPositionBuilder(s.store.Position())
+		if err := posBuilder.ProcessTrade(
+			traderID, exchangeID, exchangeType,
+			normalizedSymbol, side, orderAction,
+			quantity, actualPrice, fee, 0,
+			time.Now().UTC().UnixMilli(), orderID,
+		); err != nil {
+			logger.Infof("Failed to close paper position: %v", err)
+		}
 	}
 }
 

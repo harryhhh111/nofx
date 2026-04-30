@@ -840,10 +840,21 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 		positionSymbols[normalizedSymbol] = true
 	}
 
+	// Pre-calculate actual candidate count (excludes position coins already shown above)
+	candidateDisplayCount := 0
+	for _, coin := range ctx.CandidateCoins {
+		if positionSymbols[market.Normalize(coin.Symbol)] {
+			continue
+		}
+		if _, hasData := ctx.MarketDataMap[coin.Symbol]; hasData {
+			candidateDisplayCount++
+		}
+	}
+
 	if lang == LangChinese {
-		sb.WriteString(fmt.Sprintf("## 候选币种（%d 个）\n\n", len(ctx.MarketDataMap)))
+		sb.WriteString(fmt.Sprintf("## 候选币种（%d 个）\n\n", candidateDisplayCount))
 	} else {
-		sb.WriteString(fmt.Sprintf("## Candidate Coins (%d coins)\n\n", len(ctx.MarketDataMap)))
+		sb.WriteString(fmt.Sprintf("## Candidate Coins (%d coins)\n\n", candidateDisplayCount))
 	}
 	displayedCount := 0
 	for _, coin := range ctx.CandidateCoins {
@@ -1083,14 +1094,14 @@ func (e *StrategyEngine) formatCoinSourceTag(sources []string) string {
 			return " (AI500)"
 		case "oi_top":
 			if lang == LangChinese {
-				return " (OI_Top OI增长)"
+				return " (OI_Top 高关注)"
 			}
-			return " (OI_Top OI increase)"
+			return " (OI_Top high activity)"
 		case "oi_low":
 			if lang == LangChinese {
-				return " (OI_Low OI减少)"
+				return " (OI_Low 低关注)"
 			}
-			return " (OI_Low OI decrease)"
+			return " (OI_Low low activity)"
 		case "static":
 			if lang == LangChinese {
 				return " (手动选择)"
