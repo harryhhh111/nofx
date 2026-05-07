@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { mutate } from 'swr'
+import useSWR, { mutate } from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/charts/ChartTabs'
 import { DecisionCard } from '../components/trader/DecisionCard'
@@ -18,6 +18,7 @@ import type {
     Position,
     DecisionRecord,
     Statistics,
+    BBMACDAccuracyStats,
     TraderInfo,
     Exchange,
 } from '../types'
@@ -92,6 +93,17 @@ function truncateAddress(address: string, startLen = 6, endLen = 4): string {
     return `${address.slice(0, startLen)}...${address.slice(-endLen)}`
 }
 
+function formatBBMACDAccuracy(stats?: BBMACDAccuracyStats): string {
+    const resolved = stats?.overall?.resolved ?? 0
+    if (resolved === 0) return '--'
+    return `${stats!.overall.accuracy.toFixed(1)}`
+}
+
+function formatBBMACDSubtitle(stats?: BBMACDAccuracyStats): string {
+    if (!stats) return 'ALL | -- samples'
+    return `ALL | ${stats.overall.resolved} samples`
+}
+
 // --- Components ---
 
 interface TraderDashboardPageProps {
@@ -146,6 +158,11 @@ export function TraderDashboardPage({
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
     const [positionsCurrentPage, setPositionsCurrentPage] = useState<number>(1)
+    const { data: bbmacdStats, error: bbmacdStatsError } = useSWR(
+        selectedTraderId ? `bbmacd-stats-${selectedTraderId}` : null,
+        () => api.getBBMACDStats(selectedTraderId, 0, true),
+        { refreshInterval: 60000 }
+    )
 
     // Calculate paginated positions
     const totalPositions = positions?.length || 0
@@ -506,7 +523,7 @@ export function TraderDashboardPage({
                 </div>
 
                 {/* Account Overview */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
                     <StatCard
                         title={t('totalEquity', language)}
                         value={accountFailed && !account ? '--' : `${account?.total_equity?.toFixed(2) ?? '--'}`}
@@ -540,6 +557,14 @@ export function TraderDashboardPage({
                         subtitle={accountFailed && !account ? `${t('margin', language)}: --` : `${t('margin', language)}: ${account?.margin_used_pct?.toFixed(1) ?? '--'}%`}
                         icon="📊"
                         loading={!account && !accountFailed}
+                    />
+                    <StatCard
+                        title="BB MACD"
+                        value={bbmacdStatsError ? '--' : formatBBMACDAccuracy(bbmacdStats)}
+                        unit={bbmacdStats?.overall?.resolved ? '%' : undefined}
+                        subtitle={bbmacdStatsError ? 'ALL | -- samples' : formatBBMACDSubtitle(bbmacdStats)}
+                        icon="BB"
+                        loading={!bbmacdStats && !bbmacdStatsError}
                     />
                 </div>
 

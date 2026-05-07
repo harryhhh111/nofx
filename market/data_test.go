@@ -305,6 +305,26 @@ func TestCalculateIntradaySeries_ConsistencyWithOtherIndicators(t *testing.T) {
 	}
 }
 
+func TestCalculateBBMACD(t *testing.T) {
+	klines := generateTestKlines(100)
+	data := calculateBBMACD(klines)
+	if data == nil {
+		t.Fatal("calculateBBMACD returned nil")
+	}
+	if data.Params.Fast <= 0 || data.Params.Slow <= data.Params.Fast || data.Params.Signal <= 0 {
+		t.Fatalf("invalid BB MACD params: %+v", data.Params)
+	}
+	if data.State == "" {
+		t.Fatal("BB MACD state should not be empty")
+	}
+}
+
+func TestCalculateBBMACDInsufficientData(t *testing.T) {
+	if data := calculateBBMACD(generateTestKlines(20)); data != nil {
+		t.Fatalf("calculateBBMACD should skip insufficient data, got %+v", data)
+	}
+}
+
 // TestCalculateIntradaySeries_EmptyKlines tests empty K-line data
 func TestCalculateIntradaySeries_EmptyKlines(t *testing.T) {
 	klines := []Kline{}

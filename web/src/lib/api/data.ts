@@ -4,6 +4,7 @@ import type {
   Position,
   DecisionRecord,
   Statistics,
+  BBMACDAccuracyStats,
   CompetitionData,
   PositionHistoryResponse,
 } from '../../types'
@@ -71,6 +72,25 @@ export const dataApi = {
       : `${API_BASE}/statistics`
     const result = await httpClient.request<Statistics>(url, { silent })
     if (!result.success) throw new Error('Failed to fetch statistics')
+    return result.data!
+  },
+
+  async getBBMACDStats(
+    traderId?: string,
+    days: number = 0,
+    silent?: boolean
+  ): Promise<BBMACDAccuracyStats> {
+    const params = new URLSearchParams()
+    if (traderId) {
+      params.append('trader_id', traderId)
+    }
+    params.append('days', days.toString())
+
+    const result = await httpClient.request<BBMACDAccuracyStats>(
+      `${API_BASE}/bbmacd/stats?${params}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch BB MACD stats')
     return result.data!
   },
 

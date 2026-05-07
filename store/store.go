@@ -28,6 +28,7 @@ type Store struct {
 	equity         *EquityStore
 	order          *OrderStore
 	grid           *GridStore
+	bbmacdSignal   *BBMACDSignalStore
 	aiCharge       *AIChargeStore
 	telegramConfig TelegramConfigStore
 
@@ -158,6 +159,9 @@ func (s *Store) initTables() error {
 	if err := s.Grid().InitTables(); err != nil {
 		return fmt.Errorf("failed to initialize grid tables: %w", err)
 	}
+	if err := s.BBMACDSignal().InitTables(); err != nil {
+		return fmt.Errorf("failed to initialize BB MACD signal tables: %w", err)
+	}
 	if err := s.TelegramConfig().(*telegramConfigStore).initTables(); err != nil {
 		return fmt.Errorf("failed to initialize telegram config tables: %w", err)
 	}
@@ -285,6 +289,16 @@ func (s *Store) Grid() *GridStore {
 		s.grid = NewGridStore(s.gdb)
 	}
 	return s.grid
+}
+
+// BBMACDSignal gets BB MACD signal storage.
+func (s *Store) BBMACDSignal() *BBMACDSignalStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.bbmacdSignal == nil {
+		s.bbmacdSignal = NewBBMACDSignalStore(s.gdb)
+	}
+	return s.bbmacdSignal
 }
 
 // AICharge gets AI charge storage

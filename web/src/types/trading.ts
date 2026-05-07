@@ -90,6 +90,43 @@ export interface Statistics {
   total_close_positions: number
 }
 
+export interface BBMACDAccuracyBucket {
+  total: number
+  resolved_3: number
+  correct_3: number
+  accuracy_3: number
+  avg_return_3: number
+  resolved_5: number
+  correct_5: number
+  accuracy_5: number
+  avg_return_5: number
+  resolved_10: number
+  correct_10: number
+  accuracy_10: number
+  avg_return_10: number
+}
+
+export interface BBMACDAccuracySummary {
+  resolved: number
+  correct: number
+  accuracy: number
+  avg_return: number
+}
+
+export interface BBMACDStateStat extends BBMACDAccuracyBucket {
+  state: string
+}
+
+export interface BBMACDAccuracyStats {
+  trader_id: string
+  days: number
+  total: number
+  overall: BBMACDAccuracySummary
+  directional: BBMACDAccuracyBucket
+  breakout: BBMACDAccuracyBucket
+  by_state: BBMACDStateStat[]
+}
+
 // AI Trading相关类型
 export interface TraderInfo {
   trader_id: string

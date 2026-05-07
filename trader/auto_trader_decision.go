@@ -3,11 +3,11 @@ package trader
 import (
 	"fmt"
 	"math"
-	"nofx/telemetry"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/store"
+	"nofx/telemetry"
 	"time"
 )
 
@@ -53,6 +53,60 @@ func (at *AutoTrader) saveDecision(record *store.DecisionRecord) error {
 
 	logger.Infof("📝 Decision record saved: trader=%s, cycle=%d", at.id, at.cycleNumber)
 	return nil
+}
+
+// saveBBMACDSignals stores BB MACD snapshots for later offline accuracy evaluation.
+// These records are not injected into AI prompts and do not affect trading decisions.
+func (at *AutoTrader) saveBBMACDSignals(ctx *kernel.Context) {
+	if at.store == nil || ctx == nil || len(ctx.MarketDataMap) == 0 {
+		return
+	}
+
+	now := time.Now().UTC()
+	signals := make([]*store.BBMACDSignal, 0)
+	for symbol, data := range ctx.MarketDataMap {
+		if data == nil || data.CurrentPrice <= 0 || len(data.TimeframeData) == 0 {
+			continue
+		}
+		normalizedSymbol := market.Normalize(symbol)
+		for timeframe, tfData := range data.TimeframeData {
+			if tfData == nil || tfData.BBMACD == nil {
+				continue
+			}
+			bb := tfData.BBMACD
+			signals = append(signals, &store.BBMACDSignal{
+				TraderID:       at.id,
+				CycleNumber:    at.callCount,
+				Symbol:         normalizedSymbol,
+				Timeframe:      timeframe,
+				SignalTime:     now,
+				Price:          data.CurrentPrice,
+				Regime:         bb.Regime,
+				State:          bb.State,
+				Strength:       bb.Strength,
+				FastPeriod:     bb.Params.Fast,
+				SlowPeriod:     bb.Params.Slow,
+				SignalPeriod:   bb.Params.Signal,
+				BOLLPeriod:     bb.Params.BOLLPeriod,
+				BOLLMultiplier: bb.Params.BOLLMultiplier,
+				MACD:           bb.MACD,
+				MACDSignal:     bb.Signal,
+				Histogram:      bb.Histogram,
+				UpperBand:      bb.Upper,
+				MiddleBand:     bb.Middle,
+				LowerBand:      bb.Lower,
+			})
+		}
+	}
+
+	if len(signals) == 0 {
+		return
+	}
+	if err := at.store.BBMACDSignal().CreateMany(signals); err != nil {
+		logger.Warnf("Failed to save BB MACD signals: %v", err)
+		return
+	}
+	logger.Infof("Saved %d BB MACD signal snapshots", len(signals))
 }
 
 // GetStatus gets system status (for API)

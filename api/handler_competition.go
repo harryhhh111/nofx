@@ -100,6 +100,32 @@ func (s *Server) handleStatistics(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
+func (s *Server) handleBBMACDStats(c *gin.Context) {
+	_, traderID, err := s.getTraderFromQuery(c)
+	if err != nil {
+		SafeBadRequest(c, "Invalid trader ID")
+		return
+	}
+
+	days := 0
+	if daysStr := c.Query("days"); daysStr != "" {
+		if parsed, err := strconv.Atoi(daysStr); err == nil && parsed > 0 {
+			days = parsed
+		}
+	}
+	if days > 90 {
+		days = 90
+	}
+
+	stats, err := s.store.BBMACDSignal().AccuracyStats(traderID, days)
+	if err != nil {
+		SafeInternalError(c, "Get BB MACD stats", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
 // handleCompetition Competition overview (compare all traders)
 func (s *Server) handleCompetition(c *gin.Context) {
 	userID := c.GetString("user_id")

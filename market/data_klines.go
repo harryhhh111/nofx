@@ -234,6 +234,7 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 
 	// Calculate ATR14
 	data.ATR14 = calculateATR(klines, 14)
+	data.BBMACD = calculateBBMACD(klines)
 
 	return data
 }

@@ -368,6 +368,10 @@ Returns the most recent AI decision for each symbol analyzed in the last scan cy
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>
 Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_pnl":<float>,"sharpe_ratio":<float>,"max_drawdown":<float>}`,
 				s.handleStatistics)
+			s.routeWithSchema(protected, "GET", "/bbmacd/stats", "BB MACD signal accuracy statistics",
+				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&days=<int, optional; omit or 0 means all recorded runtime data>
+Returns observed signal accuracy using later recorded snapshots for the same symbol/timeframe.`,
+				s.handleBBMACDStats)
 
 		}
 	}

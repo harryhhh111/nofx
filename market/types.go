@@ -42,9 +42,33 @@ type TimeframeSeriesData struct {
 	Volume      []float64  `json:"volume"`       // Volume series (deprecated, use Klines)
 	ATR14       float64    `json:"atr14"`        // ATR14
 	// Bollinger Bands (period 20, std dev multiplier 2)
-	BOLLUpper  []float64 `json:"boll_upper"`  // Upper band
-	BOLLMiddle []float64 `json:"boll_middle"` // Middle band (SMA)
-	BOLLLower  []float64 `json:"boll_lower"`  // Lower band
+	BOLLUpper  []float64   `json:"boll_upper"`  // Upper band
+	BOLLMiddle []float64   `json:"boll_middle"` // Middle band (SMA)
+	BOLLLower  []float64   `json:"boll_lower"`  // Lower band
+	BBMACD     *BBMACDData `json:"bb_macd,omitempty"`
+}
+
+// BBMACDParams records the selected BB MACD parameter set.
+type BBMACDParams struct {
+	Fast           int     `json:"fast"`
+	Slow           int     `json:"slow"`
+	Signal         int     `json:"signal"`
+	BOLLPeriod     int     `json:"boll_period"`
+	BOLLMultiplier float64 `json:"boll_multiplier"`
+}
+
+// BBMACDData is a compact dynamic BB MACD summary for AI decision context.
+type BBMACDData struct {
+	Regime    string       `json:"regime"`
+	Params    BBMACDParams `json:"params"`
+	State     string       `json:"state"`
+	Strength  float64      `json:"strength"`
+	MACD      float64      `json:"macd"`
+	Signal    float64      `json:"signal"`
+	Histogram float64      `json:"histogram"`
+	Upper     float64      `json:"upper"`
+	Middle    float64      `json:"middle"`
+	Lower     float64      `json:"lower"`
 }
 
 // OIData Open Interest data
@@ -231,11 +255,11 @@ const (
 type GridDirection string
 
 const (
-	GridDirectionNeutral   GridDirection = "neutral"     // 50% buy + 50% sell
-	GridDirectionLong      GridDirection = "long"        // 100% buy
-	GridDirectionShort     GridDirection = "short"       // 100% sell
-	GridDirectionLongBias  GridDirection = "long_bias"   // 70% buy + 30% sell (default)
-	GridDirectionShortBias GridDirection = "short_bias"  // 30% buy + 70% sell (default)
+	GridDirectionNeutral   GridDirection = "neutral"    // 50% buy + 50% sell
+	GridDirectionLong      GridDirection = "long"       // 100% buy
+	GridDirectionShort     GridDirection = "short"      // 100% sell
+	GridDirectionLongBias  GridDirection = "long_bias"  // 70% buy + 30% sell (default)
+	GridDirectionShortBias GridDirection = "short_bias" // 30% buy + 70% sell (default)
 )
 
 // GetBuySellRatio returns the buy and sell ratio for this direction
