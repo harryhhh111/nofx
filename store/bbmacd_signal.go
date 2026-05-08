@@ -7,6 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const bbMACDEffectiveMovePct = 0.3
+
 // BBMACDSignal stores one observed BB MACD signal snapshot for later evaluation.
 type BBMACDSignal struct {
 	ID             int64     `gorm:"primaryKey;autoIncrement" json:"id"`
@@ -62,13 +64,15 @@ type BBMACDStateStat struct {
 }
 
 type BBMACDAccuracyStats struct {
-	TraderID    string                `json:"trader_id"`
-	Days        int                   `json:"days"`
-	Total       int                   `json:"total"`
-	Overall     BBMACDAccuracySummary `json:"overall"`
-	Directional BBMACDAccuracyBucket  `json:"directional"`
-	Breakout    BBMACDAccuracyBucket  `json:"breakout"`
-	ByState     []BBMACDStateStat     `json:"by_state"`
+	TraderID              string                `json:"trader_id"`
+	Days                  int                   `json:"days"`
+	Total                 int                   `json:"total"`
+	EffectiveThresholdPct float64               `json:"effective_threshold_pct"`
+	Overall               BBMACDAccuracySummary `json:"overall"`
+	Effective             BBMACDAccuracySummary `json:"effective"`
+	Directional           BBMACDAccuracyBucket  `json:"directional"`
+	Breakout              BBMACDAccuracyBucket  `json:"breakout"`
+	ByState               []BBMACDStateStat     `json:"by_state"`
 }
 
 func (BBMACDSignal) TableName() string {
@@ -120,9 +124,10 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 	}
 
 	stats := &BBMACDAccuracyStats{
-		TraderID: traderID,
-		Days:     days,
-		Total:    len(signals),
+		TraderID:              traderID,
+		Days:                  days,
+		Total:                 len(signals),
+		EffectiveThresholdPct: bbMACDEffectiveMovePct,
 	}
 	byState := make(map[string]*BBMACDStateStat)
 	grouped := make(map[string][]BBMACDSignal)
@@ -153,6 +158,7 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 				applyBBMACDResult(&byState[signal.State].BBMACDAccuracyBucket, horizon, correct, ret)
 				if direction != 0 {
 					applyBBMACDResult(&stats.Directional, horizon, correct, ret)
+					applyBBMACDEffectiveResult(&stats.Effective, ret*float64(direction), bbMACDEffectiveMovePct)
 				}
 				if signal.State == "bullish_breakout" || signal.State == "bearish_breakout" {
 					applyBBMACDResult(&stats.Breakout, horizon, correct, ret)
@@ -167,6 +173,7 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 		stats.ByState = append(stats.ByState, *stat)
 	}
 	stats.Overall = summarizeBBMACDBucket(&stats.Directional)
+	finalizeBBMACDSummary(&stats.Effective)
 	finalizeBBMACDBucket(&stats.Directional)
 	finalizeBBMACDBucket(&stats.Breakout)
 	return stats, nil
@@ -234,4 +241,25 @@ func summarizeBBMACDBucket(bucket *BBMACDAccuracyBucket) BBMACDAccuracySummary {
 		summary.AvgReturn = totalReturn / float64(resolved)
 	}
 	return summary
+}
+
+func applyBBMACDEffectiveResult(summary *BBMACDAccuracySummary, directionalReturn, threshold float64) {
+	if directionalReturn > threshold {
+		summary.Resolved++
+		summary.Correct++
+		summary.AvgReturn += directionalReturn
+		return
+	}
+	if directionalReturn < -threshold {
+		summary.Resolved++
+		summary.AvgReturn += directionalReturn
+	}
+}
+
+func finalizeBBMACDSummary(summary *BBMACDAccuracySummary) {
+	if summary.Resolved == 0 {
+		return
+	}
+	summary.Accuracy = float64(summary.Correct) / float64(summary.Resolved) * 100
+	summary.AvgReturn = summary.AvgReturn / float64(summary.Resolved)
 }

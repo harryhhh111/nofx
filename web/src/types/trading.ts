@@ -121,7 +121,9 @@ export interface BBMACDAccuracyStats {
   trader_id: string
   days: number
   total: number
+  effective_threshold_pct: number
   overall: BBMACDAccuracySummary
+  effective: BBMACDAccuracySummary
   directional: BBMACDAccuracyBucket
   breakout: BBMACDAccuracyBucket
   by_state: BBMACDStateStat[]

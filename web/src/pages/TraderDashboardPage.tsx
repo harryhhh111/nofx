@@ -94,14 +94,16 @@ function truncateAddress(address: string, startLen = 6, endLen = 4): string {
 }
 
 function formatBBMACDAccuracy(stats?: BBMACDAccuracyStats): string {
-    const resolved = stats?.overall?.resolved ?? 0
+    const resolved = stats?.effective?.resolved ?? 0
     if (resolved === 0) return '--'
-    return `${stats!.overall.accuracy.toFixed(1)}`
+    return `${stats!.effective.accuracy.toFixed(1)}`
 }
 
 function formatBBMACDSubtitle(stats?: BBMACDAccuracyStats): string {
     if (!stats) return 'ALL | -- samples'
-    return `ALL | ${stats.overall.resolved} samples`
+    const rawAccuracy = stats.overall.resolved > 0 ? `${stats.overall.accuracy.toFixed(1)}%` : '--'
+    const threshold = stats.effective_threshold_pct?.toFixed(1) ?? '0.3'
+    return `raw ${rawAccuracy} | eff>${threshold}% ${stats.effective.resolved}/${stats.overall.resolved}`
 }
 
 // --- Components ---
@@ -561,10 +563,11 @@ export function TraderDashboardPage({
                     <StatCard
                         title="BB MACD"
                         value={bbmacdStatsError ? '--' : formatBBMACDAccuracy(bbmacdStats)}
-                        unit={bbmacdStats?.overall?.resolved ? '%' : undefined}
+                        unit={bbmacdStats?.effective?.resolved ? '%' : undefined}
                         subtitle={bbmacdStatsError ? 'ALL | -- samples' : formatBBMACDSubtitle(bbmacdStats)}
                         icon="BB"
                         loading={!bbmacdStats && !bbmacdStatsError}
+                        tooltip="主数字为有效准确率。raw 是所有方向验证的原始准确率；eff>0.3% 只统计后续涨跌超过 0.3% 的有效样本，小波动不计入。"
                     />
                 </div>
 
@@ -860,6 +863,7 @@ function StatCard({
     subtitle,
     icon,
     loading,
+    tooltip,
 }: {
     title: string
     value: string
@@ -869,9 +873,15 @@ function StatCard({
     subtitle?: string
     icon?: string
     loading?: boolean
+    tooltip?: string
 }) {
     return (
-        <div className="group nofx-glass p-5 rounded-lg transition-all duration-300 hover:bg-white/5 hover:translate-y-[-2px] border border-white/5 hover:border-nofx-gold/20 relative overflow-hidden">
+        <div className="group nofx-glass p-5 rounded-lg transition-all duration-300 hover:bg-white/5 hover:translate-y-[-2px] border border-white/5 hover:border-nofx-gold/20 relative overflow-visible">
+            {tooltip && (
+                <div className="pointer-events-none absolute left-4 right-4 bottom-full z-20 mb-2 rounded-md border border-white/10 bg-black/90 px-3 py-2 text-xs leading-relaxed text-nofx-text-main opacity-0 shadow-xl transition-opacity duration-200 group-hover:opacity-100">
+                    {tooltip}
+                </div>
+            )}
             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity text-4xl grayscale group-hover:grayscale-0">
                 {icon}
             </div>
