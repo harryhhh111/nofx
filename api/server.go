@@ -372,6 +372,12 @@ Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&days=<int, optional; omit or 0 means all recorded runtime data>
 Returns observed signal accuracy using later recorded snapshots for the same symbol/timeframe.`,
 				s.handleBBMACDStats)
+			s.routeWithSchema(protected, "GET", "/bbmacd/config", "BB MACD runtime parameter config",
+				`Returns current BB MACD statistics parameter config. This affects future BB MACD signal snapshots only, not AI prompts.`,
+				s.handleGetBBMACDConfig)
+			s.routeWithSchema(protected, "PUT", "/bbmacd/config", "Update BB MACD runtime parameter config",
+				`Query: ?trader_id=<EXACT trader_id>. Body: {"config":{"use_custom":true,"fast":8,"slow":21,"signal":5,"boll_period":20,"boll_multiplier":2.0},"reset":true}. reset=true clears this trader's BB MACD history.`,
+				s.handleUpdateBBMACDConfig)
 
 		}
 	}

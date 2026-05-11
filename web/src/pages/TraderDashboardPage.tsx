@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, type ReactNode } from 'react'
 import useSWR, { mutate } from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/charts/ChartTabs'
@@ -8,7 +8,7 @@ import { PunkAvatar, getTraderAvatar } from '../components/common/PunkAvatar'
 import { confirmToast, notify } from '../lib/notify'
 import { formatPrice, formatQuantity } from '../utils/format'
 import { t, type Language } from '../i18n/translations'
-import { LogOut, Loader2, Eye, EyeOff, Copy, Check } from 'lucide-react'
+import { LogOut, Loader2, Eye, EyeOff, Copy, Check, Settings } from 'lucide-react'
 import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
 import { NofxSelect } from '../components/ui/select'
 import { GridRiskPanel } from '../components/strategy/GridRiskPanel'
@@ -19,6 +19,7 @@ import type {
     DecisionRecord,
     Statistics,
     BBMACDAccuracyStats,
+    BBMACDConfig,
     TraderInfo,
     Exchange,
 } from '../types'
@@ -111,6 +112,15 @@ function formatBBMACDSubtitle(stats?: BBMACDAccuracyStats): string {
     return `${label} | raw ${rawAccuracy} | eff>${threshold}% ${stats.breakout_effective.resolved}/${stats.breakout_overall.resolved}`
 }
 
+const defaultBBMACDConfig: BBMACDConfig = {
+    use_custom: false,
+    fast: 8,
+    slow: 21,
+    signal: 5,
+    boll_period: 20,
+    boll_multiplier: 2,
+}
+
 // --- Components ---
 
 interface TraderDashboardPageProps {
@@ -161,6 +171,9 @@ export function TraderDashboardPage({
     const chartSectionRef = useRef<HTMLDivElement>(null)
     const [showWalletAddress, setShowWalletAddress] = useState<boolean>(false)
     const [copiedAddress, setCopiedAddress] = useState<boolean>(false)
+    const [showBBMACDSettings, setShowBBMACDSettings] = useState(false)
+    const [bbmacdDraft, setBBMACDDraft] = useState<BBMACDConfig>(defaultBBMACDConfig)
+    const [savingBBMACD, setSavingBBMACD] = useState(false)
 
     // Current positions pagination
     const [positionsPageSize, setPositionsPageSize] = useState<number>(20)
@@ -170,6 +183,33 @@ export function TraderDashboardPage({
         () => api.getBBMACDStats(selectedTraderId, 0, true),
         { refreshInterval: 60000 }
     )
+    const { data: bbmacdConfig } = useSWR(
+        'bbmacd-config',
+        () => api.getBBMACDConfig(true),
+        { refreshInterval: 60000 }
+    )
+
+    useEffect(() => {
+        if (bbmacdConfig) {
+            setBBMACDDraft(bbmacdConfig)
+        }
+    }, [bbmacdConfig])
+
+    const saveBBMACDConfig = async () => {
+        if (!selectedTraderId) return
+        setSavingBBMACD(true)
+        try {
+            await api.updateBBMACDConfig(selectedTraderId, bbmacdDraft, true)
+            await mutate(`bbmacd-stats-${selectedTraderId}`)
+            await mutate('bbmacd-config')
+            setShowBBMACDSettings(false)
+            notify.success('BB MACD 参数已保存，历史统计已清空')
+        } catch (error) {
+            notify.error(error instanceof Error ? error.message : 'BB MACD 参数保存失败')
+        } finally {
+            setSavingBBMACD(false)
+        }
+    }
 
     // Calculate paginated positions
     const totalPositions = positions?.length || 0
@@ -572,9 +612,83 @@ export function TraderDashboardPage({
                         subtitle={bbmacdStatsError ? 'ALL | -- samples' : formatBBMACDSubtitle(bbmacdStats)}
                         icon="BB"
                         loading={!bbmacdStats && !bbmacdStatsError}
-                        tooltip="主数字现在只看 BB MACD 突破上轨/下轨信号，并且每个信号只选一个验证窗口，避免 3/5/10 重复计数。eff>0.3% 只统计后续涨跌超过 0.3% 的有效样本；没有有效样本时回退显示突破原始准确率。"
+                        tooltip="主数字只看 BB MACD 突破上轨/下轨信号，并且每个信号只选一个验证窗口，避免 3/5/10 重复计数。eff>0.3% 只统计后续涨跌超过 0.3% 的有效样本；没有有效样本时回退显示突破原始准确率。"
+                        actionIcon={<Settings className="w-3.5 h-3.5" />}
+                        onAction={() => setShowBBMACDSettings(true)}
                     />
                 </div>
+
+                {showBBMACDSettings && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+                        <div className="w-full max-w-md rounded-lg border border-white/10 bg-[#101418] p-5 shadow-2xl">
+                            <div className="mb-4 flex items-center justify-between">
+                                <div>
+                                    <h3 className="text-sm font-semibold text-nofx-text-main">BB MACD 参数</h3>
+                                    <p className="mt-1 text-xs text-nofx-text-muted">保存后会清空当前统计，后续重新累计。</p>
+                                </div>
+                                <button
+                                    className="rounded border border-white/10 px-2 py-1 text-xs text-nofx-text-muted hover:text-white"
+                                    onClick={() => setShowBBMACDSettings(false)}
+                                >
+                                    关闭
+                                </button>
+                            </div>
+
+                            <label className="mb-4 flex items-center gap-2 text-xs text-nofx-text-main">
+                                <input
+                                    type="checkbox"
+                                    checked={bbmacdDraft.use_custom}
+                                    onChange={(e) => setBBMACDDraft({ ...bbmacdDraft, use_custom: e.target.checked })}
+                                />
+                                使用自定义参数；关闭时使用动态参数
+                            </label>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                {([
+                                    ['fast', 'Fast'],
+                                    ['slow', 'Slow'],
+                                    ['signal', 'Signal'],
+                                    ['boll_period', 'BOLL Period'],
+                                    ['boll_multiplier', 'BOLL Multiplier'],
+                                ] as Array<[keyof BBMACDConfig, string]>).map(([key, label]) => (
+                                    <label key={key} className="text-xs text-nofx-text-muted">
+                                        {label}
+                                        <input
+                                            type="number"
+                                            step={key === 'boll_multiplier' ? '0.1' : '1'}
+                                            value={bbmacdDraft[key] as number}
+                                            onChange={(e) => {
+                                                const raw = key === 'boll_multiplier' ? parseFloat(e.target.value) : parseInt(e.target.value)
+                                                setBBMACDDraft({ ...bbmacdDraft, [key]: Number.isFinite(raw) ? raw : 0 })
+                                            }}
+                                            className="mt-1 w-full rounded border border-white/10 bg-black/30 px-3 py-2 text-sm text-nofx-text-main outline-none focus:border-nofx-gold/60"
+                                        />
+                                    </label>
+                                ))}
+                            </div>
+
+                            <div className="mt-4 rounded border border-white/10 bg-black/20 p-3 text-xs leading-relaxed text-nofx-text-muted">
+                                上行趋势可先试 8-21-5；更慢的趋势过滤可试 5-35-5。参数只影响 BB MACD 统计，不注入 AI 决策。
+                            </div>
+
+                            <div className="mt-5 flex justify-end gap-2">
+                                <button
+                                    className="rounded border border-white/10 px-4 py-2 text-xs text-nofx-text-muted hover:text-white"
+                                    onClick={() => setShowBBMACDSettings(false)}
+                                >
+                                    取消
+                                </button>
+                                <button
+                                    disabled={savingBBMACD}
+                                    className="rounded bg-nofx-gold px-4 py-2 text-xs font-semibold text-black disabled:opacity-50"
+                                    onClick={saveBBMACDConfig}
+                                >
+                                    {savingBBMACD ? '保存中...' : '保存并清空统计'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Grid Risk Panel - Only show for grid trading strategy */}
                 {status?.strategy_type === 'grid_trading' && selectedTraderId && (
@@ -869,6 +983,8 @@ function StatCard({
     icon,
     loading,
     tooltip,
+    actionIcon,
+    onAction,
 }: {
     title: string
     value: string
@@ -879,6 +995,8 @@ function StatCard({
     icon?: string
     loading?: boolean
     tooltip?: string
+    actionIcon?: ReactNode
+    onAction?: () => void
 }) {
     return (
         <div className="group nofx-glass p-5 rounded-lg transition-all duration-300 hover:bg-white/5 hover:translate-y-[-2px] border border-white/5 hover:border-nofx-gold/20 relative overflow-visible">
@@ -886,6 +1004,19 @@ function StatCard({
                 <div className="pointer-events-none absolute left-4 right-4 bottom-full z-20 mb-2 rounded-md border border-white/10 bg-black/90 px-3 py-2 text-xs leading-relaxed text-nofx-text-main opacity-0 shadow-xl transition-opacity duration-200 group-hover:opacity-100">
                     {tooltip}
                 </div>
+            )}
+            {onAction && (
+                <button
+                    type="button"
+                    className="absolute right-3 top-3 z-10 rounded border border-white/10 bg-black/30 p-1.5 text-nofx-text-muted transition-colors hover:border-nofx-gold/40 hover:text-nofx-gold"
+                    onClick={(event) => {
+                        event.stopPropagation()
+                        onAction()
+                    }}
+                    title="Settings"
+                >
+                    {actionIcon}
+                </button>
             )}
             <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity text-4xl grayscale group-hover:grayscale-0">
                 {icon}

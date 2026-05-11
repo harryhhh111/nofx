@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"nofx/logger"
+	"nofx/market"
 	"nofx/store"
 
 	"github.com/gin-gonic/gin"
@@ -124,6 +126,57 @@ func (s *Server) handleBBMACDStats(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, stats)
+}
+
+func (s *Server) handleGetBBMACDConfig(c *gin.Context) {
+	config := market.GetBBMACDConfig()
+	if raw, err := s.store.GetSystemConfig("bbmacd_config"); err == nil && raw != "" {
+		var stored market.BBMACDConfig
+		if json.Unmarshal([]byte(raw), &stored) == nil {
+			config = market.SetBBMACDConfig(stored)
+		}
+	}
+	c.JSON(http.StatusOK, config)
+}
+
+func (s *Server) handleUpdateBBMACDConfig(c *gin.Context) {
+	_, traderID, err := s.getTraderFromQuery(c)
+	if err != nil {
+		SafeBadRequest(c, "Invalid trader ID")
+		return
+	}
+
+	var req struct {
+		Config market.BBMACDConfig `json:"config"`
+		Reset  bool                `json:"reset"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid BB MACD config")
+		return
+	}
+
+	config := market.SetBBMACDConfig(req.Config)
+	raw, err := json.Marshal(config)
+	if err != nil {
+		SafeInternalError(c, "Save BB MACD config", err)
+		return
+	}
+	if err := s.store.SetSystemConfig("bbmacd_config", string(raw)); err != nil {
+		SafeInternalError(c, "Save BB MACD config", err)
+		return
+	}
+
+	if req.Reset {
+		if err := s.store.BBMACDSignal().DeleteByTrader(traderID); err != nil {
+			SafeInternalError(c, "Reset BB MACD stats", err)
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"config": config,
+		"reset":  req.Reset,
+	})
 }
 
 // handleCompetition Competition overview (compare all traders)

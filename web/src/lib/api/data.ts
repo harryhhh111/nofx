@@ -5,6 +5,7 @@ import type {
   DecisionRecord,
   Statistics,
   BBMACDAccuracyStats,
+  BBMACDConfig,
   CompetitionData,
   PositionHistoryResponse,
 } from '../../types'
@@ -91,6 +92,35 @@ export const dataApi = {
       { silent }
     )
     if (!result.success) throw new Error('Failed to fetch BB MACD stats')
+    return result.data!
+  },
+
+  async getBBMACDConfig(silent?: boolean): Promise<BBMACDConfig> {
+    const result = await httpClient.request<BBMACDConfig>(
+      `${API_BASE}/bbmacd/config`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch BB MACD config')
+    return result.data!
+  },
+
+  async updateBBMACDConfig(
+    traderId: string | undefined,
+    config: BBMACDConfig,
+    reset: boolean = true
+  ): Promise<{ config: BBMACDConfig; reset: boolean }> {
+    const params = new URLSearchParams()
+    if (traderId) {
+      params.append('trader_id', traderId)
+    }
+    const result = await httpClient.request<{ config: BBMACDConfig; reset: boolean }>(
+      `${API_BASE}/bbmacd/config?${params}`,
+      {
+        method: 'PUT',
+        data: { config, reset },
+      }
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to update BB MACD config')
     return result.data!
   },
 

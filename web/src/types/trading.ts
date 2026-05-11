@@ -124,6 +124,15 @@ export interface BBMACDTimeframeStat {
   effective: BBMACDAccuracySummary
 }
 
+export interface BBMACDConfig {
+  use_custom: boolean
+  fast: number
+  slow: number
+  signal: number
+  boll_period: number
+  boll_multiplier: number
+}
+
 export interface BBMACDAccuracyStats {
   trader_id: string
   days: number

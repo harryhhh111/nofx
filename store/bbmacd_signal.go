@@ -123,6 +123,16 @@ func (s *BBMACDSignalStore) CreateMany(signals []*BBMACDSignal) error {
 	return nil
 }
 
+func (s *BBMACDSignalStore) DeleteByTrader(traderID string) error {
+	if traderID == "" {
+		return nil
+	}
+	if err := s.db.Where("trader_id = ?", traderID).Delete(&BBMACDSignal{}).Error; err != nil {
+		return fmt.Errorf("failed to delete BB MACD signals: %w", err)
+	}
+	return nil
+}
+
 func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAccuracyStats, error) {
 	var signals []BBMACDSignal
 	query := s.db.Where("trader_id = ?", traderID)

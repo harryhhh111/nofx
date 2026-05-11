@@ -1,6 +1,9 @@
 package market
 
-import "math"
+import (
+	"math"
+	"sync"
+)
 
 const (
 	bbMACDRegimeTrend    = "trend"
@@ -14,7 +17,19 @@ const (
 	bbMACDStateNeutral         = "neutral"
 )
 
+type BBMACDConfig struct {
+	UseCustom      bool    `json:"use_custom"`
+	Fast           int     `json:"fast"`
+	Slow           int     `json:"slow"`
+	Signal         int     `json:"signal"`
+	BOLLPeriod     int     `json:"boll_period"`
+	BOLLMultiplier float64 `json:"boll_multiplier"`
+}
+
 var (
+	bbMACDConfigMu sync.RWMutex
+	bbMACDConfig   = DefaultBBMACDConfig()
+
 	bbMACDTrendParams = BBMACDParams{
 		Fast:           8,
 		Slow:           21,
@@ -37,6 +52,31 @@ var (
 		BOLLMultiplier: 2.5,
 	}
 )
+
+func DefaultBBMACDConfig() BBMACDConfig {
+	return BBMACDConfig{
+		UseCustom:      false,
+		Fast:           8,
+		Slow:           21,
+		Signal:         5,
+		BOLLPeriod:     20,
+		BOLLMultiplier: 2.0,
+	}
+}
+
+func GetBBMACDConfig() BBMACDConfig {
+	bbMACDConfigMu.RLock()
+	defer bbMACDConfigMu.RUnlock()
+	return bbMACDConfig
+}
+
+func SetBBMACDConfig(config BBMACDConfig) BBMACDConfig {
+	config = normalizeBBMACDConfig(config)
+	bbMACDConfigMu.Lock()
+	bbMACDConfig = config
+	bbMACDConfigMu.Unlock()
+	return config
+}
 
 func calculateBBMACD(klines []Kline) *BBMACDData {
 	regime, params := selectBBMACDParams(klines)
@@ -95,6 +135,17 @@ func calculateBBMACD(klines []Kline) *BBMACDData {
 }
 
 func selectBBMACDParams(klines []Kline) (string, BBMACDParams) {
+	config := GetBBMACDConfig()
+	if config.UseCustom {
+		return "custom", BBMACDParams{
+			Fast:           config.Fast,
+			Slow:           config.Slow,
+			Signal:         config.Signal,
+			BOLLPeriod:     config.BOLLPeriod,
+			BOLLMultiplier: config.BOLLMultiplier,
+		}
+	}
+
 	if len(klines) < 50 {
 		return bbMACDRegimeRange, bbMACDRangeParams
 	}
@@ -139,6 +190,46 @@ func selectBBMACDParams(klines []Kline) (string, BBMACDParams) {
 		return bbMACDRegimeTrend, bbMACDTrendParams
 	}
 	return bbMACDRegimeRange, bbMACDRangeParams
+}
+
+func normalizeBBMACDConfig(config BBMACDConfig) BBMACDConfig {
+	if config.Fast <= 0 {
+		config.Fast = 8
+	}
+	if config.Slow <= config.Fast {
+		config.Slow = config.Fast + 1
+	}
+	if config.Signal <= 0 {
+		config.Signal = 5
+	}
+	if config.BOLLPeriod <= 0 {
+		config.BOLLPeriod = 20
+	}
+	if config.BOLLMultiplier <= 0 {
+		config.BOLLMultiplier = 2.0
+	}
+	if config.Fast < 2 {
+		config.Fast = 2
+	}
+	if config.Fast > 50 {
+		config.Fast = 50
+	}
+	if config.Slow > 100 {
+		config.Slow = 100
+	}
+	if config.Slow <= config.Fast {
+		config.Slow = config.Fast + 1
+	}
+	if config.Signal > 50 {
+		config.Signal = 50
+	}
+	if config.BOLLPeriod > 100 {
+		config.BOLLPeriod = 100
+	}
+	if config.BOLLMultiplier > 5 {
+		config.BOLLMultiplier = 5
+	}
+	return config
 }
 
 func calculateMACDSeries(klines []Kline, fast, slow int) []float64 {
