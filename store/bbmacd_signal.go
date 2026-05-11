@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -63,6 +64,13 @@ type BBMACDStateStat struct {
 	BBMACDAccuracyBucket
 }
 
+type BBMACDTimeframeStat struct {
+	Timeframe string                `json:"timeframe"`
+	Signals   int                   `json:"signals"`
+	Overall   BBMACDAccuracySummary `json:"overall"`
+	Effective BBMACDAccuracySummary `json:"effective"`
+}
+
 type BBMACDAccuracyStats struct {
 	TraderID              string                `json:"trader_id"`
 	Days                  int                   `json:"days"`
@@ -70,9 +78,12 @@ type BBMACDAccuracyStats struct {
 	EffectiveThresholdPct float64               `json:"effective_threshold_pct"`
 	Overall               BBMACDAccuracySummary `json:"overall"`
 	Effective             BBMACDAccuracySummary `json:"effective"`
+	BreakoutOverall       BBMACDAccuracySummary `json:"breakout_overall"`
+	BreakoutEffective     BBMACDAccuracySummary `json:"breakout_effective"`
 	Directional           BBMACDAccuracyBucket  `json:"directional"`
 	Breakout              BBMACDAccuracyBucket  `json:"breakout"`
 	ByState               []BBMACDStateStat     `json:"by_state"`
+	ByTimeframe           []BBMACDTimeframeStat `json:"by_timeframe"`
 }
 
 func (BBMACDSignal) TableName() string {
@@ -130,6 +141,7 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 		EffectiveThresholdPct: bbMACDEffectiveMovePct,
 	}
 	byState := make(map[string]*BBMACDStateStat)
+	byTimeframe := make(map[string]*BBMACDTimeframeStat)
 	grouped := make(map[string][]BBMACDSignal)
 	for _, signal := range signals {
 		key := signal.Symbol + "|" + signal.Timeframe
@@ -149,6 +161,7 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 			if signal.State == "bullish_breakout" || signal.State == "bearish_breakout" {
 				stats.Breakout.Total++
 			}
+			preferredHorizon := bbmacdValidationHorizon(signal.Timeframe)
 			for _, horizon := range []int{3, 5, 10} {
 				if i+horizon >= len(group) {
 					continue
@@ -162,6 +175,20 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 				}
 				if signal.State == "bullish_breakout" || signal.State == "bearish_breakout" {
 					applyBBMACDResult(&stats.Breakout, horizon, correct, ret)
+					if horizon == preferredHorizon {
+						directionalReturn := ret * float64(direction)
+						applyBBMACDSummaryResult(&stats.BreakoutOverall, directionalReturn, 0)
+						applyBBMACDEffectiveResult(&stats.BreakoutEffective, directionalReturn, bbMACDEffectiveMovePct)
+
+						tfStat := byTimeframe[signal.Timeframe]
+						if tfStat == nil {
+							tfStat = &BBMACDTimeframeStat{Timeframe: signal.Timeframe}
+							byTimeframe[signal.Timeframe] = tfStat
+						}
+						tfStat.Signals++
+						applyBBMACDSummaryResult(&tfStat.Overall, directionalReturn, 0)
+						applyBBMACDEffectiveResult(&tfStat.Effective, directionalReturn, bbMACDEffectiveMovePct)
+					}
 				}
 			}
 		}
@@ -174,8 +201,19 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 	}
 	stats.Overall = summarizeBBMACDBucket(&stats.Directional)
 	finalizeBBMACDSummary(&stats.Effective)
+	finalizeBBMACDSummary(&stats.BreakoutOverall)
+	finalizeBBMACDSummary(&stats.BreakoutEffective)
 	finalizeBBMACDBucket(&stats.Directional)
 	finalizeBBMACDBucket(&stats.Breakout)
+	stats.ByTimeframe = make([]BBMACDTimeframeStat, 0, len(byTimeframe))
+	for _, stat := range byTimeframe {
+		finalizeBBMACDSummary(&stat.Overall)
+		finalizeBBMACDSummary(&stat.Effective)
+		stats.ByTimeframe = append(stats.ByTimeframe, *stat)
+	}
+	sort.Slice(stats.ByTimeframe, func(i, j int) bool {
+		return bbmacdTimeframeRank(stats.ByTimeframe[i].Timeframe) < bbmacdTimeframeRank(stats.ByTimeframe[j].Timeframe)
+	})
 	return stats, nil
 }
 
@@ -256,10 +294,57 @@ func applyBBMACDEffectiveResult(summary *BBMACDAccuracySummary, directionalRetur
 	}
 }
 
+func applyBBMACDSummaryResult(summary *BBMACDAccuracySummary, directionalReturn, threshold float64) {
+	if directionalReturn > threshold {
+		summary.Resolved++
+		summary.Correct++
+		summary.AvgReturn += directionalReturn
+		return
+	}
+	if directionalReturn < -threshold || threshold == 0 {
+		summary.Resolved++
+		summary.AvgReturn += directionalReturn
+	}
+}
+
 func finalizeBBMACDSummary(summary *BBMACDAccuracySummary) {
 	if summary.Resolved == 0 {
 		return
 	}
 	summary.Accuracy = float64(summary.Correct) / float64(summary.Resolved) * 100
 	summary.AvgReturn = summary.AvgReturn / float64(summary.Resolved)
+}
+
+func bbmacdValidationHorizon(timeframe string) int {
+	switch timeframe {
+	case "1m", "3m", "5m":
+		return 3
+	case "15m", "30m":
+		return 5
+	default:
+		return 10
+	}
+}
+
+func bbmacdTimeframeRank(timeframe string) int {
+	switch timeframe {
+	case "1m":
+		return 1
+	case "3m":
+		return 3
+	case "5m":
+		return 5
+	case "15m":
+		return 15
+	case "30m":
+		return 30
+	case "1h":
+		return 60
+	case "4h":
+		return 240
+	case "1d":
+		return 1440
+	default:
+		return 100000
+	}
 }

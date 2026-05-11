@@ -519,7 +519,7 @@ export function IndicatorEditor({
                   }
                   disabled={disabled}
                   min={10}
-                  max={30}
+                  max={100}
                   className="w-16 px-2 py-1 rounded text-xs text-center"
                   style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
                 />

@@ -16,7 +16,7 @@ const (
 	MaxPositions      = 3
 	MaxTimeframes     = 5
 	MinKlineCount     = 10
-	MaxKlineCount     = 30
+	MaxKlineCount     = 100
 
 	DefaultMinConfidence      = 75
 	MinMinConfidence          = 60
@@ -298,11 +298,11 @@ type KlineConfig struct {
 
 // ExternalDataSource external data source configuration
 type ExternalDataSource struct {
-	Name        string            `json:"name"`   // data source name
-	Type        string            `json:"type"`   // type: "api" | "webhook"
-	URL         string            `json:"url"`    // API URL
-	Method      string            `json:"method"` // HTTP method
-	Headers     map[string]string `json:"headers,omitempty"`
+	Name         string            `json:"name"`   // data source name
+	Type         string            `json:"type"`   // type: "api" | "webhook"
+	URL          string            `json:"url"`    // API URL
+	Method       string            `json:"method"` // HTTP method
+	Headers      map[string]string `json:"headers,omitempty"`
 	DataPath     string            `json:"data_path,omitempty"`     // JSON data path
 	RefreshSecs  int               `json:"refresh_secs,omitempty"`  // refresh interval (seconds)
 	Description  string            `json:"description,omitempty"`   // AI interpretation hint

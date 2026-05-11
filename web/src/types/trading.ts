@@ -117,6 +117,13 @@ export interface BBMACDStateStat extends BBMACDAccuracyBucket {
   state: string
 }
 
+export interface BBMACDTimeframeStat {
+  timeframe: string
+  signals: number
+  overall: BBMACDAccuracySummary
+  effective: BBMACDAccuracySummary
+}
+
 export interface BBMACDAccuracyStats {
   trader_id: string
   days: number
@@ -124,9 +131,12 @@ export interface BBMACDAccuracyStats {
   effective_threshold_pct: number
   overall: BBMACDAccuracySummary
   effective: BBMACDAccuracySummary
+  breakout_overall: BBMACDAccuracySummary
+  breakout_effective: BBMACDAccuracySummary
   directional: BBMACDAccuracyBucket
   breakout: BBMACDAccuracyBucket
   by_state: BBMACDStateStat[]
+  by_timeframe: BBMACDTimeframeStat[]
 }
 
 // AI Trading相关类型

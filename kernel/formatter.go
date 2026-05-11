@@ -394,10 +394,10 @@ func formatKlineDataZH(symbol string, tfData map[string]*market.TimeframeSeriesD
 			sb.WriteString("```\n")
 			sb.WriteString("时间(UTC)      开盘      最高      最低      收盘      成交量\n")
 
-			// Only show the latest 30 klines
+			// Only show the latest 100 klines to keep prompts bounded.
 			startIdx := 0
-			if len(data.Klines) > 30 {
-				startIdx = len(data.Klines) - 30
+			if len(data.Klines) > 100 {
+				startIdx = len(data.Klines) - 100
 			}
 
 			for i := startIdx; i < len(data.Klines); i++ {
@@ -654,8 +654,8 @@ func formatKlineDataEN(symbol string, tfData map[string]*market.TimeframeSeriesD
 			sb.WriteString("Time(UTC)      Open      High      Low       Close     Volume\n")
 
 			startIdx := 0
-			if len(data.Klines) > 30 {
-				startIdx = len(data.Klines) - 30
+			if len(data.Klines) > 100 {
+				startIdx = len(data.Klines) - 100
 			}
 
 			for i := startIdx; i < len(data.Klines); i++ {

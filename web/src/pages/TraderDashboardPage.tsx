@@ -94,21 +94,21 @@ function truncateAddress(address: string, startLen = 6, endLen = 4): string {
 }
 
 function formatBBMACDAccuracy(stats?: BBMACDAccuracyStats): string {
-    if ((stats?.effective?.resolved ?? 0) > 0) {
-        return `${stats!.effective.accuracy.toFixed(1)}`
+    if ((stats?.breakout_effective?.resolved ?? 0) > 0) {
+        return `${stats!.breakout_effective.accuracy.toFixed(1)}`
     }
-    if ((stats?.overall?.resolved ?? 0) > 0) {
-        return `${stats!.overall.accuracy.toFixed(1)}`
+    if ((stats?.breakout_overall?.resolved ?? 0) > 0) {
+        return `${stats!.breakout_overall.accuracy.toFixed(1)}`
     }
     return '--'
 }
 
 function formatBBMACDSubtitle(stats?: BBMACDAccuracyStats): string {
     if (!stats) return 'ALL | -- samples'
-    const rawAccuracy = stats.overall.resolved > 0 ? `${stats.overall.accuracy.toFixed(1)}%` : '--'
+    const rawAccuracy = stats.breakout_overall.resolved > 0 ? `${stats.breakout_overall.accuracy.toFixed(1)}%` : '--'
     const threshold = stats.effective_threshold_pct?.toFixed(1) ?? '0.3'
-    const label = stats.effective.resolved > 0 ? 'eff' : 'raw'
-    return `${label} | raw ${rawAccuracy} | eff>${threshold}% ${stats.effective.resolved}/${stats.overall.resolved}`
+    const label = stats.breakout_effective.resolved > 0 ? 'breakout eff' : 'breakout raw'
+    return `${label} | raw ${rawAccuracy} | eff>${threshold}% ${stats.breakout_effective.resolved}/${stats.breakout_overall.resolved}`
 }
 
 // --- Components ---
@@ -568,11 +568,11 @@ export function TraderDashboardPage({
                     <StatCard
                         title="BB MACD"
                         value={bbmacdStatsError ? '--' : formatBBMACDAccuracy(bbmacdStats)}
-                        unit={(bbmacdStats?.effective?.resolved || bbmacdStats?.overall?.resolved) ? '%' : undefined}
+                        unit={(bbmacdStats?.breakout_effective?.resolved || bbmacdStats?.breakout_overall?.resolved) ? '%' : undefined}
                         subtitle={bbmacdStatsError ? 'ALL | -- samples' : formatBBMACDSubtitle(bbmacdStats)}
                         icon="BB"
                         loading={!bbmacdStats && !bbmacdStatsError}
-                        tooltip="主数字优先显示有效准确率；如果暂时没有有效样本，则回退显示原始准确率。raw 是所有方向验证的原始准确率；eff>0.3% 只统计后续涨跌超过 0.3% 的有效样本。"
+                        tooltip="主数字现在只看 BB MACD 突破上轨/下轨信号，并且每个信号只选一个验证窗口，避免 3/5/10 重复计数。eff>0.3% 只统计后续涨跌超过 0.3% 的有效样本；没有有效样本时回退显示突破原始准确率。"
                     />
                 </div>
 
