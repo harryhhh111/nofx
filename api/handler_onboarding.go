@@ -54,7 +54,7 @@ func (s *Server) handleBeginnerOnboarding(c *gin.Context) {
 	}
 
 	if !reusedExisting {
-		if err := s.store.AIModel().Update(userID, "claw402", true, privateKey, "", "glm-5"); err != nil {
+		if err := s.store.AIModel().Update(userID, "claw402", true, privateKey, "", "glm-5", ""); err != nil {
 			logger.Errorf("Failed to save beginner claw402 config for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save beginner model configuration"})
 			return

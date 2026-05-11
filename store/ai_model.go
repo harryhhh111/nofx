@@ -152,7 +152,8 @@ func (s *AIModelStore) GetAnyEnabled() (*AIModel, error) {
 
 // Update updates AI model, creates if not exists
 // IMPORTANT: If apiKey is empty string, the existing API key will be preserved (not overwritten)
-func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPIURL, customModelName string) error {
+// IMPORTANT: If displayName is empty string, the existing name will be preserved (not overwritten)
+func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPIURL, customModelName, displayName string) error {
 	// Try exact ID match first
 	var existingModel AIModel
 	err := s.db.Where("user_id = ? AND id = ?", userID, id).First(&existingModel).Error
@@ -168,38 +169,44 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		if apiKey != "" {
 			updates["api_key"] = crypto.EncryptedString(apiKey)
 		}
+		// If displayName is not empty, update it
+		if displayName != "" {
+			updates["name"] = displayName
+		}
 		return s.db.Model(&existingModel).Updates(updates).Error
 	}
 
-	// Try legacy logic compatibility: use id as provider to search
+	// Determine provider from id
 	provider := id
-	err = s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&existingModel).Error
-	if err == nil {
-		logger.Warnf("⚠️ Using legacy provider matching to update model: %s -> %s", provider, existingModel.ID)
-		updates := map[string]interface{}{
-			"enabled":           enabled,
-			"custom_api_url":    customAPIURL,
-			"custom_model_name": customModelName,
-			"updated_at":        time.Now().UTC(),
-		}
-		if apiKey != "" {
-			updates["api_key"] = crypto.EncryptedString(apiKey)
-		}
-		return s.db.Model(&existingModel).Updates(updates).Error
-	}
-
-	// Create new record
-	if provider == id && (provider == "deepseek" || provider == "qwen") {
-		provider = id
-	} else {
+	if id != "deepseek" && id != "qwen" {
 		parts := strings.Split(id, "_")
 		if len(parts) >= 2 {
 			provider = parts[len(parts)-1]
-		} else {
-			provider = id
 		}
 	}
 
+	// Backward compatibility: if id is a standard provider name, try old format ID {userID}_{provider}
+	if id == provider {
+		oldFormatID := fmt.Sprintf("%s_%s", userID, provider)
+		err = s.db.Where("user_id = ? AND id = ?", userID, oldFormatID).First(&existingModel).Error
+		if err == nil {
+			updates := map[string]interface{}{
+				"enabled":           enabled,
+				"custom_api_url":    customAPIURL,
+				"custom_model_name": customModelName,
+				"updated_at":        time.Now().UTC(),
+			}
+			if apiKey != "" {
+				updates["api_key"] = crypto.EncryptedString(apiKey)
+			}
+			if displayName != "" {
+				updates["name"] = displayName
+			}
+			return s.db.Model(&existingModel).Updates(updates).Error
+		}
+	}
+
+	// Create new record
 	// Try to get name from existing model with same provider
 	var refModel AIModel
 	var name string
@@ -215,9 +222,15 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		}
 	}
 
-	newModelID := id
+	var newModelID string
 	if id == provider {
-		newModelID = fmt.Sprintf("%s_%s", userID, provider)
+		if customModelName != "" {
+			newModelID = fmt.Sprintf("%s_%s_%s", userID, provider, customModelName)
+		} else {
+			newModelID = fmt.Sprintf("%s_%s", userID, provider)
+		}
+	} else {
+		newModelID = fmt.Sprintf("%s_%s_%s", userID, provider, customModelName)
 	}
 
 	logger.Infof("✓ Creating new AI model configuration: ID=%s, Provider=%s, Name=%s", newModelID, provider, name)
