@@ -93,7 +93,7 @@ func (s *Server) handleStatistics(c *gin.Context) {
 		return
 	}
 
-	stats, err := trader.GetStore().Decision().GetStatistics(trader.GetID())
+	stats, err := trader.GetStore().Position().GetFullStats(trader.GetID())
 	if err != nil {
 		SafeInternalError(c, "Get statistics", err)
 		return
