@@ -181,7 +181,9 @@ func (s *BBMACDSignalStore) AccuracyStats(traderID string, days int) (*BBMACDAcc
 				applyBBMACDResult(&byState[signal.State].BBMACDAccuracyBucket, horizon, correct, ret)
 				if direction != 0 {
 					applyBBMACDResult(&stats.Directional, horizon, correct, ret)
-					applyBBMACDEffectiveResult(&stats.Effective, ret*float64(direction), bbMACDEffectiveMovePct)
+					if horizon == preferredHorizon {
+						applyBBMACDEffectiveResult(&stats.Effective, ret*float64(direction), bbMACDEffectiveMovePct)
+					}
 				}
 				if signal.State == "bullish_breakout" || signal.State == "bearish_breakout" {
 					applyBBMACDResult(&stats.Breakout, horizon, correct, ret)

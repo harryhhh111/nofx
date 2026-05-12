@@ -108,9 +108,9 @@ func calculateBBMACD(klines []Kline) *BBMACDData {
 		state = bbMACDStateBullishBreakout
 	case macd < lower:
 		state = bbMACDStateBearishBreakout
-	case macd > signal && histogram > 0:
+	case histogram > 0:
 		state = bbMACDStateBullishMomentum
-	case macd < signal && histogram < 0:
+	case histogram < 0:
 		state = bbMACDStateBearishMomentum
 	}
 
