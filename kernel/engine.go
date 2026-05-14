@@ -334,6 +334,7 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 		claw402Client, err := nofxos.NewClaw402DataClient(claw402URL, walletKey, &logger.MCPLogger{})
 		if err == nil {
 			client.SetClaw402(claw402Client)
+			nofxos.SetAI500GlobalClient(client)
 			logger.Infof("🔗 NofxOS data routed through claw402 (%s)", claw402URL)
 		} else {
 			logger.Warnf("⚠️ Failed to init claw402 data client: %v (using direct nofxos.ai)", err)

@@ -5,11 +5,78 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
 // AI500 cache TTL - all strategies/users share the same cached data
 const ai500CacheTTL = 30 * time.Minute
+
+// Global AI500 cache and request client — shared across all Client instances.
+// Any user with a claw402 wallet registers their client here, and all users
+// share the cached data (first requester pays, rest get it free).
+var (
+	ai500GlobalCache     []CoinData
+	ai500GlobalCacheTime time.Time
+	ai500GlobalCacheMu   sync.RWMutex
+	ai500GlobalClient    *Client       // global request client (claw402-enabled preferred)
+	ai500GlobalClientMu  sync.Mutex
+	ai500Singleflight    singleFlight  // merges concurrent cache-miss requests
+)
+
+// simple singleflight: ensures only one in-flight request at a time for AI500
+type singleFlight struct {
+	mu   sync.Mutex
+	call chan struct{} // non-nil while a request is in flight
+}
+
+// Do executes fn only if no other call is in flight; otherwise waits and returns the cached result.
+func (sf *singleFlight) Do(fn func() ([]CoinData, error)) ([]CoinData, error) {
+	sf.mu.Lock()
+	if sf.call != nil {
+		// Another request is in flight — wait for it, then read cache
+		waitCh := sf.call
+		sf.mu.Unlock()
+		<-waitCh
+		// Cache should now be populated; read it
+		ai500GlobalCacheMu.RLock()
+		if ai500GlobalCache != nil {
+			result := make([]CoinData, len(ai500GlobalCache))
+			copy(result, ai500GlobalCache)
+			ai500GlobalCacheMu.RUnlock()
+			return result, nil
+		}
+		ai500GlobalCacheMu.RUnlock()
+		// Cache still empty after wait (the in-flight request failed) — fall through to try ourselves
+		sf.mu.Lock()
+	}
+	// Mark as in-flight
+	done := make(chan struct{})
+	sf.call = done
+	sf.mu.Unlock()
+
+	defer func() {
+		sf.mu.Lock()
+		sf.call = nil
+		close(done)
+		sf.mu.Unlock()
+	}()
+
+	return fn()
+}
+
+// SetAI500GlobalClient registers a Client for global AI500 data fetching.
+// A client with claw402 always overrides one without (ensures payment routing
+// is upgraded even if a non-claw402 client registered first).
+func SetAI500GlobalClient(client *Client) {
+	ai500GlobalClientMu.Lock()
+	defer ai500GlobalClientMu.Unlock()
+	hasClaw402 := client.claw402 != nil
+	if ai500GlobalClient == nil || hasClaw402 {
+		ai500GlobalClient = client
+		log.Printf("🔗 AI500 global client registered (claw402: %v)", hasClaw402)
+	}
+}
 
 // CoinData represents AI500 coin information
 type CoinData struct {
@@ -33,21 +100,61 @@ type AI500Response struct {
 	} `json:"data"`
 }
 
-// GetAI500List retrieves AI500 coin list with caching.
-// Results are cached for ai500CacheTTL and shared across all callers.
-func (c *Client) GetAI500List() ([]CoinData, error) {
-	// Check cache first (read lock)
-	c.ai500CacheMu.RLock()
-	if c.ai500Cache != nil && time.Since(c.ai500CacheTime) < ai500CacheTTL {
-		result := make([]CoinData, len(c.ai500Cache))
-		copy(result, c.ai500Cache)
-		c.ai500CacheMu.RUnlock()
-		log.Printf("✓ AI500 cache hit (%d coins, cached %v ago)", len(result), time.Since(c.ai500CacheTime).Round(time.Second))
+// GetAI500ListGlobal retrieves AI500 coin list from the global cache.
+// All users share the same cached data. On cache miss, the global client
+// (registered via SetAI500GlobalClient) is used to fetch data.
+// Concurrent cache-miss calls are merged via singleflight to avoid duplicate requests.
+func GetAI500ListGlobal() ([]CoinData, error) {
+	// Check global cache first (read lock)
+	ai500GlobalCacheMu.RLock()
+	if ai500GlobalCache != nil && time.Since(ai500GlobalCacheTime) < ai500CacheTTL {
+		result := make([]CoinData, len(ai500GlobalCache))
+		copy(result, ai500GlobalCache)
+		ai500GlobalCacheMu.RUnlock()
+		log.Printf("✓ AI500 global cache hit (%d coins, cached %v ago)", len(result), time.Since(ai500GlobalCacheTime).Round(time.Second))
 		return result, nil
 	}
-	c.ai500CacheMu.RUnlock()
+	ai500GlobalCacheMu.RUnlock()
 
-	// Cache miss or expired - fetch from API with retry
+	// Cache miss — singleflight ensures only one in-flight request
+	return ai500Singleflight.Do(func() ([]CoinData, error) {
+		// Double-check cache after winning singleflight (another goroutine might have just filled it)
+		ai500GlobalCacheMu.RLock()
+		if ai500GlobalCache != nil && time.Since(ai500GlobalCacheTime) < ai500CacheTTL {
+			result := make([]CoinData, len(ai500GlobalCache))
+			copy(result, ai500GlobalCache)
+			ai500GlobalCacheMu.RUnlock()
+			return result, nil
+		}
+		ai500GlobalCacheMu.RUnlock()
+
+		// Use global client or fall back to DefaultClient
+		ai500GlobalClientMu.Lock()
+		client := ai500GlobalClient
+		if client == nil {
+			client = DefaultClient()
+			log.Printf("⚠️  No global AI500 client registered, using DefaultClient")
+		}
+		ai500GlobalClientMu.Unlock()
+
+		coins, err := fetchAI500WithRetry(client)
+		if err != nil {
+			return nil, err
+		}
+
+		// Update global cache (write lock)
+		ai500GlobalCacheMu.Lock()
+		ai500GlobalCache = make([]CoinData, len(coins))
+		copy(ai500GlobalCache, coins)
+		ai500GlobalCacheTime = time.Now()
+		ai500GlobalCacheMu.Unlock()
+
+		return coins, nil
+	})
+}
+
+// fetchAI500WithRetry fetches AI500 data with retry mechanism
+func fetchAI500WithRetry(client *Client) ([]CoinData, error) {
 	maxRetries := 3
 	var lastErr error
 
@@ -57,19 +164,11 @@ func (c *Client) GetAI500List() ([]CoinData, error) {
 			time.Sleep(2 * time.Second)
 		}
 
-		coins, err := c.fetchAI500()
+		coins, err := client.fetchAI500()
 		if err == nil {
 			if attempt > 1 {
 				log.Printf("✓ Retry attempt %d succeeded", attempt)
 			}
-
-			// Update cache (write lock)
-			c.ai500CacheMu.Lock()
-			c.ai500Cache = make([]CoinData, len(coins))
-			copy(c.ai500Cache, coins)
-			c.ai500CacheTime = time.Now()
-			c.ai500CacheMu.Unlock()
-
 			return coins, nil
 		}
 
@@ -78,6 +177,11 @@ func (c *Client) GetAI500List() ([]CoinData, error) {
 	}
 
 	return nil, fmt.Errorf("all AI500 API requests failed: %w", lastErr)
+}
+
+// GetAI500List delegates to the global cache function.
+func (c *Client) GetAI500List() ([]CoinData, error) {
+	return GetAI500ListGlobal()
 }
 
 func (c *Client) fetchAI500() ([]CoinData, error) {
@@ -113,14 +217,13 @@ func (c *Client) fetchAI500() ([]CoinData, error) {
 	return coins, nil
 }
 
-// GetTopRatedCoins retrieves top N coins by score (sorted descending)
-func (c *Client) GetTopRatedCoins(limit int) ([]string, error) {
-	coins, err := c.GetAI500List()
+// GetTopRatedCoinsGlobal retrieves top N coins by score from the global cache.
+func GetTopRatedCoinsGlobal(limit int) ([]string, error) {
+	coins, err := GetAI500ListGlobal()
 	if err != nil {
 		return nil, err
 	}
 
-	// Filter available coins
 	var availableCoins []CoinData
 	for _, coin := range coins {
 		if coin.IsAvailable {
@@ -129,7 +232,6 @@ func (c *Client) GetTopRatedCoins(limit int) ([]string, error) {
 	}
 
 	if len(availableCoins) == 0 {
-		// Empty list is normal - just return empty slice, not an error
 		return []string{}, nil
 	}
 
@@ -142,7 +244,6 @@ func (c *Client) GetTopRatedCoins(limit int) ([]string, error) {
 		}
 	}
 
-	// Take top N
 	maxCount := limit
 	if len(availableCoins) < maxCount {
 		maxCount = len(availableCoins)
@@ -157,9 +258,14 @@ func (c *Client) GetTopRatedCoins(limit int) ([]string, error) {
 	return symbols, nil
 }
 
-// GetAvailableCoins retrieves all available coin symbols
-func (c *Client) GetAvailableCoins() ([]string, error) {
-	coins, err := c.GetAI500List()
+// GetTopRatedCoins delegates to the global cache function.
+func (c *Client) GetTopRatedCoins(limit int) ([]string, error) {
+	return GetTopRatedCoinsGlobal(limit)
+}
+
+// GetAvailableCoinsGlobal retrieves all available coin symbols from the global cache.
+func GetAvailableCoinsGlobal() ([]string, error) {
+	coins, err := GetAI500ListGlobal()
 	if err != nil {
 		return nil, err
 	}
@@ -172,8 +278,12 @@ func (c *Client) GetAvailableCoins() ([]string, error) {
 		}
 	}
 
-	// Empty list is normal - just return empty slice, not an error
 	return symbols, nil
+}
+
+// GetAvailableCoins delegates to the global cache function.
+func (c *Client) GetAvailableCoins() ([]string, error) {
+	return GetAvailableCoinsGlobal()
 }
 
 // NormalizeSymbol normalizes coin symbol to XXXUSDT format
