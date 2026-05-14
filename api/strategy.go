@@ -190,7 +190,7 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 	if req.Config == nil {
 		lang := req.Lang
 		if lang == "" {
-			lang = "zh"
+			lang = "en"
 		}
 		defaultCfg := store.GetDefaultStrategyConfig(lang)
 		req.Config = &defaultCfg

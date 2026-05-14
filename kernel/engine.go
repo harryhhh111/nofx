@@ -360,8 +360,8 @@ func (e *StrategyEngine) GetLanguage() Language {
 	case "en":
 		return LangEnglish
 	default:
-		// Fall back to auto-detection from prompt content for backward compatibility
-		return detectLanguage(e.config.PromptSections.RoleDefinition)
+		// Default to English when language is not explicitly set
+		return LangEnglish
 	}
 }
 
