@@ -65,6 +65,14 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.MaxPositions = MaxPositions
 	}
 
+	// Default position value ratios when not provided (zero means unset)
+	if c.RiskControl.BTCETHMaxPositionValueRatio <= 0 {
+		c.RiskControl.BTCETHMaxPositionValueRatio = 5.0
+	}
+	if c.RiskControl.AltcoinMaxPositionValueRatio <= 0 {
+		c.RiskControl.AltcoinMaxPositionValueRatio = 1.0
+	}
+
 	// Clamp AI confidence thresholds to safe product ranges.
 	if c.RiskControl.MinConfidence <= 0 {
 		c.RiskControl.MinConfidence = DefaultMinConfidence
