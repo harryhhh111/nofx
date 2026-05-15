@@ -73,6 +73,14 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.AltcoinMaxPositionValueRatio = 1.0
 	}
 
+	// Default margin usage and min position size when not provided
+	if c.RiskControl.MaxMarginUsage <= 0 {
+		c.RiskControl.MaxMarginUsage = 0.9
+	}
+	if c.RiskControl.MinPositionSize <= 0 {
+		c.RiskControl.MinPositionSize = 12.0
+	}
+
 	// Clamp AI confidence thresholds to safe product ranges.
 	if c.RiskControl.MinConfidence <= 0 {
 		c.RiskControl.MinConfidence = DefaultMinConfidence
