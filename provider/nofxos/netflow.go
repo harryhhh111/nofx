@@ -41,22 +41,27 @@ type NetFlowRankingData struct {
 	FetchedAt            time.Time         `json:"fetched_at"`
 }
 
-// GetNetFlowRanking retrieves NetFlow ranking data (institution/personal, top/low)
-func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingData, error) {
+// GetNetFlowRankingGlobal retrieves NetFlow ranking data from the global cache.
+func GetNetFlowRankingGlobal(duration string, limit int) (*NetFlowRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
 	if limit <= 0 {
 		limit = 10
 	}
+	return netflowCache.Get(func() (*NetFlowRankingData, error) {
+		return fetchNetFlowData(GetGlobalClient(), duration, limit)
+	})
+}
 
+// fetchNetFlowData fetches NetFlow ranking data from the API.
+func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRankingData, error) {
 	result := &NetFlowRankingData{
 		Duration:  duration,
 		FetchedAt: time.Now(),
 	}
 
-	// Fetch institution futures top (inflow)
-	positions, timeRange, err := c.fetchNetFlowRanking("top", duration, limit, "institution", "future")
+	positions, timeRange, err := client.fetchNetFlowRanking("top", duration, limit, "institution", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch institution future inflow ranking: %v", err)
 	} else {
@@ -64,24 +69,21 @@ func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingD
 		result.TimeRange = timeRange
 	}
 
-	// Fetch institution futures low (outflow)
-	positions, _, err = c.fetchNetFlowRanking("low", duration, limit, "institution", "future")
+	positions, _, err = client.fetchNetFlowRanking("low", duration, limit, "institution", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch institution future outflow ranking: %v", err)
 	} else {
 		result.InstitutionFutureLow = positions
 	}
 
-	// Fetch personal futures top (retail inflow)
-	positions, _, err = c.fetchNetFlowRanking("top", duration, limit, "personal", "future")
+	positions, _, err = client.fetchNetFlowRanking("top", duration, limit, "personal", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch personal future inflow ranking: %v", err)
 	} else {
 		result.PersonalFutureTop = positions
 	}
 
-	// Fetch personal futures low (retail outflow)
-	positions, _, err = c.fetchNetFlowRanking("low", duration, limit, "personal", "future")
+	positions, _, err = client.fetchNetFlowRanking("low", duration, limit, "personal", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch personal future outflow ranking: %v", err)
 	} else {
@@ -93,6 +95,11 @@ func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingD
 		len(result.PersonalFutureTop), len(result.PersonalFutureLow), duration)
 
 	return result, nil
+}
+
+// GetNetFlowRanking delegates to the global cache function.
+func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingData, error) {
+	return GetNetFlowRankingGlobal(duration, limit)
 }
 
 func (c *Client) fetchNetFlowRanking(rankType, duration string, limit int, flowType, trade string) ([]NetFlowPosition, string, error) {
@@ -133,7 +140,6 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 
 	sb.WriteString(fmt.Sprintf("## 资金流向排行 (%s)\n\n", data.Duration))
 
-	// Institution inflow
 	if len(data.InstitutionFutureTop) > 0 {
 		sb.WriteString("### 机构资金流入榜\n")
 		sb.WriteString("Smart Money买入信号:\n\n")
@@ -146,7 +152,6 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		sb.WriteString("\n")
 	}
 
-	// Institution outflow
 	if len(data.InstitutionFutureLow) > 0 {
 		sb.WriteString("### 机构资金流出榜\n")
 		sb.WriteString("Smart Money卖出信号:\n\n")
@@ -159,7 +164,6 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		sb.WriteString("\n")
 	}
 
-	// Retail flow summary
 	if len(data.PersonalFutureTop) > 0 || len(data.PersonalFutureLow) > 0 {
 		sb.WriteString("### 散户资金动向\n")
 		if len(data.PersonalFutureTop) > 0 {
@@ -200,7 +204,6 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 
 	sb.WriteString(fmt.Sprintf("## Fund Flow Ranking (%s)\n\n", data.Duration))
 
-	// Institution inflow
 	if len(data.InstitutionFutureTop) > 0 {
 		sb.WriteString("### Institution Inflow\n")
 		sb.WriteString("Smart Money buying signals:\n\n")
@@ -213,7 +216,6 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		sb.WriteString("\n")
 	}
 
-	// Institution outflow
 	if len(data.InstitutionFutureLow) > 0 {
 		sb.WriteString("### Institution Outflow\n")
 		sb.WriteString("Smart Money selling signals:\n\n")
@@ -226,7 +228,6 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		sb.WriteString("\n")
 	}
 
-	// Retail flow summary
 	if len(data.PersonalFutureTop) > 0 || len(data.PersonalFutureLow) > 0 {
 		sb.WriteString("### Retail Flow\n")
 		if len(data.PersonalFutureTop) > 0 {

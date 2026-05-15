@@ -43,18 +43,24 @@ type PriceRankingData struct {
 	FetchedAt time.Time                        `json:"fetched_at"`
 }
 
-// GetPriceRanking retrieves price ranking data (gainers/losers)
-func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData, error) {
+// GetPriceRankingGlobal retrieves price ranking data from the global cache.
+func GetPriceRankingGlobal(durations string, limit int) (*PriceRankingData, error) {
 	if durations == "" {
 		durations = "1h"
 	}
 	if limit <= 0 {
 		limit = 10
 	}
+	return priceCache.Get(func() (*PriceRankingData, error) {
+		return fetchPriceRankingData(GetGlobalClient(), durations, limit)
+	})
+}
 
+// fetchPriceRankingData fetches price ranking data from the API.
+func fetchPriceRankingData(client *Client, durations string, limit int) (*PriceRankingData, error) {
 	endpoint := fmt.Sprintf("/api/price/ranking?duration=%s&limit=%d", durations, limit)
 
-	body, err := c.doRequest(endpoint)
+	body, err := client.doRequest(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -74,13 +80,18 @@ func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData
 	}
 
 	for duration, data := range response.Data.Data {
-		d := data // Create a copy to avoid pointer issues
+		d := data
 		result.Durations[duration] = &d
 	}
 
 	log.Printf("✓ Fetched Price ranking data for %d durations", len(result.Durations))
 
 	return result, nil
+}
+
+// GetPriceRanking delegates to the global cache function.
+func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData, error) {
+	return GetPriceRankingGlobal(durations, limit)
 }
 
 // FormatPriceRankingForAI formats Price ranking data for AI consumption

@@ -46,22 +46,27 @@ type OIRankingData struct {
 	FetchedAt    time.Time    `json:"fetched_at"`
 }
 
-// GetOIRanking retrieves OI ranking data (both top increase and low decrease)
-func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error) {
+// GetOIRankingGlobal retrieves OI ranking data from the global cache.
+func GetOIRankingGlobal(duration string, limit int) (*OIRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
 	if limit <= 0 {
 		limit = 20
 	}
+	return oiCache.Get(func() (*OIRankingData, error) {
+		return fetchOIRankingData(GetGlobalClient(), duration, limit)
+	})
+}
 
+// fetchOIRankingData fetches OI ranking data from the API.
+func fetchOIRankingData(client *Client, duration string, limit int) (*OIRankingData, error) {
 	result := &OIRankingData{
 		Duration:  duration,
 		FetchedAt: time.Now(),
 	}
 
-	// Fetch top ranking (OI increase)
-	topPositions, timeRange, err := c.fetchOIRanking("top", duration, limit)
+	topPositions, timeRange, err := client.fetchOIRanking("top", duration, limit)
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch OI top ranking: %v", err)
 	} else {
@@ -69,8 +74,7 @@ func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error
 		result.TimeRange = timeRange
 	}
 
-	// Fetch low ranking (OI decrease)
-	lowPositions, _, err := c.fetchOIRanking("low", duration, limit)
+	lowPositions, _, err := client.fetchOIRanking("low", duration, limit)
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch OI low ranking: %v", err)
 	} else {
@@ -81,6 +85,11 @@ func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error
 		len(result.TopPositions), len(result.LowPositions), duration)
 
 	return result, nil
+}
+
+// GetOIRanking delegates to the global cache function.
+func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error) {
+	return GetOIRankingGlobal(duration, limit)
 }
 
 func (c *Client) fetchOIRanking(rankType, duration string, limit int) ([]OIPosition, string, error) {
@@ -96,7 +105,6 @@ func (c *Client) fetchOIRanking(rankType, duration string, limit int) ([]OIPosit
 		return nil, "", fmt.Errorf("JSON parsing failed: %w", err)
 	}
 
-	// Check for success (support both success field and code field)
 	if !response.Success && response.Code != 0 {
 		return nil, "", fmt.Errorf("API returned error code: %d", response.Code)
 	}
@@ -104,24 +112,24 @@ func (c *Client) fetchOIRanking(rankType, duration string, limit int) ([]OIPosit
 	return response.Data.Positions, response.Data.TimeRange, nil
 }
 
-// GetOITopPositions retrieves top OI increase positions (legacy compatibility)
+// GetOITopPositions retrieves top OI increase positions
 func (c *Client) GetOITopPositions() ([]OIPosition, error) {
-	positions, _, err := c.fetchOIRanking("top", "1h", 20)
+	data, err := GetOIRankingGlobal("1h", 20)
 	if err != nil {
 		return nil, err
 	}
-	return positions, nil
+	return data.TopPositions, nil
 }
 
 // GetOITopSymbols retrieves OI top coin symbol list
 func (c *Client) GetOITopSymbols() ([]string, error) {
-	positions, err := c.GetOITopPositions()
+	data, err := GetOIRankingGlobal("1h", 20)
 	if err != nil {
 		return nil, err
 	}
 
 	var symbols []string
-	for _, pos := range positions {
+	for _, pos := range data.TopPositions {
 		symbol := NormalizeSymbol(pos.Symbol)
 		symbols = append(symbols, symbol)
 	}
@@ -131,22 +139,22 @@ func (c *Client) GetOITopSymbols() ([]string, error) {
 
 // GetOILowPositions retrieves OI decrease positions (for short opportunities)
 func (c *Client) GetOILowPositions() ([]OIPosition, error) {
-	positions, _, err := c.fetchOIRanking("low", "1h", 20)
+	data, err := GetOIRankingGlobal("1h", 20)
 	if err != nil {
 		return nil, err
 	}
-	return positions, nil
+	return data.LowPositions, nil
 }
 
 // GetOILowSymbols retrieves OI low coin symbol list
 func (c *Client) GetOILowSymbols() ([]string, error) {
-	positions, err := c.GetOILowPositions()
+	data, err := GetOIRankingGlobal("1h", 20)
 	if err != nil {
 		return nil, err
 	}
 
 	var symbols []string
-	for _, pos := range positions {
+	for _, pos := range data.LowPositions {
 		symbol := NormalizeSymbol(pos.Symbol)
 		symbols = append(symbols, symbol)
 	}
