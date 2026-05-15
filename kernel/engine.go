@@ -408,10 +408,19 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		}
 		coins, err := e.getAI500Coins(coinSource.AI500Limit)
 		if err != nil {
+			logger.Warnf("⚠️  AI500 data source failed: %v", err)
 			return nil, err
 		}
-		// Empty list is a normal condition, return directly
-		return e.filterExcludedCoins(coins), nil
+		if len(coins) == 0 {
+			logger.Warnf("⚠️  AI500 returned 0 candidate coins (limit=%d, excluded=%v)", coinSource.AI500Limit, coinSource.ExcludedCoins)
+		} else {
+			logger.Infof("✓ AI500 provided %d candidate coins", len(coins))
+		}
+		filtered := e.filterExcludedCoins(coins)
+		if len(filtered) == 0 && len(coins) > 0 {
+			logger.Warnf("⚠️  All %d AI500 coins were excluded by ExcludedCoins filter", len(coins))
+		}
+		return filtered, nil
 
 	case "oi_top":
 		// Check use_oi_top flag; if false, fall back to static coins
@@ -603,6 +612,9 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 	symbols, err := e.nofxosClient.GetTopRatedCoins(limit)
 	if err != nil {
 		return nil, err
+	}
+	if len(symbols) == 0 {
+		logger.Warnf("⚠️  GetTopRatedCoins(limit=%d) returned 0 symbols", limit)
 	}
 
 	var candidates []CandidateCoin

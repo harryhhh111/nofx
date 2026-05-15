@@ -232,6 +232,7 @@ func GetTopRatedCoinsGlobal(limit int) ([]string, error) {
 	}
 
 	if len(availableCoins) == 0 {
+		log.Printf("⚠️  GetTopRatedCoinsGlobal: 0 available coins out of %d total", len(coins))
 		return []string{}, nil
 	}
 
