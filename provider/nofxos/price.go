@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,7 +44,12 @@ type PriceRankingData struct {
 	FetchedAt time.Time                        `json:"fetched_at"`
 }
 
+// priceCaches holds per-parameter price ranking caches.
+var priceCaches = make(map[string]*globalCache[*PriceRankingData])
+var priceCachesMu sync.Mutex
+
 // GetPriceRankingGlobal retrieves price ranking data from the global cache.
+// Cache is keyed by (durations, limit) so different parameters don't collide.
 func GetPriceRankingGlobal(durations string, limit int) (*PriceRankingData, error) {
 	if durations == "" {
 		durations = "1h"
@@ -51,7 +57,17 @@ func GetPriceRankingGlobal(durations string, limit int) (*PriceRankingData, erro
 	if limit <= 0 {
 		limit = 10
 	}
-	return priceCache.Get(func() (*PriceRankingData, error) {
+	key := fmt.Sprintf("%s:%d", durations, limit)
+
+	priceCachesMu.Lock()
+	cache, ok := priceCaches[key]
+	if !ok {
+		cache = &globalCache[*PriceRankingData]{ttl: defaultCacheTTL}
+		priceCaches[key] = cache
+	}
+	priceCachesMu.Unlock()
+
+	return cache.Get(func() (*PriceRankingData, error) {
 		return fetchPriceRankingData(GetGlobalClient(), durations, limit)
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -46,7 +47,12 @@ type OIRankingData struct {
 	FetchedAt    time.Time    `json:"fetched_at"`
 }
 
+// oiCaches holds per-parameter OI ranking caches.
+var oiCaches = make(map[string]*globalCache[*OIRankingData])
+var oiCachesMu sync.Mutex
+
 // GetOIRankingGlobal retrieves OI ranking data from the global cache.
+// Cache is keyed by (duration, limit) so different parameters don't collide.
 func GetOIRankingGlobal(duration string, limit int) (*OIRankingData, error) {
 	if duration == "" {
 		duration = "1h"
@@ -54,7 +60,17 @@ func GetOIRankingGlobal(duration string, limit int) (*OIRankingData, error) {
 	if limit <= 0 {
 		limit = 20
 	}
-	return oiCache.Get(func() (*OIRankingData, error) {
+	key := fmt.Sprintf("%s:%d", duration, limit)
+
+	oiCachesMu.Lock()
+	cache, ok := oiCaches[key]
+	if !ok {
+		cache = &globalCache[*OIRankingData]{ttl: defaultCacheTTL}
+		oiCaches[key] = cache
+	}
+	oiCachesMu.Unlock()
+
+	return cache.Get(func() (*OIRankingData, error) {
 		return fetchOIRankingData(GetGlobalClient(), duration, limit)
 	})
 }

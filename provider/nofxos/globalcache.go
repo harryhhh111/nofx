@@ -124,8 +124,5 @@ func GetGlobalClient() *Client {
 // ── Global cache instances ──────────────────────────────────────────────────
 
 var (
-	ai500Cache   = globalCache[[]CoinData]{ttl: ai500CacheTTL}
-	oiCache      = globalCache[*OIRankingData]{ttl: defaultCacheTTL}
-	netflowCache = globalCache[*NetFlowRankingData]{ttl: defaultCacheTTL}
-	priceCache   = globalCache[*PriceRankingData]{ttl: defaultCacheTTL}
+	ai500Cache = globalCache[[]CoinData]{ttl: ai500CacheTTL}
 )

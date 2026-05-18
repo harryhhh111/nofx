@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,7 +42,12 @@ type NetFlowRankingData struct {
 	FetchedAt            time.Time         `json:"fetched_at"`
 }
 
+// netflowCaches holds per-parameter NetFlow ranking caches.
+var netflowCaches = make(map[string]*globalCache[*NetFlowRankingData])
+var netflowCachesMu sync.Mutex
+
 // GetNetFlowRankingGlobal retrieves NetFlow ranking data from the global cache.
+// Cache is keyed by (duration, limit) so different parameters don't collide.
 func GetNetFlowRankingGlobal(duration string, limit int) (*NetFlowRankingData, error) {
 	if duration == "" {
 		duration = "1h"
@@ -49,7 +55,17 @@ func GetNetFlowRankingGlobal(duration string, limit int) (*NetFlowRankingData, e
 	if limit <= 0 {
 		limit = 10
 	}
-	return netflowCache.Get(func() (*NetFlowRankingData, error) {
+	key := fmt.Sprintf("%s:%d", duration, limit)
+
+	netflowCachesMu.Lock()
+	cache, ok := netflowCaches[key]
+	if !ok {
+		cache = &globalCache[*NetFlowRankingData]{ttl: defaultCacheTTL}
+		netflowCaches[key] = cache
+	}
+	netflowCachesMu.Unlock()
+
+	return cache.Get(func() (*NetFlowRankingData, error) {
 		return fetchNetFlowData(GetGlobalClient(), duration, limit)
 	})
 }
