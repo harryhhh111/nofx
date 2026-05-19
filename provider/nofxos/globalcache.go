@@ -68,6 +68,12 @@ func (gc *globalCache[T]) Get(fetch func() (T, error)) (T, error) {
 		return zero, err
 	}
 
+	// Don't cache empty results — they are likely transient (API glitch, no coins meeting criteria)
+	// and would block all users for the full TTL if cached.
+	if !gc.shouldCache(result) {
+		return result, nil
+	}
+
 	// Update cache
 	gc.mu.Lock()
 	gc.data = result
@@ -76,6 +82,22 @@ func (gc *globalCache[T]) Get(fetch func() (T, error)) (T, error) {
 	gc.mu.Unlock()
 
 	return result, nil
+}
+
+// shouldCache returns false for empty/zero results that shouldn't be cached.
+func (gc *globalCache[T]) shouldCache(v T) bool {
+	switch val := any(v).(type) {
+	case []CoinData:
+		return len(val) > 0
+	case *OIRankingData:
+		return val != nil && (len(val.TopPositions) > 0 || len(val.LowPositions) > 0)
+	case *NetFlowRankingData:
+		return val != nil && (len(val.InstitutionFutureTop) > 0 || len(val.InstitutionFutureLow) > 0)
+	case *PriceRankingData:
+		return val != nil && len(val.Durations) > 0
+	default:
+		return true
+	}
 }
 
 // tryGet attempts a cache read under RLock. Returns (data, true) if cache is valid.
