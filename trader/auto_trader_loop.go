@@ -70,11 +70,13 @@ func (at *AutoTrader) runCycle() error {
 	// NOTE: Must be called BEFORE candidate coins check to ensure equity is always recorded
 	at.saveEquitySnapshot(ctx)
 
-	// If no candidate coins available, log but do not error
-	if len(ctx.CandidateCoins) == 0 {
-		logger.Infof("ℹ️  No candidate coins available, skipping this cycle")
-		record.Success = true // Not an error, just no candidate coins
-		record.ExecutionLog = append(record.ExecutionLog, "No candidate coins available, cycle skipped")
+	// If no candidate coins AND no open positions, log but do not error.
+	// If there are open positions, AI still needs to manage them (close/stop-loss/etc.)
+	// even when no new candidate coins are available.
+	if len(ctx.CandidateCoins) == 0 && len(ctx.Positions) == 0 {
+		logger.Infof("ℹ️  No candidate coins available and no open positions, skipping this cycle")
+		record.Success = true // Not an error, just nothing to do
+		record.ExecutionLog = append(record.ExecutionLog, "No candidate coins or open positions, cycle skipped")
 		record.AccountState = store.AccountSnapshot{
 			TotalBalance:          ctx.Account.TotalEquity,
 			AvailableBalance:      ctx.Account.AvailableBalance,
