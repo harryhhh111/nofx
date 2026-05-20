@@ -13,7 +13,7 @@ import (
 type NetFlowPosition struct {
 	Rank   int     `json:"rank"`
 	Symbol string  `json:"symbol"`
-	Amount float64 `json:"amount"` // Fund flow amount in USDT (positive=inflow, negative=outflow)
+	Amount float64 `json:"amount"`
 	Price  float64 `json:"price"`
 }
 
@@ -23,10 +23,10 @@ type NetFlowResponse struct {
 	Data    struct {
 		Netflows  []NetFlowPosition `json:"netflows"`
 		Count     int               `json:"count"`
-		Type      string            `json:"type"`      // institution or personal
-		Trade     string            `json:"trade"`     // futures or spot
+		Type      string            `json:"type"`
+		Trade     string            `json:"trade"`
 		TimeRange string            `json:"time_range"`
-		RankType  string            `json:"rank_type"` // top or low
+		RankType  string            `json:"rank_type"`
 		Limit     int               `json:"limit"`
 	} `json:"data"`
 }
@@ -42,13 +42,14 @@ type NetFlowRankingData struct {
 	FetchedAt            time.Time         `json:"fetched_at"`
 }
 
-// netflowCaches holds per-parameter NetFlow ranking caches.
-var netflowCaches = make(map[string]*globalCache[*NetFlowRankingData])
-var netflowCachesMu sync.Mutex
+// Per-parameter NetFlow caches
+var (
+	netflowCaches   = make(map[string]*simpleCache[*NetFlowRankingData])
+	netflowCachesMu sync.Mutex
+)
 
-// GetNetFlowRankingGlobal retrieves NetFlow ranking data from the global cache.
-// Cache is keyed by (duration, limit) so different parameters don't collide.
-func GetNetFlowRankingGlobal(duration string, limit int, opts ...CallOption) (*NetFlowRankingData, error) {
+// GetNetFlowRanking retrieves NetFlow ranking data with global caching.
+func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
@@ -60,17 +61,23 @@ func GetNetFlowRankingGlobal(duration string, limit int, opts ...CallOption) (*N
 	netflowCachesMu.Lock()
 	cache, ok := netflowCaches[key]
 	if !ok {
-		cache = &globalCache[*NetFlowRankingData]{ttl: defaultCacheTTL}
+		cache = &simpleCache[*NetFlowRankingData]{ttl: defaultCacheTTL}
 		netflowCaches[key] = cache
 	}
 	netflowCachesMu.Unlock()
 
-	return cache.Get(func() (*NetFlowRankingData, error) {
-		return fetchNetFlowData(GetGlobalClient(), duration, limit)
-	}, opts...)
+	if data, ok := cache.get(); ok {
+		return data, nil
+	}
+
+	data, err := fetchNetFlowData(GetGlobalClient(), duration, limit)
+	if err != nil {
+		return nil, err
+	}
+	cache.set(data)
+	return data, nil
 }
 
-// fetchNetFlowData fetches NetFlow ranking data from the API.
 func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRankingData, error) {
 	result := &NetFlowRankingData{
 		Duration:  duration,
@@ -113,11 +120,6 @@ func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRanki
 	return result, nil
 }
 
-// GetNetFlowRanking delegates to the global cache function.
-func (c *Client) GetNetFlowRanking(duration string, limit int, opts ...CallOption) (*NetFlowRankingData, error) {
-	return GetNetFlowRankingGlobal(duration, limit, opts...)
-}
-
 func (c *Client) fetchNetFlowRanking(rankType, duration string, limit int, flowType, trade string) ([]NetFlowPosition, string, error) {
 	endpoint := fmt.Sprintf("/api/netflow/%s-ranking?limit=%d&duration=%s&type=%s&trade=%s",
 		rankType, limit, duration, flowType, trade)
@@ -139,12 +141,12 @@ func (c *Client) fetchNetFlowRanking(rankType, duration string, limit int, flowT
 	return response.Data.Netflows, response.Data.TimeRange, nil
 }
 
-// FormatNetFlowRankingForAI formats NetFlow ranking data for AI consumption
+// ── Formatting ──────────────────────────────────────────────────────────────
+
 func FormatNetFlowRankingForAI(data *NetFlowRankingData, lang Language) string {
 	if data == nil {
 		return ""
 	}
-
 	if lang == LangChinese {
 		return formatNetFlowRankingZH(data)
 	}
@@ -153,9 +155,7 @@ func FormatNetFlowRankingForAI(data *NetFlowRankingData, lang Language) string {
 
 func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 	var sb strings.Builder
-
 	sb.WriteString(fmt.Sprintf("## 资金流向排行 (%s)\n\n", data.Duration))
-
 	if len(data.InstitutionFutureTop) > 0 {
 		sb.WriteString("### 机构资金流入榜\n")
 		sb.WriteString("Smart Money买入信号:\n\n")
@@ -167,7 +167,6 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		}
 		sb.WriteString("\n")
 	}
-
 	if len(data.InstitutionFutureLow) > 0 {
 		sb.WriteString("### 机构资金流出榜\n")
 		sb.WriteString("Smart Money卖出信号:\n\n")
@@ -179,7 +178,6 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		}
 		sb.WriteString("\n")
 	}
-
 	if len(data.PersonalFutureTop) > 0 || len(data.PersonalFutureLow) > 0 {
 		sb.WriteString("### 散户资金动向\n")
 		if len(data.PersonalFutureTop) > 0 {
@@ -210,16 +208,13 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		}
 		sb.WriteString("\n")
 	}
-
 	sb.WriteString("**解读**: 机构买入+散户卖出=强烈看多 | 机构卖出+散户买入=强烈看空\n\n")
 	return sb.String()
 }
 
 func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 	var sb strings.Builder
-
 	sb.WriteString(fmt.Sprintf("## Fund Flow Ranking (%s)\n\n", data.Duration))
-
 	if len(data.InstitutionFutureTop) > 0 {
 		sb.WriteString("### Institution Inflow\n")
 		sb.WriteString("Smart Money buying signals:\n\n")
@@ -231,7 +226,6 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		}
 		sb.WriteString("\n")
 	}
-
 	if len(data.InstitutionFutureLow) > 0 {
 		sb.WriteString("### Institution Outflow\n")
 		sb.WriteString("Smart Money selling signals:\n\n")
@@ -243,7 +237,6 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		}
 		sb.WriteString("\n")
 	}
-
 	if len(data.PersonalFutureTop) > 0 || len(data.PersonalFutureLow) > 0 {
 		sb.WriteString("### Retail Flow\n")
 		if len(data.PersonalFutureTop) > 0 {
@@ -274,7 +267,6 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		}
 		sb.WriteString("\n")
 	}
-
 	sb.WriteString("**Key**: Institution buy + Retail sell = Strong bullish | Institution sell + Retail buy = Strong bearish\n\n")
 	return sb.String()
 }

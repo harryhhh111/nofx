@@ -629,11 +629,7 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 		limit = 30
 	}
 
-	symbols, err := e.nofxosClient.GetTopRatedCoins(limit, nofxos.CallOption{
-		Endpoint:   "ai500",
-		TraderID:   e.traderID,
-		TraderName: e.traderName,
-	})
+	symbols, err := e.nofxosClient.GetTopRatedCoins(limit)
 	if err != nil {
 		return nil, err
 	}
@@ -656,11 +652,7 @@ func (e *StrategyEngine) getOITopCoins(limit int) ([]CandidateCoin, error) {
 		limit = 10
 	}
 
-	positions, err := e.nofxosClient.GetOITopPositions(nofxos.CallOption{
-		Endpoint:   "oi",
-		TraderID:   e.traderID,
-		TraderName: e.traderName,
-	})
+	positions, err := e.nofxosClient.GetOITopPositions()
 	if err != nil {
 		return nil, err
 	}
@@ -684,11 +676,7 @@ func (e *StrategyEngine) getOILowCoins(limit int) ([]CandidateCoin, error) {
 		limit = 10
 	}
 
-	positions, err := e.nofxosClient.GetOILowPositions(nofxos.CallOption{
-		Endpoint:   "oi",
-		TraderID:   e.traderID,
-		TraderName: e.traderName,
-	})
+	positions, err := e.nofxosClient.GetOILowPositions()
 	if err != nil {
 		return nil, err
 	}
@@ -949,11 +937,7 @@ func (e *StrategyEngine) FetchOIRankingData() *nofxos.OIRankingData {
 
 	logger.Infof("📊 Fetching OI ranking data (duration: %s, limit: %d)", duration, limit)
 
-	data, err := e.nofxosClient.GetOIRanking(duration, limit, nofxos.CallOption{
-		Endpoint:   "oi",
-		TraderID:   e.traderID,
-		TraderName: e.traderName,
-	})
+	data, err := e.nofxosClient.GetOIRanking(duration, limit)
 	if err != nil {
 		logger.Warnf("⚠️  Failed to fetch OI ranking data: %v", err)
 		return nil
@@ -984,11 +968,7 @@ func (e *StrategyEngine) FetchNetFlowRankingData() *nofxos.NetFlowRankingData {
 
 	logger.Infof("💰 Fetching NetFlow ranking data (duration: %s, limit: %d)", duration, limit)
 
-	data, err := e.nofxosClient.GetNetFlowRanking(duration, limit, nofxos.CallOption{
-		Endpoint:   "netflow",
-		TraderID:   e.traderID,
-		TraderName: e.traderName,
-	})
+	data, err := e.nofxosClient.GetNetFlowRanking(duration, limit)
 	if err != nil {
 		logger.Warnf("⚠️  Failed to fetch NetFlow ranking data: %v", err)
 		return nil
@@ -1020,11 +1000,7 @@ func (e *StrategyEngine) FetchPriceRankingData() *nofxos.PriceRankingData {
 
 	logger.Infof("📈 Fetching Price ranking data (durations: %s, limit: %d)", durations, limit)
 
-	data, err := e.nofxosClient.GetPriceRanking(durations, limit, nofxos.CallOption{
-		Endpoint:   "price",
-		TraderID:   e.traderID,
-		TraderName: e.traderName,
-	})
+	data, err := e.nofxosClient.GetPriceRanking(durations, limit)
 	if err != nil {
 		logger.Warnf("⚠️  Failed to fetch Price ranking data: %v", err)
 		return nil

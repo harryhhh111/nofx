@@ -13,7 +13,7 @@ import (
 type PriceRankingItem struct {
 	Pair         string  `json:"pair"`
 	Symbol       string  `json:"symbol"`
-	PriceDelta   float64 `json:"price_delta"`    // Decimal format: 0.0723 = 7.23%
+	PriceDelta   float64 `json:"price_delta"`
 	Price        float64 `json:"price"`
 	FutureFlow   float64 `json:"future_flow"`
 	SpotFlow     float64 `json:"spot_flow"`
@@ -44,13 +44,14 @@ type PriceRankingData struct {
 	FetchedAt time.Time                        `json:"fetched_at"`
 }
 
-// priceCaches holds per-parameter price ranking caches.
-var priceCaches = make(map[string]*globalCache[*PriceRankingData])
-var priceCachesMu sync.Mutex
+// Per-parameter Price caches
+var (
+	priceCaches   = make(map[string]*simpleCache[*PriceRankingData])
+	priceCachesMu sync.Mutex
+)
 
-// GetPriceRankingGlobal retrieves price ranking data from the global cache.
-// Cache is keyed by (durations, limit) so different parameters don't collide.
-func GetPriceRankingGlobal(durations string, limit int, opts ...CallOption) (*PriceRankingData, error) {
+// GetPriceRanking retrieves price ranking data with global caching.
+func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData, error) {
 	if durations == "" {
 		durations = "1h"
 	}
@@ -62,17 +63,23 @@ func GetPriceRankingGlobal(durations string, limit int, opts ...CallOption) (*Pr
 	priceCachesMu.Lock()
 	cache, ok := priceCaches[key]
 	if !ok {
-		cache = &globalCache[*PriceRankingData]{ttl: defaultCacheTTL}
+		cache = &simpleCache[*PriceRankingData]{ttl: defaultCacheTTL}
 		priceCaches[key] = cache
 	}
 	priceCachesMu.Unlock()
 
-	return cache.Get(func() (*PriceRankingData, error) {
-		return fetchPriceRankingData(GetGlobalClient(), durations, limit)
-	}, opts...)
+	if data, ok := cache.get(); ok {
+		return data, nil
+	}
+
+	data, err := fetchPriceRankingData(GetGlobalClient(), durations, limit)
+	if err != nil {
+		return nil, err
+	}
+	cache.set(data)
+	return data, nil
 }
 
-// fetchPriceRankingData fetches price ranking data from the API.
 func fetchPriceRankingData(client *Client, durations string, limit int) (*PriceRankingData, error) {
 	endpoint := fmt.Sprintf("/api/price/ranking?duration=%s&limit=%d", durations, limit)
 
@@ -105,17 +112,12 @@ func fetchPriceRankingData(client *Client, durations string, limit int) (*PriceR
 	return result, nil
 }
 
-// GetPriceRanking delegates to the global cache function.
-func (c *Client) GetPriceRanking(durations string, limit int, opts ...CallOption) (*PriceRankingData, error) {
-	return GetPriceRankingGlobal(durations, limit, opts...)
-}
+// ── Formatting ──────────────────────────────────────────────────────────────
 
-// FormatPriceRankingForAI formats Price ranking data for AI consumption
 func FormatPriceRankingForAI(data *PriceRankingData, lang Language) string {
 	if data == nil || len(data.Durations) == 0 {
 		return ""
 	}
-
 	if lang == LangChinese {
 		return formatPriceRankingZH(data)
 	}
@@ -124,18 +126,14 @@ func FormatPriceRankingForAI(data *PriceRankingData, lang Language) string {
 
 func formatPriceRankingZH(data *PriceRankingData) string {
 	var sb strings.Builder
-
 	sb.WriteString("## 涨跌幅排行\n\n")
-
 	durationOrder := []string{"1h", "4h", "24h"}
 	for _, duration := range durationOrder {
 		durationData, exists := data.Durations[duration]
 		if !exists || durationData == nil {
 			continue
 		}
-
 		sb.WriteString(fmt.Sprintf("### %s 涨跌幅\n\n", duration))
-
 		if len(durationData.Top) > 0 {
 			sb.WriteString("**涨幅榜**\n")
 			sb.WriteString("| 币种 | 涨幅 | 价格 | 资金流 | OI变化 |\n")
@@ -147,7 +145,6 @@ func formatPriceRankingZH(data *PriceRankingData) string {
 			}
 			sb.WriteString("\n")
 		}
-
 		if len(durationData.Low) > 0 {
 			sb.WriteString("**跌幅榜**\n")
 			sb.WriteString("| 币种 | 跌幅 | 价格 | 资金流 | OI变化 |\n")
@@ -160,25 +157,20 @@ func formatPriceRankingZH(data *PriceRankingData) string {
 			sb.WriteString("\n")
 		}
 	}
-
 	sb.WriteString("**解读**: 涨幅大+资金流入+OI增加=强势上涨 | 跌幅大+资金流出+OI减少=弱势下跌\n\n")
 	return sb.String()
 }
 
 func formatPriceRankingEN(data *PriceRankingData) string {
 	var sb strings.Builder
-
 	sb.WriteString("## Price Gainers/Losers\n\n")
-
 	durationOrder := []string{"1h", "4h", "24h"}
 	for _, duration := range durationOrder {
 		durationData, exists := data.Durations[duration]
 		if !exists || durationData == nil {
 			continue
 		}
-
 		sb.WriteString(fmt.Sprintf("### %s Price Change\n\n", duration))
-
 		if len(durationData.Top) > 0 {
 			sb.WriteString("**Top Gainers**\n")
 			sb.WriteString("| Symbol | Change | Price | Fund Flow | OI Change |\n")
@@ -190,7 +182,6 @@ func formatPriceRankingEN(data *PriceRankingData) string {
 			}
 			sb.WriteString("\n")
 		}
-
 		if len(durationData.Low) > 0 {
 			sb.WriteString("**Top Losers**\n")
 			sb.WriteString("| Symbol | Change | Price | Fund Flow | OI Change |\n")
@@ -203,7 +194,6 @@ func formatPriceRankingEN(data *PriceRankingData) string {
 			sb.WriteString("\n")
 		}
 	}
-
 	sb.WriteString("**Key**: Big gain + Fund inflow + OI increase = Strong bullish | Big loss + Fund outflow + OI decrease = Strong bearish\n\n")
 	return sb.String()
 }
