@@ -18,8 +18,8 @@ const (
 	MinKlineCount     = 10
 	MaxKlineCount     = 100
 
-	DefaultMinConfidence      = 75
-	MinMinConfidence          = 60
+	DefaultMinConfidence      = 50
+	MinMinConfidence          = 50
 	MaxMinConfidence          = 90
 	DefaultMinCloseConfidence = 85
 	MinMinCloseConfidence     = 70

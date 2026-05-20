@@ -304,7 +304,7 @@ StrategyConfig fields:
   risk_control.max_margin_usage: 0.5-0.95 (default 0.9 = use up to 90% margin)
   risk_control.min_position_size: minimum USDT per trade (default 12)
   risk_control.min_risk_reward_ratio: minimum profit/loss ratio required (default 3 = 3:1)
-  risk_control.min_confidence: minimum AI confidence to open position (default 75, range 60-90)
+  risk_control.min_confidence: minimum AI confidence to open position (default 50, range 50-90)
   risk_control.min_close_confidence: minimum AI confidence to proactively close early (default 85, range 70-95)
   prompt_sections.role_definition: describe the AI's trading persona and goal
   prompt_sections.trading_frequency: guidelines on how often to trade

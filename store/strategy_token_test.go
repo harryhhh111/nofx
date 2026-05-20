@@ -136,7 +136,7 @@ func TestClampLimits_ConfidenceThresholds(t *testing.T) {
 
 func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
 	st := &Strategy{
-		Config: `{"language":"zh","risk_control":{"min_confidence":75}}`,
+		Config: `{"language":"zh","risk_control":{"min_confidence":50}}`,
 	}
 
 	config, err := st.ParseConfig()
