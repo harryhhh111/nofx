@@ -31,15 +31,15 @@ type AI500Response struct {
 }
 
 // GetAI500ListGlobal retrieves AI500 coin list from the global cache.
-func GetAI500ListGlobal() ([]CoinData, error) {
+func GetAI500ListGlobal(opts ...CallOption) ([]CoinData, error) {
 	return ai500Cache.Get(func() ([]CoinData, error) {
 		return fetchAI500WithRetry(GetGlobalClient())
-	})
+	}, opts...)
 }
 
 // GetAI500List delegates to the global cache function.
-func (c *Client) GetAI500List() ([]CoinData, error) {
-	return GetAI500ListGlobal()
+func (c *Client) GetAI500List(opts ...CallOption) ([]CoinData, error) {
+	return GetAI500ListGlobal(opts...)
 }
 
 func (c *Client) fetchAI500() ([]CoinData, error) {
@@ -99,8 +99,8 @@ func fetchAI500WithRetry(client *Client) ([]CoinData, error) {
 }
 
 // GetTopRatedCoinsGlobal retrieves top N coins by score from the global cache.
-func GetTopRatedCoinsGlobal(limit int) ([]string, error) {
-	coins, err := GetAI500ListGlobal()
+func GetTopRatedCoinsGlobal(limit int, opts ...CallOption) ([]string, error) {
+	coins, err := GetAI500ListGlobal(opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +141,8 @@ func GetTopRatedCoinsGlobal(limit int) ([]string, error) {
 }
 
 // GetTopRatedCoins delegates to the global cache function.
-func (c *Client) GetTopRatedCoins(limit int) ([]string, error) {
-	return GetTopRatedCoinsGlobal(limit)
+func (c *Client) GetTopRatedCoins(limit int, opts ...CallOption) ([]string, error) {
+	return GetTopRatedCoinsGlobal(limit, opts...)
 }
 
 // GetAvailableCoinsGlobal retrieves all available coin symbols from the global cache.

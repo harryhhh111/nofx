@@ -50,7 +50,7 @@ var priceCachesMu sync.Mutex
 
 // GetPriceRankingGlobal retrieves price ranking data from the global cache.
 // Cache is keyed by (durations, limit) so different parameters don't collide.
-func GetPriceRankingGlobal(durations string, limit int) (*PriceRankingData, error) {
+func GetPriceRankingGlobal(durations string, limit int, opts ...CallOption) (*PriceRankingData, error) {
 	if durations == "" {
 		durations = "1h"
 	}
@@ -69,7 +69,7 @@ func GetPriceRankingGlobal(durations string, limit int) (*PriceRankingData, erro
 
 	return cache.Get(func() (*PriceRankingData, error) {
 		return fetchPriceRankingData(GetGlobalClient(), durations, limit)
-	})
+	}, opts...)
 }
 
 // fetchPriceRankingData fetches price ranking data from the API.
@@ -106,8 +106,8 @@ func fetchPriceRankingData(client *Client, durations string, limit int) (*PriceR
 }
 
 // GetPriceRanking delegates to the global cache function.
-func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData, error) {
-	return GetPriceRankingGlobal(durations, limit)
+func (c *Client) GetPriceRanking(durations string, limit int, opts ...CallOption) (*PriceRankingData, error) {
+	return GetPriceRankingGlobal(durations, limit, opts...)
 }
 
 // FormatPriceRankingForAI formats Price ranking data for AI consumption

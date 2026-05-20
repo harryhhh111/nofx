@@ -48,7 +48,7 @@ var netflowCachesMu sync.Mutex
 
 // GetNetFlowRankingGlobal retrieves NetFlow ranking data from the global cache.
 // Cache is keyed by (duration, limit) so different parameters don't collide.
-func GetNetFlowRankingGlobal(duration string, limit int) (*NetFlowRankingData, error) {
+func GetNetFlowRankingGlobal(duration string, limit int, opts ...CallOption) (*NetFlowRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
@@ -67,7 +67,7 @@ func GetNetFlowRankingGlobal(duration string, limit int) (*NetFlowRankingData, e
 
 	return cache.Get(func() (*NetFlowRankingData, error) {
 		return fetchNetFlowData(GetGlobalClient(), duration, limit)
-	})
+	}, opts...)
 }
 
 // fetchNetFlowData fetches NetFlow ranking data from the API.
@@ -114,8 +114,8 @@ func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRanki
 }
 
 // GetNetFlowRanking delegates to the global cache function.
-func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingData, error) {
-	return GetNetFlowRankingGlobal(duration, limit)
+func (c *Client) GetNetFlowRanking(duration string, limit int, opts ...CallOption) (*NetFlowRankingData, error) {
+	return GetNetFlowRankingGlobal(duration, limit, opts...)
 }
 
 func (c *Client) fetchNetFlowRanking(rankType, duration string, limit int, flowType, trade string) ([]NetFlowPosition, string, error) {

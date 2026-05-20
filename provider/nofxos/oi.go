@@ -53,7 +53,7 @@ var oiCachesMu sync.Mutex
 
 // GetOIRankingGlobal retrieves OI ranking data from the global cache.
 // Cache is keyed by (duration, limit) so different parameters don't collide.
-func GetOIRankingGlobal(duration string, limit int) (*OIRankingData, error) {
+func GetOIRankingGlobal(duration string, limit int, opts ...CallOption) (*OIRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
@@ -72,7 +72,7 @@ func GetOIRankingGlobal(duration string, limit int) (*OIRankingData, error) {
 
 	return cache.Get(func() (*OIRankingData, error) {
 		return fetchOIRankingData(GetGlobalClient(), duration, limit)
-	})
+	}, opts...)
 }
 
 // fetchOIRankingData fetches OI ranking data from the API.
@@ -104,8 +104,8 @@ func fetchOIRankingData(client *Client, duration string, limit int) (*OIRankingD
 }
 
 // GetOIRanking delegates to the global cache function.
-func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error) {
-	return GetOIRankingGlobal(duration, limit)
+func (c *Client) GetOIRanking(duration string, limit int, opts ...CallOption) (*OIRankingData, error) {
+	return GetOIRankingGlobal(duration, limit, opts...)
 }
 
 func (c *Client) fetchOIRanking(rankType, duration string, limit int) ([]OIPosition, string, error) {
@@ -129,8 +129,8 @@ func (c *Client) fetchOIRanking(rankType, duration string, limit int) ([]OIPosit
 }
 
 // GetOITopPositions retrieves top OI increase positions
-func (c *Client) GetOITopPositions() ([]OIPosition, error) {
-	data, err := GetOIRankingGlobal("1h", 20)
+func (c *Client) GetOITopPositions(opts ...CallOption) ([]OIPosition, error) {
+	data, err := GetOIRankingGlobal("1h", 20, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -138,8 +138,8 @@ func (c *Client) GetOITopPositions() ([]OIPosition, error) {
 }
 
 // GetOITopSymbols retrieves OI top coin symbol list
-func (c *Client) GetOITopSymbols() ([]string, error) {
-	data, err := GetOIRankingGlobal("1h", 20)
+func (c *Client) GetOITopSymbols(opts ...CallOption) ([]string, error) {
+	data, err := GetOIRankingGlobal("1h", 20, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -154,8 +154,8 @@ func (c *Client) GetOITopSymbols() ([]string, error) {
 }
 
 // GetOILowPositions retrieves OI decrease positions (for short opportunities)
-func (c *Client) GetOILowPositions() ([]OIPosition, error) {
-	data, err := GetOIRankingGlobal("1h", 20)
+func (c *Client) GetOILowPositions(opts ...CallOption) ([]OIPosition, error) {
+	data, err := GetOIRankingGlobal("1h", 20, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -163,8 +163,8 @@ func (c *Client) GetOILowPositions() ([]OIPosition, error) {
 }
 
 // GetOILowSymbols retrieves OI low coin symbol list
-func (c *Client) GetOILowSymbols() ([]string, error) {
-	data, err := GetOIRankingGlobal("1h", 20)
+func (c *Client) GetOILowSymbols(opts ...CallOption) ([]string, error) {
+	data, err := GetOIRankingGlobal("1h", 20, opts...)
 	if err != nil {
 		return nil, err
 	}

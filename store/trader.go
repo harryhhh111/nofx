@@ -73,8 +73,26 @@ func (s *TraderStore) initTables() error {
 	return nil
 }
 
+// GetByName retrieves a trader by name for a specific user
+func (s *TraderStore) GetByName(userID, name string) (*Trader, error) {
+	var trader Trader
+	err := s.db.Where("user_id = ? AND name = ?", userID, name).First(&trader).Error
+	if err != nil {
+		return nil, err
+	}
+	return &trader, nil
+}
+
 // Create creates trader
 func (s *TraderStore) Create(trader *Trader) error {
+	// Check for duplicate name within the same user
+	var count int64
+	if err := s.db.Model(&Trader{}).Where("user_id = ? AND name = ?", trader.UserID, trader.Name).Count(&count).Error; err != nil {
+		return fmt.Errorf("failed to check duplicate trader name: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("trader name '%s' already exists", trader.Name)
+	}
 	return s.db.Create(trader).Error
 }
 
@@ -108,6 +126,15 @@ func (s *TraderStore) UpdateShowInCompetition(userID, id string, showInCompetiti
 func (s *TraderStore) Update(trader *Trader) error {
 	fmt.Printf("📝 TraderStore.Update: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s\n",
 		trader.ID, trader.Name, trader.AIModelID, trader.StrategyID)
+
+	// Check for duplicate name within the same user (excluding self)
+	var count int64
+	if err := s.db.Model(&Trader{}).Where("user_id = ? AND name = ? AND id != ?", trader.UserID, trader.Name, trader.ID).Count(&count).Error; err != nil {
+		return fmt.Errorf("failed to check duplicate trader name: %w", err)
+	}
+	if count > 0 {
+		return fmt.Errorf("trader name '%s' already exists", trader.Name)
+	}
 
 	updates := map[string]interface{}{
 		"name":           trader.Name,

@@ -114,6 +114,7 @@ func (s *Server) setupRoutes() {
 		s.route(api, "GET", "/klines", "Candlestick data (?symbol=&interval=&limit=)", s.handleKlines)
 		s.route(api, "GET", "/symbols", "Available trading symbols", s.handleSymbols)
 		s.route(api, "GET", "/ai500/coins", "AI500 top-rated coin list (?limit=N, default 20, max 100)", s.handleAI500Coins)
+		s.route(api, "GET", "/nofxos/status", "NofxOS API call records (monitoring)", s.handleNofxosStatus)
 
 		// Public strategy market (no authentication required)
 		s.route(api, "GET", "/strategies/public", "Public strategy market", s.handlePublicStrategies)

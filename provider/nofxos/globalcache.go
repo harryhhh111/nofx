@@ -10,7 +10,80 @@ import (
 const (
 	defaultCacheTTL = 30 * time.Minute
 	ai500CacheTTL   = 2 * time.Hour
+	maxCallRecords  = 200
 )
+
+// ── Call recording ───────────────────────────────────────────────────────────
+
+// CallRecord tracks a single nofxos API call for monitoring.
+type CallRecord struct {
+	Endpoint   string        `json:"endpoint"`
+	TraderID   string        `json:"trader_id"`
+	TraderName string        `json:"trader_name"`
+	CalledAt   time.Time     `json:"called_at"`
+	CacheHit   bool          `json:"cache_hit"`
+	Success    bool          `json:"success"`
+	DataCount  int           `json:"data_count"`
+	Error      string        `json:"error,omitempty"`
+	Duration   time.Duration `json:"duration"`
+}
+
+var (
+	callRecords   []CallRecord
+	callRecordsMu sync.RWMutex
+)
+
+func addCallRecord(r CallRecord) {
+	callRecordsMu.Lock()
+	defer callRecordsMu.Unlock()
+	if len(callRecords) >= maxCallRecords {
+		callRecords = callRecords[1:]
+	}
+	callRecords = append(callRecords, r)
+}
+
+// GetCallRecords returns the recent call records (newest last).
+func GetCallRecords() []CallRecord {
+	callRecordsMu.RLock()
+	defer callRecordsMu.RUnlock()
+	result := make([]CallRecord, len(callRecords))
+	copy(result, callRecords)
+	return result
+}
+
+// CallOption is a functional option for globalCache.Get.
+type CallOption struct {
+	Endpoint   string
+	TraderID   string
+	TraderName string
+}
+
+func dataCount(v any) int {
+	switch val := v.(type) {
+	case []CoinData:
+		return len(val)
+	case *OIRankingData:
+		if val == nil {
+			return 0
+		}
+		return len(val.TopPositions) + len(val.LowPositions)
+	case *NetFlowRankingData:
+		if val == nil {
+			return 0
+		}
+		return len(val.InstitutionFutureTop) + len(val.InstitutionFutureLow) +
+			len(val.PersonalFutureTop) + len(val.PersonalFutureLow)
+	case *PriceRankingData:
+		if val == nil {
+			return 0
+		}
+		return len(val.Durations)
+	default:
+		return 0
+	}
+}
+
+// ── Global cache ────────────────────────────────────────────────────────────
 
 // globalCache provides a thread-safe TTL cache with singleflight deduplication.
 type globalCache[T any] struct {
@@ -25,9 +98,28 @@ type globalCache[T any] struct {
 
 // Get returns cached data if still valid, otherwise calls fetch to refresh.
 // Concurrent cache-miss calls are merged via singleflight.
-func (gc *globalCache[T]) Get(fetch func() (T, error)) (T, error) {
+// Optionally pass CallOption to record the call for monitoring.
+func (gc *globalCache[T]) Get(fetch func() (T, error), opts ...CallOption) (T, error) {
+	var opt CallOption
+	if len(opts) > 0 {
+		opt = opts[0]
+	}
+	start := time.Now()
+
 	// Fast path: cache hit
 	if data, ok := gc.tryGet(); ok {
+		if opt.Endpoint != "" {
+			addCallRecord(CallRecord{
+				Endpoint:   opt.Endpoint,
+				TraderID:   opt.TraderID,
+				TraderName: opt.TraderName,
+				CalledAt:   start,
+				CacheHit:   true,
+				Success:    true,
+				DataCount:  dataCount(any(data)),
+				Duration:   time.Since(start),
+			})
+		}
 		return data, nil
 	}
 
@@ -39,6 +131,18 @@ func (gc *globalCache[T]) Get(fetch func() (T, error)) (T, error) {
 		<-waitCh
 		// Re-read cache after waiting
 		if data, ok := gc.tryGet(); ok {
+			if opt.Endpoint != "" {
+				addCallRecord(CallRecord{
+					Endpoint:   opt.Endpoint,
+					TraderID:   opt.TraderID,
+					TraderName: opt.TraderName,
+					CalledAt:   start,
+					CacheHit:   true,
+					Success:    true,
+					DataCount:  dataCount(any(data)),
+					Duration:   time.Since(start),
+				})
+			}
 			return data, nil
 		}
 		// Cache still stale (fetch failed) — fall through to try ourselves
@@ -58,11 +162,39 @@ func (gc *globalCache[T]) Get(fetch func() (T, error)) (T, error) {
 
 	// Double-check after winning singleflight
 	if data, ok := gc.tryGet(); ok {
+		if opt.Endpoint != "" {
+			addCallRecord(CallRecord{
+				Endpoint:   opt.Endpoint,
+				TraderID:   opt.TraderID,
+				TraderName: opt.TraderName,
+				CalledAt:   start,
+				CacheHit:   true,
+				Success:    true,
+				DataCount:  dataCount(any(data)),
+				Duration:   time.Since(start),
+			})
+		}
 		return data, nil
 	}
 
 	// Fetch fresh data
 	result, err := fetch()
+	if opt.Endpoint != "" {
+		rec := CallRecord{
+			Endpoint:   opt.Endpoint,
+			TraderID:   opt.TraderID,
+			TraderName: opt.TraderName,
+			CalledAt:   start,
+			CacheHit:   false,
+			Success:    err == nil,
+			DataCount:  dataCount(any(result)),
+			Duration:   time.Since(start),
+		}
+		if err != nil {
+			rec.Error = err.Error()
+		}
+		addCallRecord(rec)
+	}
 	if err != nil {
 		var zero T
 		return zero, err
