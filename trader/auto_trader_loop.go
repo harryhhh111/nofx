@@ -70,11 +70,17 @@ func (at *AutoTrader) runCycle() error {
 	// NOTE: Must be called BEFORE candidate coins check to ensure equity is always recorded
 	at.saveEquitySnapshot(ctx)
 
-	// If no candidate coins available, log but do not error
-	if len(ctx.CandidateCoins) == 0 {
-		logger.Infof("ℹ️  No candidate coins available, skipping this cycle")
-		record.Success = true // Not an error, just no candidate coins
-		record.ExecutionLog = append(record.ExecutionLog, "No candidate coins available, cycle skipped")
+	// If no candidate coins AND no open positions, log but do not error.
+	// If there are open positions, AI still needs to manage them (close/stop-loss/etc.)
+	// even when no new candidate coins are available.
+	if len(ctx.CandidateCoins) == 0 && len(ctx.Positions) == 0 {
+		logger.Infof("ℹ️  No candidate coins available and no open positions, skipping this cycle")
+		record.Success = true // Not an error, just nothing to do
+		record.ExecutionLog = append(record.ExecutionLog, "No candidate coins or open positions, cycle skipped")
+		if len(ctx.DataFetchErrors) > 0 {
+			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("Data fetch errors: %v", ctx.DataFetchErrors))
+			record.ErrorMessage = strings.Join(ctx.DataFetchErrors, "; ")
+		}
 		record.AccountState = store.AccountSnapshot{
 			TotalBalance:          ctx.Account.TotalEquity,
 			AvailableBalance:      ctx.Account.AvailableBalance,
@@ -523,6 +529,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 	// 3. Use strategy engine to get candidate coins (must have strategy engine)
 	var candidateCoins []kernel.CandidateCoin
+	var dataFetchErrors []string
 	if at.strategyEngine == nil {
 		logger.Infof("⚠️ [%s] No strategy engine configured, skipping candidate coins", at.name)
 	} else {
@@ -530,6 +537,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		if err != nil {
 			// Log warning but don't fail - equity snapshot should still be saved
 			logger.Infof("⚠️ [%s] Failed to get candidate coins: %v (will use empty list)", at.name, err)
+			dataFetchErrors = append(dataFetchErrors, fmt.Sprintf("GetCandidateCoins: %v", err))
 		} else {
 			candidateCoins = coins
 			logger.Infof("📋 [%s] Strategy engine fetched candidate coins: %d", at.name, len(candidateCoins))
@@ -571,8 +579,9 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			MarginUsedPct:    marginUsedPct,
 			PositionCount:    len(positionInfos),
 		},
-		Positions:      positionInfos,
-		CandidateCoins: candidateCoins,
+		Positions:       positionInfos,
+		CandidateCoins:  candidateCoins,
+		DataFetchErrors: dataFetchErrors,
 	}
 
 	// Inject pending drawdown alerts (AI-decide mode) and clear the queue

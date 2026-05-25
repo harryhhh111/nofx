@@ -8,17 +8,18 @@ import (
 
 // TraderStats trading statistics metrics
 type TraderStats struct {
-	TotalTrades    int     `json:"total_trades"`
-	WinTrades      int     `json:"win_trades"`
-	LossTrades     int     `json:"loss_trades"`
-	WinRate        float64 `json:"win_rate"`
-	ProfitFactor   float64 `json:"profit_factor"`
-	SharpeRatio    float64 `json:"sharpe_ratio"`
-	TotalPnL       float64 `json:"total_pnl"`
-	TotalFee       float64 `json:"total_fee"`
-	AvgWin         float64 `json:"avg_win"`
-	AvgLoss        float64 `json:"avg_loss"`
-	MaxDrawdownPct float64 `json:"max_drawdown_pct"`
+	TotalTrades     int     `json:"total_trades"`
+	WinTrades       int     `json:"win_trades"`
+	LossTrades      int     `json:"loss_trades"`
+	WinRate         float64 `json:"win_rate"`
+	ProfitFactor    float64 `json:"profit_factor"`
+	SharpeRatio     float64 `json:"sharpe_ratio"`
+	TotalPnL        float64 `json:"total_pnl"`
+	TotalFee        float64 `json:"total_fee"`
+	AvgWin          float64 `json:"avg_win"`
+	AvgLoss         float64 `json:"avg_loss"`
+	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
+	ProfitLossRatio float64 `json:"profit_loss_ratio"`
 }
 
 // GetPositionStats gets position statistics
@@ -103,6 +104,9 @@ func (s *PositionStore) GetFullStats(traderID string) (*TraderStats, error) {
 	}
 	if stats.LossTrades > 0 {
 		stats.AvgLoss = totalLoss / float64(stats.LossTrades)
+	}
+	if stats.AvgLoss > 0 {
+		stats.ProfitLossRatio = stats.AvgWin / stats.AvgLoss
 	}
 	if len(pnls) > 1 {
 		stats.SharpeRatio = calculateSharpeRatioFromPnls(pnls)

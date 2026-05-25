@@ -127,6 +127,7 @@ type Context struct {
 	Timeframes         []string                           `json:"-"`
 	PositionMemories   []PositionMemory                   `json:"-"` // AI reasoning from when each open position was created
 	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
+	DataFetchErrors    []string                           `json:"-"` // Non-fatal errors from candidate coin / data source fetching
 }
 
 // DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
@@ -306,6 +307,8 @@ type OIDeltaData struct {
 type StrategyEngine struct {
 	config       *store.StrategyConfig
 	nofxosClient *nofxos.Client
+	traderID     string
+	traderName   string
 }
 
 // NewStrategyEngine creates strategy execution engine.
@@ -334,6 +337,7 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 		claw402Client, err := nofxos.NewClaw402DataClient(claw402URL, walletKey, &logger.MCPLogger{})
 		if err == nil {
 			client.SetClaw402(claw402Client)
+			nofxos.SetAI500GlobalClient(client)
 			logger.Infof("🔗 NofxOS data routed through claw402 (%s)", claw402URL)
 		} else {
 			logger.Warnf("⚠️ Failed to init claw402 data client: %v (using direct nofxos.ai)", err)
@@ -359,14 +363,20 @@ func (e *StrategyEngine) GetLanguage() Language {
 	case "en":
 		return LangEnglish
 	default:
-		// Fall back to auto-detection from prompt content for backward compatibility
-		return detectLanguage(e.config.PromptSections.RoleDefinition)
+		// Default to English when language is not explicitly set
+		return LangEnglish
 	}
 }
 
 // GetConfig gets complete strategy configuration
 func (e *StrategyEngine) GetConfig() *store.StrategyConfig {
 	return e.config
+}
+
+// SetTraderInfo sets the trader ID and name for call tracking.
+func (e *StrategyEngine) SetTraderInfo(id, name string) {
+	e.traderID = id
+	e.traderName = name
 }
 
 // ============================================================================
@@ -407,10 +417,19 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		}
 		coins, err := e.getAI500Coins(coinSource.AI500Limit)
 		if err != nil {
+			logger.Warnf("⚠️  AI500 data source failed: %v", err)
 			return nil, err
 		}
-		// Empty list is a normal condition, return directly
-		return e.filterExcludedCoins(coins), nil
+		if len(coins) == 0 {
+			logger.Warnf("⚠️  AI500 returned 0 candidate coins (limit=%d, excluded=%v)", coinSource.AI500Limit, coinSource.ExcludedCoins)
+		} else {
+			logger.Infof("✓ AI500 provided %d candidate coins", len(coins))
+		}
+		filtered := e.filterExcludedCoins(coins)
+		if len(filtered) == 0 && len(coins) > 0 {
+			logger.Warnf("⚠️  All %d AI500 coins were excluded by ExcludedCoins filter", len(coins))
+		}
+		return filtered, nil
 
 	case "oi_top":
 		// Check use_oi_top flag; if false, fall back to static coins
@@ -491,9 +510,12 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		return e.filterExcludedCoins(coins), nil
 
 	case "mixed":
+		var sourceErrors []string
+
 		if coinSource.UseAI500 {
 			poolCoins, err := e.getAI500Coins(coinSource.AI500Limit)
 			if err != nil {
+				sourceErrors = append(sourceErrors, fmt.Sprintf("ai500: %v", err))
 				logger.Infof("⚠️  Failed to get AI500 coins: %v", err)
 			} else {
 				for _, coin := range poolCoins {
@@ -505,6 +527,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		if coinSource.UseOITop {
 			oiCoins, err := e.getOITopCoins(coinSource.OITopLimit)
 			if err != nil {
+				sourceErrors = append(sourceErrors, fmt.Sprintf("oi_top: %v", err))
 				logger.Infof("⚠️  Failed to get OI Top: %v", err)
 			} else {
 				for _, coin := range oiCoins {
@@ -516,6 +539,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		if coinSource.UseOILow {
 			oiLowCoins, err := e.getOILowCoins(coinSource.OILowLimit)
 			if err != nil {
+				sourceErrors = append(sourceErrors, fmt.Sprintf("oi_low: %v", err))
 				logger.Infof("⚠️  Failed to get OI Low: %v", err)
 			} else {
 				for _, coin := range oiLowCoins {
@@ -527,6 +551,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		if coinSource.UseHyperAll {
 			hyperCoins, err := e.getHyperAllCoins()
 			if err != nil {
+				sourceErrors = append(sourceErrors, fmt.Sprintf("hyper_all: %v", err))
 				logger.Infof("⚠️  Failed to get Hyperliquid All coins: %v", err)
 			} else {
 				for _, coin := range hyperCoins {
@@ -538,6 +563,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		if coinSource.UseHyperMain {
 			hyperMainCoins, err := e.getHyperMainCoins(coinSource.HyperMainLimit)
 			if err != nil {
+				sourceErrors = append(sourceErrors, fmt.Sprintf("hyper_main: %v", err))
 				logger.Infof("⚠️  Failed to get Hyperliquid Main coins: %v", err)
 			} else {
 				for _, coin := range hyperMainCoins {
@@ -561,7 +587,11 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 				Sources: sources,
 			})
 		}
-		return e.filterExcludedCoins(candidates), nil
+		candidates = e.filterExcludedCoins(candidates)
+		if len(candidates) == 0 && len(sourceErrors) > 0 {
+			return nil, fmt.Errorf("candidate sources failed [%s]", strings.Join(sourceErrors, "; "))
+		}
+		return candidates, nil
 
 	default:
 		return nil, fmt.Errorf("unknown coin source type: %s", coinSource.SourceType)
@@ -602,6 +632,9 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 	symbols, err := e.nofxosClient.GetTopRatedCoins(limit)
 	if err != nil {
 		return nil, err
+	}
+	if len(symbols) == 0 {
+		logger.Warnf("⚠️  GetTopRatedCoins(limit=%d) returned 0 symbols", limit)
 	}
 
 	var candidates []CandidateCoin

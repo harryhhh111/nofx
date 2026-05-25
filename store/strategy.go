@@ -18,8 +18,8 @@ const (
 	MinKlineCount     = 10
 	MaxKlineCount     = 100
 
-	DefaultMinConfidence      = 75
-	MinMinConfidence          = 60
+	DefaultMinConfidence      = 50
+	MinMinConfidence          = 50
 	MaxMinConfidence          = 90
 	DefaultMinCloseConfidence = 85
 	MinMinCloseConfidence     = 70
@@ -63,6 +63,22 @@ func (c *StrategyConfig) ClampLimits() {
 	// Clamp max positions
 	if c.RiskControl.MaxPositions > MaxPositions {
 		c.RiskControl.MaxPositions = MaxPositions
+	}
+
+	// Default position value ratios when not provided (zero means unset)
+	if c.RiskControl.BTCETHMaxPositionValueRatio <= 0 {
+		c.RiskControl.BTCETHMaxPositionValueRatio = 5.0
+	}
+	if c.RiskControl.AltcoinMaxPositionValueRatio <= 0 {
+		c.RiskControl.AltcoinMaxPositionValueRatio = 1.0
+	}
+
+	// Default margin usage and min position size when not provided
+	if c.RiskControl.MaxMarginUsage <= 0 {
+		c.RiskControl.MaxMarginUsage = 0.9
+	}
+	if c.RiskControl.MinPositionSize <= 0 {
+		c.RiskControl.MinPositionSize = 12.0
 	}
 
 	// Clamp AI confidence thresholds to safe product ranges.
