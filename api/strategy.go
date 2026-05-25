@@ -175,10 +175,10 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 	}
 
 	var req struct {
-		Name        string                `json:"name" binding:"required"`
-		Description string                `json:"description"`
-		Lang        string                `json:"lang"`   // "zh" or "en", used when config is omitted
-		Config      *store.StrategyConfig `json:"config"` // optional — uses default if omitted
+		Name        string          `json:"name" binding:"required"`
+		Description string          `json:"description"`
+		Lang        string          `json:"lang"`   // "zh" or "en", used when config is omitted
+		Config      json.RawMessage `json:"config"` // optional; partial config is merged with defaults
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -186,19 +186,18 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 		return
 	}
 
-	// Use default config when none provided
-	if req.Config == nil {
-		lang := req.Lang
-		if lang == "" {
-			lang = "zh"
-		}
-		defaultCfg := store.GetDefaultStrategyConfig(lang)
-		req.Config = &defaultCfg
+	lang := req.Lang
+	if lang == "" {
+		lang = "zh"
 	}
-	req.Config.ClampLimits()
+	config, err := store.ParseStrategyConfigWithDefaults(req.Config, lang)
+	if err != nil {
+		SafeBadRequest(c, "Invalid config JSON")
+		return
+	}
 
 	// Serialize configuration
-	configJSON, err := json.Marshal(req.Config)
+	configJSON, err := json.Marshal(config)
 	if err != nil {
 		SafeInternalError(c, "Serialize configuration", err)
 		return
@@ -220,7 +219,7 @@ func (s *Server) handleCreateStrategy(c *gin.Context) {
 	}
 
 	// Validate configuration and collect warnings
-	warnings := validateStrategyConfig(req.Config)
+	warnings := validateStrategyConfig(config)
 
 	response := gin.H{
 		"id":      strategy.ID,
@@ -270,22 +269,31 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 		return
 	}
 
-	// Start with the existing config as base — preserves all unmentioned fields.
-	var mergedConfig store.StrategyConfig
-	if err := json.Unmarshal([]byte(existing.Config), &mergedConfig); err != nil {
-		// If existing config is corrupt, start from zero
-		mergedConfig = store.StrategyConfig{}
+	// Start with the existing config as base, including defaults for older or
+	// externally-created partial configs.
+	mergedConfig, err := existing.ParseConfig()
+	if err != nil {
+		mergedConfig = &store.StrategyConfig{}
 	}
 
 	// Apply incoming config on top: top-level sections present in the request overwrite
 	// their corresponding existing section; absent sections remain unchanged.
 	if len(req.Config) > 0 && string(req.Config) != "null" {
-		if err := json.Unmarshal(req.Config, &mergedConfig); err != nil {
+		if err := json.Unmarshal(req.Config, mergedConfig); err != nil {
 			SafeBadRequest(c, "Invalid config JSON")
 			return
 		}
 	}
-	mergedConfig.ClampLimits()
+	mergedJSON, err := json.Marshal(mergedConfig)
+	if err != nil {
+		SafeInternalError(c, "Serialize configuration", err)
+		return
+	}
+	defaultedConfig, err := store.ParseStrategyConfigWithDefaults(mergedJSON, mergedConfig.Language)
+	if err != nil {
+		SafeBadRequest(c, "Invalid config JSON")
+		return
+	}
 
 	// Preserve existing name/description when not supplied
 	name := req.Name
@@ -297,7 +305,7 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 		description = existing.Description
 	}
 
-	configJSON, err := json.Marshal(mergedConfig)
+	configJSON, err := json.Marshal(defaultedConfig)
 	if err != nil {
 		SafeInternalError(c, "Serialize configuration", err)
 		return
@@ -319,8 +327,8 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 	}
 
 	// Token overflow check — block save if all models exceed context limits
-	if mergedConfig.StrategyType == "" || mergedConfig.StrategyType == "ai_trading" {
-		estimate := mergedConfig.EstimateTokens()
+	if defaultedConfig.StrategyType == "" || defaultedConfig.StrategyType == "ai_trading" {
+		estimate := defaultedConfig.EstimateTokens()
 		allExceed := true
 		for _, ml := range estimate.ModelLimits {
 			if ml.UsagePct <= 100 {
@@ -338,7 +346,7 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 	}
 
 	// Validate merged configuration and collect warnings
-	warnings := validateStrategyConfig(&mergedConfig)
+	warnings := validateStrategyConfig(defaultedConfig)
 
 	response := gin.H{"message": "Strategy updated successfully"}
 	if len(warnings) > 0 {

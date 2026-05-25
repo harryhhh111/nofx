@@ -136,7 +136,7 @@ func TestClampLimits_ConfidenceThresholds(t *testing.T) {
 
 func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
 	st := &Strategy{
-		Config: `{"language":"zh","risk_control":{"min_confidence":75}}`,
+		Config: `{"language":"zh","risk_control":{"min_confidence":75},"indicators":{"enable_quant_data":false}}`,
 	}
 
 	config, err := st.ParseConfig()
@@ -146,5 +146,47 @@ func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
 
 	if config.RiskControl.MinCloseConfidence != DefaultMinCloseConfidence {
 		t.Errorf("min close confidence = %d, want %d", config.RiskControl.MinCloseConfidence, DefaultMinCloseConfidence)
+	}
+	if config.Indicators.Klines.PrimaryTimeframe != "5m" {
+		t.Errorf("primary timeframe = %q, want 5m", config.Indicators.Klines.PrimaryTimeframe)
+	}
+	if config.Indicators.Klines.PrimaryCount != 20 {
+		t.Errorf("primary count = %d, want 20", config.Indicators.Klines.PrimaryCount)
+	}
+	if config.Indicators.EnableQuantData {
+		t.Error("explicit enable_quant_data=false should be preserved")
+	}
+	if len(config.Indicators.ATRPeriods) != 1 || config.Indicators.ATRPeriods[0] != 14 {
+		t.Errorf("atr periods = %v, want [14]", config.Indicators.ATRPeriods)
+	}
+}
+
+func TestParseConfig_DefaultsGridConfigForExternalAPI(t *testing.T) {
+	st := &Strategy{
+		Config: `{"strategy_type":"grid_trading","grid_config":{"symbol":"ETHUSDT","atr_multiplier":3}}`,
+	}
+
+	config, err := st.ParseConfig()
+	if err != nil {
+		t.Fatalf("ParseConfig() error = %v", err)
+	}
+
+	if config.StrategyType != "grid_trading" {
+		t.Errorf("strategy type = %q, want grid_trading", config.StrategyType)
+	}
+	if config.GridConfig == nil {
+		t.Fatal("grid config should be defaulted")
+	}
+	if config.GridConfig.Symbol != "ETHUSDT" {
+		t.Errorf("grid symbol = %q, want ETHUSDT", config.GridConfig.Symbol)
+	}
+	if config.GridConfig.ATRMultiplier != 3 {
+		t.Errorf("atr multiplier = %v, want 3", config.GridConfig.ATRMultiplier)
+	}
+	if config.GridConfig.GridCount != 10 {
+		t.Errorf("grid count = %d, want default 10", config.GridConfig.GridCount)
+	}
+	if !config.GridConfig.UseATRBounds {
+		t.Error("use_atr_bounds should default to true")
 	}
 }

@@ -379,7 +379,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 	}
 
 	config := StrategyConfig{
-		Language: normalizedLang,
+		StrategyType: "ai_trading",
+		Language:     normalizedLang,
 		CoinSource: CoinSourceConfig{
 			SourceType: "ai500",
 			UseAI500:   true,
@@ -490,8 +491,103 @@ Only enter positions when multiple signals resonate. Freely use any effective an
 	return config
 }
 
+// GetDefaultGridStrategyConfig returns backend-owned defaults for grid strategies.
+func GetDefaultGridStrategyConfig() *GridStrategyConfig {
+	return &GridStrategyConfig{
+		Symbol:                "BTCUSDT",
+		GridCount:             10,
+		TotalInvestment:       1000,
+		Leverage:              5,
+		UpperPrice:            0,
+		LowerPrice:            0,
+		UseATRBounds:          true,
+		ATRMultiplier:         2.0,
+		Distribution:          "gaussian",
+		MaxDrawdownPct:        15,
+		StopLossPct:           5,
+		DailyLossLimitPct:     10,
+		UseMakerOnly:          true,
+		EnableDirectionAdjust: false,
+		DirectionBiasRatio:    0.7,
+	}
+}
+
 func boolPtr(v bool) *bool {
 	return &v
+}
+
+// ParseStrategyConfigWithDefaults overlays a partial JSON config onto backend
+// defaults. Missing fields inherit defaults, while fields explicitly provided by
+// callers, including false/0 values, are preserved.
+func ParseStrategyConfigWithDefaults(raw []byte, fallbackLang string) (*StrategyConfig, error) {
+	override := map[string]interface{}{}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed != "" && trimmed != "null" {
+		if err := json.Unmarshal(raw, &override); err != nil {
+			return nil, fmt.Errorf("failed to parse strategy configuration: %w", err)
+		}
+	}
+
+	lang := fallbackLang
+	if rawLang, ok := override["language"].(string); ok && rawLang != "" {
+		lang = rawLang
+	}
+	if lang != "zh" {
+		lang = "en"
+	}
+
+	strategyType := "ai_trading"
+	if rawType, ok := override["strategy_type"].(string); ok && rawType != "" {
+		strategyType = rawType
+	}
+
+	defaultConfig := GetDefaultStrategyConfig(lang)
+	defaultConfig.StrategyType = strategyType
+	if strategyType == "grid_trading" {
+		defaultConfig.GridConfig = GetDefaultGridStrategyConfig()
+	}
+
+	defaultJSON, err := json.Marshal(defaultConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize default strategy configuration: %w", err)
+	}
+
+	defaultMap := map[string]interface{}{}
+	if err := json.Unmarshal(defaultJSON, &defaultMap); err != nil {
+		return nil, fmt.Errorf("failed to parse default strategy configuration: %w", err)
+	}
+
+	merged := mergeConfigMaps(defaultMap, override)
+	mergedJSON, err := json.Marshal(merged)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize merged strategy configuration: %w", err)
+	}
+
+	var config StrategyConfig
+	if err := json.Unmarshal(mergedJSON, &config); err != nil {
+		return nil, fmt.Errorf("failed to parse merged strategy configuration: %w", err)
+	}
+	if config.StrategyType == "" {
+		config.StrategyType = "ai_trading"
+	}
+	if config.StrategyType == "grid_trading" && config.GridConfig == nil {
+		config.GridConfig = GetDefaultGridStrategyConfig()
+	}
+	config.ClampLimits()
+	return &config, nil
+}
+
+func mergeConfigMaps(defaults, overrides map[string]interface{}) map[string]interface{} {
+	for key, overrideValue := range overrides {
+		overrideMap, overrideIsMap := overrideValue.(map[string]interface{})
+		defaultMap, defaultIsMap := defaults[key].(map[string]interface{})
+		if overrideIsMap && defaultIsMap {
+			defaults[key] = mergeConfigMaps(defaultMap, overrideMap)
+			continue
+		}
+		defaults[key] = overrideValue
+	}
+	return defaults
 }
 
 // ShouldIncludeHistoricalContext returns whether historical closed-trade context
@@ -642,12 +738,7 @@ func (s *StrategyStore) Duplicate(userID, sourceID, newID, newName string) error
 
 // ParseConfig parse strategy configuration JSON
 func (s *Strategy) ParseConfig() (*StrategyConfig, error) {
-	var config StrategyConfig
-	if err := json.Unmarshal([]byte(s.Config), &config); err != nil {
-		return nil, fmt.Errorf("failed to parse strategy configuration: %w", err)
-	}
-	config.ClampLimits()
-	return &config, nil
+	return ParseStrategyConfigWithDefaults([]byte(s.Config), "")
 }
 
 // SetConfig set strategy configuration
