@@ -44,12 +44,6 @@ var claw402ModelEndpoints = map[string]string{
 	"glm-5-turbo": "/api/v1/ai/zhipu/chat/turbo",
 }
 
-func init() {
-	mcp.RegisterProvider(mcp.ProviderClaw402, func(opts ...mcp.ClientOption) mcp.AIClient {
-		return NewClaw402ClientWithOptions(opts...)
-	})
-}
-
 // Claw402Client implements AIClient using claw402.ai's x402 v2 USDC payment gateway.
 // When the selected model routes to an Anthropic endpoint, it automatically uses
 // the Anthropic wire format for requests and responses (via an internal ClaudeClient).

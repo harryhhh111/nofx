@@ -153,7 +153,6 @@ type AutoTrader struct {
 	lastBalanceSyncTime     time.Time              // Last balance sync time
 	userID                  string                 // User ID
 	gridState               *GridState             // Grid trading state (only used when StrategyType == "grid_trading")
-	claw402WalletAddr       string                 // Claw402 wallet address (derived from private key at start)
 	consecutiveAIFailures   int                    // Consecutive AI call failures
 	safeMode                bool                   // Safe mode: no new positions, protect existing ones
 	safeModeReason          string                 // Why safe mode was activated
@@ -212,12 +211,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	}
 
 	// Payment providers (claw402) ignore customURL
-	switch aiModel {
-	case "claw402":
-		mcpClient.SetAPIKey(apiKey, "", config.CustomModelName)
-	default:
-		mcpClient.SetAPIKey(apiKey, customURL, config.CustomModelName)
-	}
+	mcpClient.SetAPIKey(apiKey, customURL, config.CustomModelName)
 	logger.Infof("🤖 [%s] Using %s AI", config.Name, aiModel)
 
 	if config.CustomAPIURL != "" || config.CustomModelName != "" {
@@ -344,11 +338,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	}
 	// Pass claw402 wallet key to strategy engine so nofxos data requests
 	// are routed through claw402 (reuses the same wallet as AI calls)
-	var claw402Key string
-	if config.AIModel == "claw402" && config.CustomAPIKey != "" {
-		claw402Key = config.CustomAPIKey
-	}
-	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig, claw402Key)
+	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig)
 	strategyEngine.SetTraderInfo(config.ID, config.Name)
 	logger.Infof("✓ [%s] Using strategy engine (strategy configuration loaded)", config.Name)
 
@@ -397,7 +387,6 @@ func (at *AutoTrader) Run() error {
 	logger.Info("🤖 AI will make full decisions on leverage, position size, stop loss/take profit, etc.")
 
 	// Pre-launch checks for claw402 users
-	at.runPreLaunchChecks()
 	at.monitorWg.Add(1)
 	defer at.monitorWg.Done()
 
@@ -615,8 +604,7 @@ func calculatePnLPercentage(unrealizedPnl, marginUsed float64) float64 {
 	return 0.0
 }
 
-// runPreLaunchChecks performs pre-launch checks for claw402 users (wallet balance, runway estimate)
-func (at *AutoTrader) runPreLaunchChecks() {
+func _unused_deleted() {
 	if !store.IsClaw402Config(at.config.AIModel) {
 		return
 	}

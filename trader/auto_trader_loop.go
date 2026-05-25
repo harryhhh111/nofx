@@ -135,7 +135,8 @@ func (at *AutoTrader) runCycle() error {
 	if err != nil {
 		at.consecutiveAIFailures++
 		record.Success = false
-		record.ErrorMessage = fmt.Sprintf("Failed to get AI decision: %v", err)
+		record.ErrorMessage = fmt.Sprintf("Failed to get AI decision [aiModel=%s aiProvider=%s]: %v", at.aiModel, at.config.AIModel, err)
+		record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("AI call failed [aiModel=%s aiProvider=%s]: %v", at.aiModel, at.config.AIModel, err))
 
 		// Activate safe mode after 3 consecutive failures
 		if at.consecutiveAIFailures >= 3 && !at.safeMode {
