@@ -63,7 +63,6 @@ func NewClaw402Client() mcp.AIClient {
 // NewClaw402ClientWithOptions creates a claw402 client with options.
 func NewClaw402ClientWithOptions(opts ...mcp.ClientOption) mcp.AIClient {
 	baseOpts := []mcp.ClientOption{
-		mcp.WithProvider(mcp.ProviderClaw402),
 		mcp.WithModel(DefaultClaw402Model),
 		mcp.WithBaseURL(DefaultClaw402URL),
 		mcp.WithTimeout(X402Timeout),

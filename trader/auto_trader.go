@@ -2,7 +2,6 @@ package trader
 
 import (
 	"fmt"
-	"github.com/ethereum/go-ethereum/crypto"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/mcp"
@@ -20,7 +19,6 @@ import (
 	"nofx/trader/lighter"
 	"nofx/trader/okx"
 	"nofx/trader/paper"
-	"nofx/wallet"
 	"sync"
 	"time"
 )
@@ -604,61 +602,3 @@ func calculatePnLPercentage(unrealizedPnl, marginUsed float64) float64 {
 	return 0.0
 }
 
-func _unused_deleted() {
-	if !store.IsClaw402Config(at.config.AIModel) {
-		return
-	}
-
-	logger.Info("🔍 Running pre-launch checks (claw402)...")
-
-	// Derive wallet address from CustomAPIKey (which is the private key for claw402)
-	if at.config.CustomAPIKey != "" {
-		// Try to derive address using go-ethereum
-		addr := deriveWalletAddress(at.config.CustomAPIKey)
-		if addr != "" {
-			at.claw402WalletAddr = addr
-			logger.Infof("💳 [%s] Claw402 wallet: %s", at.name, addr)
-
-			// Query USDC balance
-			balance, err := wallet.QueryUSDCBalance(addr)
-			if err != nil {
-				logger.Warnf("⚠️ [%s] Could not query USDC balance: %v", at.name, err)
-			} else {
-				// Estimate runway
-				scanMinutes := int(at.config.ScanInterval.Minutes())
-				modelName := at.config.CustomModelName
-				if modelName == "" {
-					modelName = "deepseek"
-				}
-				dailyCost, runway := store.EstimateRunway(balance, modelName, scanMinutes)
-				logger.Infof("💰 [%s] USDC Balance: $%.2f | Daily AI cost: ~$%.2f | Runway: ~%.1f days",
-					at.name, balance, dailyCost, runway)
-
-				if balance < 1.0 {
-					logger.Warnf("⚠️ [%s] Low USDC balance! Consider topping up.", at.name)
-				}
-				if balance <= 0 {
-					logger.Errorf("🚨 [%s] USDC balance is ZERO — AI calls will fail!", at.name)
-				}
-			}
-		}
-	}
-
-	logger.Info("✅ Pre-launch checks complete")
-}
-
-// deriveWalletAddress derives an Ethereum address from a hex private key
-func deriveWalletAddress(privateKeyHex string) string {
-	// Remove 0x prefix if present
-	if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
-		privateKeyHex = privateKeyHex[2:]
-	}
-
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
-	if err != nil {
-		return ""
-	}
-
-	address := crypto.PubkeyToAddress(privateKey.PublicKey)
-	return address.Hex()
-}

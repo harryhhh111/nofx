@@ -10,7 +10,6 @@ import (
 	"nofx/crypto"
 	"nofx/logger"
 	"nofx/security"
-	"nofx/wallet"
 
 	"github.com/gin-gonic/gin"
 )
