@@ -3,6 +3,7 @@ package kernel
 import (
 	"fmt"
 	"nofx/market"
+	"nofx/provider/coinank"
 	"nofx/provider/nofxos"
 	"nofx/store"
 	"strings"
@@ -549,6 +550,22 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 			sb.WriteString("- Quantitative data (institutional/retail fund flow, position changes, multi-period price changes)\n")
 		}
 	}
+
+	if indicators.EnableLongShortRanking {
+		if lang == LangChinese {
+			sb.WriteString("- 市场多空比排行\n")
+		} else {
+			sb.WriteString("- Market long/short ratio rankings\n")
+		}
+	}
+
+	if indicators.EnableLiquidationRanking {
+		if lang == LangChinese {
+			sb.WriteString("- 市场爆仓排行\n")
+		} else {
+			sb.WriteString("- Market liquidation rankings\n")
+		}
+	}
 }
 
 // ============================================================================
@@ -902,6 +919,16 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	// Price Ranking data (market-wide gainers/losers)
 	if ctx.PriceRankingData != nil {
 		sb.WriteString(nofxos.FormatPriceRankingForAI(ctx.PriceRankingData, nofxosLang))
+	}
+
+	// Long/Short Ratio ranking data (market-wide sentiment)
+	if len(ctx.LongShortRankingData) > 0 {
+		sb.WriteString(e.formatLongShortRankingData(ctx.LongShortRankingData))
+	}
+
+	// Liquidation ranking data (market-wide forced liquidations)
+	if len(ctx.LiquidationRankingData) > 0 {
+		sb.WriteString(e.formatLiquidationRankingData(ctx.LiquidationRankingData))
 	}
 
 	sb.WriteString("---\n\n")
@@ -1521,4 +1548,69 @@ func formatFloatSlice(values []float64) string {
 		strValues[i] = fmt.Sprintf("%.4f", v)
 	}
 	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// formatLongShortRankingData formats long/short ratio ranking data for AI prompt
+func (e *StrategyEngine) formatLongShortRankingData(data []coinank.LongShortRankResponse) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	lang := e.GetLanguage()
+	var sb strings.Builder
+
+	if lang == LangChinese {
+		sb.WriteString("📊 市场多空比排行（Top 多头/空头情绪）：\n")
+		sb.WriteString("币种 | 价格 | 多空比 | 5m变化 | 15m变化 | 1h变化 | 4h变化\n")
+	} else {
+		sb.WriteString("📊 Market Long/Short Ratio Rankings (Top Bullish/Bearish Sentiment):\n")
+		sb.WriteString("Coin | Price | L/S Ratio | 5m Chg | 15m Chg | 1h Chg | 4h Chg\n")
+	}
+
+	for _, item := range data {
+		sb.WriteString(fmt.Sprintf("%s | %.4f | %.2f | %+.2f%% | %+.2f%% | %+.2f%% | %+.2f%%\n",
+			item.BaseCoin, item.Price, item.LongShortPerson,
+			item.LsPersonChg5M, item.LsPersonChg15M,
+			item.LsPersonChg1H, item.LsPersonChg4H))
+	}
+	sb.WriteString("\n")
+
+	return sb.String()
+}
+
+// formatLiquidationRankingData formats liquidation ranking data for AI prompt
+func (e *StrategyEngine) formatLiquidationRankingData(data []coinank.LiquidationRankResponse) string {
+	if len(data) == 0 {
+		return ""
+	}
+
+	lang := e.GetLanguage()
+	var sb strings.Builder
+
+	if lang == LangChinese {
+		sb.WriteString("💥 市场爆仓排行（强制平仓统计）：\n")
+		sb.WriteString("币种 | 价格 | 24h涨跌 | 1h爆仓(多/空) | 4h爆仓(多/空) | 24h爆仓(多/空)\n")
+	} else {
+		sb.WriteString("💥 Market Liquidation Rankings (Forced Closure Statistics):\n")
+		sb.WriteString("Coin | Price | 24h Chg | 1h Liq(L/S) | 4h Liq(L/S) | 24h Liq(L/S)\n")
+	}
+
+	for _, item := range data {
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("%s | %.4f | %+.2f%% | %.2f(%.2f/%.2f) | %.2f(%.2f/%.2f) | %.2f(%.2f/%.2f)\n",
+				item.BaseCoin, item.Price, item.PriceChangeH24,
+				item.LiquidationH1, item.LiquidationH1Long, item.LiquidationH1Short,
+				item.LiquidationH4, item.LiquidationH4Long, item.LiquidationH4Short,
+				item.LiquidationH24, item.LiquidationH24Long, item.LiquidationH24Short))
+		} else {
+			sb.WriteString(fmt.Sprintf("%s | %.4f | %+.2f%% | %.2f(%.2f/%.2f) | %.2f(%.2f/%.2f) | %.2f(%.2f/%.2f)\n",
+				item.BaseCoin, item.Price, item.PriceChangeH24,
+				item.LiquidationH1, item.LiquidationH1Long, item.LiquidationH1Short,
+				item.LiquidationH4, item.LiquidationH4Long, item.LiquidationH4Short,
+				item.LiquidationH24, item.LiquidationH24Long, item.LiquidationH24Short))
+		}
+	}
+	sb.WriteString("\n")
+
+	return sb.String()
 }

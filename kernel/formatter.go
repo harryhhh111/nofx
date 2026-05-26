@@ -3,6 +3,7 @@ package kernel
 import (
 	"fmt"
 	"nofx/market"
+	"nofx/provider/coinank"
 	"nofx/provider/nofxos"
 	"sort"
 	"strings"
@@ -168,6 +169,16 @@ func formatContextData(ctx *Context, lang Language) string {
 			nofxosLang = nofxos.LangChinese
 		}
 		sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang))
+	}
+
+	// 8. Long/Short ratio ranking data (if available)
+	if len(ctx.LongShortRankingData) > 0 {
+		sb.WriteString(formatLongShortRankingData(ctx.LongShortRankingData, lang))
+	}
+
+	// 9. Liquidation ranking data (if available)
+	if len(ctx.LiquidationRankingData) > 0 {
+		sb.WriteString(formatLiquidationRankingData(ctx.LiquidationRankingData, lang))
 	}
 
 	return sb.String()
@@ -732,5 +743,50 @@ func formatDrawdownAlertsEN(alerts []DrawdownAlert) string {
 		}
 		sb.WriteString("\n")
 	}
+	return sb.String()
+}
+
+func formatLongShortRankingData(data []coinank.LongShortRankResponse, lang Language) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	if lang == LangChinese {
+		sb.WriteString("📊 市场多空比排行（Top 多头/空头情绪）：\n")
+		sb.WriteString("币种 | 价格 | 多空比 | 5m变化 | 15m变化 | 1h变化 | 4h变化\n")
+	} else {
+		sb.WriteString("📊 Market Long/Short Ratio Rankings (Top Bullish/Bearish Sentiment):\n")
+		sb.WriteString("Coin | Price | L/S Ratio | 5m Chg | 15m Chg | 1h Chg | 4h Chg\n")
+	}
+	for _, item := range data {
+		sb.WriteString(fmt.Sprintf("%s | %.4f | %.2f | %+.2f%% | %+.2f%% | %+.2f%% | %+.2f%%\n",
+			item.BaseCoin, item.Price, item.LongShortPerson,
+			item.LsPersonChg5M, item.LsPersonChg15M,
+			item.LsPersonChg1H, item.LsPersonChg4H))
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+func formatLiquidationRankingData(data []coinank.LiquidationRankResponse, lang Language) string {
+	if len(data) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	if lang == LangChinese {
+		sb.WriteString("💥 市场爆仓排行（强制平仓统计）：\n")
+		sb.WriteString("币种 | 价格 | 24h涨跌 | 1h爆仓(多/空) | 4h爆仓(多/空) | 24h爆仓(多/空)\n")
+	} else {
+		sb.WriteString("💥 Market Liquidation Rankings (Forced Closure Statistics):\n")
+		sb.WriteString("Coin | Price | 24h Chg | 1h Liq(L/S) | 4h Liq(L/S) | 24h Liq(L/S)\n")
+	}
+	for _, item := range data {
+		sb.WriteString(fmt.Sprintf("%s | %.4f | %+.2f%% | %.2f(%.2f/%.2f) | %.2f(%.2f/%.2f) | %.2f(%.2f/%.2f)\n",
+			item.BaseCoin, item.Price, item.PriceChangeH24,
+			item.LiquidationH1, item.LiquidationH1Long, item.LiquidationH1Short,
+			item.LiquidationH4, item.LiquidationH4Long, item.LiquidationH4Short,
+			item.LiquidationH24, item.LiquidationH24Long, item.LiquidationH24Short))
+	}
+	sb.WriteString("\n")
 	return sb.String()
 }

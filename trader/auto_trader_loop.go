@@ -737,7 +737,27 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		}
 	}
 
-	// 12. Load external data sources (Kronos, etc.)
+	// 12. Get Long/Short ratio ranking data (market-wide sentiment)
+	if strategyConfig.Indicators.EnableLongShortRanking {
+		logger.Infof("📊 [%s] Fetching Long/Short ratio ranking data...", at.name)
+		ctx.LongShortRankingData = at.strategyEngine.FetchLongShortRankingData()
+		if ctx.LongShortRankingData != nil {
+			logger.Infof("📊 [%s] Long/Short ranking data ready: %d entries",
+				at.name, len(ctx.LongShortRankingData))
+		}
+	}
+
+	// 13. Get Liquidation ranking data (market-wide forced liquidations)
+	if strategyConfig.Indicators.EnableLiquidationRanking {
+		logger.Infof("💥 [%s] Fetching Liquidation ranking data...", at.name)
+		ctx.LiquidationRankingData = at.strategyEngine.FetchLiquidationRankingData()
+		if ctx.LiquidationRankingData != nil {
+			logger.Infof("💥 [%s] Liquidation ranking data ready: %d entries",
+				at.name, len(ctx.LiquidationRankingData))
+		}
+	}
+
+	// 14. Load external data sources (Kronos, etc.)
 	if len(strategyConfig.Indicators.ExternalDataSources) > 0 {
 		externalRaw, err := at.strategyEngine.FetchExternalData()
 		if err != nil {

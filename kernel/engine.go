@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"nofx/logger"
 	"nofx/market"
+	"nofx/provider/coinank"
+	"nofx/provider/coinank/coinank_enum"
 	"nofx/provider/hyperliquid"
 	"nofx/provider/nofxos"
 	"nofx/store"
@@ -119,9 +121,11 @@ type Context struct {
 	MultiTFMarket      map[string]map[string]*market.Data `json:"-"`
 	OITopDataMap       map[string]*OITopData              `json:"-"`
 	QuantDataMap       map[string]*QuantData              `json:"-"`
-	OIRankingData      *nofxos.OIRankingData              `json:"-"` // Market-wide OI ranking data
-	NetFlowRankingData *nofxos.NetFlowRankingData         `json:"-"` // Market-wide fund flow ranking data
-	PriceRankingData   *nofxos.PriceRankingData           `json:"-"` // Market-wide price gainers/losers
+	OIRankingData          *nofxos.OIRankingData              `json:"-"` // Market-wide OI ranking data
+	NetFlowRankingData     *nofxos.NetFlowRankingData         `json:"-"` // Market-wide fund flow ranking data
+	PriceRankingData       *nofxos.PriceRankingData           `json:"-"` // Market-wide price gainers/losers
+	LongShortRankingData   []coinank.LongShortRankResponse   `json:"-"` // Market-wide long/short ratio ranking
+	LiquidationRankingData []coinank.LiquidationRankResponse `json:"-"` // Market-wide liquidation ranking
 	BTCETHLeverage     int                                `json:"-"`
 	AltcoinLeverage    int                                `json:"-"`
 	Timeframes         []string                           `json:"-"`
@@ -305,10 +309,11 @@ type OIDeltaData struct {
 
 // StrategyEngine strategy execution engine
 type StrategyEngine struct {
-	config       *store.StrategyConfig
-	nofxosClient *nofxos.Client
-	traderID     string
-	traderName   string
+	config        *store.StrategyConfig
+	nofxosClient  *nofxos.Client
+	coinankClient *coinank.CoinankClient
+	traderID      string
+	traderName    string
 }
 
 // NewStrategyEngine creates strategy execution engine.
@@ -344,9 +349,13 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 		}
 	}
 
+	// Create CoinAnk client (public API, no auth required)
+	coinankClient := coinank.NewCoinankClient(coinank_enum.MainUrl, "")
+
 	return &StrategyEngine{
-		config:       config,
-		nofxosClient: client,
+		config:        config,
+		nofxosClient:  client,
+		coinankClient: coinankClient,
 	}
 }
 
@@ -1007,6 +1016,58 @@ func (e *StrategyEngine) FetchPriceRankingData() *nofxos.PriceRankingData {
 	}
 
 	logger.Infof("✓ Price ranking data ready for %d durations", len(data.Durations))
+
+	return data
+}
+
+// FetchLongShortRankingData fetches market-wide long/short ratio ranking data from CoinAnk
+func (e *StrategyEngine) FetchLongShortRankingData() []coinank.LongShortRankResponse {
+	indicators := e.config.Indicators
+	if !indicators.EnableLongShortRanking {
+		return nil
+	}
+
+	limit := indicators.LongShortRankingLimit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	logger.Infof("📊 Fetching Long/Short ratio ranking data (limit: %d)", limit)
+
+	ctx := context.Background()
+	data, err := e.coinankClient.LongShortRank(ctx, coinank_enum.LongShortPerson, coinank_enum.Desc, 1, limit)
+	if err != nil {
+		logger.Warnf("⚠️  Failed to fetch Long/Short ranking data: %v", err)
+		return nil
+	}
+
+	logger.Infof("✓ Long/Short ranking data ready: %d entries", len(data))
+
+	return data
+}
+
+// FetchLiquidationRankingData fetches market-wide liquidation ranking data from CoinAnk
+func (e *StrategyEngine) FetchLiquidationRankingData() []coinank.LiquidationRankResponse {
+	indicators := e.config.Indicators
+	if !indicators.EnableLiquidationRanking {
+		return nil
+	}
+
+	limit := indicators.LiquidationRankingLimit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	logger.Infof("💥 Fetching Liquidation ranking data (limit: %d)", limit)
+
+	ctx := context.Background()
+	data, err := e.coinankClient.LiquidationRank(ctx, coinank_enum.LiquidationH24, coinank_enum.Desc, 1, limit)
+	if err != nil {
+		logger.Warnf("⚠️  Failed to fetch Liquidation ranking data: %v", err)
+		return nil
+	}
+
+	logger.Infof("✓ Liquidation ranking data ready: %d entries", len(data))
 
 	return data
 }
