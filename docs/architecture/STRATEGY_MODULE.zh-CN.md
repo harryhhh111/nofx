@@ -362,6 +362,10 @@ minConfidence := config.RiskControl.MinConfidence            // 默认: 75
 6. 候选币种          [完整市场数据]
 7. 量化数据          [资金流向, OI数据] (可选)
 8. OI排行数据        [市场OI变化排行] (可选)
+9. 资金流向排行      [机构/散户资金流入流出排行] (可选)
+10. 价格涨跌排行     [市场涨跌排行] (可选)
+11. 多空比排行       [市场多空情绪排行] (可选)
+12. 爆仓排行         [市场强制平仓统计排行] (可选)
 ```
 
 ### 4.2 账户信息格式
@@ -697,6 +701,10 @@ type StrategyConfig struct {
         EnableFundingRate bool
         EnableQuantData   bool
         EnableOIRanking   bool
+        EnableNetFlowRanking     bool
+        EnablePriceRanking       bool
+        EnableLongShortRanking   bool
+        EnableLiquidationRanking bool
 
         Klines struct {
             PrimaryTimeframe   string   // "5m"

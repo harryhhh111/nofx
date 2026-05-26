@@ -46,6 +46,12 @@ This document describes the complete data flow of the NOFX strategy module, incl
    ├─ Account information
    ├─ Current positions (with indicators)
    ├─ Candidate coins (full market data)
+   ├─ Quantitative data (fund flow, OI changes) (optional)
+   ├─ OI ranking data (optional)
+   ├─ NetFlow ranking data (optional)
+   ├─ Price ranking data (optional)
+   ├─ Long/Short ratio ranking data (optional)
+   ├─ Liquidation ranking data (optional)
    └─ "Please analyze and output decisions..."
         ↓
 5. AI Request (CallWithMessages)
@@ -697,6 +703,10 @@ type StrategyConfig struct {
         EnableFundingRate bool
         EnableQuantData   bool
         EnableOIRanking   bool
+        EnableNetFlowRanking     bool
+        EnablePriceRanking       bool
+        EnableLongShortRanking   bool
+        EnableLiquidationRanking bool
 
         Klines struct {
             PrimaryTimeframe   string   // "5m"
