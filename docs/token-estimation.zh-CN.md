@@ -35,11 +35,10 @@ SystemPrompt  = baseChars / 2（zh）或 / 4（en）
 
 FixedOverhead = 200 tokens（时间戳、账户信息、章节标题）
 
-RankingData   = (OILimit × 60 + NetFlowLimit × 80 + PriceLimit × durations × 40
-                 + LongShortLimit × 50 + LiquidationLimit × 80) / 4
+RankingData   = (OILimit × 60 + NetFlowLimit × 80 + PriceLimit × durations × 40) / 4
 
 staticTokens  = SystemPrompt + FixedOverhead + RankingData
-              ≈ 1500 + 200 + 900 = 2600 tokens（默认中文配置 + 新 ranking）
+              ≈ 1500 + 200 + 650 = 2350 tokens（默认中文配置）
 ```
 
 ### 每枚币的 Token 开销
