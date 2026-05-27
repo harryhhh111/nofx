@@ -87,18 +87,15 @@ export interface CreateTraderRequest {
   name: string
   ai_model_id: string
   exchange_id: string
-  strategy_id?: string // 策略ID（新版，使用保存的策略配置）
-  initial_balance?: number // 可选：创建时由后端自动获取，编辑时可手动更新
+  strategy_id?: string // 绛栫暐ID锛堟柊鐗堬紝浣跨敤淇濆瓨鐨勭瓥鐣ラ厤缃級
+  initial_balance?: number // 鍙€夛細鍒涘缓鏃剁敱鍚庣鑷姩鑾峰彇锛岀紪杈戞椂鍙墜鍔ㄦ洿鏂?
   scan_interval_minutes?: number
   is_cross_margin?: boolean
-  show_in_competition?: boolean // 是否在竞技场显示
-  // 以下字段为向后兼容保留，新版使用策略配置
+  show_in_competition?: boolean // 鏄惁鍦ㄧ珵鎶€鍦烘樉绀?
+  // 浠ヤ笅瀛楁涓哄悜鍚庡吋瀹逛繚鐣欙紝鏂扮増浣跨敤绛栫暐閰嶇疆
   btc_eth_leverage?: number
   altcoin_leverage?: number
   trading_symbols?: string
-  custom_prompt?: string
-  override_base_prompt?: boolean
-  system_prompt_template?: string
   use_ai500?: boolean
   use_oi_top?: boolean
 }
@@ -122,13 +119,13 @@ export interface UpdateExchangeConfigRequest {
       secret_key: string
       passphrase?: string
       testnet?: boolean
-      // Hyperliquid 特定字段
+      // Hyperliquid 鐗瑰畾瀛楁
       hyperliquid_wallet_addr?: string
-      // Aster 特定字段
+      // Aster 鐗瑰畾瀛楁
       aster_user?: string
       aster_signer?: string
       aster_private_key?: string
-      // LIGHTER 特定字段
+      // LIGHTER 鐗瑰畾瀛楁
       lighter_wallet_addr?: string
       lighter_private_key?: string
       lighter_api_key_private_key?: string

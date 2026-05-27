@@ -1,7 +1,7 @@
 package kernel
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"nofx/logger"
 	"nofx/market"
@@ -17,19 +17,11 @@ import (
 // ============================================================================
 
 var (
-	// Safe regex: precisely match ```json code blocks
-	reJSONFence      = regexp.MustCompile(`(?is)` + "```json\\s*(\\[\\s*\\{.*?\\}\\s*\\])\\s*```")
-	reJSONArray      = regexp.MustCompile(`(?is)\[\s*\{.*?\}\s*\]`)
-	reArrayHead      = regexp.MustCompile(`^\[\s*\{`)
-	reArrayOpenSpace = regexp.MustCompile(`^\[\s+\{`)
-	reInvisibleRunes = regexp.MustCompile("[\u200B\u200C\u200D\uFEFF]")
+	reJSONFence = regexp.MustCompile(`(?is)` + "```json\\s*(\\[\\s*\\{.*?\\}\\s*\\])\\s*```")
+	reJSONArray = regexp.MustCompile(`(?is)\[\s*\{.*?\}\s*\]`)
 
 	// XML tag extraction (supports any characters in reasoning chain)
-	reReasoningTag        = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
-	reReasoningSummaryTag = regexp.MustCompile(`(?s)<reasoning_summary>(.*?)</reasoning_summary>`)
-	reDecisionTag         = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
-	// Strip data source names from summary
-	reDataSourceInSummary = regexp.MustCompile(`(?i)\b(ai500|oi[_\s]?top)\b`)
+	reReasoningTag = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 )
 
 // ============================================================================
@@ -58,7 +50,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	engineConfig := engine.GetConfig()
 	engineConfig.ClampLimits()
 
-	// Token estimation check — block if exceeding the specific model's context limit
+	// Token estimation check: block if exceeding the specific model's context limit
 	estimate := engineConfig.EstimateTokens()
 
 	// Determine context limit for the specific model being used
@@ -71,13 +63,13 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	}
 
 	if estimate.Total > contextLimit {
-		logger.Errorf("🚫 Token estimate %d exceeds %s context limit %d — blocking analysis",
+		logger.Errorf("Token estimate %d exceeds %s context limit %d; blocking analysis",
 			estimate.Total, providerName, contextLimit)
 		return nil, fmt.Errorf("estimated %d tokens exceeds model context limit of %d; reduce coins, timeframes, or K-line count",
 			estimate.Total, contextLimit)
 	}
 	if estimate.Total*100/contextLimit >= 80 {
-		logger.Infof("⚠️  Token estimate %d — approaching %s context limit %d",
+		logger.Infof("Token estimate %d approaching %s context limit %d",
 			estimate.Total, providerName, contextLimit)
 	}
 
@@ -104,71 +96,60 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		}
 	}
 
-	// 2. Build System Prompt using strategy engine
 	riskConfig := engine.GetRiskControlConfig()
-	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
-
-	// 3. Build User Prompt using strategy engine
-	userPrompt := engine.BuildUserPrompt(ctx)
-
-	// 4. Call AI API
-	aiCallStart := time.Now()
-	aiResponse, err := mcpClient.CallWithMessages(systemPrompt, userPrompt)
-	aiCallDuration := time.Since(aiCallStart)
+	factorSnapshots, err := buildFactorSnapshots(ctx, engineConfig)
 	if err != nil {
-		return nil, fmt.Errorf("AI API call failed: %w", err)
+		return nil, err
 	}
+	rules := rulesFromStrategyConfig(engine.GetConfig())
+	marketPrices, minSLDistances := buildMarketValidationMaps(ctx, riskConfig)
 
-	// 5. Parse AI response
-	// Build market price map and min SL distance map for validation
-	marketPrices := make(map[string]float64)
-	minSLDistances := make(map[string]float64) // symbol -> min SL distance in price
-	atrBuffer := riskConfig.StopLossATRBuffer
-	if atrBuffer <= 0 {
-		atrBuffer = 1.0 // balanced default
-	}
-	for symbol, md := range ctx.MarketDataMap {
-		if md.CurrentPrice > 0 {
-			marketPrices[symbol] = md.CurrentPrice
-		}
-		// Find best ATR14: prefer 15m, fallback 1h, then any available timeframe
-		var bestATR float64
-		if md.TimeframeData != nil {
-			for _, tf := range []string{"15m", "1h", "30m", "4h"} {
-				if tfData, ok := md.TimeframeData[tf]; ok && tfData.ATR14 > 0 {
-					bestATR = tfData.ATR14
-					break
-				}
-			}
-		}
-		if bestATR > 0 {
-			minSLDistances[symbol] = bestATR * atrBuffer
-		}
-	}
-	decision, err := parseFullDecisionResponse(
-		aiResponse,
-		ctx.Account.TotalEquity,
-		riskConfig.BTCETHMaxLeverage,
-		riskConfig.AltcoinMaxLeverage,
-		riskConfig.BTCETHMaxPositionValueRatio,
-		riskConfig.AltcoinMaxPositionValueRatio,
-		riskConfig.MinRiskRewardRatio,
-		marketPrices,
-		minSLDistances,
+	tradingEngine := NewTradingEngine(
+		NewRuleSignalEngine(),
+		NewLLMTradingEngine(mcpClient),
+		NewDefaultRiskGate(
+			riskConfig.BTCETHMaxLeverage,
+			riskConfig.AltcoinMaxLeverage,
+			riskConfig.BTCETHMaxPositionValueRatio,
+			riskConfig.AltcoinMaxPositionValueRatio,
+			riskConfig.MinRiskRewardRatio,
+			marketPrices,
+			minSLDistances,
+		),
+		nil,
 	)
 
-	if decision != nil {
-		decision.Timestamp = time.Now()
-		decision.SystemPrompt = systemPrompt
-		decision.UserPrompt = userPrompt
-		decision.AIRequestDurationMs = aiCallDuration.Milliseconds()
-		decision.RawResponse = aiResponse
-	}
-
+	aiCallStart := time.Now()
+	result, err := tradingEngine.Evaluate(context.Background(), TradingEngineRequest{
+		SignalRequest: SignalRequest{
+			Account:        ctx.Account,
+			Positions:      ctx.Positions,
+			Candidates:     ctx.CandidateCoins,
+			Rules:          rules,
+			FactorSnapshot: factorSnapshots,
+			Now:            time.Now().UTC(),
+		},
+	})
+	aiCallDuration := time.Since(aiCallStart)
 	if err != nil {
-		return decision, fmt.Errorf("failed to parse AI response: %w", err)
+		return nil, err
 	}
 
+	decision := &FullDecision{
+		Timestamp:           time.Now(),
+		AIRequestDurationMs: aiCallDuration.Milliseconds(),
+		Decisions:           decisionsFromTradingResult(result),
+		CoTSummary:          tradingResultSummary(result, len(rules)),
+		SystemPrompt:        buildLLMReviewSystemPrompt(),
+	}
+	if userPrompt, promptErr := buildLLMReviewUserPrompt(AIReviewRequest{
+		Signals:          result.Signals,
+		FactorSnapshot:   factorSnapshots,
+		RelevantMemory:   result.Memory,
+		CurrentPositions: ctx.Positions,
+	}); promptErr == nil {
+		decision.UserPrompt = userPrompt
+	}
 	return decision, nil
 }
 
@@ -183,7 +164,11 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 	timeframes := config.Indicators.Klines.SelectedTimeframes
 	primaryTimeframe := config.Indicators.Klines.PrimaryTimeframe
-	klineCount := config.Indicators.Klines.PrimaryCount
+	displayCount := config.Indicators.Klines.PromptDisplayCount
+	if displayCount <= 0 {
+		displayCount = config.Indicators.Klines.PrimaryCount
+	}
+	computeLookback := config.Indicators.Klines.ComputeLookback
 
 	// Compatible with old configuration
 	if len(timeframes) == 0 {
@@ -199,17 +184,20 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 	if primaryTimeframe == "" {
 		primaryTimeframe = timeframes[0]
 	}
-	if klineCount <= 0 {
-		klineCount = 30
+	if displayCount <= 0 {
+		displayCount = 30
+	}
+	if computeLookback < displayCount {
+		computeLookback = displayCount
 	}
 
-	logger.Infof("📊 Strategy timeframes: %v, Primary: %s, Kline count: %d", timeframes, primaryTimeframe, klineCount)
+	logger.Infof("Strategy timeframes: %v, Primary: %s, display: %d, compute: %d", timeframes, primaryTimeframe, displayCount, computeLookback)
 
 	// 1. First fetch data for position coins (must fetch)
 	for _, pos := range ctx.Positions {
-		data, err := market.GetWithTimeframes(pos.Symbol, timeframes, primaryTimeframe, klineCount)
+		data, err := market.GetWithTimeframesWindow(pos.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
 		if err != nil {
-			logger.Infof("⚠️  Failed to fetch market data for position %s: %v", pos.Symbol, err)
+			logger.Infof("Failed to fetch market data for position %s: %v", pos.Symbol, err)
 			continue
 		}
 		ctx.MarketDataMap[pos.Symbol] = data
@@ -228,9 +216,9 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		data, err := market.GetWithTimeframes(coin.Symbol, timeframes, primaryTimeframe, klineCount)
+		data, err := market.GetWithTimeframesWindow(coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
 		if err != nil {
-			logger.Infof("⚠️  Failed to fetch market data for %s: %v", coin.Symbol, err)
+			logger.Infof("Failed to fetch market data for %s: %v", coin.Symbol, err)
 			continue
 		}
 
@@ -241,7 +229,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 			if oiValueInMillions < minOIThresholdMillions {
-				logger.Infof("⚠️  %s OI value too low (%.2fM USD < %.1fM), skipping coin",
+				logger.Infof("%s OI value too low (%.2fM USD < %.1fM), skipping coin",
 					coin.Symbol, oiValueInMillions, minOIThresholdMillions)
 				continue
 			}
@@ -250,219 +238,174 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		ctx.MarketDataMap[coin.Symbol] = data
 	}
 
-	logger.Infof("📊 Successfully fetched multi-timeframe market data for %d coins", len(ctx.MarketDataMap))
+	logger.Infof("Successfully fetched multi-timeframe market data for %d coins", len(ctx.MarketDataMap))
 	return nil
+}
+
+func buildFactorSnapshots(ctx *Context, config *store.StrategyConfig) (map[string]*market.FactorSnapshot, error) {
+	snapshots := make(map[string]*market.FactorSnapshot, len(ctx.MarketDataMap))
+	asOf := time.Now().UTC()
+	req := IndicatorRequestFromStrategyConfig(config)
+	structureReq := StructureRequestFromStrategyConfig(config)
+	for symbol, data := range ctx.MarketDataMap {
+		snapshot, err := market.BuildFactorSnapshotFromDataWithRequests(data, asOf, req, structureReq)
+		if err != nil {
+			return nil, fmt.Errorf("build factor snapshot for %s: %w", symbol, err)
+		}
+		snapshots[symbol] = snapshot
+	}
+	return snapshots, nil
+}
+
+func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.IndicatorRequest {
+	if config == nil {
+		return market.DefaultIndicatorRequest()
+	}
+	req := market.IndicatorRequest{}
+	indicators := config.Indicators
+	if indicators.EnableEMA {
+		req.EMAPeriods = indicators.EMAPeriods
+	}
+	if indicators.EnableRSI {
+		req.RSIPeriods = indicators.RSIPeriods
+	}
+	if indicators.EnableATR {
+		req.ATRPeriods = indicators.ATRPeriods
+	}
+	if indicators.EnableBOLL {
+		for _, period := range indicators.BOLLPeriods {
+			req.BOLLPeriods = append(req.BOLLPeriods, market.BOLLSpec{Period: period, Multiplier: 2})
+		}
+	}
+	if indicators.EnableMACD {
+		req.MACD = &market.MACDSpec{Fast: 12, Slow: 26, Signal: 9}
+	}
+	if indicators.EnableVolume {
+		req.VolumePeriods = []int{20}
+	}
+	req.VWAPPeriods = []int{20}
+	req.DonchianPeriods = []int{20}
+	req.RealizedVolPeriods = []int{20}
+	req.PriceChangeWindows = []int{12, 48}
+	return req
+}
+
+func StructureRequestFromStrategyConfig(config *store.StrategyConfig) market.StructureRequest {
+	if config == nil {
+		return market.StructureRequest{}
+	}
+	timeframe := config.Indicators.Klines.PrimaryTimeframe
+	if timeframe == "" && len(config.Indicators.Klines.SelectedTimeframes) > 0 {
+		timeframe = config.Indicators.Klines.SelectedTimeframes[0]
+	}
+	if timeframe == "" {
+		return market.StructureRequest{}
+	}
+	return market.StructureRequest{
+		Fibonacci: &market.FibonacciRequest{
+			Timeframe:             timeframe,
+			Lookback:              120,
+			SwingWindow:           3,
+			MinLegBars:            8,
+			MinLegATRMultiple:     3,
+			ZigZagThresholdPct:    2,
+			Levels:                []float64{0.236, 0.382, 0.5, 0.618, 0.786},
+			InvalidateOnBreakBase: true,
+		},
+		Support: &market.SupportRequest{
+			Timeframe:       timeframe,
+			Lookback:        120,
+			SwingWindow:     3,
+			ZoneWidthATR:    0.5,
+			MinTouches:      2,
+			MinDistanceBars: 5,
+		},
+	}
+}
+
+func buildMarketValidationMaps(ctx *Context, riskConfig store.RiskControlConfig) (map[string]float64, map[string]float64) {
+	marketPrices := make(map[string]float64)
+	minSLDistances := make(map[string]float64)
+	for symbol, data := range ctx.MarketDataMap {
+		if data == nil {
+			continue
+		}
+		if data.CurrentPrice > 0 {
+			marketPrices[symbol] = data.CurrentPrice
+		}
+		var atr float64
+		for _, tfData := range data.TimeframeData {
+			if tfData != nil && tfData.ATR14 > 0 {
+				atr = tfData.ATR14
+				break
+			}
+		}
+		if atr > 0 {
+			atrBuffer := riskConfig.StopLossATRBuffer
+			if atrBuffer <= 0 {
+				atrBuffer = 2.0
+			}
+			minSLDistances[symbol] = atr * atrBuffer
+		}
+	}
+	return marketPrices, minSLDistances
+}
+
+func decisionsFromTradingResult(result *TradingEngineResult) []Decision {
+	if result == nil || result.Risk == nil {
+		return nil
+	}
+	reviewBySignal := map[string]AIReviewDecision{}
+	for _, review := range result.Reviews {
+		reviewBySignal[review.SignalID] = review
+	}
+	decisions := make([]Decision, 0, len(result.Risk.Approved))
+	for _, signal := range result.Risk.Approved {
+		decisions = append(decisions, signal.ToDecision(reviewBySignal[signal.ID]))
+	}
+	return decisions
+}
+
+func tradingResultSummary(result *TradingEngineResult, ruleCount int) string {
+	if result == nil {
+		return fmt.Sprintf("structured trading flow: rules=%d signals=0 reviews=0 approved=0 rejected=0", ruleCount)
+	}
+	approved := 0
+	rejected := 0
+	if result.Risk != nil {
+		approved = len(result.Risk.Approved)
+		rejected = len(result.Risk.Rejected)
+	}
+	return fmt.Sprintf(
+		"structured trading flow: rules=%d signals=%d reviews=%d approved=%d rejected=%d",
+		ruleCount,
+		len(result.Signals),
+		len(result.Reviews),
+		approved,
+		rejected,
+	)
 }
 
 // ============================================================================
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64, minSLDistances map[string]float64) (*FullDecision, error) {
-	cotTrace := extractCoTTrace(aiResponse)
-	cotSummary := extractCoTSummary(aiResponse, cotTrace)
-
-	decisions, err := extractDecisions(aiResponse)
-	if err != nil {
-		return &FullDecision{
-			CoTTrace:   cotTrace,
-			CoTSummary: cotSummary,
-			Decisions:  []Decision{},
-		}, fmt.Errorf("failed to extract decisions: %w", err)
-	}
-
-	rejectedCount := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, marketPrices, minSLDistances)
-	if rejectedCount > 0 {
-		logger.Infof("⚠️ %d/%d decisions rejected during validation (converted to wait)", rejectedCount, len(decisions))
-	}
-
-	return &FullDecision{
-		CoTTrace:   cotTrace,
-		CoTSummary: cotSummary,
-		Decisions:  decisions,
-	}, nil
-}
-
-const maxSummaryLen = 500
-
-func sanitizeCotSummary(s string) string {
-	s = reDataSourceInSummary.ReplaceAllString(s, "")
-	return strings.TrimSpace(regexp.MustCompile(`\s+`).ReplaceAllString(s, " "))
-}
-
-// extractCoTSummary extracts refined summary: prioritize <reasoning_summary> tag, fallback to cotTrace[:500]
-func extractCoTSummary(response string, cotTrace string) string {
-	if match := reReasoningSummaryTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
-		s := strings.TrimSpace(match[1])
-		if s != "" {
-			logger.Infof("✓ Extracted reasoning summary using <reasoning_summary> tag")
-			return sanitizeCotSummary(s)
-		}
-	}
-	if cotTrace == "" {
-		return ""
-	}
-	if len(cotTrace) <= maxSummaryLen {
-		return sanitizeCotSummary(cotTrace)
-	}
-	return sanitizeCotSummary(cotTrace[:maxSummaryLen] + "...")
-}
-
 func extractCoTTrace(response string) string {
 	if match := reReasoningTag.FindStringSubmatch(response); match != nil && len(match) > 1 {
-		logger.Infof("✓ Extracted reasoning chain using <reasoning> tag")
+		logger.Infof("Extracted reasoning chain using <reasoning> tag")
 		return strings.TrimSpace(match[1])
 	}
 
 	if decisionIdx := strings.Index(response, "<decision>"); decisionIdx > 0 {
-		logger.Infof("✓ Extracted content before <decision> tag as reasoning chain")
+		logger.Infof("Extracted content before <decision> tag as reasoning chain")
 		return strings.TrimSpace(response[:decisionIdx])
 	}
 
 	jsonStart := strings.Index(response, "[")
 	if jsonStart > 0 {
-		logger.Infof("⚠️  Extracted reasoning chain using old format ([ character separator)")
+		logger.Infof("Extracted reasoning chain using old format ([ character separator)")
 		return strings.TrimSpace(response[:jsonStart])
 	}
 
 	return strings.TrimSpace(response)
-}
-
-func extractDecisions(response string) ([]Decision, error) {
-	s := removeInvisibleRunes(response)
-	s = strings.TrimSpace(s)
-	s = fixMissingQuotes(s)
-
-	var jsonPart string
-	if match := reDecisionTag.FindStringSubmatch(s); match != nil && len(match) > 1 {
-		jsonPart = strings.TrimSpace(match[1])
-		logger.Infof("✓ Extracted JSON using <decision> tag")
-	} else {
-		jsonPart = s
-		logger.Infof("⚠️  <decision> tag not found, searching JSON in full text")
-	}
-
-	jsonPart = fixMissingQuotes(jsonPart)
-
-	if m := reJSONFence.FindStringSubmatch(jsonPart); m != nil && len(m) > 1 {
-		jsonContent := strings.TrimSpace(m[1])
-		jsonContent = compactArrayOpen(jsonContent)
-		jsonContent = fixMissingQuotes(jsonContent)
-		if err := validateJSONFormat(jsonContent); err != nil {
-			return nil, fmt.Errorf("JSON format validation failed: %w\nJSON content: %s\nFull response:\n%s", err, jsonContent, response)
-		}
-		var decisions []Decision
-		if err := json.Unmarshal([]byte(jsonContent), &decisions); err != nil {
-			return nil, fmt.Errorf("JSON parsing failed: %w\nJSON content: %s", err, jsonContent)
-		}
-		return decisions, nil
-	}
-
-	jsonContent := strings.TrimSpace(reJSONArray.FindString(jsonPart))
-	if jsonContent == "" {
-		logger.Infof("⚠️  [SafeFallback] AI didn't output JSON decision, entering safe wait mode")
-
-		cotSummary := jsonPart
-		if len(cotSummary) > 240 {
-			cotSummary = cotSummary[:240] + "..."
-		}
-
-		fallbackDecision := Decision{
-			Symbol:    "ALL",
-			Action:    "wait",
-			Reasoning: fmt.Sprintf("Model didn't output structured JSON decision, entering safe wait; summary: %s", cotSummary),
-		}
-
-		return []Decision{fallbackDecision}, nil
-	}
-
-	jsonContent = compactArrayOpen(jsonContent)
-	jsonContent = fixMissingQuotes(jsonContent)
-
-	if err := validateJSONFormat(jsonContent); err != nil {
-		return nil, fmt.Errorf("JSON format validation failed: %w\nJSON content: %s\nFull response:\n%s", err, jsonContent, response)
-	}
-
-	var decisions []Decision
-	if err := json.Unmarshal([]byte(jsonContent), &decisions); err != nil {
-		return nil, fmt.Errorf("JSON parsing failed: %w\nJSON content: %s", err, jsonContent)
-	}
-
-	return decisions, nil
-}
-
-func fixMissingQuotes(jsonStr string) string {
-	jsonStr = strings.ReplaceAll(jsonStr, "\u201c", "\"")
-	jsonStr = strings.ReplaceAll(jsonStr, "\u201d", "\"")
-	jsonStr = strings.ReplaceAll(jsonStr, "\u2018", "'")
-	jsonStr = strings.ReplaceAll(jsonStr, "\u2019", "'")
-
-	jsonStr = strings.ReplaceAll(jsonStr, "［", "[")
-	jsonStr = strings.ReplaceAll(jsonStr, "］", "]")
-	jsonStr = strings.ReplaceAll(jsonStr, "｛", "{")
-	jsonStr = strings.ReplaceAll(jsonStr, "｝", "}")
-	jsonStr = strings.ReplaceAll(jsonStr, "：", ":")
-	jsonStr = strings.ReplaceAll(jsonStr, "，", ",")
-
-	jsonStr = strings.ReplaceAll(jsonStr, "【", "[")
-	jsonStr = strings.ReplaceAll(jsonStr, "】", "]")
-	jsonStr = strings.ReplaceAll(jsonStr, "〔", "[")
-	jsonStr = strings.ReplaceAll(jsonStr, "〕", "]")
-	jsonStr = strings.ReplaceAll(jsonStr, "、", ",")
-
-	jsonStr = strings.ReplaceAll(jsonStr, "　", " ")
-
-	return jsonStr
-}
-
-func validateJSONFormat(jsonStr string) error {
-	trimmed := strings.TrimSpace(jsonStr)
-
-	if !reArrayHead.MatchString(trimmed) {
-		if strings.HasPrefix(trimmed, "[") && !strings.Contains(trimmed[:min(20, len(trimmed))], "{") {
-			return fmt.Errorf("not a valid decision array (must contain objects {}), actual content: %s", trimmed[:min(50, len(trimmed))])
-		}
-		return fmt.Errorf("JSON must start with [{ (whitespace allowed), actual: %s", trimmed[:min(20, len(trimmed))])
-	}
-
-	// Check only JSON content outside quoted strings. Reasoning text may contain
-	// commas in prices like "$76,400", which are valid string content.
-	inQuote := false
-	for i := 0; i < len(jsonStr); i++ {
-		if jsonStr[i] == '"' && (i == 0 || jsonStr[i-1] != '\\') {
-			inQuote = !inQuote
-			continue
-		}
-		if inQuote {
-			continue
-		}
-		if jsonStr[i] == '~' {
-			return fmt.Errorf("JSON cannot contain range symbol ~ outside strings, all numbers must be precise single values")
-		}
-		if i <= len(jsonStr)-5 &&
-			jsonStr[i] >= '0' && jsonStr[i] <= '9' &&
-			jsonStr[i+1] == ',' &&
-			jsonStr[i+2] >= '0' && jsonStr[i+2] <= '9' &&
-			jsonStr[i+3] >= '0' && jsonStr[i+3] <= '9' &&
-			jsonStr[i+4] >= '0' && jsonStr[i+4] <= '9' {
-			return fmt.Errorf("JSON numbers cannot contain thousand separator comma, found: %s", jsonStr[i:min(i+10, len(jsonStr))])
-		}
-	}
-
-	return nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func removeInvisibleRunes(s string) string {
-	return reInvisibleRunes.ReplaceAllString(s, "")
-}
-
-func compactArrayOpen(s string) string {
-	return reArrayOpenSpace.ReplaceAllString(strings.TrimSpace(s), "[{")
 }

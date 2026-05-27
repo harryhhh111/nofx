@@ -24,15 +24,11 @@ type CreateTraderRequest struct {
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`     // Pointer type, nil means use default value true
 	ShowInCompetition   *bool   `json:"show_in_competition"` // Pointer type, nil means use default value true
-	// The following fields are kept for backward compatibility, new version uses strategy config
-	BTCETHLeverage       int    `json:"btc_eth_leverage"`
-	AltcoinLeverage      int    `json:"altcoin_leverage"`
-	TradingSymbols       string `json:"trading_symbols"`
-	CustomPrompt         string `json:"custom_prompt"`
-	OverrideBasePrompt   bool   `json:"override_base_prompt"`
-	SystemPromptTemplate string `json:"system_prompt_template"` // System prompt template name
-	UseAI500             bool   `json:"use_ai500"`
-	UseOITop             bool   `json:"use_oi_top"`
+	BTCETHLeverage      int     `json:"btc_eth_leverage"`
+	AltcoinLeverage     int     `json:"altcoin_leverage"`
+	TradingSymbols      string  `json:"trading_symbols"`
+	UseAI500            bool    `json:"use_ai500"`
+	UseOITop            bool    `json:"use_oi_top"`
 }
 
 // UpdateTraderRequest Update trader request
@@ -45,13 +41,9 @@ type UpdateTraderRequest struct {
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`
 	ShowInCompetition   *bool   `json:"show_in_competition"`
-	// The following fields are kept for backward compatibility, new version uses strategy config
-	BTCETHLeverage       int    `json:"btc_eth_leverage"`
-	AltcoinLeverage      int    `json:"altcoin_leverage"`
-	TradingSymbols       string `json:"trading_symbols"`
-	CustomPrompt         string `json:"custom_prompt"`
-	OverrideBasePrompt   bool   `json:"override_base_prompt"`
-	SystemPromptTemplate string `json:"system_prompt_template"`
+	BTCETHLeverage      int     `json:"btc_eth_leverage"`
+	AltcoinLeverage     int     `json:"altcoin_leverage"`
+	TradingSymbols      string  `json:"trading_symbols"`
 }
 
 func formatTraderCreationError(reason, nextStep string) string {
@@ -407,12 +399,6 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		altcoinLeverage = req.AltcoinLeverage
 	}
 
-	// Set system prompt template default value
-	systemPromptTemplate := "default"
-	if req.SystemPromptTemplate != "" {
-		systemPromptTemplate = req.SystemPromptTemplate
-	}
-
 	// Set scan interval default value
 	scanIntervalMinutes := req.ScanIntervalMinutes
 	if scanIntervalMinutes < 3 {
@@ -485,25 +471,22 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 
 	logger.Infof("🔧 DEBUG: Starting to create trader config, ID=%s, Name=%s, AIModel=%s, Exchange=%s, StrategyID=%s", traderID, req.Name, req.AIModelID, req.ExchangeID, req.StrategyID)
 	traderRecord := &store.Trader{
-		ID:                   traderID,
-		UserID:               userID,
-		Name:                 req.Name,
-		AIModelID:            req.AIModelID,
-		ExchangeID:           req.ExchangeID,
-		StrategyID:           req.StrategyID, // Associated strategy ID (new version)
-		InitialBalance:       actualBalance,  // Use actual queried balance
-		BTCETHLeverage:       btcEthLeverage,
-		AltcoinLeverage:      altcoinLeverage,
-		TradingSymbols:       req.TradingSymbols,
-		UseAI500:             req.UseAI500,
-		UseOITop:             req.UseOITop,
-		CustomPrompt:         req.CustomPrompt,
-		OverrideBasePrompt:   req.OverrideBasePrompt,
-		SystemPromptTemplate: systemPromptTemplate,
-		IsCrossMargin:        isCrossMargin,
-		ShowInCompetition:    showInCompetition,
-		ScanIntervalMinutes:  scanIntervalMinutes,
-		IsRunning:            false,
+		ID:                  traderID,
+		UserID:              userID,
+		Name:                req.Name,
+		AIModelID:           req.AIModelID,
+		ExchangeID:          req.ExchangeID,
+		StrategyID:          req.StrategyID, // Associated strategy ID (new version)
+		InitialBalance:      actualBalance,  // Use actual queried balance
+		BTCETHLeverage:      btcEthLeverage,
+		AltcoinLeverage:     altcoinLeverage,
+		TradingSymbols:      req.TradingSymbols,
+		UseAI500:            req.UseAI500,
+		UseOITop:            req.UseOITop,
+		IsCrossMargin:       isCrossMargin,
+		ShowInCompetition:   showInCompetition,
+		ScanIntervalMinutes: scanIntervalMinutes,
+		IsRunning:           false,
 	}
 
 	// Save to database
@@ -626,12 +609,6 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 	logger.Infof("📊 Final scan_interval_minutes: %d", scanIntervalMinutes)
 
-	// Set system prompt template
-	systemPromptTemplate := req.SystemPromptTemplate
-	if systemPromptTemplate == "" {
-		systemPromptTemplate = existingTrader.SystemPromptTemplate // Keep original value
-	}
-
 	// Handle strategy ID (if not provided, keep original value)
 	strategyID := req.StrategyID
 	if strategyID == "" {
@@ -651,23 +628,20 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 
 	// Update trader configuration
 	traderRecord := &store.Trader{
-		ID:                   traderID,
-		UserID:               userID,
-		Name:                 req.Name,
-		AIModelID:            req.AIModelID,
-		ExchangeID:           req.ExchangeID,
-		StrategyID:           strategyID, // Associated strategy ID
-		InitialBalance:       initialBalance,
-		BTCETHLeverage:       btcEthLeverage,
-		AltcoinLeverage:      altcoinLeverage,
-		TradingSymbols:       req.TradingSymbols,
-		CustomPrompt:         req.CustomPrompt,
-		OverrideBasePrompt:   req.OverrideBasePrompt,
-		SystemPromptTemplate: systemPromptTemplate,
-		IsCrossMargin:        isCrossMargin,
-		ShowInCompetition:    showInCompetition,
-		ScanIntervalMinutes:  scanIntervalMinutes,
-		IsRunning:            existingTrader.IsRunning, // Keep original value
+		ID:                  traderID,
+		UserID:              userID,
+		Name:                req.Name,
+		AIModelID:           req.AIModelID,
+		ExchangeID:          req.ExchangeID,
+		StrategyID:          strategyID, // Associated strategy ID
+		InitialBalance:      initialBalance,
+		BTCETHLeverage:      btcEthLeverage,
+		AltcoinLeverage:     altcoinLeverage,
+		TradingSymbols:      req.TradingSymbols,
+		IsCrossMargin:       isCrossMargin,
+		ShowInCompetition:   showInCompetition,
+		ScanIntervalMinutes: scanIntervalMinutes,
+		IsRunning:           existingTrader.IsRunning, // Keep original value
 	}
 
 	// Check if trader was running before update (we'll restart it after)

@@ -145,10 +145,25 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 // primaryTimeframe: primary timeframe (used for calculating current indicators), defaults to timeframes[0]
 // count: number of K-lines for each timeframe
 func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe string, count int) (*Data, error) {
+	return GetWithTimeframesWindow(symbol, timeframes, primaryTimeframe, count, 200)
+}
+
+// GetWithTimeframesWindow retrieves market data with separate prompt display
+// count and calculation lookback.
+func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
 		return nil, fmt.Errorf("at least one timeframe is required")
+	}
+	if displayCount <= 0 {
+		displayCount = 20
+	}
+	if computeLookback < displayCount {
+		computeLookback = displayCount
+	}
+	if computeLookback <= 0 {
+		computeLookback = 200
 	}
 
 	// If primary timeframe is not specified, use the first one
@@ -182,14 +197,14 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 
 		if isXyzAsset {
 			// Use Hyperliquid API for xyz dex assets
-			klines, err = getKlinesFromHyperliquid(symbol, tf, 200)
+			klines, err = getKlinesFromHyperliquid(symbol, tf, computeLookback)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from Hyperliquid: %v", symbol, tf, err)
 				continue
 			}
 		} else {
 			// Use CoinAnk for regular crypto assets (default to Binance)
-			klines, err = getKlinesFromCoinAnk(symbol, tf, "binance", 200)
+			klines, err = getKlinesFromCoinAnk(symbol, tf, "binance", computeLookback)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from CoinAnk: %v", symbol, tf, err)
 				continue
@@ -206,8 +221,9 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 			primaryKlines = klines
 		}
 
-		// Calculate series data for this timeframe (use count from config)
-		seriesData := calculateTimeframeSeries(klines, tf, count)
+		// Calculate series data using all fetched bars, but expose only the
+		// prompt display window as raw K-line rows.
+		seriesData := calculateTimeframeSeries(klines, tf, displayCount)
 		timeframeData[tf] = seriesData
 	}
 
@@ -229,7 +245,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 
 	// Calculate price changes
-	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60) // 1 hour
+	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
 	// Get OI data

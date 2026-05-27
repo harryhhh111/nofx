@@ -113,7 +113,7 @@ type AutoTraderConfig struct {
 	ShowInCompetition bool // Whether to show in competition page
 
 	// Strategy configuration (use complete strategy config)
-	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
+	StrategyConfig *store.StrategyConfig // Strategy configuration (coin sources, indicators, risk control, compiled rules, etc.)
 }
 
 // AutoTrader automatic trader
@@ -132,8 +132,6 @@ type AutoTrader struct {
 	cycleNumber             int                    // Current cycle number
 	initialBalance          float64
 	dailyPnL                float64
-	customPrompt            string // Custom trading strategy prompt
-	overrideBasePrompt      bool   // Whether to override base prompt
 	lastResetTime           time.Time
 	stopUntil               time.Time
 	isRunning               bool
@@ -578,27 +576,6 @@ func (at *AutoTrader) GetShowInCompetition() bool {
 // SetShowInCompetition sets whether trader should be shown in competition
 func (at *AutoTrader) SetShowInCompetition(show bool) {
 	at.showInCompetition = show
-}
-
-// SetCustomPrompt sets custom trading strategy prompt
-func (at *AutoTrader) SetCustomPrompt(prompt string) {
-	at.customPrompt = prompt
-}
-
-// SetOverrideBasePrompt sets whether to override base prompt
-func (at *AutoTrader) SetOverrideBasePrompt(override bool) {
-	at.overrideBasePrompt = override
-}
-
-// GetSystemPromptTemplate gets current system prompt template name (from strategy config)
-func (at *AutoTrader) GetSystemPromptTemplate() string {
-	if at.strategyEngine != nil {
-		config := at.strategyEngine.GetConfig()
-		if config.CustomPrompt != "" {
-			return "custom"
-		}
-	}
-	return "strategy"
 }
 
 // GetStore gets data store (for external access to decision records, etc.)

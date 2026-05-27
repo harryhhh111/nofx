@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import {
@@ -8,7 +8,6 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
-  Settings,
   BarChart3,
   Target,
   Shield,
@@ -18,13 +17,10 @@ import {
   Sparkles,
   Eye,
   Play,
-  FileText,
   Loader2,
   RefreshCw,
   Clock,
   Bot,
-  Terminal,
-  Code,
   Send,
   Download,
   Upload,
@@ -35,7 +31,6 @@ import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
 import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
 import { RiskControlEditor } from '../components/strategy/RiskControlEditor'
-import { PromptSectionsEditor } from '../components/strategy/PromptSectionsEditor'
 import { PublishSettingsEditor } from '../components/strategy/PublishSettingsEditor'
 import { GridConfigEditor, defaultGridConfig } from '../components/strategy/GridConfigEditor'
 import { TokenEstimateBar } from '../components/strategy/TokenEstimateBar'
@@ -68,32 +63,17 @@ export function StrategyStudioPage() {
     indicators: false,
     riskControl: false,
     historyContext: false,
-    promptSections: false,
-    customPrompt: false,
     publishSettings: false,
   })
 
   // Right panel states
   const [activeRightTab, setActiveRightTab] = useState<'prompt' | 'test'>('prompt')
-  const [promptPreview, setPromptPreview] = useState<{
-    system_prompt: string
-    user_prompt?: string
-    prompt_variant: string
-    config_summary: Record<string, unknown>
-  } | null>(null)
+  const [promptPreview, setPromptPreview] = useState<Record<string, unknown> | null>(null)
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
   const [selectedVariant, setSelectedVariant] = useState('balanced')
 
   // AI Test Run states
-  const [aiTestResult, setAiTestResult] = useState<{
-    system_prompt?: string
-    user_prompt?: string
-    ai_response?: string
-    reasoning?: string
-    decisions?: unknown[]
-    error?: string
-    duration_ms?: number
-  } | null>(null)
+  const [aiTestResult, setAiTestResult] = useState<Record<string, unknown> | null>(null)
   const [isRunningAiTest, setIsRunningAiTest] = useState(false)
 
   const toggleSection = (section: keyof typeof expandedSections) => {
@@ -156,45 +136,6 @@ export function StrategyStudioPage() {
     fetchStrategies()
     fetchAiModels()
   }, [fetchStrategies, fetchAiModels])
-
-  // Track previous language to detect actual changes
-  const prevLanguageRef = useRef(language)
-
-  // When language changes, update prompt sections to match the new language
-  useEffect(() => {
-    const updatePromptSectionsForLanguage = async () => {
-      // Only update if language actually changed (not on initial mount)
-      if (prevLanguageRef.current === language) return
-      prevLanguageRef.current = language
-
-      if (!token) return
-
-      try {
-        // Fetch default config for the new language
-        const response = await fetch(
-          `${API_BASE}/api/strategies/default-config?lang=${language}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        )
-        if (!response.ok) return
-        const defaultConfig = await response.json()
-
-        // Update only the prompt sections and language field
-        setEditingConfig(prev => {
-          if (!prev) return prev
-          return {
-            ...prev,
-            language: language as 'zh' | 'en',
-            prompt_sections: defaultConfig.prompt_sections,
-          }
-        })
-        setHasChanges(true)
-      } catch (err) {
-        console.error('Failed to update prompt sections for language:', err)
-      }
-    }
-
-    updatePromptSectionsForLanguage()
-  }, [language, token]) // Only trigger when language changes
 
   // Create new strategy
   const handleCreateStrategy = async () => {
@@ -265,7 +206,7 @@ export function StrategyStudioPage() {
         }
       }
     } catch {
-      // fetch failed — proceed, backend will guard
+      // fetch failed 闂?proceed, backend will guard
     }
 
     const confirmed = await confirmToast(
@@ -457,7 +398,7 @@ export function StrategyStudioPage() {
     if (!token || !editingConfig) return
     setIsLoadingPrompt(true)
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/preview-prompt`, {
+      const response = await fetch(`${API_BASE}/api/strategies/preview-flow`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -601,11 +542,11 @@ export function StrategyStudioPage() {
         <div className="space-y-3">
           <div>
             <p className="text-sm font-medium text-nofx-text">
-              {language === 'zh' ? '历史胜负影响开仓' : 'Historical PnL Influence'}
+              {language === 'zh' ? '历史交易影响' : 'Historical PnL Influence'}
             </p>
             <p className="text-xs text-nofx-text-muted mt-1">
               {language === 'zh'
-                ? '关闭后，AI 不再看到历史已平仓记录和历史胜负统计，但当前持仓和当前行情仍会正常参与决策。'
+                ? '启用后，交易复盘和历史表现可以作为结构化审查上下文；关闭后，只使用当前持仓和实时市场结构。'
                 : 'When disabled, AI no longer sees closed-trade history or performance stats. Current positions and live market context still remain available.'}
             </p>
           </div>
@@ -613,11 +554,11 @@ export function StrategyStudioPage() {
           <label className="flex items-start justify-between gap-4 p-3 rounded-lg bg-nofx-bg border border-nofx-gold/20">
             <div className="min-w-0">
               <div className="text-sm font-medium text-nofx-text">
-                {language === 'zh' ? '加载历史交易表现' : 'Include Historical Trading Context'}
+                {language === 'zh' ? '包含历史交易上下文' : 'Include Historical Trading Context'}
               </div>
               <div className="text-xs text-nofx-text-muted mt-1">
                 {language === 'zh'
-                  ? '开启：AI 会参考历史亏损、胜率、近期已平仓记录。关闭：仅基于当前仓位和当前行情判断。'
+                  ? '开启：可使用亏损、胜率、近期平仓记录等经验。关闭：只根据当前市场和持仓判断。'
                   : 'On: AI can use losses, win rate, and recent closed trades. Off: AI decides from current positions and current market structure only.'}
               </div>
             </div>
@@ -632,45 +573,7 @@ export function StrategyStudioPage() {
           </label>
         </div>
       ),
-    },
-    {
-      key: 'promptSections' as const,
-      icon: FileText,
-      color: '#a855f7',
-      title: tr('promptSections'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <PromptSectionsEditor
-          config={editingConfig.prompt_sections}
-          onChange={(promptSections) => updateConfig('prompt_sections', promptSections)}
-          disabled={selectedStrategy?.is_default}
-          language={language}
-        />
-      ),
-    },
-    {
-      key: 'customPrompt' as const,
-      icon: Settings,
-      color: '#60a5fa',
-      title: tr('customPrompt'),
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <div>
-          <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-            {tr('customPromptDesc')}
-          </p>
-          <textarea
-            value={editingConfig.custom_prompt || ''}
-            onChange={(e) => updateConfig('custom_prompt', e.target.value)}
-            disabled={selectedStrategy?.is_default}
-            placeholder={tr('customPromptPlaceholder')}
-            className="w-full h-32 px-3 py-2 rounded-lg resize-none font-mono text-xs"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
-          />
-        </div>
-      ),
-    },
-    {
+    },    {
       key: 'publishSettings' as const,
       icon: Globe,
       color: '#0ECB81',
@@ -848,7 +751,7 @@ export function StrategyStudioPage() {
                     className="text-xs bg-transparent border-none outline-none w-full text-nofx-text-muted placeholder-nofx-text-muted/50 mt-1"
                   />
                   {hasChanges && (
-                    <span className="text-xs text-nofx-gold">● {tr('unsaved')}</span>
+                    <span className="text-xs text-nofx-gold">闂?{tr('unsaved')}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
@@ -1029,42 +932,12 @@ export function StrategyStudioPage() {
                 </div>
 
                 {promptPreview ? (
-                  <>
-                    {/* Config Summary */}
-                    <div className="p-2 rounded-lg bg-nofx-bg border border-nofx-gold/20">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Code className="w-3 h-3 text-purple-500" />
-                        <span className="text-xs font-medium text-purple-500">Config</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2 text-xs">
-                        {Object.entries(promptPreview.config_summary || {}).map(([key, value]) => (
-                          <div key={key}>
-                            <div className="text-nofx-text-muted">{key.replace(/_/g, ' ')}</div>
-                            <div className="text-nofx-text">{String(value)}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* System Prompt */}
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <FileText className="w-3 h-3 text-purple-500" />
-                          <span className="text-xs font-medium text-nofx-text">{tr('systemPrompt')}</span>
-                        </div>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-nofx-bg-lighter text-nofx-text-muted">
-                          {promptPreview.system_prompt.length.toLocaleString()} chars
-                        </span>
-                      </div>
-                      <pre
-                        className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                        style={{ maxHeight: '400px' }}
-                      >
-                        {promptPreview.system_prompt}
-                      </pre>
-                    </div>
-                  </>
+                  <pre
+                    className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                    style={{ maxHeight: '520px' }}
+                  >
+                    {JSON.stringify(promptPreview, null, 2)}
+                  </pre>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Eye className="w-10 h-10 mb-2 opacity-30" />
@@ -1132,88 +1005,12 @@ export function StrategyStudioPage() {
 
                 {/* Test Results */}
                 {aiTestResult ? (
-                  <div className="space-y-3">
-                    {aiTestResult.error ? (
-                      <div className="p-3 rounded-lg bg-nofx-danger/10 border border-nofx-danger/30">
-                        <p className="text-sm text-nofx-danger">{aiTestResult.error}</p>
-                      </div>
-                    ) : (
-                      <>
-                        {aiTestResult.duration_ms && (
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-3 h-3 text-nofx-text-muted" />
-                            <span className="text-xs text-nofx-text-muted">
-                              {tr('duration')}: {(aiTestResult.duration_ms / 1000).toFixed(2)}s
-                            </span>
-                          </div>
-                        )}
-
-                        {/* User Prompt Input */}
-                        {aiTestResult.user_prompt && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Terminal className="w-3 h-3 text-blue-400" />
-                              <span className="text-xs font-medium text-nofx-text">{tr('userPrompt')} (Input)</span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                              style={{ maxHeight: '200px' }}
-                            >
-                              {aiTestResult.user_prompt}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* AI Reasoning */}
-                        {aiTestResult.reasoning && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Sparkles className="w-3 h-3 text-nofx-gold" />
-                              <span className="text-xs font-medium text-nofx-text">{tr('reasoning')}</span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/30 text-nofx-text"
-                              style={{ maxHeight: '200px' }}
-                            >
-                              {aiTestResult.reasoning}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* AI Decisions */}
-                        {aiTestResult.decisions && aiTestResult.decisions.length > 0 && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <Activity className="w-3 h-3 text-green-500" />
-                              <span className="text-xs font-medium text-nofx-text">{tr('decisions')}</span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-green-500/30 text-nofx-text"
-                              style={{ maxHeight: '200px' }}
-                            >
-                              {JSON.stringify(aiTestResult.decisions, null, 2)}
-                            </pre>
-                          </div>
-                        )}
-
-                        {/* Raw AI Response */}
-                        {aiTestResult.ai_response && (
-                          <div>
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <FileText className="w-3 h-3 text-nofx-text-muted" />
-                              <span className="text-xs font-medium text-nofx-text">{tr('aiOutput')} (Raw)</span>
-                            </div>
-                            <pre
-                              className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                              style={{ maxHeight: '300px' }}
-                            >
-                              {aiTestResult.ai_response}
-                            </pre>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
+                  <pre
+                    className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                    style={{ maxHeight: '520px' }}
+                  >
+                    {JSON.stringify(aiTestResult, null, 2)}
+                  </pre>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Play className="w-10 h-10 mb-2 opacity-30" />

@@ -174,9 +174,6 @@ Only include fields you want to change.`,
 			s.routeWithSchema(protected, "POST", "/traders/:id/stop", "Stop trader — halts live trading",
 				`:id = trader_id from GET /api/my-traders. No request body needed. Gracefully stops the trading loop.`,
 				s.handleStopTrader)
-			s.routeWithSchema(protected, "PUT", "/traders/:id/prompt", "Override the trader's AI system prompt",
-				`Body: {"prompt":"<string — the full custom prompt text>"}`,
-				s.handleUpdateTraderPrompt)
 			s.routeWithSchema(protected, "POST", "/traders/:id/sync-balance", "Sync account balance from exchange",
 				`:id = trader_id from GET /api/my-traders. No request body needed. Refreshes initial_balance from the exchange.`,
 				s.handleSyncBalance)
@@ -260,7 +257,11 @@ CRITICAL: Always use the "id" field for strategy_id.`,
 			s.routeWithSchema(protected, "GET", "/strategies/default-config", "Get default strategy config with all fields and sensible values — use as reference for building configs",
 				`No parameters needed. Returns a complete StrategyConfig object with all fields populated with recommended defaults. Read this before building a custom config.`,
 				s.handleGetDefaultStrategyConfig)
-			s.route(protected, "POST", "/strategies/preview-prompt", "Preview the AI prompt that will be generated from a config", s.handlePreviewPrompt)
+			s.route(protected, "POST", "/strategies/preview-flow", "Preview the structured strategy flow generated from a config", s.handlePreviewPrompt)
+			s.routeWithSchema(protected, "POST", "/strategies/compile", "Compile a natural-language strategy prompt into deterministic rules",
+				`Body: {"prompt":"<natural-language strategy>","ai_model_id":"<EXACT id from GET /api/models>","strategy_id":"<optional strategy id>","strategy_version":"<optional version>","persist":false}
+Returns compiled_rules. If persist=true, strategy_id is required and the compiled rules are saved into that strategy config.`,
+				s.handleCompileStrategyPrompt)
 			s.route(protected, "POST", "/strategies/test-run", "Test-run strategy AI analysis", s.handleStrategyTestRun)
 			s.route(protected, "GET", "/strategies/:id", "Get strategy by ID", s.handleGetStrategy)
 			s.routeWithSchema(protected, "POST", "/strategies", "Create a new trading strategy",
@@ -306,10 +307,7 @@ StrategyConfig fields:
   risk_control.min_risk_reward_ratio: minimum profit/loss ratio required (default 3 = 3:1)
   risk_control.min_confidence: minimum AI confidence to open position (default 50, range 50-90)
   risk_control.min_close_confidence: minimum AI confidence to proactively close early (default 85, range 70-95)
-  prompt_sections.role_definition: describe the AI's trading persona and goal
-  prompt_sections.trading_frequency: guidelines on how often to trade
-  prompt_sections.entry_standards: conditions that must align before entering a position
-  prompt_sections.decision_process: step-by-step decision-making framework`,
+  compiled_rules: deterministic user strategy rules evaluated before LLM review`,
 				s.handleCreateStrategy)
 			s.routeWithSchema(protected, "PUT", "/strategies/:id", "Update an existing strategy — WORKFLOW: 1) GET /api/strategies/:id first to read current config 2) Merge your changes into the full config 3) PUT with complete merged config 4) GET again to verify saved values",
 				`Body: {"name":"<string>","description":"<string>","config":<complete StrategyConfig — same structure as POST /api/strategies>}

@@ -38,6 +38,24 @@ func calculateMACD(klines []Kline) float64 {
 	return ema12 - ema26
 }
 
+func calculateMACDFull(klines []Kline, fast, slow, signal int) (macd, signalLine, histogram float64) {
+	if fast <= 0 || slow <= 0 || signal <= 0 || fast >= slow || len(klines) < slow+signal {
+		return 0, 0, 0
+	}
+	macdSeries := make([]float64, 0, len(klines)-slow+1)
+	for i := slow; i <= len(klines); i++ {
+		macdSeries = append(macdSeries, calculateEMA(klines[:i], fast)-calculateEMA(klines[:i], slow))
+	}
+	signalSeries := calculateEMAFloatSeries(macdSeries, signal)
+	if len(signalSeries) == 0 {
+		return 0, 0, 0
+	}
+	macd = macdSeries[len(macdSeries)-1]
+	signalLine = signalSeries[len(signalSeries)-1]
+	histogram = macd - signalLine
+	return macd, signalLine, histogram
+}
+
 // calculateRSI calculates RSI
 func calculateRSI(klines []Kline, period int) float64 {
 	if len(klines) <= period {
@@ -171,6 +189,77 @@ func calculateDonchian(klines []Kline, period int) (upper, lower float64) {
 	}
 
 	return upper, lower
+}
+
+func calculateVWAP(klines []Kline, period int) float64 {
+	if len(klines) < period || period <= 0 {
+		return 0
+	}
+	start := len(klines) - period
+	priceVolume := 0.0
+	volume := 0.0
+	for i := start; i < len(klines); i++ {
+		typical := (klines[i].High + klines[i].Low + klines[i].Close) / 3
+		priceVolume += typical * klines[i].Volume
+		volume += klines[i].Volume
+	}
+	if volume <= 0 {
+		return 0
+	}
+	return priceVolume / volume
+}
+
+func calculateAverageVolume(klines []Kline, period int) float64 {
+	if len(klines) < period || period <= 0 {
+		return 0
+	}
+	start := len(klines) - period
+	sum := 0.0
+	for i := start; i < len(klines); i++ {
+		sum += klines[i].Volume
+	}
+	return sum / float64(period)
+}
+
+func calculatePriceChangeWindow(klines []Kline, bars int) float64 {
+	if bars <= 0 || len(klines) <= bars {
+		return 0
+	}
+	current := klines[len(klines)-1].Close
+	base := klines[len(klines)-1-bars].Close
+	if base <= 0 {
+		return 0
+	}
+	return (current - base) / base * 100
+}
+
+func calculateRealizedVol(klines []Kline, period int) float64 {
+	if len(klines) <= period || period <= 1 {
+		return 0
+	}
+	start := len(klines) - period
+	returns := make([]float64, 0, period)
+	for i := start + 1; i < len(klines); i++ {
+		prev := klines[i-1].Close
+		if prev <= 0 || klines[i].Close <= 0 {
+			continue
+		}
+		returns = append(returns, math.Log(klines[i].Close/prev))
+	}
+	if len(returns) < 2 {
+		return 0
+	}
+	mean := 0.0
+	for _, r := range returns {
+		mean += r
+	}
+	mean /= float64(len(returns))
+	variance := 0.0
+	for _, r := range returns {
+		diff := r - mean
+		variance += diff * diff
+	}
+	return math.Sqrt(variance/float64(len(returns)-1)) * 100
 }
 
 // Box period constants (in 1h candles)

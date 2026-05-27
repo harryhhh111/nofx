@@ -18,7 +18,7 @@ export interface SystemStatus {
 export interface AccountInfo {
   total_equity: number
   wallet_balance: number
-  unrealized_profit: number // 未实现盈亏（交易所API官方值）
+  unrealized_profit: number // 鏈疄鐜扮泩浜忥紙浜ゆ槗鎵€API瀹樻柟鍊硷級
   available_balance: number
   total_pnl: number
   total_pnl_pct: number
@@ -148,7 +148,7 @@ export interface BBMACDAccuracyStats {
   by_timeframe: BBMACDTimeframeStat[]
 }
 
-// AI Trading相关类型
+// AI Trading鐩稿叧绫诲瀷
 export interface TraderInfo {
   trader_id: string
   trader_name: string
@@ -159,10 +159,8 @@ export interface TraderInfo {
   show_in_competition?: boolean
   strategy_id?: string
   strategy_name?: string
-  custom_prompt?: string
   use_ai500?: boolean
   use_oi_top?: boolean
-  system_prompt_template?: string
 }
 
 // Competition related types
@@ -190,20 +188,17 @@ export interface TraderConfigData {
   trader_name: string
   ai_model: string
   exchange_id: string
-  strategy_id?: string  // 策略ID
-  strategy_name?: string  // 策略名称
+  strategy_id?: string  // 绛栫暐ID
+  strategy_name?: string  // 绛栫暐鍚嶇О
   is_cross_margin: boolean
-  show_in_competition: boolean  // 是否在竞技场显示
+  show_in_competition: boolean  // 鏄惁鍦ㄧ珵鎶€鍦烘樉绀?
   scan_interval_minutes: number
   initial_balance: number
   is_running: boolean
-  // 以下为旧版字段（向后兼容）
+  // 浠ヤ笅涓烘棫鐗堝瓧娈碉紙鍚戝悗鍏煎锛?
   btc_eth_leverage?: number
   altcoin_leverage?: number
   trading_symbols?: string
-  custom_prompt?: string
-  override_base_prompt?: boolean
-  system_prompt_template?: string
   use_ai500?: boolean
   use_oi_top?: boolean
 }

@@ -12,11 +12,12 @@ import (
 
 // Hard limits to prevent token explosion in AI requests
 const (
-	MaxCandidateCoins = 10
-	MaxPositions      = 3
-	MaxTimeframes     = 5
-	MinKlineCount     = 10
-	MaxKlineCount     = 100
+	MaxCandidateCoins  = 10
+	MaxPositions       = 3
+	MaxTimeframes      = 5
+	MinKlineCount      = 10
+	MaxKlineCount      = 100
+	MaxComputeLookback = 1000
 
 	DefaultMinConfidence      = 50
 	MinMinConfidence          = 50
@@ -53,6 +54,24 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.Indicators.Klines.LongerCount > MaxKlineCount {
 		c.Indicators.Klines.LongerCount = MaxKlineCount
+	}
+	if c.Indicators.Klines.ComputeLookback <= 0 {
+		c.Indicators.Klines.ComputeLookback = 300
+	}
+	if c.Indicators.Klines.ComputeLookback < c.Indicators.Klines.PrimaryCount {
+		c.Indicators.Klines.ComputeLookback = c.Indicators.Klines.PrimaryCount
+	}
+	if c.Indicators.Klines.ComputeLookback > MaxComputeLookback {
+		c.Indicators.Klines.ComputeLookback = MaxComputeLookback
+	}
+	if c.Indicators.Klines.PromptDisplayCount <= 0 {
+		c.Indicators.Klines.PromptDisplayCount = c.Indicators.Klines.PrimaryCount
+	}
+	if c.Indicators.Klines.PromptDisplayCount < MinKlineCount {
+		c.Indicators.Klines.PromptDisplayCount = MinKlineCount
+	}
+	if c.Indicators.Klines.PromptDisplayCount > MaxKlineCount {
+		c.Indicators.Klines.PromptDisplayCount = MaxKlineCount
 	}
 
 	// Clamp timeframes
@@ -150,24 +169,60 @@ type StrategyConfig struct {
 	StrategyType string `json:"strategy_type,omitempty"`
 
 	// language setting: "zh" for Chinese, "en" for English
-	// This determines the language used for data formatting and prompt generation
 	Language string `json:"language,omitempty"`
 	// coin source configuration
 	CoinSource CoinSourceConfig `json:"coin_source"`
 	// quantitative data configuration
 	Indicators IndicatorConfig `json:"indicators"`
-	// custom prompt (appended at the end)
-	CustomPrompt string `json:"custom_prompt,omitempty"`
 	// whether AI should see historical closed trades and performance stats
 	// default: true. current open positions are NOT affected by this switch.
 	IncludeHistoricalContext *bool `json:"include_historical_context,omitempty"`
 	// risk control configuration
 	RiskControl RiskControlConfig `json:"risk_control"`
-	// editable sections of System Prompt
-	PromptSections PromptSectionsConfig `json:"prompt_sections,omitempty"`
+	// Natural-language strategy source. It must be compiled into CompiledRules
+	// before it can affect live trading.
+	StrategyPrompt string `json:"strategy_prompt,omitempty"`
+	// Compiled strategy rules. User natural-language prompts should be
+	// converted into these deterministic rules before live trading.
+	CompiledRules []CompiledStrategyRule `json:"compiled_rules,omitempty"`
 
 	// Grid trading configuration (only used when StrategyType == "grid_trading")
 	GridConfig *GridStrategyConfig `json:"grid_config,omitempty"`
+}
+
+type CompiledStrategyRule struct {
+	ID          string                  `json:"id"`
+	Version     string                  `json:"version"`
+	Description string                  `json:"description,omitempty"`
+	Symbols     []string                `json:"symbols,omitempty"`
+	Timeframe   string                  `json:"timeframe,omitempty"`
+	Conditions  []CompiledRuleCondition `json:"conditions"`
+	Action      string                  `json:"action"`
+	Execution   CompiledRuleExecution   `json:"execution"`
+	Enabled     bool                    `json:"enabled"`
+}
+
+type CompiledRuleExecution struct {
+	Leverage        int     `json:"leverage,omitempty"`
+	PositionSizeUSD float64 `json:"position_size_usd,omitempty"`
+	StopLossPct     float64 `json:"stop_loss_pct,omitempty"`
+	TakeProfitPct   float64 `json:"take_profit_pct,omitempty"`
+	Confidence      int     `json:"confidence,omitempty"`
+}
+
+type CompiledRuleCondition struct {
+	Left     CompiledRuleOperand `json:"left"`
+	Operator string              `json:"operator"`
+	Right    CompiledRuleOperand `json:"right"`
+}
+
+type CompiledRuleOperand struct {
+	Kind      string  `json:"kind"` // indicator, external_factor, structure, literal
+	Name      string  `json:"name,omitempty"`
+	Timeframe string  `json:"timeframe,omitempty"`
+	Period    int     `json:"period,omitempty"`
+	Field     string  `json:"field,omitempty"`
+	Value     float64 `json:"value,omitempty"`
 }
 
 // GridStrategyConfig grid trading specific configuration
@@ -202,18 +257,6 @@ type GridStrategyConfig struct {
 	EnableDirectionAdjust bool `json:"enable_direction_adjust"`
 	// Direction bias ratio for long_bias/short_bias modes (default 0.7 = 70%/30%)
 	DirectionBiasRatio float64 `json:"direction_bias_ratio"`
-}
-
-// PromptSectionsConfig editable sections of System Prompt
-type PromptSectionsConfig struct {
-	// role definition (title + description)
-	RoleDefinition string `json:"role_definition,omitempty"`
-	// trading frequency awareness
-	TradingFrequency string `json:"trading_frequency,omitempty"`
-	// entry standards
-	EntryStandards string `json:"entry_standards,omitempty"`
-	// decision process
-	DecisionProcess string `json:"decision_process,omitempty"`
 }
 
 // CoinSourceConfig coin source configuration
@@ -302,6 +345,16 @@ type KlineConfig struct {
 	PrimaryTimeframe string `json:"primary_timeframe"`
 	// primary timeframe K-line count
 	PrimaryCount int `json:"primary_count"`
+	// K-line count reserved for deterministic calculations. This can be
+	// higher than the prompt display count so structure detection has enough
+	// history without expanding the AI prompt.
+	ComputeLookback int `json:"compute_lookback,omitempty"`
+	// Number of raw K-lines exposed to the AI prompt. Indicator and structure
+	// calculations should use ComputeLookback instead.
+	PromptDisplayCount int `json:"prompt_display_count,omitempty"`
+	// Whether live calculations may include the currently forming candle.
+	// Replay/backtest paths should use closed candles only.
+	IncludeOpenBar bool `json:"include_open_bar,omitempty"`
 	// longer timeframe
 	LongerTimeframe string `json:"longer_timeframe,omitempty"`
 	// longer timeframe K-line count
@@ -335,9 +388,9 @@ type RiskControlConfig struct {
 	// Altcoin exchange leverage for opening positions (AI guided)
 	AltcoinMaxLeverage int `json:"altcoin_max_leverage"`
 
-	// BTC/ETH single position max value = equity × this ratio (CODE ENFORCED, default: 5)
+	// BTC/ETH single position max value = equity 脳 this ratio (CODE ENFORCED, default: 5)
 	BTCETHMaxPositionValueRatio float64 `json:"btc_eth_max_position_value_ratio"`
-	// Altcoin single position max value = equity × this ratio (CODE ENFORCED, default: 1)
+	// Altcoin single position max value = equity 脳 this ratio (CODE ENFORCED, default: 1)
 	AltcoinMaxPositionValueRatio float64 `json:"altcoin_max_position_value_ratio"`
 
 	// Max margin utilization (e.g. 0.9 = 90%) (CODE ENFORCED)
@@ -353,18 +406,18 @@ type RiskControlConfig struct {
 	MinCloseConfidence int `json:"min_close_confidence"`
 
 	// Stop loss ATR buffer multiplier (AI guided)
-	// Stop loss = support - (ATR14 × this value) for longs, resistance + (ATR14 × this value) for shorts
+	// Stop loss = support - (ATR14 脳 this value) for longs, resistance + (ATR14 脳 this value) for shorts
 	// 0 means use mode default: Conservative=1.5, Balanced=1.0, Aggressive=0.5, Scalping=0.3
 	StopLossATRBuffer float64 `json:"stop_loss_atr_buffer"`
 
-	// ── Drawdown-based position close (risk monitor, runs every minute) ──────
+	// 鈹€鈹€ Drawdown-based position close (risk monitor, runs every minute) 鈹€鈹€鈹€鈹€鈹€鈹€
 	// Whether the drawdown-close mechanism is enabled. Default: true.
 	DrawdownCloseEnabled bool `json:"drawdown_close_enabled"`
 	// Min unrealised leveraged profit (%) before drawdown is measured. Default: 5.0.
-	// Example: 5.0 means the mechanism only activates once the position is ≥5% in profit.
+	// Example: 5.0 means the mechanism only activates once the position is 鈮?% in profit.
 	DrawdownCloseMinProfitPct float64 `json:"drawdown_close_min_profit_pct"`
 	// Drawdown threshold (%) relative to peak profit that triggers the close. Default: 40.0.
-	// Example: 40.0 means: if profit dropped from peak by ≥40%, close the position.
+	// Example: 40.0 means: if profit dropped from peak by 鈮?0%, close the position.
 	DrawdownCloseTriggerPct float64 `json:"drawdown_close_trigger_pct"`
 	// When true, instead of closing immediately the system injects a "drawdown alert"
 	// into the next AI cycle so the AI decides whether to close. Default: false (close immediately).
@@ -411,99 +464,54 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			Klines: KlineConfig{
 				PrimaryTimeframe:     "5m",
 				PrimaryCount:         20,
+				ComputeLookback:      300,
+				PromptDisplayCount:   20,
+				IncludeOpenBar:       true,
 				LongerTimeframe:      "4h",
 				LongerCount:          10,
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
-			EnableRawKlines:   true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:         false,
-			EnableMACD:        false,
-			EnableRSI:         false,
-			EnableATR:         false,
-			EnableBOLL:        false,
-			EnableVolume:      true,
-			EnableOI:          true,
-			EnableFundingRate: true,
-			EMAPeriods:        []int{20, 50},
-			RSIPeriods:        []int{7, 14},
-			ATRPeriods:        []int{14},
-			BOLLPeriods:       []int{20},
-			// NofxOS unified API key
-			NofxOSAPIKey: "cm_568c67eae410d912c54c",
-			// Quant data
-			EnableQuantData:    true,
-			EnableQuantOI:      true,
-			EnableQuantNetflow: true,
-			// OI ranking data
-			EnableOIRanking:   true,
-			OIRankingDuration: "1h",
-			OIRankingLimit:    10,
-			// NetFlow ranking data
+			EnableRawKlines:        true,
+			EnableEMA:              false,
+			EnableMACD:             false,
+			EnableRSI:              false,
+			EnableATR:              false,
+			EnableBOLL:             false,
+			EnableVolume:           true,
+			EnableOI:               true,
+			EnableFundingRate:      true,
+			EMAPeriods:             []int{20, 50},
+			RSIPeriods:             []int{7, 14},
+			ATRPeriods:             []int{14},
+			BOLLPeriods:            []int{20},
+			NofxOSAPIKey:           "cm_568c67eae410d912c54c",
+			EnableQuantData:        true,
+			EnableQuantOI:          true,
+			EnableQuantNetflow:     true,
+			EnableOIRanking:        true,
+			OIRankingDuration:      "1h",
+			OIRankingLimit:         10,
 			EnableNetFlowRanking:   true,
 			NetFlowRankingDuration: "1h",
 			NetFlowRankingLimit:    10,
-			// Price ranking data
-			EnablePriceRanking:   true,
-			PriceRankingDuration: "1h,4h,24h",
-			PriceRankingLimit:    10,
+			EnablePriceRanking:     true,
+			PriceRankingDuration:   "1h,4h,24h",
+			PriceRankingLimit:      10,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
-			BTCETHMaxLeverage:            5,   // BTC/ETH exchange leverage (AI guided)
-			AltcoinMaxLeverage:           5,   // Altcoin exchange leverage (AI guided)
-			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
-			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
-			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
-			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
+			MaxPositions:                 3,
+			BTCETHMaxLeverage:            5,
+			AltcoinMaxLeverage:           5,
+			BTCETHMaxPositionValueRatio:  5.0,
+			AltcoinMaxPositionValueRatio: 1.0,
+			MaxMarginUsage:               0.9,
+			MinPositionSize:              12,
+			MinRiskRewardRatio:           3.0,
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           DefaultMinCloseConfidence,
 		},
 	}
-
-	if lang == "zh" {
-		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# 你是一个专业的加密货币交易AI
-
-你的任务是根据提供的市场数据做出交易决策。你是一个经验丰富的量化交易员，擅长技术分析和风险管理。`,
-			TradingFrequency: `# ⏱️ 交易频率意识
-
-- 优秀交易员：每天2-4笔 ≈ 每小时0.1-0.2笔
-- 每小时超过2笔 = 过度交易
-- 单笔持仓时间 ≥ 30-60分钟
-如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。`,
-			EntryStandards: `# 🎯 入场标准（严格）
-
-只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。`,
-			DecisionProcess: `# 📋 决策流程
-
-1. 检查持仓 → 是否止盈/止损
-2. 扫描候选币种 + 多时间框架 → 是否存在强信号
-3. 先写思维链，再输出结构化JSON`,
-		}
-	} else {
-		config.PromptSections = PromptSectionsConfig{
-			RoleDefinition: `# You are a professional cryptocurrency trading AI
-
-Your task is to make trading decisions based on the provided market data. You are an experienced quantitative trader skilled in technical analysis and risk management.`,
-			TradingFrequency: `# ⏱️ Trading Frequency Awareness
-
-- Excellent trader: 2-4 trades per day ≈ 0.1-0.2 trades per hour
-- >2 trades per hour = overtrading
-- Single position holding time ≥ 30-60 minutes
-If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.`,
-			EntryStandards: `# 🎯 Entry Standards (Strict)
-
-Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.`,
-			DecisionProcess: `# 📋 Decision Process
-
-1. Check positions → whether to take profit/stop loss
-2. Scan candidate coins + multi-timeframe → whether strong signals exist
-3. Write chain of thought first, then output structured JSON`,
-		}
-	}
-
 	return config
 }
 
@@ -857,28 +865,13 @@ func GetContextLimitForClient(provider, model string) int {
 }
 
 // EstimateTokens estimates the total token count for a strategy configuration.
-// This is a pure computation based on config fields — no network calls.
+// This is a pure computation based on config fields, no network calls.
 func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	breakdown := TokenBreakdown{}
 
-	// --- System Prompt ---
-	// Base system prompt: schema + role + rules + output format
-	baseChars := 4000 // English default
-	if c.Language == "zh" {
-		baseChars = 3000
-	}
-	// Add prompt sections
-	baseChars += len(c.PromptSections.RoleDefinition)
-	baseChars += len(c.PromptSections.TradingFrequency)
-	baseChars += len(c.PromptSections.EntryStandards)
-	baseChars += len(c.PromptSections.DecisionProcess)
-	baseChars += len(c.CustomPrompt)
-
-	if c.Language == "zh" {
-		breakdown.SystemPrompt = baseChars / 2 // CJK: ~2 chars per token
-	} else {
-		breakdown.SystemPrompt = baseChars / 4 // English: ~4 chars per token
-	}
+	// --- LLM review instructions ---
+	// The new flow sends a compact review prompt plus structured signals/factors.
+	breakdown.SystemPrompt = 1000
 
 	// --- Fixed Overhead ---
 	// Time, BTC price, account info, section headers
@@ -887,7 +880,10 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	// --- Market Data ---
 	numCoins := c.getEffectiveCoinCount()
 	numTimeframes := c.getEffectiveTimeframeCount()
-	klineCount := c.Indicators.Klines.PrimaryCount
+	klineCount := c.Indicators.Klines.PromptDisplayCount
+	if klineCount <= 0 {
+		klineCount = c.Indicators.Klines.PrimaryCount
+	}
 	if klineCount <= 0 {
 		klineCount = 20
 	}

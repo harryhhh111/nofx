@@ -85,12 +85,12 @@ func (tm *TraderManager) StartAll() {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	logger.Info("🚀 Starting all traders...")
+	logger.Info("馃殌 Starting all traders...")
 	for id, t := range tm.traders {
 		go func(traderID string, at *trader.AutoTrader) {
-			logger.Infof("▶️  Starting %s...", at.GetName())
+			logger.Infof("鈻讹笍  Starting %s...", at.GetName())
 			if err := at.Run(); err != nil {
-				logger.Infof("❌ %s runtime error: %v", at.GetName(), err)
+				logger.Infof("鉂?%s runtime error: %v", at.GetName(), err)
 			}
 		}(id, t)
 	}
@@ -101,7 +101,7 @@ func (tm *TraderManager) StopAll() {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 
-	logger.Info("⏹  Stopping all traders...")
+	logger.Info("鈴? Stopping all traders...")
 	for _, t := range tm.traders {
 		t.Stop()
 	}
@@ -112,7 +112,7 @@ func (tm *TraderManager) AutoStartRunningTraders(st *store.Store) {
 	// Get all trader configurations (single query)
 	traderList, err := st.Trader().ListAll()
 	if err != nil {
-		logger.Infof("⚠️ Failed to get trader list: %v", err)
+		logger.Infof("鈿狅笍 Failed to get trader list: %v", err)
 		return
 	}
 
@@ -125,7 +125,7 @@ func (tm *TraderManager) AutoStartRunningTraders(st *store.Store) {
 	}
 
 	if len(runningTraderIDs) == 0 {
-		logger.Info("📋 No traders to auto-restore")
+		logger.Info("馃搵 No traders to auto-restore")
 		return
 	}
 
@@ -136,9 +136,9 @@ func (tm *TraderManager) AutoStartRunningTraders(st *store.Store) {
 	for id, t := range tm.traders {
 		if runningTraderIDs[id] {
 			go func(traderID string, at *trader.AutoTrader) {
-				logger.Infof("▶️  Auto-restoring %s...", at.GetName())
+				logger.Infof("鈻讹笍  Auto-restoring %s...", at.GetName())
 				if err := at.Run(); err != nil {
-					logger.Infof("❌ %s runtime error: %v", at.GetName(), err)
+					logger.Infof("鉂?%s runtime error: %v", at.GetName(), err)
 				}
 			}(id, t)
 			startedCount++
@@ -146,7 +146,7 @@ func (tm *TraderManager) AutoStartRunningTraders(st *store.Store) {
 	}
 
 	if startedCount > 0 {
-		logger.Infof("✓ Auto-restored %d traders", startedCount)
+		logger.Infof("鉁?Auto-restored %d traders", startedCount)
 	}
 }
 
@@ -198,7 +198,7 @@ func (tm *TraderManager) GetCompetitionData() (map[string]interface{}, error) {
 			cachedData[k] = v
 		}
 		tm.competitionCache.mu.RUnlock()
-		logger.Infof("📋 Returning competition data cache (cache age: %.1fs)", time.Since(tm.competitionCache.timestamp).Seconds())
+		logger.Infof("馃搵 Returning competition data cache (cache age: %.1fs)", time.Since(tm.competitionCache.timestamp).Seconds())
 		return cachedData, nil
 	}
 	tm.competitionCache.mu.RUnlock()
@@ -210,14 +210,14 @@ func (tm *TraderManager) GetCompetitionData() (map[string]interface{}, error) {
 	for id, t := range tm.traders {
 		if t.GetShowInCompetition() {
 			allTraders = append(allTraders, t)
-			logger.Infof("📋 Competition data includes trader: %s (%s)", t.GetName(), id)
+			logger.Infof("馃搵 Competition data includes trader: %s (%s)", t.GetName(), id)
 		} else {
-			logger.Infof("📋 Competition data excludes trader (hidden): %s (%s)", t.GetName(), id)
+			logger.Infof("馃搵 Competition data excludes trader (hidden): %s (%s)", t.GetName(), id)
 		}
 	}
 	tm.mu.RUnlock()
 
-	logger.Infof("🔄 Refreshing competition data, trader count: %d", len(allTraders))
+	logger.Infof("馃攧 Refreshing competition data, trader count: %d", len(allTraders))
 
 	// Concurrently fetch trader data
 	traders := tm.getConcurrentTraderData(allTraders)
@@ -293,51 +293,45 @@ func (tm *TraderManager) getConcurrentTraderData(traders []*trader.AutoTrader) [
 			case account := <-accountChan:
 				// Successfully got account info
 				traderData = map[string]interface{}{
-					"trader_id":              trader.GetID(),
-					"trader_name":            trader.GetName(),
-					"ai_model":               trader.GetAIModel(),
-					"exchange":               trader.GetExchange(),
-					"total_equity":           account["total_equity"],
-					"total_pnl":              account["total_pnl"],
-					"total_pnl_pct":          account["total_pnl_pct"],
-					"position_count":         account["position_count"],
-					"margin_used_pct":        account["margin_used_pct"],
-					"is_running":             status["is_running"],
-					"system_prompt_template": trader.GetSystemPromptTemplate(),
-				}
+					"trader_id":       trader.GetID(),
+					"trader_name":     trader.GetName(),
+					"ai_model":        trader.GetAIModel(),
+					"exchange":        trader.GetExchange(),
+					"total_equity":    account["total_equity"],
+					"total_pnl":       account["total_pnl"],
+					"total_pnl_pct":   account["total_pnl_pct"],
+					"position_count":  account["position_count"],
+					"margin_used_pct": account["margin_used_pct"],
+					"is_running":      status["is_running"]}
 			case err := <-errorChan:
 				// Failed to get account info
-				logger.Infof("⚠️ Failed to get account info for trader %s (%s/%s): %v", trader.GetName(), trader.GetID(), trader.GetExchange(), err)
+				logger.Infof("鈿狅笍 Failed to get account info for trader %s (%s/%s): %v", trader.GetName(), trader.GetID(), trader.GetExchange(), err)
 				traderData = map[string]interface{}{
-					"trader_id":              trader.GetID(),
-					"trader_name":            trader.GetName(),
-					"ai_model":               trader.GetAIModel(),
-					"exchange":               trader.GetExchange(),
-					"total_equity":           0.0,
-					"total_pnl":              0.0,
-					"total_pnl_pct":          0.0,
-					"position_count":         0,
-					"margin_used_pct":        0.0,
-					"is_running":             status["is_running"],
-					"system_prompt_template": trader.GetSystemPromptTemplate(),
-					"error":                  "Failed to get account data",
+					"trader_id":       trader.GetID(),
+					"trader_name":     trader.GetName(),
+					"ai_model":        trader.GetAIModel(),
+					"exchange":        trader.GetExchange(),
+					"total_equity":    0.0,
+					"total_pnl":       0.0,
+					"total_pnl_pct":   0.0,
+					"position_count":  0,
+					"margin_used_pct": 0.0,
+					"is_running":      status["is_running"], "error": "Failed to get account data",
 				}
 			case <-ctx.Done():
 				// Timeout
-				logger.Infof("⏰ Timeout (10s) getting account info for trader %s (%s/%s)", trader.GetName(), trader.GetID(), trader.GetExchange())
+				logger.Infof("鈴?Timeout (10s) getting account info for trader %s (%s/%s)", trader.GetName(), trader.GetID(), trader.GetExchange())
 				traderData = map[string]interface{}{
-					"trader_id":              trader.GetID(),
-					"trader_name":            trader.GetName(),
-					"ai_model":               trader.GetAIModel(),
-					"exchange":               trader.GetExchange(),
-					"total_equity":           0.0,
-					"total_pnl":              0.0,
-					"total_pnl_pct":          0.0,
-					"position_count":         0,
-					"margin_used_pct":        0.0,
-					"is_running":             status["is_running"],
-					"system_prompt_template": trader.GetSystemPromptTemplate(),
-					"error":                  "Request timeout",
+					"trader_id":       trader.GetID(),
+					"trader_name":     trader.GetName(),
+					"ai_model":        trader.GetAIModel(),
+					"exchange":        trader.GetExchange(),
+					"total_equity":    0.0,
+					"total_pnl":       0.0,
+					"total_pnl_pct":   0.0,
+					"position_count":  0,
+					"margin_used_pct": 0.0,
+					"is_running":      status["is_running"], "error": "Request timeout",
 				}
 			}
 
@@ -395,11 +389,11 @@ func (tm *TraderManager) RemoveTrader(traderID string) {
 		// Stop the trader if it's running (this ensures the goroutine exits)
 		status := t.GetStatus()
 		if isRunning, ok := status["is_running"].(bool); ok && isRunning {
-			logger.Infof("⏹ Stopping trader %s before removing from memory...", traderID)
+			logger.Infof("鈴?Stopping trader %s before removing from memory...", traderID)
 			t.Stop()
 		}
 		delete(tm.traders, traderID)
-		logger.Infof("✓ Trader %s removed from memory", traderID)
+		logger.Infof("鉁?Trader %s removed from memory", traderID)
 	}
 }
 
@@ -414,18 +408,18 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		return fmt.Errorf("failed to get trader list for user %s: %w", userID, err)
 	}
 
-	logger.Infof("📋 Loading trader configurations for user %s: %d traders", userID, len(traders))
+	logger.Infof("馃搵 Loading trader configurations for user %s: %d traders", userID, len(traders))
 
 	// Get AI model and exchange lists (query only once outside loop)
 	aiModels, err := st.AIModel().List(userID)
 	if err != nil {
-		logger.Infof("⚠️ Failed to get AI model config for user %s: %v", userID, err)
+		logger.Infof("鈿狅笍 Failed to get AI model config for user %s: %v", userID, err)
 		return fmt.Errorf("failed to get AI model config: %w", err)
 	}
 
 	exchanges, err := st.Exchange().List(userID)
 	if err != nil {
-		logger.Infof("⚠️ Failed to get exchange config for user %s: %v", userID, err)
+		logger.Infof("鈿狅笍 Failed to get exchange config for user %s: %v", userID, err)
 		return fmt.Errorf("failed to get exchange config: %w", err)
 	}
 
@@ -455,12 +449,12 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		}
 
 		if aiModelCfg == nil {
-			logger.Infof("⚠️ AI model %s for trader %s does not exist, skipping", traderCfg.AIModelID, traderCfg.Name)
+			logger.Infof("鈿狅笍 AI model %s for trader %s does not exist, skipping", traderCfg.AIModelID, traderCfg.Name)
 			continue
 		}
 
 		if !aiModelCfg.Enabled {
-			logger.Infof("⚠️ AI model %s for trader %s is not enabled, skipping", traderCfg.AIModelID, traderCfg.Name)
+			logger.Infof("鈿狅笍 AI model %s for trader %s is not enabled, skipping", traderCfg.AIModelID, traderCfg.Name)
 			continue
 		}
 
@@ -474,20 +468,20 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		}
 
 		if exchangeCfg == nil {
-			logger.Infof("⚠️ Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
+			logger.Infof("鈿狅笍 Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
 			continue
 		}
 
 		if !exchangeCfg.Enabled {
-			logger.Infof("⚠️ Exchange %s for trader %s is not enabled, skipping", traderCfg.ExchangeID, traderCfg.Name)
+			logger.Infof("鈿狅笍 Exchange %s for trader %s is not enabled, skipping", traderCfg.ExchangeID, traderCfg.Name)
 			continue
 		}
 
 		// Use existing method to load trader
-		logger.Infof("📦 Loading trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
+		logger.Infof("馃摝 Loading trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
-			logger.Infof("❌ Failed to load trader %s: %v", traderCfg.Name, err)
+			logger.Infof("鉂?Failed to load trader %s: %v", traderCfg.Name, err)
 			// Save error for later retrieval
 			tm.loadErrors[traderCfg.ID] = err
 		} else {
@@ -510,28 +504,28 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 		return fmt.Errorf("failed to get user list: %w", err)
 	}
 
-	logger.Infof("📋 Found %d users, loading all trader configurations...", len(userIDs))
+	logger.Infof("馃搵 Found %d users, loading all trader configurations...", len(userIDs))
 
 	var allTraders []*store.Trader
 	for _, userID := range userIDs {
 		// Get traders for each user
 		traders, err := st.Trader().List(userID)
 		if err != nil {
-			logger.Infof("⚠️ Failed to get traders for user %s: %v", userID, err)
+			logger.Infof("鈿狅笍 Failed to get traders for user %s: %v", userID, err)
 			continue
 		}
-		logger.Infof("📋 User %s: %d traders", userID, len(traders))
+		logger.Infof("馃搵 User %s: %d traders", userID, len(traders))
 		allTraders = append(allTraders, traders...)
 	}
 
-	logger.Infof("📋 Total loaded trader configurations: %d", len(allTraders))
+	logger.Infof("馃搵 Total loaded trader configurations: %d", len(allTraders))
 
 	// Get AI model and exchange configs for each trader
 	for _, traderCfg := range allTraders {
 		// Get AI model config
 		aiModels, err := st.AIModel().List(traderCfg.UserID)
 		if err != nil {
-			logger.Infof("⚠️  Failed to get AI model config: %v", err)
+			logger.Infof("鈿狅笍  Failed to get AI model config: %v", err)
 			continue
 		}
 
@@ -548,26 +542,26 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 			for _, model := range aiModels {
 				if model.Provider == traderCfg.AIModelID {
 					aiModelCfg = model
-					logger.Infof("⚠️  Trader %s using legacy provider match: %s -> %s", traderCfg.Name, traderCfg.AIModelID, model.ID)
+					logger.Infof("鈿狅笍  Trader %s using legacy provider match: %s -> %s", traderCfg.Name, traderCfg.AIModelID, model.ID)
 					break
 				}
 			}
 		}
 
 		if aiModelCfg == nil {
-			logger.Infof("⚠️  AI model %s for trader %s does not exist, skipping", traderCfg.AIModelID, traderCfg.Name)
+			logger.Infof("鈿狅笍  AI model %s for trader %s does not exist, skipping", traderCfg.AIModelID, traderCfg.Name)
 			continue
 		}
 
 		if !aiModelCfg.Enabled {
-			logger.Infof("⚠️  AI model %s for trader %s is not enabled, skipping", traderCfg.AIModelID, traderCfg.Name)
+			logger.Infof("鈿狅笍  AI model %s for trader %s is not enabled, skipping", traderCfg.AIModelID, traderCfg.Name)
 			continue
 		}
 
 		// Get exchange config
 		exchanges, err := st.Exchange().List(traderCfg.UserID)
 		if err != nil {
-			logger.Infof("⚠️  Failed to get exchange config: %v", err)
+			logger.Infof("鈿狅笍  Failed to get exchange config: %v", err)
 			continue
 		}
 
@@ -580,24 +574,24 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 		}
 
 		if exchangeCfg == nil {
-			logger.Infof("⚠️  Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
+			logger.Infof("鈿狅笍  Exchange %s for trader %s does not exist, skipping", traderCfg.ExchangeID, traderCfg.Name)
 			continue
 		}
 
 		if !exchangeCfg.Enabled {
-			logger.Infof("⚠️  Exchange %s for trader %s is not enabled, skipping", traderCfg.ExchangeID, traderCfg.Name)
+			logger.Infof("鈿狅笍  Exchange %s for trader %s is not enabled, skipping", traderCfg.ExchangeID, traderCfg.Name)
 			continue
 		}
 
 		// Add to TraderManager (ai500APIURL/oiTopAPIURL already obtained from strategy config)
 		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
 		if err != nil {
-			logger.Infof("❌ Failed to add trader %s: %v", traderCfg.Name, err)
+			logger.Infof("鉂?Failed to add trader %s: %v", traderCfg.Name, err)
 			continue
 		}
 	}
 
-	logger.Infof("✓ Successfully loaded %d traders to memory", len(tm.traders))
+	logger.Infof("鉁?Successfully loaded %d traders to memory", len(tm.traders))
 	return nil
 }
 
@@ -619,7 +613,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		if err != nil {
 			return fmt.Errorf("failed to parse strategy config for trader %s: %w", traderCfg.Name, err)
 		}
-		logger.Infof("✓ Trader %s loaded strategy config: %s", traderCfg.Name, strategy.Name)
+		logger.Infof("鉁?Trader %s loaded strategy config: %s", traderCfg.Name, strategy.Name)
 	} else {
 		return fmt.Errorf("trader %s has no strategy configured", traderCfg.Name)
 	}
@@ -647,7 +641,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		StrategyConfig:        strategyConfig,
 	}
 
-	logger.Infof("📊 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",
+	logger.Infof("馃搳 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",
 		traderCfg.Name, traderCfg.ScanIntervalMinutes, traderConfig.ScanInterval)
 
 	// Set API keys based on exchange type (convert EncryptedString to string)
@@ -708,36 +702,23 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	if err != nil {
 		return fmt.Errorf("failed to create trader: %w", err)
 	}
-
-	// Set custom prompt (if exists)
-	if traderCfg.CustomPrompt != "" {
-		at.SetCustomPrompt(traderCfg.CustomPrompt)
-		at.SetOverrideBasePrompt(traderCfg.OverrideBasePrompt)
-		if traderCfg.OverrideBasePrompt {
-			logger.Infof("✓ Set custom trading strategy prompt (overriding base prompt)")
-		} else {
-			logger.Infof("✓ Set custom trading strategy prompt (supplementing base prompt)")
-		}
-	}
-
 	tm.traders[traderCfg.ID] = at
-	logger.Infof("✓ Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
+	logger.Infof("鉁?Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
 
 	// Auto-start if trader was running before shutdown
 	if traderCfg.IsRunning {
-		logger.Infof("🔄 Auto-starting trader '%s' (was running before shutdown)...", traderCfg.Name)
+		logger.Infof("馃攧 Auto-starting trader '%s' (was running before shutdown)...", traderCfg.Name)
 		go func(trader *trader.AutoTrader, traderName, traderID, userID string) {
 			if err := trader.Run(); err != nil {
-				logger.Warnf("⚠️ Trader '%s' stopped with error: %v", traderName, err)
+				logger.Warnf("鈿狅笍 Trader '%s' stopped with error: %v", traderName, err)
 				// Update database to reflect stopped state
 				if st != nil {
 					_ = st.Trader().UpdateStatus(userID, traderID, false)
 				}
 			}
 		}(at, traderCfg.Name, traderCfg.ID, traderCfg.UserID)
-		logger.Infof("✅ Trader '%s' auto-started successfully", traderCfg.Name)
+		logger.Infof("鉁?Trader '%s' auto-started successfully", traderCfg.Name)
 	}
 
 	return nil
 }
-

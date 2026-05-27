@@ -31,27 +31,54 @@ export interface StrategyPerformer {
   rank: number;                 // 排名
 }
 
-export interface PromptSectionsConfig {
-  role_definition?: string;
-  trading_frequency?: string;
-  entry_standards?: string;
-  decision_process?: string;
-}
-
 export interface StrategyConfig {
   // Strategy type: "ai_trading" (default) or "grid_trading"
   strategy_type?: 'ai_trading' | 'grid_trading';
   // Language setting: "zh" for Chinese, "en" for English
-  // Determines the language used for data formatting and prompt generation
   language?: 'zh' | 'en';
   coin_source: CoinSourceConfig;
   indicators: IndicatorConfig;
-  custom_prompt?: string;
   include_historical_context?: boolean;
   risk_control: RiskControlConfig;
-  prompt_sections?: PromptSectionsConfig;
+  strategy_prompt?: string;
+  compiled_rules?: CompiledStrategyRule[];
   // Grid trading configuration (only used when strategy_type is 'grid_trading')
   grid_config?: GridStrategyConfig;
+}
+
+export interface CompiledStrategyRule {
+  id: string;
+  version: string;
+  description?: string;
+  symbols?: string[];
+  timeframe?: string;
+  conditions: CompiledRuleCondition[];
+  action: string;
+  execution: CompiledRuleExecution;
+  enabled: boolean;
+}
+
+export interface CompiledRuleExecution {
+  leverage?: number;
+  position_size_usd?: number;
+  stop_loss_pct?: number;
+  take_profit_pct?: number;
+  confidence?: number;
+}
+
+export interface CompiledRuleCondition {
+  left: CompiledRuleOperand;
+  operator: string;
+  right: CompiledRuleOperand;
+}
+
+export interface CompiledRuleOperand {
+  kind: 'indicator' | 'external_factor' | 'structure' | 'literal';
+  name?: string;
+  timeframe?: string;
+  period?: number;
+  field?: string;
+  value?: number;
 }
 
 // Grid trading specific configuration

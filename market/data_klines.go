@@ -161,6 +161,7 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 
 	data := &TimeframeSeriesData{
 		Timeframe:   timeframe,
+		ComputeBars: append([]Kline(nil), klines...),
 		Klines:      make([]KlineBar, 0, count),
 		MidPrices:   make([]float64, 0, count),
 		EMA20Values: make([]float64, 0, count),

@@ -64,9 +64,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			return fmt.Errorf("leverage must be greater than 0: %d", d.Leverage)
 		}
 		if d.Leverage > maxLeverage {
-			logger.Infof("⚠️  [Leverage Fallback] %s leverage exceeded (%dx > %dx), auto-adjusting to limit %dx",
-				d.Symbol, d.Leverage, maxLeverage, maxLeverage)
-			d.Leverage = maxLeverage
+			return fmt.Errorf("%s leverage exceeded limit: %dx > %dx", d.Symbol, d.Leverage, maxLeverage)
 		}
 		if d.PositionSizeUSD <= 0 {
 			return fmt.Errorf("position size must be greater than 0: %.2f", d.PositionSizeUSD)
