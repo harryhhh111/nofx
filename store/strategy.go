@@ -294,14 +294,6 @@ type IndicatorConfig struct {
 	EnablePriceRanking   bool   `json:"enable_price_ranking"`             // whether to enable price ranking data
 	PriceRankingDuration string `json:"price_ranking_duration,omitempty"` // durations: "1h" or "1h,4h,24h"
 	PriceRankingLimit    int    `json:"price_ranking_limit,omitempty"`    // number of entries per ranking (default 10)
-
-	// Long/Short Ratio ranking data (market-wide long-short sentiment)
-	EnableLongShortRanking   bool `json:"enable_long_short_ranking"`             // whether to enable long/short ratio ranking data
-	LongShortRankingLimit    int  `json:"long_short_ranking_limit,omitempty"`    // number of entries (default 10)
-
-	// Liquidation ranking data (market-wide forced liquidation statistics)
-	EnableLiquidationRanking   bool `json:"enable_liquidation_ranking"`             // whether to enable liquidation ranking data
-	LiquidationRankingLimit    int  `json:"liquidation_ranking_limit,omitempty"`    // number of entries (default 10)
 }
 
 // KlineConfig K-line configuration
@@ -455,12 +447,6 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnablePriceRanking:   true,
 			PriceRankingDuration: "1h,4h,24h",
 			PriceRankingLimit:    10,
-			// Long/Short Ratio ranking data
-			EnableLongShortRanking: false,
-			LongShortRankingLimit:  10,
-			// Liquidation ranking data
-			EnableLiquidationRanking: false,
-			LiquidationRankingLimit:  10,
 		},
 		RiskControl: RiskControlConfig{
 			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
@@ -979,20 +965,6 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 			numDurations = len(strings.Split(c.Indicators.PriceRankingDuration, ","))
 		}
 		rankingChars += limit * numDurations * 40
-	}
-	if c.Indicators.EnableLongShortRanking {
-		limit := c.Indicators.LongShortRankingLimit
-		if limit <= 0 {
-			limit = 10
-		}
-		rankingChars += limit * 50
-	}
-	if c.Indicators.EnableLiquidationRanking {
-		limit := c.Indicators.LiquidationRankingLimit
-		if limit <= 0 {
-			limit = 10
-		}
-		rankingChars += limit * 80
 	}
 	breakdown.RankingData = rankingChars / 4
 
