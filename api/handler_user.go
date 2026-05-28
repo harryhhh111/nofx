@@ -97,11 +97,6 @@ func (s *Server) handleRegister(c *gin.Context) {
 	}
 
 	// Initialize default model and exchange configs for user
-	err = s.initUserDefaultConfigs(user.ID, lang)
-	if err != nil {
-		logger.Infof("Failed to initialize user default configs: %v", err)
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"token":   token,
 		"user_id": user.ID,

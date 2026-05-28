@@ -230,6 +230,8 @@ export const indicator = {
   required: { zh: '必须', en: 'Required', es: 'Requerido' },
   ema: { zh: 'EMA 均线', en: 'EMA', es: 'EMA' },
   emaDesc: { zh: '指数移动平均线', en: 'Exponential Moving Average', es: 'Media Móvil Exponencial' },
+  sma: { zh: 'SMA 均线', en: 'SMA', es: 'SMA' },
+  smaDesc: { zh: '简单移动平均线', en: 'Simple Moving Average', es: 'Media Móvil Simple' },
   macd: { zh: 'MACD', en: 'MACD', es: 'MACD' },
   macdDesc: { zh: '异同移动平均线', en: 'Moving Average Convergence Divergence', es: 'Convergencia/Divergencia' },
   rsi: { zh: 'RSI', en: 'RSI', es: 'RSI' },

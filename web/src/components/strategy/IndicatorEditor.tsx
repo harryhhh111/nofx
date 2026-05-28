@@ -592,6 +592,7 @@ export function IndicatorEditor({
           <div className="grid grid-cols-2 gap-2">
             {[
               { key: 'enable_ema', label: 'ema', desc: 'emaDesc', color: '#F0B90B', periodKey: 'ema_periods', defaultPeriods: '20,50' },
+              { key: 'enable_sma', label: 'sma', desc: 'smaDesc', color: '#4ade80', periodKey: 'sma_periods', defaultPeriods: '5,20,50' },
               { key: 'enable_macd', label: 'macd', desc: 'macdDesc', color: '#a855f7' },
               { key: 'enable_rsi', label: 'rsi', desc: 'rsiDesc', color: '#F6465D', periodKey: 'rsi_periods', defaultPeriods: '7,14' },
               { key: 'enable_atr', label: 'atr', desc: 'atrDesc', color: '#60a5fa', periodKey: 'atr_periods', defaultPeriods: '14' },

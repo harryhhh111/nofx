@@ -161,6 +161,7 @@ export function StrategyMarketPage() {
     if (!config?.indicators) return []
     const indicators = []
     if (config.indicators.enable_ema) indicators.push('EMA')
+    if (config.indicators.enable_sma) indicators.push('SMA')
     if (config.indicators.enable_macd) indicators.push('MACD')
     if (config.indicators.enable_rsi) indicators.push('RSI')
     if (config.indicators.enable_atr) indicators.push('ATR')
