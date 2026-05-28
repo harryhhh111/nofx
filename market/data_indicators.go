@@ -176,14 +176,21 @@ func calculateBOLL(klines []Kline, period int, multiplier float64) (upper, middl
 	return upper, middle, lower
 }
 
-// calculateDonchian calculates Donchian channel (highest high, lowest low) for given period
-func calculateDonchian(klines []Kline, period int) (upper, lower float64) {
+// calculateDonchian calculates Donchian channel (highest high, lowest low) for given period.
+// When excludeCurrent is true, the current (last) kline is excluded from the calculation.
+// This is the classic Turtle Trading convention: breakouts are judged against the
+// preceding N bars, not the bar that might already be breaking out.
+func calculateDonchian(klines []Kline, period int, excludeCurrent bool) (upper, lower float64) {
 	if len(klines) == 0 || period <= 0 {
 		return 0, 0
 	}
 
-	// Use all available klines if period > len(klines)
-	start := len(klines) - period
+	end := len(klines)
+	if excludeCurrent && len(klines) > 1 {
+		end = len(klines) - 1
+	}
+
+	start := end - period
 	if start < 0 {
 		start = 0
 	}
@@ -191,7 +198,7 @@ func calculateDonchian(klines []Kline, period int) (upper, lower float64) {
 	upper = klines[start].High
 	lower = klines[start].Low
 
-	for i := start + 1; i < len(klines); i++ {
+	for i := start + 1; i < end; i++ {
 		if klines[i].High > upper {
 			upper = klines[i].High
 		}
@@ -291,9 +298,9 @@ func calculateBoxData(klines []Kline, currentPrice float64) *BoxData {
 		return box
 	}
 
-	box.ShortUpper, box.ShortLower = calculateDonchian(klines, ShortBoxPeriod)
-	box.MidUpper, box.MidLower = calculateDonchian(klines, MidBoxPeriod)
-	box.LongUpper, box.LongLower = calculateDonchian(klines, LongBoxPeriod)
+	box.ShortUpper, box.ShortLower = calculateDonchian(klines, ShortBoxPeriod, false)
+	box.MidUpper, box.MidLower = calculateDonchian(klines, MidBoxPeriod, false)
+	box.LongUpper, box.LongLower = calculateDonchian(klines, LongBoxPeriod, false)
 
 	return box
 }
@@ -332,7 +339,7 @@ func ExportCalculateBOLL(klines []Kline, period int, multiplier float64) (upper,
 
 // ExportCalculateDonchian exports calculateDonchian for testing
 func ExportCalculateDonchian(klines []Kline, period int) (float64, float64) {
-	return calculateDonchian(klines, period)
+	return calculateDonchian(klines, period, false)
 }
 
 // ExportCalculateBoxData exports calculateBoxData for testing
