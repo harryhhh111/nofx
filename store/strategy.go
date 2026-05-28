@@ -296,19 +296,26 @@ type IndicatorConfig struct {
 	EnableRawKlines bool `json:"enable_raw_klines"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
+	EnableSMA         bool `json:"enable_sma"`          // Simple Moving Average
 	EnableMACD        bool `json:"enable_macd"`
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
+	EnableADX         bool `json:"enable_adx"`          // ADX/DMI trend strength
+	EnableSAR         bool `json:"enable_sar"`          // Parabolic SAR
 	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
 	// EMA period configuration
 	EMAPeriods []int `json:"ema_periods,omitempty"` // default [20, 50]
+	// SMA period configuration
+	SMAPeriods []int `json:"sma_periods,omitempty"` // default [5, 20, 50]
 	// RSI period configuration
 	RSIPeriods []int `json:"rsi_periods,omitempty"` // default [7, 14]
 	// ATR period configuration
 	ATRPeriods []int `json:"atr_periods,omitempty"` // default [14]
+	// ADX period configuration
+	ADXPeriod int `json:"adx_period,omitempty"` // default 14
 	// BOLL period configuration (period, standard deviation multiplier is fixed at 2)
 	BOLLPeriods []int `json:"boll_periods,omitempty"` // default [20] - can select multiple timeframes
 	// external data sources
@@ -472,26 +479,35 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
-			EnableRawKlines:        true,
-			EnableEMA:              false,
-			EnableMACD:             false,
-			EnableRSI:              false,
-			EnableATR:              false,
-			EnableBOLL:             false,
-			EnableVolume:           true,
-			EnableOI:               true,
-			EnableFundingRate:      true,
-			EMAPeriods:             []int{20, 50},
-			RSIPeriods:             []int{7, 14},
-			ATRPeriods:             []int{14},
-			BOLLPeriods:            []int{20},
-			NofxOSAPIKey:           "cm_568c67eae410d912c54c",
-			EnableQuantData:        true,
-			EnableQuantOI:          true,
-			EnableQuantNetflow:     true,
-			EnableOIRanking:        true,
-			OIRankingDuration:      "1h",
-			OIRankingLimit:         10,
+			EnableRawKlines:   true, // Required - raw OHLCV data for AI analysis
+			EnableEMA:         false,
+			EnableSMA:         false,
+			EnableMACD:        false,
+			EnableRSI:         false,
+			EnableATR:         false,
+			EnableADX:         false,
+			EnableSAR:         false,
+			EnableBOLL:        false,
+			EnableVolume:      true,
+			EnableOI:          true,
+			EnableFundingRate: true,
+			EMAPeriods:        []int{20, 50},
+			SMAPeriods:        []int{5, 20, 50},
+			RSIPeriods:        []int{7, 14},
+			ATRPeriods:        []int{14},
+			ADXPeriod:         14,
+			BOLLPeriods:       []int{20},
+			// NofxOS unified API key
+			NofxOSAPIKey: "cm_568c67eae410d912c54c",
+			// Quant data
+			EnableQuantData:    true,
+			EnableQuantOI:      true,
+			EnableQuantNetflow: true,
+			// OI ranking data
+			EnableOIRanking:   true,
+			OIRankingDuration: "1h",
+			OIRankingLimit:    10,
+			// NetFlow ranking data
 			EnableNetFlowRanking:   true,
 			NetFlowRankingDuration: "1h",
 			NetFlowRankingLimit:    10,
@@ -904,6 +920,12 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	}
 	if c.Indicators.EnableATR {
 		indicatorCharsPerLine += 15
+	}
+	if c.Indicators.EnableADX {
+		indicatorCharsPerLine += 30 // ADX + +DI + -DI + direction + trending + strength
+	}
+	if c.Indicators.EnableSAR {
+		indicatorCharsPerLine += 25 // SAR + direction + flip signals
 	}
 	if c.Indicators.EnableBOLL {
 		indicatorCharsPerLine += 25

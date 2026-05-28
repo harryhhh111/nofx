@@ -134,14 +134,18 @@ export interface IndicatorConfig {
   enable_raw_klines: boolean;
   // Technical indicators (optional)
   enable_ema: boolean;
+  enable_sma: boolean;
   enable_macd: boolean;
   enable_rsi: boolean;
   enable_atr: boolean;
+  enable_adx: boolean;
+  enable_sar: boolean;
   enable_boll: boolean;
   enable_volume: boolean;
   enable_oi: boolean;
   enable_funding_rate: boolean;
   ema_periods?: number[];
+  sma_periods?: number[];
   rsi_periods?: number[];
   atr_periods?: number[];
   boll_periods?: number[];

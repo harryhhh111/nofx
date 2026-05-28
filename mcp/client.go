@@ -55,8 +55,6 @@ type TokenUsage struct {
 // Returns "claw402" or "native" based on the provider.
 func (u TokenUsage) Channel() string {
 	switch u.Provider {
-	case ProviderClaw402:
-		return "claw402"
 	default:
 		return "native"
 	}
@@ -375,7 +373,12 @@ func (client *Client) Call(systemPrompt, userPrompt string) (string, error) {
 
 	// Step 7: Check HTTP status code (fixed logic)
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, string(body))
+		apiKeyHint := ""
+		if len(client.APIKey) > 8 {
+			apiKeyHint = fmt.Sprintf(" | APIKey: %s...%s", client.APIKey[:4], client.APIKey[len(client.APIKey)-4:])
+		}
+		return "", fmt.Errorf("API returned error [provider=%s model=%s baseURL=%s]%s (status %d): %s",
+			client.Provider, client.Model, client.BaseURL, apiKeyHint, resp.StatusCode, string(body))
 	}
 
 	// Step 8: Parse response (via hooks for dynamic dispatch)
@@ -515,7 +518,12 @@ func (client *Client) callWithRequestFull(req *Request) (*LLMResponse, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, string(body))
+		apiKeyHint := ""
+		if len(client.APIKey) > 8 {
+			apiKeyHint = fmt.Sprintf(" | APIKey: %s...%s", client.APIKey[:4], client.APIKey[len(client.APIKey)-4:])
+		}
+		return nil, fmt.Errorf("API returned error [provider=%s model=%s baseURL=%s]%s (status %d): %s",
+			client.Provider, client.Model, client.BaseURL, apiKeyHint, resp.StatusCode, string(body))
 	}
 
 	return client.Hooks.ParseMCPResponseFull(body)
@@ -554,7 +562,8 @@ func (client *Client) callWithRequest(req *Request) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned error (status %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("API returned error [provider=%s model=%s baseURL=%s] (status %d): %s",
+			client.Provider, client.Model, client.BaseURL, resp.StatusCode, string(body))
 	}
 
 	result, err := client.Hooks.ParseMCPResponse(body)
