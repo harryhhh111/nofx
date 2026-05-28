@@ -9,6 +9,7 @@ type Data struct {
 	PriceChange1h     float64 // 1-hour price change percentage
 	PriceChange4h     float64 // 4-hour price change percentage
 	CurrentEMA20      float64
+	CurrentSMA        map[int]float64 `json:"current_sma,omitempty"` // SMA current value by period
 	CurrentMACD       float64
 	CurrentRSI7       float64
 	OpenInterest      *OIData
@@ -34,13 +35,14 @@ type TimeframeSeriesData struct {
 	Timeframe   string     `json:"timeframe"`    // Timeframe identifier, e.g. "5m", "15m", "1h"
 	Klines      []KlineBar `json:"klines"`       // Full OHLCV kline data
 	MidPrices   []float64  `json:"mid_prices"`   // Price series (deprecated, kept for compatibility)
-	EMA20Values []float64  `json:"ema20_values"` // EMA20 series
-	EMA50Values []float64  `json:"ema50_values"` // EMA50 series
-	MACDValues  []float64  `json:"macd_values"`  // MACD series
-	RSI7Values  []float64  `json:"rsi7_values"`  // RSI7 series
-	RSI14Values []float64  `json:"rsi14_values"` // RSI14 series
-	Volume      []float64  `json:"volume"`       // Volume series (deprecated, use Klines)
-	ATR14       float64    `json:"atr14"`        // ATR14
+	EMA20Values []float64           `json:"ema20_values"` // EMA20 series
+	EMA50Values []float64           `json:"ema50_values"` // EMA50 series
+	SMAValues   map[int][]float64   `json:"sma_values,omitempty"` // SMA series by period
+	MACDValues  []float64           `json:"macd_values"`  // MACD series
+	RSI7Values  []float64           `json:"rsi7_values"`  // RSI7 series
+	RSI14Values []float64           `json:"rsi14_values"` // RSI14 series
+	Volume      []float64           `json:"volume"`       // Volume series (deprecated, use Klines)
+	ATR14       float64             `json:"atr14"`        // ATR14
 	// Bollinger Bands (period 20, std dev multiplier 2)
 	BOLLUpper  []float64   `json:"boll_upper"`  // Upper band
 	BOLLMiddle []float64   `json:"boll_middle"` // Middle band (SMA)
@@ -81,6 +83,7 @@ type OIData struct {
 type IntradayData struct {
 	MidPrices   []float64
 	EMA20Values []float64
+	SMAValues   map[int][]float64 `json:"sma_values,omitempty"` // SMA series by period
 	MACDValues  []float64
 	RSI7Values  []float64
 	RSI14Values []float64
@@ -92,6 +95,7 @@ type IntradayData struct {
 type LongerTermData struct {
 	EMA20         float64
 	EMA50         float64
+	SMA           map[int]float64 `json:"sma,omitempty"` // SMA current value by period
 	ATR3          float64
 	ATR14         float64
 	CurrentVolume float64

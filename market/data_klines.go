@@ -154,7 +154,7 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 }
 
 // calculateTimeframeSeries calculates series data for a single timeframe
-func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *TimeframeSeriesData {
+func calculateTimeframeSeries(klines []Kline, timeframe string, count int, smaPeriods ...int) *TimeframeSeriesData {
 	if count <= 0 {
 		count = 10 // default
 	}
@@ -165,6 +165,7 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 		MidPrices:   make([]float64, 0, count),
 		EMA20Values: make([]float64, 0, count),
 		EMA50Values: make([]float64, 0, count),
+		SMAValues:   make(map[int][]float64),
 		MACDValues:  make([]float64, 0, count),
 		RSI7Values:  make([]float64, 0, count),
 		RSI14Values: make([]float64, 0, count),
@@ -205,6 +206,14 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 		if i >= 49 {
 			ema50 := calculateEMA(klines[:i+1], 50)
 			data.EMA50Values = append(data.EMA50Values, ema50)
+		}
+
+		// Calculate SMA for configured periods
+		for _, p := range smaPeriods {
+			if p > 0 && i >= p-1 {
+				sma := calculateSMA(klines[:i+1], p)
+				data.SMAValues[p] = append(data.SMAValues[p], sma)
+			}
 		}
 
 		// Calculate MACD for each point
@@ -307,10 +316,11 @@ func parseTimeframeToMinutes(tf string) int {
 }
 
 // calculateIntradaySeries calculates intraday series data
-func calculateIntradaySeries(klines []Kline) *IntradayData {
+func calculateIntradaySeries(klines []Kline, smaPeriods ...int) *IntradayData {
 	data := &IntradayData{
 		MidPrices:   make([]float64, 0, 10),
 		EMA20Values: make([]float64, 0, 10),
+		SMAValues:   make(map[int][]float64),
 		MACDValues:  make([]float64, 0, 10),
 		RSI7Values:  make([]float64, 0, 10),
 		RSI14Values: make([]float64, 0, 10),
@@ -331,6 +341,14 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 		if i >= 19 {
 			ema20 := calculateEMA(klines[:i+1], 20)
 			data.EMA20Values = append(data.EMA20Values, ema20)
+		}
+
+		// Calculate SMA for configured periods
+		for _, p := range smaPeriods {
+			if p > 0 && i >= p-1 {
+				sma := calculateSMA(klines[:i+1], p)
+				data.SMAValues[p] = append(data.SMAValues[p], sma)
+			}
 		}
 
 		// Calculate MACD for each point
@@ -357,8 +375,9 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 }
 
 // calculateLongerTermData calculates longer-term data
-func calculateLongerTermData(klines []Kline) *LongerTermData {
+func calculateLongerTermData(klines []Kline, smaPeriods ...int) *LongerTermData {
 	data := &LongerTermData{
+		SMA:         make(map[int]float64),
 		MACDValues:  make([]float64, 0, 10),
 		RSI14Values: make([]float64, 0, 10),
 	}

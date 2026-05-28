@@ -45,7 +45,7 @@ staticTokens  = SystemPrompt + FixedOverhead + RankingData
 
 ```
 # 每行指标额外字符数（I）
-I = EnableEMA×20 + EnableMACD×30 + EnableRSI×15
+I = EnableEMA×20 + EnableSMA×20 + EnableMACD×30 + EnableRSI×15
   + EnableATR×15 + EnableBOLL×25 + EnableVolume×10
 
 # 每枚币的市场数据 token
@@ -132,6 +132,6 @@ const (
 
 | 用户类型            | 建议配置                | 最大建议币数 |
 | ------------------- | ----------------------- | ------------ |
-| 新手 / 使用默认配置 | 3TF, K=20, 仅 Volume    | 10-20 枚     |
-| 进阶 / 启用部分指标 | 3TF, K=20, EMA+MACD+RSI | 10-15 枚     |
-| 高级 / 全部指标     | 3-4TF, K=20-30, 全指标  | 5-10 枚      |
+| 新手 / 使用默认配置 | 3TF, K=20, 仅 Volume          | 10-20 枚     |
+| 进阶 / 启用部分指标 | 3TF, K=20, EMA+SMA+MACD+RSI   | 10-15 枚     |
+| 高级 / 全部指标     | 3-4TF, K=20-30, 全指标        | 5-10 枚      |

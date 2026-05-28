@@ -5,6 +5,7 @@ import (
 	"nofx/market"
 	"nofx/provider/nofxos"
 	"nofx/store"
+	"sort"
 	"strings"
 	"time"
 )
@@ -449,6 +450,22 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 				sb.WriteString(fmt.Sprintf("（周期：%v）", indicators.EMAPeriods))
 			} else {
 				sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.EMAPeriods))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	if indicators.EnableSMA {
+		if lang == LangChinese {
+			sb.WriteString("- SMA 普通均线")
+		} else {
+			sb.WriteString("- SMA (Simple Moving Average)")
+		}
+		if len(indicators.SMAPeriods) > 0 {
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("（周期：%v）", indicators.SMAPeriods))
+			} else {
+				sb.WriteString(fmt.Sprintf(" (periods: %v)", indicators.SMAPeriods))
 			}
 		}
 		sb.WriteString("\n")
@@ -1136,6 +1153,17 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		sb.WriteString(fmt.Sprintf(", current_ema20 = %.3f", data.CurrentEMA20))
 	}
 
+	if indicators.EnableSMA && len(data.CurrentSMA) > 0 {
+		periods := make([]int, 0, len(data.CurrentSMA))
+		for p := range data.CurrentSMA {
+			periods = append(periods, p)
+		}
+		sort.Ints(periods)
+		for _, p := range periods {
+			sb.WriteString(fmt.Sprintf(", sma%d = %.3f", p, data.CurrentSMA[p]))
+		}
+	}
+
 	if indicators.EnableMACD {
 		sb.WriteString(fmt.Sprintf(", current_macd = %.3f", data.CurrentMACD))
 	}
@@ -1209,6 +1237,24 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 				}
 			}
 
+			if indicators.EnableSMA && len(data.IntradaySeries.SMAValues) > 0 {
+				periods := make([]int, 0, len(data.IntradaySeries.SMAValues))
+				for p := range data.IntradaySeries.SMAValues {
+					periods = append(periods, p)
+				}
+				sort.Ints(periods)
+				for _, p := range periods {
+					values := data.IntradaySeries.SMAValues[p]
+					if len(values) > 0 {
+						if lang == LangChinese {
+							sb.WriteString(fmt.Sprintf("SMA 指标（%d周期）：%s\n\n", p, formatFloatSlice(values)))
+						} else {
+							sb.WriteString(fmt.Sprintf("SMA indicators (%d-period): %s\n\n", p, formatFloatSlice(values)))
+						}
+					}
+				}
+			}
+
 			if indicators.EnableMACD && len(data.IntradaySeries.MACDValues) > 0 {
 				if lang == LangChinese {
 					sb.WriteString(fmt.Sprintf("MACD 指标：%s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
@@ -1262,6 +1308,26 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 					sb.WriteString(fmt.Sprintf("20-Period EMA: %.3f vs. 50-Period EMA: %.3f\n\n",
 						data.LongerTermContext.EMA20, data.LongerTermContext.EMA50))
 				}
+			}
+
+			if indicators.EnableSMA && len(data.LongerTermContext.SMA) > 0 {
+				periods := make([]int, 0, len(data.LongerTermContext.SMA))
+				for p := range data.LongerTermContext.SMA {
+					periods = append(periods, p)
+				}
+				sort.Ints(periods)
+				if lang == LangChinese {
+					sb.WriteString("SMA 普通均线：")
+				} else {
+					sb.WriteString("SMA: ")
+				}
+				for i, p := range periods {
+					if i > 0 {
+						sb.WriteString(", ")
+					}
+					sb.WriteString(fmt.Sprintf("SMA%d=%.3f", p, data.LongerTermContext.SMA[p]))
+				}
+				sb.WriteString("\n\n")
 			}
 
 			if indicators.EnableATR {
@@ -1349,6 +1415,20 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 		}
 		if len(data.EMA50Values) > 0 {
 			sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
+		}
+	}
+
+	if indicators.EnableSMA && len(data.SMAValues) > 0 {
+		periods := make([]int, 0, len(data.SMAValues))
+		for p := range data.SMAValues {
+			periods = append(periods, p)
+		}
+		sort.Ints(periods)
+		for _, p := range periods {
+			values := data.SMAValues[p]
+			if len(values) > 0 {
+				sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(values)))
+			}
 		}
 	}
 

@@ -144,7 +144,7 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 // timeframes: list of timeframes, e.g. ["5m", "15m", "1h", "4h"]
 // primaryTimeframe: primary timeframe (used for calculating current indicators), defaults to timeframes[0]
 // count: number of K-lines for each timeframe
-func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe string, count int) (*Data, error) {
+func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe string, count int, smaPeriods ...int) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -228,6 +228,14 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentMACD := calculateMACD(primaryKlines)
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 
+	// Calculate SMA for configured periods
+	currentSMA := make(map[int]float64)
+	for _, p := range smaPeriods {
+		if p > 0 && len(primaryKlines) >= p {
+			currentSMA[p] = calculateSMA(primaryKlines, p)
+		}
+	}
+
 	// Calculate price changes
 	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60) // 1 hour
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
@@ -247,6 +255,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 		PriceChange1h: priceChange1h,
 		PriceChange4h: priceChange4h,
 		CurrentEMA20:  currentEMA20,
+		CurrentSMA:    currentSMA,
 		CurrentMACD:   currentMACD,
 		CurrentRSI7:   currentRSI7,
 		OpenInterest:  oiData,
@@ -462,6 +471,12 @@ func formatTimeframeData(sb *strings.Builder, data *TimeframeSeriesData) {
 		sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
 	}
 
+	for period, values := range data.SMAValues {
+		if len(values) > 0 {
+			sb.WriteString(fmt.Sprintf("SMA%d: %s\n", period, formatFloatSlice(values)))
+		}
+	}
+
 	if len(data.MACDValues) > 0 {
 		sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
 	}
@@ -603,7 +618,7 @@ func parseFloat(v interface{}) (float64, error) {
 }
 
 // BuildDataFromKlines constructs market data snapshot from preloaded K-line series.
-func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline) (*Data, error) {
+func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline, smaPeriods ...int) (*Data, error) {
 	if len(primary) == 0 {
 		return nil, fmt.Errorf("primary series is empty")
 	}
@@ -622,12 +637,12 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline) (*Data,
 		PriceChange4h:     priceChangeFromSeries(primary, 4*time.Hour),
 		OpenInterest:      &OIData{Latest: 0, Average: 0},
 		FundingRate:       0,
-		IntradaySeries:    calculateIntradaySeries(primary),
+		IntradaySeries:    calculateIntradaySeries(primary, smaPeriods...),
 		LongerTermContext: nil,
 	}
 
 	if len(longer) > 0 {
-		data.LongerTermContext = calculateLongerTermData(longer)
+		data.LongerTermContext = calculateLongerTermData(longer, smaPeriods...)
 	}
 
 	return data, nil

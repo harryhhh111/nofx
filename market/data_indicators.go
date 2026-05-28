@@ -2,6 +2,18 @@ package market
 
 import "math"
 
+// calculateSMA calculates Simple Moving Average
+func calculateSMA(klines []Kline, period int) float64 {
+	if len(klines) < period {
+		return 0
+	}
+	sum := 0.0
+	for i := len(klines) - period; i < len(klines); i++ {
+		sum += klines[i].Close
+	}
+	return sum / float64(period)
+}
+
 // calculateEMA calculates EMA
 func calculateEMA(klines []Kline, period int) float64 {
 	if len(klines) < period {
@@ -198,6 +210,11 @@ func calculateBoxData(klines []Kline, currentPrice float64) *BoxData {
 }
 
 // ========== Exported indicator calculation functions (for testing) ==========
+
+// ExportCalculateSMA exports calculateSMA for testing
+func ExportCalculateSMA(klines []Kline, period int) float64 {
+	return calculateSMA(klines, period)
+}
 
 // ExportCalculateEMA exports calculateEMA for testing
 func ExportCalculateEMA(klines []Kline, period int) float64 {
