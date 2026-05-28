@@ -1162,6 +1162,41 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		for _, p := range periods {
 			sb.WriteString(fmt.Sprintf(", sma%d = %.3f", p, data.CurrentSMA[p]))
 		}
+		// SMA derived indicators: slope, price distance, cross signals
+		var extras []string
+		for _, p := range periods {
+			// Slope: percentage change between last two SMA values
+			if data.IntradaySeries != nil && len(data.IntradaySeries.SMAValues[p]) >= 2 {
+				slope := calculateSMASlope(data.IntradaySeries.SMAValues[p])
+				extras = append(extras, fmt.Sprintf("sma%d_slope=%+.2f%%", p, slope))
+			}
+			// Price distance from SMA
+			if data.CurrentSMA[p] != 0 {
+				dist := calculateSMAPriceDistance(data.CurrentPrice, data.CurrentSMA[p])
+				above := data.CurrentPrice > data.CurrentSMA[p]
+				extras = append(extras, fmt.Sprintf("price_above_sma%d=%t(%+.2f%%)", p, above, dist))
+			}
+		}
+		// Cross signal between the two smallest configured periods
+		if len(indicators.SMAPeriods) >= 2 && data.IntradaySeries != nil {
+			sortedP := make([]int, len(indicators.SMAPeriods))
+			copy(sortedP, indicators.SMAPeriods)
+			sort.Ints(sortedP)
+			fastP, slowP := sortedP[0], sortedP[1]
+			fastVals := data.IntradaySeries.SMAValues[fastP]
+			slowVals := data.IntradaySeries.SMAValues[slowP]
+			if len(fastVals) >= 2 && len(slowVals) >= 2 {
+				cross := detectSMACross(fastVals, slowVals)
+				if cross == "cross_up" {
+					extras = append(extras, fmt.Sprintf("sma_cross_up_%d_%d=true", fastP, slowP))
+				} else if cross == "cross_down" {
+					extras = append(extras, fmt.Sprintf("sma_cross_down_%d_%d=true", fastP, slowP))
+				}
+			}
+		}
+		if len(extras) > 0 {
+			sb.WriteString(" | " + strings.Join(extras, ", "))
+		}
 	}
 
 	if indicators.EnableMACD {
@@ -1601,4 +1636,42 @@ func formatFloatSlice(values []float64) string {
 		strValues[i] = fmt.Sprintf("%.4f", v)
 	}
 	return "[" + strings.Join(strValues, ", ") + "]"
+}
+
+// calculateSMASlope returns the percentage change between the last two SMA values
+func calculateSMASlope(values []float64) float64 {
+	if len(values) < 2 {
+		return 0
+	}
+	prev := values[len(values)-2]
+	curr := values[len(values)-1]
+	if prev == 0 {
+		return 0
+	}
+	return (curr - prev) / prev * 100
+}
+
+// calculateSMAPriceDistance returns the percentage distance from price to SMA
+func calculateSMAPriceDistance(price, sma float64) float64 {
+	if sma == 0 {
+		return 0
+	}
+	return (price - sma) / sma * 100
+}
+
+// detectSMACross detects golden cross / death cross between fast and slow SMA.
+// Returns "cross_up", "cross_down", or empty string.
+func detectSMACross(fastValues, slowValues []float64) string {
+	if len(fastValues) < 2 || len(slowValues) < 2 {
+		return ""
+	}
+	fastPrev, fastCurr := fastValues[len(fastValues)-2], fastValues[len(fastValues)-1]
+	slowPrev, slowCurr := slowValues[len(slowValues)-2], slowValues[len(slowValues)-1]
+	if fastPrev < slowPrev && fastCurr >= slowCurr {
+		return "cross_up"
+	}
+	if fastPrev > slowPrev && fastCurr <= slowCurr {
+		return "cross_down"
+	}
+	return ""
 }
