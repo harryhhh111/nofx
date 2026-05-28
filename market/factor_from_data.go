@@ -81,8 +81,11 @@ func BuildFactorSnapshotFromDataWithRequests(data *Data, asOf time.Time, req Ind
 func DefaultIndicatorRequest() IndicatorRequest {
 	return IndicatorRequest{
 		EMAPeriods:         []int{20, 50},
+		SMAPeriods:         []int{5, 20, 50},
 		RSIPeriods:         []int{7, 14},
 		ATRPeriods:         []int{14},
+		ADX:                &ADXSpec{Period: 14},
+		SAR:                &SARSpec{Enabled: false},
 		BOLLPeriods:        []BOLLSpec{{Period: 20, Multiplier: 2}},
 		MACD:               &MACDSpec{Fast: 12, Slow: 26, Signal: 9},
 		VWAPPeriods:        []int{20},

@@ -266,11 +266,20 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 	if indicators.EnableEMA {
 		req.EMAPeriods = indicators.EMAPeriods
 	}
+	if indicators.EnableSMA {
+		req.SMAPeriods = indicators.SMAPeriods
+	}
 	if indicators.EnableRSI {
 		req.RSIPeriods = indicators.RSIPeriods
 	}
 	if indicators.EnableATR {
 		req.ATRPeriods = indicators.ATRPeriods
+	}
+	if indicators.EnableADX {
+		req.ADX = &market.ADXSpec{Period: indicators.ADXPeriod}
+	}
+	if indicators.EnableSAR {
+		req.SAR = &market.SARSpec{Enabled: true}
 	}
 	if indicators.EnableBOLL {
 		for _, period := range indicators.BOLLPeriods {
