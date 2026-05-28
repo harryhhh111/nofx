@@ -112,6 +112,7 @@ export interface IndicatorConfig {
   enable_rsi: boolean;
   enable_atr: boolean;
   enable_adx: boolean;
+  enable_sar: boolean;
   enable_boll: boolean;
   enable_volume: boolean;
   enable_oi: boolean;

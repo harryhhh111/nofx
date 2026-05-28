@@ -1229,6 +1229,22 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		sb.WriteString(fmt.Sprintf(", di_direction=%s, adx_trending=%t, adx_strength=%s", diDir, adxTrending, adxStrength))
 	}
 
+	if indicators.EnableSAR && data.CurrentSAR > 0 {
+		sb.WriteString(fmt.Sprintf(", sar = %.4f", data.CurrentSAR))
+		sarDir := "down"
+		if data.SARIsUptrend {
+			sarDir = "up"
+		}
+		priceAbove := data.CurrentPrice > data.CurrentSAR
+		sb.WriteString(fmt.Sprintf(", sar_direction=%s, price_above_sar=%t", sarDir, priceAbove))
+		if data.SARFlipUp {
+			sb.WriteString(", sar_flip_up=true")
+		}
+		if data.SARFlipDown {
+			sb.WriteString(", sar_flip_down=true")
+		}
+	}
+
 	if indicators.EnableMACD {
 		sb.WriteString(fmt.Sprintf(", current_macd = %.3f", data.CurrentMACD))
 	}
@@ -1332,6 +1348,14 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 				}
 			}
 
+			if indicators.EnableSAR && len(data.IntradaySeries.SARValues) > 0 {
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("SAR 指标：%s\n", formatFloatSlice(data.IntradaySeries.SARValues)))
+				} else {
+					sb.WriteString(fmt.Sprintf("SAR indicators: %s\n", formatFloatSlice(data.IntradaySeries.SARValues)))
+				}
+			}
+
 			if indicators.EnableMACD && len(data.IntradaySeries.MACDValues) > 0 {
 				if lang == LangChinese {
 					sb.WriteString(fmt.Sprintf("MACD 指标：%s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
@@ -1414,6 +1438,36 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 				} else {
 					sb.WriteString(fmt.Sprintf("ADX Trend Strength: %.2f (+DI %.2f / -DI %.2f)\n\n",
 						data.LongerTermContext.ADX, data.LongerTermContext.PlusDI, data.LongerTermContext.MinusDI))
+				}
+			}
+
+			if indicators.EnableSAR && data.LongerTermContext.SAR > 0 {
+				if lang == LangChinese {
+					sarDir := "下降"
+					if data.LongerTermContext.SARIsUptrend {
+						sarDir = "上升"
+					}
+					flipInfo := ""
+					if data.LongerTermContext.SARFlipUp {
+						flipInfo = " | 刚翻转为上升"
+					} else if data.LongerTermContext.SARFlipDown {
+						flipInfo = " | 刚翻转为下降"
+					}
+					sb.WriteString(fmt.Sprintf("SAR：%.4f（趋势%s）%s\n\n",
+						data.LongerTermContext.SAR, sarDir, flipInfo))
+				} else {
+					sarDir := "downtrend"
+					if data.LongerTermContext.SARIsUptrend {
+						sarDir = "uptrend"
+					}
+					flipInfo := ""
+					if data.LongerTermContext.SARFlipUp {
+						flipInfo = " | just flipped up"
+					} else if data.LongerTermContext.SARFlipDown {
+						flipInfo = " | just flipped down"
+					}
+					sb.WriteString(fmt.Sprintf("SAR: %.4f (%s)%s\n\n",
+						data.LongerTermContext.SAR, sarDir, flipInfo))
 				}
 			}
 
@@ -1523,6 +1577,10 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 		sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
 		sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
 		sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
+	}
+
+	if indicators.EnableSAR && len(data.SARValues) > 0 {
+		sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
 	}
 
 	if indicators.EnableMACD && len(data.MACDValues) > 0 {

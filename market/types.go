@@ -15,6 +15,10 @@ type Data struct {
 	CurrentADX        float64 `json:"current_adx,omitempty"`           // ADX current value
 	CurrentPlusDI     float64 `json:"current_plus_di,omitempty"`       // +DI current value
 	CurrentMinusDI    float64 `json:"current_minus_di,omitempty"`      // -DI current value
+	CurrentSAR        float64 `json:"current_sar,omitempty"`           // Parabolic SAR current value
+	SARIsUptrend      bool    `json:"sar_is_uptrend,omitempty"`        // Parabolic SAR trend direction
+	SARFlipUp         bool    `json:"sar_flip_up,omitempty"`           // Parabolic SAR flipped to uptrend
+	SARFlipDown       bool    `json:"sar_flip_down,omitempty"`         // Parabolic SAR flipped to downtrend
 	OpenInterest      *OIData
 	FundingRate       float64
 	IntradaySeries    *IntradayData
@@ -44,6 +48,10 @@ type TimeframeSeriesData struct {
 	ADXValues   []float64           `json:"adx_values,omitempty"`   // ADX series
 	PlusDIValues []float64          `json:"plus_di_values,omitempty"`  // +DI series
 	MinusDIValues []float64         `json:"minus_di_values,omitempty"` // -DI series
+	SARValues   []float64           `json:"sar_values,omitempty"`   // Parabolic SAR series
+	SARUptrend  []bool              `json:"sar_uptrend,omitempty"`  // Parabolic SAR trend direction series
+	SARFlipUp   []bool              `json:"sar_flip_up,omitempty"`  // Parabolic SAR flip-up series
+	SARFlipDown []bool              `json:"sar_flip_down,omitempty"` // Parabolic SAR flip-down series
 	MACDValues  []float64           `json:"macd_values"`  // MACD series
 	RSI7Values  []float64           `json:"rsi7_values"`  // RSI7 series
 	RSI14Values []float64           `json:"rsi14_values"` // RSI14 series
@@ -93,6 +101,10 @@ type IntradayData struct {
 	ADXValues   []float64         `json:"adx_values,omitempty"`   // ADX series
 	PlusDIValues []float64        `json:"plus_di_values,omitempty"`  // +DI series
 	MinusDIValues []float64       `json:"minus_di_values,omitempty"` // -DI series
+	SARValues   []float64         `json:"sar_values,omitempty"`   // Parabolic SAR series
+	SARUptrend  []bool            `json:"sar_uptrend,omitempty"`  // Parabolic SAR trend direction series
+	SARFlipUp   []bool            `json:"sar_flip_up,omitempty"`  // Parabolic SAR flip-up series
+	SARFlipDown []bool            `json:"sar_flip_down,omitempty"` // Parabolic SAR flip-down series
 	MACDValues  []float64
 	RSI7Values  []float64
 	RSI14Values []float64
@@ -108,6 +120,10 @@ type LongerTermData struct {
 	ADX           float64         `json:"adx,omitempty"`     // ADX current value
 	PlusDI        float64         `json:"plus_di,omitempty"` // +DI current value
 	MinusDI       float64         `json:"minus_di,omitempty"` // -DI current value
+	SAR           float64         `json:"sar,omitempty"`     // Parabolic SAR current value
+	SARIsUptrend  bool            `json:"sar_is_uptrend,omitempty"` // Parabolic SAR trend direction
+	SARFlipUp     bool            `json:"sar_flip_up,omitempty"`    // Parabolic SAR flipped to uptrend
+	SARFlipDown   bool            `json:"sar_flip_down,omitempty"`  // Parabolic SAR flipped to downtrend
 	ATR3          float64
 	ATR14         float64
 	CurrentVolume float64

@@ -251,6 +251,101 @@ func ExportCalculateBoxData(klines []Kline, currentPrice float64) *BoxData {
 	return calculateBoxData(klines, currentPrice)
 }
 
+// calculateParabolicSAR calculates Parabolic SAR (Stop and Reverse).
+// Returns the current SAR value, whether trend is up, and flip signals.
+// AF starts at 0.02, increments by 0.02 on new extremes, max 0.2.
+func calculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flipDown bool) {
+	if len(klines) < 2 {
+		return 0, false, false, false
+	}
+
+	// Initial trend: up if close[1] >= close[0]
+	isUptrend = klines[1].Close >= klines[0].Close
+	af := 0.02
+	var ep float64
+
+	if isUptrend {
+		sar = klines[0].Low
+		ep = klines[1].High
+	} else {
+		sar = klines[0].High
+		ep = klines[1].Low
+	}
+
+	// Iterate from the 3rd bar
+	for i := 2; i < len(klines); i++ {
+		curr := klines[i]
+
+		// Calculate SAR
+		sar = sar + af*(ep-sar)
+
+		if isUptrend {
+			// Limit SAR to not exceed previous two lows
+			if i >= 2 {
+				sar = math.Min(sar, klines[i-1].Low)
+				sar = math.Min(sar, klines[i-2].Low)
+			}
+
+			// Check for trend reversal
+			if curr.Low < sar {
+				// Flip to downtrend
+				flipDown = true
+				flipUp = false
+				isUptrend = false
+				sar = ep
+				if sar < curr.High {
+					sar = curr.High
+				}
+				ep = curr.Low
+				af = 0.02
+			} else {
+				flipDown = false
+				flipUp = false
+				// Continue uptrend
+				if curr.High > ep {
+					ep = curr.High
+					af = math.Min(af+0.02, 0.2)
+				}
+			}
+		} else {
+			// Downtrend: limit SAR to not be below previous two highs
+			if i >= 2 {
+				sar = math.Max(sar, klines[i-1].High)
+				sar = math.Max(sar, klines[i-2].High)
+			}
+
+			// Check for trend reversal
+			if curr.High > sar {
+				// Flip to uptrend
+				flipUp = true
+				flipDown = false
+				isUptrend = true
+				sar = ep
+				if sar > curr.Low {
+					sar = curr.Low
+				}
+				ep = curr.High
+				af = 0.02
+			} else {
+				flipUp = false
+				flipDown = false
+				// Continue downtrend
+				if curr.Low < ep {
+					ep = curr.Low
+					af = math.Min(af+0.02, 0.2)
+				}
+			}
+		}
+	}
+
+	return sar, isUptrend, flipUp, flipDown
+}
+
+// ExportCalculateParabolicSAR exports calculateParabolicSAR for testing
+func ExportCalculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flipDown bool) {
+	return calculateParabolicSAR(klines)
+}
+
 // wilderSmooth applies Wilder's smoothing to a series of values.
 // The first smoothed value is the SMA of the first 'period' values.
 // Returns a slice where result[i] corresponds to the smoothed value

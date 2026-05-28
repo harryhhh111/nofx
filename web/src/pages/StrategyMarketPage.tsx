@@ -166,6 +166,7 @@ export function StrategyMarketPage() {
     if (config.indicators.enable_rsi) indicators.push('RSI')
     if (config.indicators.enable_atr) indicators.push('ATR')
     if (config.indicators.enable_adx) indicators.push('ADX')
+    if (config.indicators.enable_sar) indicators.push('SAR')
     if (config.indicators.enable_boll) indicators.push('BOLL')
     if (config.indicators.enable_volume) indicators.push('VOL')
     if (config.indicators.enable_oi) indicators.push('OI')

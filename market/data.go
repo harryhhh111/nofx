@@ -90,6 +90,7 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
 	currentADX, currentPlusDI, currentMinusDI := calculateADX(klines3m, 14)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(klines3m)
 
 	// Calculate price change percentage
 	// 1-hour price change = price from 20 3-minute K-lines ago
@@ -137,6 +138,10 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 		CurrentADX:        currentADX,
 		CurrentPlusDI:     currentPlusDI,
 		CurrentMinusDI:    currentMinusDI,
+		CurrentSAR:        currentSAR,
+		SARIsUptrend:      sarIsUptrend,
+		SARFlipUp:         sarFlipUp,
+		SARFlipDown:       sarFlipDown,
 		OpenInterest:      oiData,
 		FundingRate:       fundingRate,
 		IntradaySeries:    intradayData,
@@ -232,6 +237,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentMACD := calculateMACD(primaryKlines)
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 	currentADX, currentPlusDI, currentMinusDI := calculateADX(primaryKlines, 14)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(primaryKlines)
 
 	// Calculate SMA for configured periods
 	currentSMA := make(map[int]float64)
@@ -266,6 +272,10 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 		CurrentADX:     currentADX,
 		CurrentPlusDI:  currentPlusDI,
 		CurrentMinusDI: currentMinusDI,
+		CurrentSAR:     currentSAR,
+		SARIsUptrend:   sarIsUptrend,
+		SARFlipUp:      sarFlipUp,
+		SARFlipDown:    sarFlipDown,
 		OpenInterest:   oiData,
 		FundingRate:    fundingRate,
 		TimeframeData:  timeframeData,
@@ -636,6 +646,7 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline, smaPeri
 	currentPrice := current.Close
 
 	currentADX, currentPlusDI, currentMinusDI := calculateADX(primary, 14)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(primary)
 
 	data := &Data{
 		Symbol:            symbol,
@@ -646,6 +657,10 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline, smaPeri
 		CurrentADX:        currentADX,
 		CurrentPlusDI:     currentPlusDI,
 		CurrentMinusDI:    currentMinusDI,
+		CurrentSAR:        currentSAR,
+		SARIsUptrend:      sarIsUptrend,
+		SARFlipUp:         sarFlipUp,
+		SARFlipDown:       sarFlipDown,
 		PriceChange1h:     priceChangeFromSeries(primary, time.Hour),
 		PriceChange4h:     priceChangeFromSeries(primary, 4*time.Hour),
 		OpenInterest:      &OIData{Latest: 0, Average: 0},

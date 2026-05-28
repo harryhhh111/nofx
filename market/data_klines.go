@@ -169,6 +169,10 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int, adxPe
 		ADXValues:     make([]float64, 0, count),
 		PlusDIValues:  make([]float64, 0, count),
 		MinusDIValues: make([]float64, 0, count),
+		SARValues:     make([]float64, 0, count),
+		SARUptrend:    make([]bool, 0, count),
+		SARFlipUp:     make([]bool, 0, count),
+		SARFlipDown:   make([]bool, 0, count),
 		MACDValues:    make([]float64, 0, count),
 		RSI7Values:    make([]float64, 0, count),
 		RSI14Values:   make([]float64, 0, count),
@@ -249,6 +253,15 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int, adxPe
 			data.ADXValues = append(data.ADXValues, adx)
 			data.PlusDIValues = append(data.PlusDIValues, plusDI)
 			data.MinusDIValues = append(data.MinusDIValues, minusDI)
+		}
+
+		// Calculate Parabolic SAR for each point
+		if i >= 1 {
+			sar, isUp, flipUp, flipDown := calculateParabolicSAR(klines[:i+1])
+			data.SARValues = append(data.SARValues, sar)
+			data.SARUptrend = append(data.SARUptrend, isUp)
+			data.SARFlipUp = append(data.SARFlipUp, flipUp)
+			data.SARFlipDown = append(data.SARFlipDown, flipDown)
 		}
 	}
 
@@ -335,6 +348,10 @@ func calculateIntradaySeries(klines []Kline, adxPeriod int, smaPeriods ...int) *
 		ADXValues:     make([]float64, 0, 10),
 		PlusDIValues:  make([]float64, 0, 10),
 		MinusDIValues: make([]float64, 0, 10),
+		SARValues:     make([]float64, 0, 10),
+		SARUptrend:    make([]bool, 0, 10),
+		SARFlipUp:     make([]bool, 0, 10),
+		SARFlipDown:   make([]bool, 0, 10),
 		MACDValues:    make([]float64, 0, 10),
 		RSI7Values:    make([]float64, 0, 10),
 		RSI14Values:   make([]float64, 0, 10),
@@ -388,6 +405,15 @@ func calculateIntradaySeries(klines []Kline, adxPeriod int, smaPeriods ...int) *
 			data.PlusDIValues = append(data.PlusDIValues, plusDI)
 			data.MinusDIValues = append(data.MinusDIValues, minusDI)
 		}
+
+		// Calculate Parabolic SAR for each point
+		if i >= 1 {
+			sar, isUp, flipUp, flipDown := calculateParabolicSAR(klines[:i+1])
+			data.SARValues = append(data.SARValues, sar)
+			data.SARUptrend = append(data.SARUptrend, isUp)
+			data.SARFlipUp = append(data.SARFlipUp, flipUp)
+			data.SARFlipDown = append(data.SARFlipDown, flipDown)
+		}
 	}
 
 	// Calculate 3m ATR14
@@ -415,6 +441,11 @@ func calculateLongerTermData(klines []Kline, adxPeriod int, smaPeriods ...int) *
 	// Calculate ADX
 	if adxPeriod > 0 && len(klines) >= 2*adxPeriod+1 {
 		data.ADX, data.PlusDI, data.MinusDI = calculateADX(klines, adxPeriod)
+	}
+
+	// Calculate Parabolic SAR
+	if len(klines) >= 2 {
+		data.SAR, data.SARIsUptrend, data.SARFlipUp, data.SARFlipDown = calculateParabolicSAR(klines)
 	}
 
 	// Calculate volume

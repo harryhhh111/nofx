@@ -258,6 +258,7 @@ type IndicatorConfig struct {
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
 	EnableADX         bool `json:"enable_adx"`          // ADX/DMI trend strength
+	EnableSAR         bool `json:"enable_sar"`          // Parabolic SAR
 	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
@@ -429,6 +430,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableRSI:         false,
 			EnableATR:         false,
 			EnableADX:         false,
+			EnableSAR:         false,
 			EnableBOLL:        false,
 			EnableVolume:      true,
 			EnableOI:          true,
@@ -921,6 +923,9 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	}
 	if c.Indicators.EnableADX {
 		indicatorCharsPerLine += 30 // ADX + +DI + -DI + direction + trending + strength
+	}
+	if c.Indicators.EnableSAR {
+		indicatorCharsPerLine += 25 // SAR + direction + flip signals
 	}
 	if c.Indicators.EnableBOLL {
 		indicatorCharsPerLine += 25

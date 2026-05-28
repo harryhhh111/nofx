@@ -240,6 +240,8 @@ export const indicator = {
   atrDesc: { zh: '真实波幅均值', en: 'Average True Range', es: 'Rango Promedio Verdadero' },
   adx: { zh: 'ADX/DMI', en: 'ADX/DMI', es: 'ADX/DMI' },
   adxDesc: { zh: '趋势强度与方向指标', en: 'Trend Strength & Direction', es: 'Fuerza y Dirección de Tendencia' },
+  sar: { zh: 'SAR 抛物线', en: 'Parabolic SAR', es: 'SAR Parabólico' },
+  sarDesc: { zh: '止损反转指标', en: 'Stop-and-Reverse', es: 'Parada y Reversión' },
   boll: { zh: 'BOLL 布林带', en: 'Bollinger Bands', es: 'Bandas de Bollinger' },
   bollDesc: { zh: '布林带指标（上中下轨）', en: 'Upper/Middle/Lower Bands', es: 'Bandas Superior/Inferior' },
   volume: { zh: '成交量', en: 'Volume', es: 'Volumen' },
