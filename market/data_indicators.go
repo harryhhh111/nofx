@@ -250,3 +250,93 @@ func ExportCalculateDonchian(klines []Kline, period int) (float64, float64) {
 func ExportCalculateBoxData(klines []Kline, currentPrice float64) *BoxData {
 	return calculateBoxData(klines, currentPrice)
 }
+
+// wilderSmooth applies Wilder's smoothing to a series of values.
+// The first smoothed value is the SMA of the first 'period' values.
+// Returns a slice where result[i] corresponds to the smoothed value
+// covering the input range [i, i+period-1].
+func wilderSmooth(values []float64, period int) []float64 {
+	if len(values) < period {
+		return nil
+	}
+	result := make([]float64, len(values)-period+1)
+	var sum float64
+	for i := 0; i < period; i++ {
+		sum += values[i]
+	}
+	result[0] = sum / float64(period)
+	for i := period; i < len(values); i++ {
+		result[i-period+1] = (result[i-period]*float64(period-1) + values[i]) / float64(period)
+	}
+	return result
+}
+
+// calculateADX calculates ADX, +DI, and -DI using Wilder's smoothing method.
+// Returns the current (latest) values. Requires at least 2*period+1 klines.
+func calculateADX(klines []Kline, period int) (adx, plusDI, minusDI float64) {
+	if len(klines) < 2*period+1 {
+		return 0, 0, 0
+	}
+
+	// Step 1: Calculate TR, +DM, -DM for each bar (starting from index 1)
+	n := len(klines) - 1
+	trs := make([]float64, n)
+	plusDMs := make([]float64, n)
+	minusDMs := make([]float64, n)
+
+	for i := 1; i < len(klines); i++ {
+		curr, prev := klines[i], klines[i-1]
+		trs[i-1] = math.Max(curr.High-curr.Low, math.Max(math.Abs(curr.High-prev.Close), math.Abs(curr.Low-prev.Close)))
+
+		upMove := curr.High - prev.High
+		downMove := prev.Low - curr.Low
+
+		if upMove > downMove && upMove > 0 {
+			plusDMs[i-1] = upMove
+		}
+		if downMove > upMove && downMove > 0 {
+			minusDMs[i-1] = downMove
+		}
+	}
+
+	// Step 2: Wilder smoothing for TR, +DM, -DM
+	atrSeries := wilderSmooth(trs, period)
+	smoothPlusDM := wilderSmooth(plusDMs, period)
+	smoothMinusDM := wilderSmooth(minusDMs, period)
+
+	if len(atrSeries) == 0 || len(smoothPlusDM) == 0 || len(smoothMinusDM) == 0 {
+		return 0, 0, 0
+	}
+
+	// Step 3: Calculate +DI, -DI, DX
+	dxSeries := make([]float64, len(atrSeries))
+	for i := range atrSeries {
+		if atrSeries[i] != 0 {
+			pdi := 100 * smoothPlusDM[i] / atrSeries[i]
+			mdi := 100 * smoothMinusDM[i] / atrSeries[i]
+			diSum := pdi + mdi
+			if diSum != 0 {
+				dxSeries[i] = 100 * math.Abs(pdi-mdi) / diSum
+			}
+		}
+	}
+
+	// Step 4: ADX = Wilder smooth of DX
+	adxSeries := wilderSmooth(dxSeries, period)
+
+	last := len(adxSeries) - 1
+	atrLast := len(atrSeries) - 1
+	if last >= 0 && atrLast >= 0 {
+		adx = adxSeries[last]
+		if atrSeries[atrLast] != 0 {
+			plusDI = 100 * smoothPlusDM[atrLast] / atrSeries[atrLast]
+			minusDI = 100 * smoothMinusDM[atrLast] / atrSeries[atrLast]
+		}
+	}
+	return
+}
+
+// ExportCalculateADX exports calculateADX for testing
+func ExportCalculateADX(klines []Kline, period int) (adx, plusDI, minusDI float64) {
+	return calculateADX(klines, period)
+}

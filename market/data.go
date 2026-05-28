@@ -89,6 +89,7 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 	currentEMA20 := calculateEMA(klines3m, 20)
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
+	currentADX, currentPlusDI, currentMinusDI := calculateADX(klines3m, 14)
 
 	// Calculate price change percentage
 	// 1-hour price change = price from 20 3-minute K-lines ago
@@ -120,10 +121,10 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 	fundingRate, _ := getFundingRate(symbol)
 
 	// Calculate intraday series data
-	intradayData := calculateIntradaySeries(klines3m)
+	intradayData := calculateIntradaySeries(klines3m, 14)
 
 	// Calculate longer-term data
-	longerTermData := calculateLongerTermData(klines4h)
+	longerTermData := calculateLongerTermData(klines4h, 14)
 
 	return &Data{
 		Symbol:            symbol,
@@ -133,6 +134,9 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 		CurrentEMA20:      currentEMA20,
 		CurrentMACD:       currentMACD,
 		CurrentRSI7:       currentRSI7,
+		CurrentADX:        currentADX,
+		CurrentPlusDI:     currentPlusDI,
+		CurrentMinusDI:    currentMinusDI,
 		OpenInterest:      oiData,
 		FundingRate:       fundingRate,
 		IntradaySeries:    intradayData,
@@ -207,7 +211,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 		}
 
 		// Calculate series data for this timeframe (use count from config)
-		seriesData := calculateTimeframeSeries(klines, tf, count)
+		seriesData := calculateTimeframeSeries(klines, tf, count, 14)
 		timeframeData[tf] = seriesData
 	}
 
@@ -227,6 +231,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentEMA20 := calculateEMA(primaryKlines, 20)
 	currentMACD := calculateMACD(primaryKlines)
 	currentRSI7 := calculateRSI(primaryKlines, 7)
+	currentADX, currentPlusDI, currentMinusDI := calculateADX(primaryKlines, 14)
 
 	// Calculate SMA for configured periods
 	currentSMA := make(map[int]float64)
@@ -250,17 +255,20 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	fundingRate, _ := getFundingRate(symbol)
 
 	return &Data{
-		Symbol:        symbol,
-		CurrentPrice:  currentPrice,
-		PriceChange1h: priceChange1h,
-		PriceChange4h: priceChange4h,
-		CurrentEMA20:  currentEMA20,
-		CurrentSMA:    currentSMA,
-		CurrentMACD:   currentMACD,
-		CurrentRSI7:   currentRSI7,
-		OpenInterest:  oiData,
-		FundingRate:   fundingRate,
-		TimeframeData: timeframeData,
+		Symbol:         symbol,
+		CurrentPrice:   currentPrice,
+		PriceChange1h:  priceChange1h,
+		PriceChange4h:  priceChange4h,
+		CurrentEMA20:   currentEMA20,
+		CurrentSMA:     currentSMA,
+		CurrentMACD:    currentMACD,
+		CurrentRSI7:    currentRSI7,
+		CurrentADX:     currentADX,
+		CurrentPlusDI:  currentPlusDI,
+		CurrentMinusDI: currentMinusDI,
+		OpenInterest:   oiData,
+		FundingRate:    fundingRate,
+		TimeframeData:  timeframeData,
 	}, nil
 }
 
@@ -627,22 +635,27 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline, smaPeri
 	current := primary[len(primary)-1]
 	currentPrice := current.Close
 
+	currentADX, currentPlusDI, currentMinusDI := calculateADX(primary, 14)
+
 	data := &Data{
 		Symbol:            symbol,
 		CurrentPrice:      currentPrice,
 		CurrentEMA20:      calculateEMA(primary, 20),
 		CurrentMACD:       calculateMACD(primary),
 		CurrentRSI7:       calculateRSI(primary, 7),
+		CurrentADX:        currentADX,
+		CurrentPlusDI:     currentPlusDI,
+		CurrentMinusDI:    currentMinusDI,
 		PriceChange1h:     priceChangeFromSeries(primary, time.Hour),
 		PriceChange4h:     priceChangeFromSeries(primary, 4*time.Hour),
 		OpenInterest:      &OIData{Latest: 0, Average: 0},
 		FundingRate:       0,
-		IntradaySeries:    calculateIntradaySeries(primary, smaPeriods...),
+		IntradaySeries:    calculateIntradaySeries(primary, 14, smaPeriods...),
 		LongerTermContext: nil,
 	}
 
 	if len(longer) > 0 {
-		data.LongerTermContext = calculateLongerTermData(longer, smaPeriods...)
+		data.LongerTermContext = calculateLongerTermData(longer, 14, smaPeriods...)
 	}
 
 	return data, nil

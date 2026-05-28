@@ -154,7 +154,7 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 }
 
 // calculateTimeframeSeries calculates series data for a single timeframe
-func calculateTimeframeSeries(klines []Kline, timeframe string, count int, smaPeriods ...int) *TimeframeSeriesData {
+func calculateTimeframeSeries(klines []Kline, timeframe string, count int, adxPeriod int, smaPeriods ...int) *TimeframeSeriesData {
 	if count <= 0 {
 		count = 10 // default
 	}
@@ -165,14 +165,17 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int, smaPe
 		MidPrices:   make([]float64, 0, count),
 		EMA20Values: make([]float64, 0, count),
 		EMA50Values: make([]float64, 0, count),
-		SMAValues:   make(map[int][]float64),
-		MACDValues:  make([]float64, 0, count),
-		RSI7Values:  make([]float64, 0, count),
-		RSI14Values: make([]float64, 0, count),
-		Volume:      make([]float64, 0, count),
-		BOLLUpper:   make([]float64, 0, count),
-		BOLLMiddle:  make([]float64, 0, count),
-		BOLLLower:   make([]float64, 0, count),
+		SMAValues:     make(map[int][]float64),
+		ADXValues:     make([]float64, 0, count),
+		PlusDIValues:  make([]float64, 0, count),
+		MinusDIValues: make([]float64, 0, count),
+		MACDValues:    make([]float64, 0, count),
+		RSI7Values:    make([]float64, 0, count),
+		RSI14Values:   make([]float64, 0, count),
+		Volume:        make([]float64, 0, count),
+		BOLLUpper:     make([]float64, 0, count),
+		BOLLMiddle:    make([]float64, 0, count),
+		BOLLLower:     make([]float64, 0, count),
 	}
 
 	// Get latest N data points based on count from config
@@ -238,6 +241,14 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int, smaPe
 			data.BOLLUpper = append(data.BOLLUpper, upper)
 			data.BOLLMiddle = append(data.BOLLMiddle, middle)
 			data.BOLLLower = append(data.BOLLLower, lower)
+		}
+
+		// Calculate ADX for each point
+		if adxPeriod > 0 && i >= 2*adxPeriod {
+			adx, plusDI, minusDI := calculateADX(klines[:i+1], adxPeriod)
+			data.ADXValues = append(data.ADXValues, adx)
+			data.PlusDIValues = append(data.PlusDIValues, plusDI)
+			data.MinusDIValues = append(data.MinusDIValues, minusDI)
 		}
 	}
 
@@ -316,15 +327,18 @@ func parseTimeframeToMinutes(tf string) int {
 }
 
 // calculateIntradaySeries calculates intraday series data
-func calculateIntradaySeries(klines []Kline, smaPeriods ...int) *IntradayData {
+func calculateIntradaySeries(klines []Kline, adxPeriod int, smaPeriods ...int) *IntradayData {
 	data := &IntradayData{
 		MidPrices:   make([]float64, 0, 10),
 		EMA20Values: make([]float64, 0, 10),
-		SMAValues:   make(map[int][]float64),
-		MACDValues:  make([]float64, 0, 10),
-		RSI7Values:  make([]float64, 0, 10),
-		RSI14Values: make([]float64, 0, 10),
-		Volume:      make([]float64, 0, 10),
+		SMAValues:     make(map[int][]float64),
+		ADXValues:     make([]float64, 0, 10),
+		PlusDIValues:  make([]float64, 0, 10),
+		MinusDIValues: make([]float64, 0, 10),
+		MACDValues:    make([]float64, 0, 10),
+		RSI7Values:    make([]float64, 0, 10),
+		RSI14Values:   make([]float64, 0, 10),
+		Volume:        make([]float64, 0, 10),
 	}
 
 	// Get latest 10 data points
@@ -366,6 +380,14 @@ func calculateIntradaySeries(klines []Kline, smaPeriods ...int) *IntradayData {
 			rsi14 := calculateRSI(klines[:i+1], 14)
 			data.RSI14Values = append(data.RSI14Values, rsi14)
 		}
+
+		// Calculate ADX for each point
+		if adxPeriod > 0 && i >= 2*adxPeriod {
+			adx, plusDI, minusDI := calculateADX(klines[:i+1], adxPeriod)
+			data.ADXValues = append(data.ADXValues, adx)
+			data.PlusDIValues = append(data.PlusDIValues, plusDI)
+			data.MinusDIValues = append(data.MinusDIValues, minusDI)
+		}
 	}
 
 	// Calculate 3m ATR14
@@ -375,7 +397,7 @@ func calculateIntradaySeries(klines []Kline, smaPeriods ...int) *IntradayData {
 }
 
 // calculateLongerTermData calculates longer-term data
-func calculateLongerTermData(klines []Kline, smaPeriods ...int) *LongerTermData {
+func calculateLongerTermData(klines []Kline, adxPeriod int, smaPeriods ...int) *LongerTermData {
 	data := &LongerTermData{
 		SMA:         make(map[int]float64),
 		MACDValues:  make([]float64, 0, 10),
@@ -389,6 +411,11 @@ func calculateLongerTermData(klines []Kline, smaPeriods ...int) *LongerTermData 
 	// Calculate ATR
 	data.ATR3 = calculateATR(klines, 3)
 	data.ATR14 = calculateATR(klines, 14)
+
+	// Calculate ADX
+	if adxPeriod > 0 && len(klines) >= 2*adxPeriod+1 {
+		data.ADX, data.PlusDI, data.MinusDI = calculateADX(klines, adxPeriod)
+	}
 
 	// Calculate volume
 	if len(klines) > 0 {

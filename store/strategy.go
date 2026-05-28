@@ -257,6 +257,7 @@ type IndicatorConfig struct {
 	EnableMACD        bool `json:"enable_macd"`
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
+	EnableADX         bool `json:"enable_adx"`          // ADX/DMI trend strength
 	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
@@ -269,6 +270,8 @@ type IndicatorConfig struct {
 	RSIPeriods []int `json:"rsi_periods,omitempty"` // default [7, 14]
 	// ATR period configuration
 	ATRPeriods []int `json:"atr_periods,omitempty"` // default [14]
+	// ADX period configuration
+	ADXPeriod int `json:"adx_period,omitempty"` // default 14
 	// BOLL period configuration (period, standard deviation multiplier is fixed at 2)
 	BOLLPeriods []int `json:"boll_periods,omitempty"` // default [20] - can select multiple timeframes
 	// external data sources
@@ -425,6 +428,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableMACD:        false,
 			EnableRSI:         false,
 			EnableATR:         false,
+			EnableADX:         false,
 			EnableBOLL:        false,
 			EnableVolume:      true,
 			EnableOI:          true,
@@ -433,6 +437,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			SMAPeriods:        []int{5, 20, 50},
 			RSIPeriods:        []int{7, 14},
 			ATRPeriods:        []int{14},
+			ADXPeriod:         14,
 			BOLLPeriods:       []int{20},
 			// NofxOS unified API key
 			NofxOSAPIKey: "cm_568c67eae410d912c54c",
@@ -913,6 +918,9 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	}
 	if c.Indicators.EnableATR {
 		indicatorCharsPerLine += 15
+	}
+	if c.Indicators.EnableADX {
+		indicatorCharsPerLine += 30 // ADX + +DI + -DI + direction + trending + strength
 	}
 	if c.Indicators.EnableBOLL {
 		indicatorCharsPerLine += 25

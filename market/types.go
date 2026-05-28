@@ -12,6 +12,9 @@ type Data struct {
 	CurrentSMA        map[int]float64 `json:"current_sma,omitempty"` // SMA current value by period
 	CurrentMACD       float64
 	CurrentRSI7       float64
+	CurrentADX        float64 `json:"current_adx,omitempty"`           // ADX current value
+	CurrentPlusDI     float64 `json:"current_plus_di,omitempty"`       // +DI current value
+	CurrentMinusDI    float64 `json:"current_minus_di,omitempty"`      // -DI current value
 	OpenInterest      *OIData
 	FundingRate       float64
 	IntradaySeries    *IntradayData
@@ -38,6 +41,9 @@ type TimeframeSeriesData struct {
 	EMA20Values []float64           `json:"ema20_values"` // EMA20 series
 	EMA50Values []float64           `json:"ema50_values"` // EMA50 series
 	SMAValues   map[int][]float64   `json:"sma_values,omitempty"` // SMA series by period
+	ADXValues   []float64           `json:"adx_values,omitempty"`   // ADX series
+	PlusDIValues []float64          `json:"plus_di_values,omitempty"`  // +DI series
+	MinusDIValues []float64         `json:"minus_di_values,omitempty"` // -DI series
 	MACDValues  []float64           `json:"macd_values"`  // MACD series
 	RSI7Values  []float64           `json:"rsi7_values"`  // RSI7 series
 	RSI14Values []float64           `json:"rsi14_values"` // RSI14 series
@@ -84,6 +90,9 @@ type IntradayData struct {
 	MidPrices   []float64
 	EMA20Values []float64
 	SMAValues   map[int][]float64 `json:"sma_values,omitempty"` // SMA series by period
+	ADXValues   []float64         `json:"adx_values,omitempty"`   // ADX series
+	PlusDIValues []float64        `json:"plus_di_values,omitempty"`  // +DI series
+	MinusDIValues []float64       `json:"minus_di_values,omitempty"` // -DI series
 	MACDValues  []float64
 	RSI7Values  []float64
 	RSI14Values []float64
@@ -96,6 +105,9 @@ type LongerTermData struct {
 	EMA20         float64
 	EMA50         float64
 	SMA           map[int]float64 `json:"sma,omitempty"` // SMA current value by period
+	ADX           float64         `json:"adx,omitempty"`     // ADX current value
+	PlusDI        float64         `json:"plus_di,omitempty"` // +DI current value
+	MinusDI       float64         `json:"minus_di,omitempty"` // -DI current value
 	ATR3          float64
 	ATR14         float64
 	CurrentVolume float64

@@ -1199,6 +1199,36 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 		}
 	}
 
+	if indicators.EnableADX && data.CurrentADX > 0 {
+		period := indicators.ADXPeriod
+		if period <= 0 {
+			period = 14
+		}
+		sb.WriteString(fmt.Sprintf(", adx%d = %.2f, +di%d = %.2f, -di%d = %.2f", period, data.CurrentADX, period, data.CurrentPlusDI, period, data.CurrentMinusDI))
+		// DI direction
+		diDir := "neutral"
+		if data.CurrentPlusDI > data.CurrentMinusDI {
+			diDir = "bullish"
+		} else if data.CurrentMinusDI > data.CurrentPlusDI {
+			diDir = "bearish"
+		}
+		// ADX trending threshold (>=20)
+		adxTrending := data.CurrentADX >= 20
+		// ADX strength level
+		var adxStrength string
+		switch {
+		case data.CurrentADX < 20:
+			adxStrength = "weak"
+		case data.CurrentADX < 40:
+			adxStrength = "moderate"
+		case data.CurrentADX < 60:
+			adxStrength = "strong"
+		default:
+			adxStrength = "very_strong"
+		}
+		sb.WriteString(fmt.Sprintf(", di_direction=%s, adx_trending=%t, adx_strength=%s", diDir, adxTrending, adxStrength))
+	}
+
 	if indicators.EnableMACD {
 		sb.WriteString(fmt.Sprintf(", current_macd = %.3f", data.CurrentMACD))
 	}
@@ -1290,6 +1320,18 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 				}
 			}
 
+			if indicators.EnableADX && len(data.IntradaySeries.ADXValues) > 0 {
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("ADX 指标：%s\n", formatFloatSlice(data.IntradaySeries.ADXValues)))
+					sb.WriteString(fmt.Sprintf("+DI 指标：%s\n", formatFloatSlice(data.IntradaySeries.PlusDIValues)))
+					sb.WriteString(fmt.Sprintf("-DI 指标：%s\n\n", formatFloatSlice(data.IntradaySeries.MinusDIValues)))
+				} else {
+					sb.WriteString(fmt.Sprintf("ADX indicators: %s\n", formatFloatSlice(data.IntradaySeries.ADXValues)))
+					sb.WriteString(fmt.Sprintf("+DI indicators: %s\n", formatFloatSlice(data.IntradaySeries.PlusDIValues)))
+					sb.WriteString(fmt.Sprintf("-DI indicators: %s\n\n", formatFloatSlice(data.IntradaySeries.MinusDIValues)))
+				}
+			}
+
 			if indicators.EnableMACD && len(data.IntradaySeries.MACDValues) > 0 {
 				if lang == LangChinese {
 					sb.WriteString(fmt.Sprintf("MACD 指标：%s\n\n", formatFloatSlice(data.IntradaySeries.MACDValues)))
@@ -1363,6 +1405,16 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 					sb.WriteString(fmt.Sprintf("SMA%d=%.3f", p, data.LongerTermContext.SMA[p]))
 				}
 				sb.WriteString("\n\n")
+			}
+
+			if indicators.EnableADX && data.LongerTermContext.ADX > 0 {
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("ADX 趋势强度：%.2f（+DI %.2f / -DI %.2f）\n\n",
+						data.LongerTermContext.ADX, data.LongerTermContext.PlusDI, data.LongerTermContext.MinusDI))
+				} else {
+					sb.WriteString(fmt.Sprintf("ADX Trend Strength: %.2f (+DI %.2f / -DI %.2f)\n\n",
+						data.LongerTermContext.ADX, data.LongerTermContext.PlusDI, data.LongerTermContext.MinusDI))
+				}
 			}
 
 			if indicators.EnableATR {
@@ -1465,6 +1517,12 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 				sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(values)))
 			}
 		}
+	}
+
+	if indicators.EnableADX && len(data.ADXValues) > 0 {
+		sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
+		sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
+		sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
 	}
 
 	if indicators.EnableMACD && len(data.MACDValues) > 0 {

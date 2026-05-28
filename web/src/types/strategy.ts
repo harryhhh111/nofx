@@ -111,6 +111,7 @@ export interface IndicatorConfig {
   enable_macd: boolean;
   enable_rsi: boolean;
   enable_atr: boolean;
+  enable_adx: boolean;
   enable_boll: boolean;
   enable_volume: boolean;
   enable_oi: boolean;

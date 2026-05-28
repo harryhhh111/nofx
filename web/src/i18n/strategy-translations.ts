@@ -238,6 +238,8 @@ export const indicator = {
   rsiDesc: { zh: '相对强弱指标', en: 'Relative Strength Index', es: 'Índice de Fuerza Relativa' },
   atr: { zh: 'ATR', en: 'ATR', es: 'ATR' },
   atrDesc: { zh: '真实波幅均值', en: 'Average True Range', es: 'Rango Promedio Verdadero' },
+  adx: { zh: 'ADX/DMI', en: 'ADX/DMI', es: 'ADX/DMI' },
+  adxDesc: { zh: '趋势强度与方向指标', en: 'Trend Strength & Direction', es: 'Fuerza y Dirección de Tendencia' },
   boll: { zh: 'BOLL 布林带', en: 'Bollinger Bands', es: 'Bandas de Bollinger' },
   bollDesc: { zh: '布林带指标（上中下轨）', en: 'Upper/Middle/Lower Bands', es: 'Bandas Superior/Inferior' },
   volume: { zh: '成交量', en: 'Volume', es: 'Volumen' },
