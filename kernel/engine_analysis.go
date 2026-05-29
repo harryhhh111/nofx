@@ -296,6 +296,19 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 	req.DonchianPeriods = []int{20}
 	req.RealizedVolPeriods = []int{20}
 	req.PriceChangeWindows = []int{12, 48}
+	if indicators.EnableSession {
+		if len(indicators.Sessions) > 0 {
+			for _, s := range indicators.Sessions {
+				req.Sessions = append(req.Sessions, market.SessionSpec{
+					Timezone: s.Timezone,
+					Offset:   s.Offset,
+					Duration: s.Duration,
+				})
+			}
+		} else {
+			req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
+		}
+	}
 	return req
 }
 

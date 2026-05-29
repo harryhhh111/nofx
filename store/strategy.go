@@ -303,6 +303,7 @@ type IndicatorConfig struct {
 	EnableADX         bool `json:"enable_adx"`          // ADX/DMI trend strength
 	EnableSAR         bool `json:"enable_sar"`          // Parabolic SAR
 	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
+	EnableSession     bool `json:"enable_session"`      // Previous session OHLCV
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
@@ -318,6 +319,8 @@ type IndicatorConfig struct {
 	ADXPeriod int `json:"adx_period,omitempty"` // default 14
 	// BOLL period configuration (period, standard deviation multiplier is fixed at 2)
 	BOLLPeriods []int `json:"boll_periods,omitempty"` // default [20] - can select multiple timeframes
+	// Session configuration (Phase 1: UTC day only)
+	Sessions []SessionSpec `json:"sessions,omitempty"`
 	// external data sources
 	ExternalDataSources []ExternalDataSource `json:"external_data_sources,omitempty"`
 
@@ -383,6 +386,13 @@ type ExternalDataSource struct {
 	RefreshSecs  int               `json:"refresh_secs,omitempty"`  // refresh interval (seconds)
 	Description  string            `json:"description,omitempty"`   // AI interpretation hint
 	ContextLabel string            `json:"context_label,omitempty"` // display title in prompt; defaults to Name
+}
+
+// SessionSpec defines a trading session boundary for Previous Session OHLCV.
+type SessionSpec struct {
+	Timezone string `json:"timezone"` // IANA timezone name, e.g. "UTC"
+	Offset   string `json:"offset"`   // Session start time, e.g. "00:00"
+	Duration int    `json:"duration"` // Session length in minutes, default 1440 (24h)
 }
 
 // RiskControlConfig risk control configuration
@@ -488,6 +498,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableADX:         false,
 			EnableSAR:         false,
 			EnableBOLL:        false,
+			EnableSession:     false,
 			EnableVolume:      true,
 			EnableOI:          true,
 			EnableFundingRate: true,
@@ -929,6 +940,9 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	}
 	if c.Indicators.EnableBOLL {
 		indicatorCharsPerLine += 25
+	}
+	if c.Indicators.EnableSession {
+		indicatorCharsPerLine += 50 // session OHLCV + prev session + breakout signals
 	}
 	if c.Indicators.EnableVolume {
 		indicatorCharsPerLine += 10

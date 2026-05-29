@@ -244,6 +244,8 @@ export const indicator = {
   sarDesc: { zh: '止损反转指标', en: 'Stop-and-Reverse', es: 'Parada y Reversión' },
   boll: { zh: 'BOLL 布林带', en: 'Bollinger Bands', es: 'Bandas de Bollinger' },
   bollDesc: { zh: '布林带指标（上中下轨）', en: 'Upper/Middle/Lower Bands', es: 'Bandas Superior/Inferior' },
+  session: { zh: '前日 OHLCV', en: 'Prev Session', es: 'Sesión Anterior' },
+  sessionDesc: { zh: '前交易日高低收量（UTC）', en: 'Previous session OHLCV (UTC)', es: 'OHLCV de sesión anterior (UTC)' },
   volume: { zh: '成交量', en: 'Volume', es: 'Volumen' },
   volumeDesc: { zh: '交易量分析', en: 'Trading volume analysis', es: 'Análisis de volumen' },
   oi: { zh: '持仓量', en: 'Open Interest', es: 'Interés Abierto' },

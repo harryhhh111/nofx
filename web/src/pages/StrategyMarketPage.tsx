@@ -168,6 +168,7 @@ export function StrategyMarketPage() {
     if (config.indicators.enable_adx) indicators.push('ADX')
     if (config.indicators.enable_sar) indicators.push('SAR')
     if (config.indicators.enable_boll) indicators.push('BOLL')
+    if (config.indicators.enable_session) indicators.push('SESSION')
     if (config.indicators.enable_volume) indicators.push('VOL')
     if (config.indicators.enable_oi) indicators.push('OI')
     if (config.indicators.enable_funding_rate) indicators.push('FR')

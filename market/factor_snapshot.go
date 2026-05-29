@@ -23,9 +23,10 @@ type IndicatorRequest struct {
 	MACD               *MACDSpec  `json:"macd,omitempty"`
 	VWAPPeriods        []int      `json:"vwap_periods,omitempty"`
 	VolumePeriods      []int      `json:"volume_periods,omitempty"`
-	DonchianPeriods    []int      `json:"donchian_periods,omitempty"`
-	RealizedVolPeriods []int      `json:"realized_vol_periods,omitempty"`
-	PriceChangeWindows []int      `json:"price_change_windows,omitempty"`
+	DonchianPeriods    []int         `json:"donchian_periods,omitempty"`
+	RealizedVolPeriods []int         `json:"realized_vol_periods,omitempty"`
+	PriceChangeWindows []int         `json:"price_change_windows,omitempty"`
+	Sessions           []SessionSpec `json:"sessions,omitempty"`
 }
 
 type ADXSpec struct {
@@ -34,6 +35,12 @@ type ADXSpec struct {
 
 type SARSpec struct {
 	Enabled bool `json:"enabled"`
+}
+
+type SessionSpec struct {
+	Timezone string `json:"timezone"` // e.g. "UTC", "Asia/Shanghai"
+	Offset   string `json:"offset"`   // e.g. "00:00", "08:00"
+	Duration int    `json:"duration"` // minutes, default 1440 (24h)
 }
 
 type BOLLSpec struct {

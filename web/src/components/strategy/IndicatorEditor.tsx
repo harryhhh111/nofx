@@ -599,6 +599,7 @@ export function IndicatorEditor({
               { key: 'enable_adx', label: 'adx', desc: 'adxDesc', color: '#f97316' },
               { key: 'enable_sar', label: 'sar', desc: 'sarDesc', color: '#06b6d4' },
               { key: 'enable_boll', label: 'boll', desc: 'bollDesc', color: '#ec4899', periodKey: 'boll_periods', defaultPeriods: '20' },
+              { key: 'enable_session', label: 'session', desc: 'sessionDesc', color: '#84cc16' },
             ].map(({ key, label, desc, color, periodKey, defaultPeriods }) => (
               <div
                 key={key}

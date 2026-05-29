@@ -93,6 +93,7 @@ func DefaultIndicatorRequest() IndicatorRequest {
 		DonchianPeriods:    []int{20},
 		RealizedVolPeriods: []int{20},
 		PriceChangeWindows: []int{12, 48},
+		Sessions:           []SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}},
 	}
 }
 

@@ -141,6 +141,7 @@ export interface IndicatorConfig {
   enable_adx: boolean;
   enable_sar: boolean;
   enable_boll: boolean;
+  enable_session: boolean;
   enable_volume: boolean;
   enable_oi: boolean;
   enable_funding_rate: boolean;
@@ -149,6 +150,7 @@ export interface IndicatorConfig {
   rsi_periods?: number[];
   atr_periods?: number[];
   boll_periods?: number[];
+  sessions?: SessionSpec[];
   external_data_sources?: ExternalDataSource[];
 
   // ========== NofxOS 数据源统一配置 ==========
@@ -194,6 +196,12 @@ export interface ExternalDataSource {
   headers?: Record<string, string>;
   data_path?: string;
   refresh_secs?: number;
+}
+
+export interface SessionSpec {
+  timezone: string;
+  offset: string;
+  duration: number;
 }
 
 export interface RiskControlConfig {

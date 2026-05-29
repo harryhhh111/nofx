@@ -36,6 +36,7 @@ func NewDefaultIndicatorEngine() *DefaultIndicatorEngine {
 			&DonchianModule{},
 			&PriceChangeModule{},
 			&RealizedVolModule{},
+			&SessionModule{},
 		},
 	}
 }
