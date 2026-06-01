@@ -511,6 +511,30 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 		sb.WriteString("\n")
 	}
 
+	if indicators.EnableADX {
+		if lang == LangChinese {
+			sb.WriteString("- ADX/DMI 趋势强度指标")
+		} else {
+			sb.WriteString("- ADX/DMI trend strength")
+		}
+		if indicators.ADXPeriod > 0 {
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("（周期：%d）", indicators.ADXPeriod))
+			} else {
+				sb.WriteString(fmt.Sprintf(" (period: %d)", indicators.ADXPeriod))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	if indicators.EnableSAR {
+		if lang == LangChinese {
+			sb.WriteString("- SAR 抛物线止损反转指标\n")
+		} else {
+			sb.WriteString("- Parabolic SAR stop-and-reverse\n")
+		}
+	}
+
 	if indicators.EnableBOLL {
 		if lang == LangChinese {
 			sb.WriteString("- 布林带（BOLL）- 上轨/中轨/下轨")
@@ -1747,9 +1771,14 @@ func formatFlowValue(v float64) string {
 }
 
 func formatFloatSlice(values []float64) string {
-	strValues := make([]string, len(values))
-	for i, v := range values {
-		strValues[i] = fmt.Sprintf("%.4f", v)
+	const maxItems = 5
+	start := 0
+	if len(values) > maxItems {
+		start = len(values) - maxItems
+	}
+	strValues := make([]string, 0, len(values)-start)
+	for i := start; i < len(values); i++ {
+		strValues = append(strValues, fmt.Sprintf("%.4f", values[i]))
 	}
 	return "[" + strings.Join(strValues, ", ") + "]"
 }
