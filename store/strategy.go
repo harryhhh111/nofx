@@ -424,12 +424,12 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
 			EnableRawKlines:   true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:         false,
+			EnableEMA:         true,  // Core trend indicator
 			EnableSMA:         false,
 			EnableMACD:        false,
 			EnableRSI:         false,
-			EnableATR:         false,
-			EnableADX:         false,
+			EnableATR:         true,  // Stop-loss sizing
+			EnableADX:         true,  // Trend strength confirmation
 			EnableSAR:         false,
 			EnableBOLL:        false,
 			EnableVolume:      true,
@@ -468,9 +468,9 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
 			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
 			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:           3.0, // Min 3:1 profit/loss ratio (AI guided)
+			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
-			MinCloseConfidence:           DefaultMinCloseConfidence,
+			MinCloseConfidence:           75,  // Lowered from 85 to allow more flexible exits
 		},
 	}
 
@@ -485,9 +485,22 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 - 每小时超过2笔 = 过度交易
 - 单笔持仓时间 ≥ 30-60分钟
 如果你发现自己每个周期都在交易 → 标准太低；如果持仓不到30分钟就平仓 → 太冲动。`,
-			EntryStandards: `# 🎯 入场标准（严格）
+			EntryStandards: `# 🎯 入场标准（趋势跟踪）
 
-只在多个信号共振时入场。自由使用任何有效的分析方法，避免单一指标、信号矛盾、横盘震荡、或平仓后立即重新开仓等低质量行为。`,
+核心逻辑：EMA 定方向 + ADX 确认趋势强度 + ATR 设止损。
+
+**开仓条件（必须同时满足）**：
+1. **趋势方向明确**：EMA20 与 EMA50 同向（多头：EMA20 > EMA50；空头：EMA20 < EMA50），或价格明显突破均线组合
+2. **趋势强度足够**：ADX > 20 且 +DI/-DI 与趋势方向一致。ADX < 15 时视为无趋势，禁止开仓
+3. **不在震荡市开仓**：布林带收窄、价格在均线密集区缠绕、或 ADX 持续走低时保持观望
+4. **止损合理**：止损位必须基于 ATR14 缓冲（支撑/阻力 ± 1.0×ATR），禁止为了凑盈亏比而收紧止损
+5. **盈亏比 ≥ 2.5**：止盈位必须来自真实图表结构（前高/前低、斐波那契、通道边界），禁止人为捏造
+
+**禁止行为**：
+- 单一指标入场（如只看 EMA 金叉）
+- 逆势开仓（ADX 方向与 EMA 矛盾）
+- 横盘震荡期强行交易
+- 平仓后同一方向立即重新开仓（至少等待 2-3 个周期）`,
 			DecisionProcess: `# 📋 决策流程
 
 1. 检查持仓 → 是否止盈/止损
@@ -505,9 +518,22 @@ Your task is to make trading decisions based on the provided market data. You ar
 - >2 trades per hour = overtrading
 - Single position holding time ≥ 30-60 minutes
 If you find yourself trading every cycle → standards are too low; if closing positions in <30 minutes → too impulsive.`,
-			EntryStandards: `# 🎯 Entry Standards (Strict)
+			EntryStandards: `# 🎯 Entry Standards (Trend Following)
 
-Only enter positions when multiple signals resonate. Freely use any effective analysis methods, avoid low-quality behaviors such as single indicators, contradictory signals, sideways oscillation, or immediately restarting after closing positions.`,
+Core logic: EMA defines direction + ADX confirms trend strength + ATR sets stop-loss.
+
+**Entry conditions (ALL must be met)**:
+1. **Clear trend direction**: EMA20 and EMA50 aligned (long: EMA20 > EMA50; short: EMA20 < EMA50), or price clearly breaks the EMA cluster
+2. **Sufficient trend strength**: ADX > 20 and +DI/-DI aligned with trend direction. ADX < 15 = no trend, do NOT open
+3. **No trades in chop**: When Bollinger Bands squeeze, price coils around EMAs, or ADX is falling → stay out
+4. **Reasonable stop-loss**: SL must be based on ATR14 buffer (support/resistance ± 1.0×ATR). Never tighten SL artificially to meet R:R
+5. **R:R ≥ 2.5**: TP must come from real chart structure (prior high/low, Fibonacci, channel boundary). Never fabricate TP levels
+
+**Forbidden behaviors**:
+- Single-indicator entry (e.g., EMA cross only)
+- Counter-trend entry (ADX direction contradicts EMA)
+- Forcing trades in sideways consolidation
+- Re-opening same direction immediately after close (wait at least 2-3 cycles)`,
 			DecisionProcess: `# 📋 Decision Process
 
 1. Check positions → whether to take profit/stop loss
