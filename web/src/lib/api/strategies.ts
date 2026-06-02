@@ -1,6 +1,7 @@
 import type {
   Strategy,
   StrategyConfig,
+  StrategyEvolutionProposal,
 } from '../../types'
 import { API_BASE, httpClient } from './helpers'
 
@@ -68,5 +69,21 @@ export const strategyApi = {
     const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/duplicate`)
     if (!result.success) throw new Error('Failed to duplicate strategy')
     return result.data!
+  },
+
+  async evolveStrategy(
+    strategyId: string,
+    data: {
+      ai_model_id: string
+      trigger: string
+      base_version?: string
+      notes?: string
+      performance?: Record<string, unknown>
+      market_context?: Record<string, unknown>
+    }
+  ): Promise<StrategyEvolutionProposal> {
+    const result = await httpClient.post<{ proposal: StrategyEvolutionProposal }>(`${API_BASE}/strategies/${strategyId}/evolve`, data)
+    if (!result.success) throw new Error('Failed to evolve strategy')
+    return result.data!.proposal
   },
 }

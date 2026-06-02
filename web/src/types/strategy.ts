@@ -34,16 +34,30 @@ export interface StrategyPerformer {
 export interface StrategyConfig {
   // Strategy type: "ai_trading" (default) or "grid_trading"
   strategy_type?: 'ai_trading' | 'grid_trading';
+  strategy_mode?: 'rule' | 'scoring' | 'hybrid';
   // Language setting: "zh" for Chinese, "en" for English
   language?: 'zh' | 'en';
   coin_source: CoinSourceConfig;
   indicators: IndicatorConfig;
+  structure?: StructureFactorConfig;
   include_historical_context?: boolean;
   risk_control: RiskControlConfig;
   strategy_prompt?: string;
   compiled_rules?: CompiledStrategyRule[];
+  scoring_config?: ScoringStrategyConfig;
+  resolved_parameters?: ResolvedStrategyParameters;
   // Grid trading configuration (only used when strategy_type is 'grid_trading')
   grid_config?: GridStrategyConfig;
+}
+
+export interface ResolvedStrategyParameters {
+  structure?: ResolvedStructureParameters;
+  scoring?: ScoringStrategyConfig;
+}
+
+export interface ResolvedStructureParameters {
+  fibonacci?: StructureFibonacciConfig;
+  support_resistance?: StructureSupportResistanceConfig;
 }
 
 export interface CompiledStrategyRule {
@@ -79,6 +93,68 @@ export interface CompiledRuleOperand {
   period?: number;
   field?: string;
   value?: number;
+}
+
+export interface ScoringStrategyConfig {
+  enabled: boolean;
+  selected_factors?: string[];
+  factor_weights?: Record<string, number>;
+  long_threshold?: number;
+  short_threshold?: number;
+  min_confidence?: number;
+  timeframe?: string;
+  symbols?: string[];
+  execution: CompiledRuleExecution;
+}
+
+export interface StrategyEvolutionProposal {
+  proposal_id: string;
+  strategy_id: string;
+  base_version?: string;
+  proposed_version: string;
+  trigger: string;
+  summary: string;
+  change_reasons?: string[];
+  parameter_changes?: StrategyParamChange[];
+  expected_impact?: string;
+  risks?: string[];
+  proposed_config_patch?: Record<string, unknown>;
+  requires_approval: boolean;
+  created_at: string;
+}
+
+export interface StrategyParamChange {
+  path: string;
+  old_value?: unknown;
+  new_value?: unknown;
+  reason?: string;
+}
+
+export interface StructureFactorConfig {
+  enable_fibonacci: boolean;
+  enable_support_resistance: boolean;
+  fibonacci?: StructureFibonacciConfig;
+  support_resistance?: StructureSupportResistanceConfig;
+}
+
+export interface StructureFibonacciConfig {
+  timeframe?: string;
+  lookback?: number;
+  swing_window?: number;
+  min_leg_bars?: number;
+  min_leg_atr_multiple?: number;
+  zigzag_threshold_pct?: number;
+  levels?: number[];
+  invalidate_on_break_base: boolean;
+}
+
+export interface StructureSupportResistanceConfig {
+  timeframe?: string;
+  lookback?: number;
+  swing_window?: number;
+  zone_width_atr?: number;
+  min_touches?: number;
+  min_distance_bars?: number;
 }
 
 // Grid trading specific configuration
@@ -145,6 +221,14 @@ export interface IndicatorConfig {
   rsi_periods?: number[];
   atr_periods?: number[];
   boll_periods?: number[];
+  macd_fast_period?: number;
+  macd_slow_period?: number;
+  macd_signal_period?: number;
+  volume_periods?: number[];
+  vwap_periods?: number[];
+  donchian_periods?: number[];
+  realized_vol_periods?: number[];
+  price_change_windows?: number[];
   external_data_sources?: ExternalDataSource[];
 
   // ========== NofxOS 数据源统一配置 ==========
@@ -175,6 +259,9 @@ export interface IndicatorConfig {
 export interface KlineConfig {
   primary_timeframe: string;
   primary_count: number;
+  compute_lookback?: number;
+  prompt_display_count?: number;
+  include_open_bar?: boolean;
   longer_timeframe?: string;
   longer_count?: number;
   enable_multi_timeframe: boolean;

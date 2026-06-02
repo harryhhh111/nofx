@@ -48,6 +48,17 @@ func (g *DefaultRiskGate) Validate(ctx context.Context, req RiskGateRequest) (*R
 			result.Rejected = append(result.Rejected, RiskRejectedSignal{SignalID: signal.ID, Reason: "llm_review_rejected"})
 			continue
 		}
+		contextRisk := marketContextRiskAssessment(req.MarketContext, signal)
+		if contextRisk.HardRejectReason != "" {
+			result.Rejected = append(result.Rejected, RiskRejectedSignal{SignalID: signal.ID, Reason: "market_context_rejected:" + contextRisk.HardRejectReason})
+			continue
+		}
+		if len(contextRisk.SoftWarnings) > 0 {
+			signal.RiskFlags = append(signal.RiskFlags, contextRisk.SoftWarnings...)
+			for _, warning := range contextRisk.SoftWarnings {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("%s:%s", signal.ID, warning))
+			}
+		}
 
 		decision := signal.ToDecision(review)
 		decisions := []Decision{decision}
@@ -74,6 +85,41 @@ func (g *DefaultRiskGate) Validate(ctx context.Context, req RiskGateRequest) (*R
 	return result, nil
 }
 
+type marketContextRisk struct {
+	HardRejectReason string
+	SoftWarnings     []string
+}
+
+func marketContextRiskAssessment(context *MarketContext, signal CandidateSignal) marketContextRisk {
+	risk := marketContextRisk{}
+	if context == nil {
+		return risk
+	}
+	if signal.Action != "open_long" && signal.Action != "open_short" {
+		return risk
+	}
+	switch context.MarketRegime {
+	case "risk_off":
+		if signal.Action == "open_long" {
+			risk.HardRejectReason = "risk_off"
+			return risk
+		}
+	case "high_volatility", "overheated":
+		risk.SoftWarnings = append(risk.SoftWarnings, "market_regime_"+context.MarketRegime)
+	}
+	for _, flag := range context.RiskFlags {
+		switch flag {
+		case "high_volatility", "funding_overheated":
+			risk.SoftWarnings = append(risk.SoftWarnings, "market_context_"+flag)
+		case "major_assets_bearish", "external_factors_bearish":
+			if signal.Action == "open_long" {
+				risk.SoftWarnings = append(risk.SoftWarnings, "market_context_"+flag)
+			}
+		}
+	}
+	return risk
+}
+
 func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
 	reasoning := s.TriggerReason
 	if review.Summary != "" {
@@ -83,13 +129,14 @@ func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
 		reasoning += review.Summary
 	}
 	return Decision{
-		Symbol:          s.Symbol,
-		Action:          s.Action,
-		PositionSizeUSD: s.PositionSizeUSD,
-		Leverage:        s.Leverage,
-		StopLoss:        s.StopLoss,
-		TakeProfit:      s.TakeProfit,
-		Confidence:      s.Confidence,
-		Reasoning:       reasoning,
+		Symbol:            s.Symbol,
+		Action:            s.Action,
+		PositionSizeUSD:   s.PositionSizeUSD,
+		Leverage:          s.Leverage,
+		StopLoss:          s.StopLoss,
+		TakeProfit:        s.TakeProfit,
+		Confidence:        s.Confidence,
+		SignalGeneratedAt: s.GeneratedAt.UnixMilli(),
+		Reasoning:         reasoning,
 	}
 }

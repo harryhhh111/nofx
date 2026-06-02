@@ -102,10 +102,14 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		return nil, err
 	}
 	rules := rulesFromStrategyConfig(engine.GetConfig())
+	scoring := scoringFromStrategyConfig(engine.GetConfig())
+	if (engineConfig.StrategyMode == "scoring" || engineConfig.StrategyMode == "hybrid") && scoring == nil {
+		return nil, fmt.Errorf("strategy_mode %s requires enabled scoring_config", engineConfig.StrategyMode)
+	}
 	marketPrices, minSLDistances := buildMarketValidationMaps(ctx, riskConfig)
 
 	tradingEngine := NewTradingEngine(
-		NewRuleSignalEngine(),
+		signalEngineFromStrategyConfig(engineConfig),
 		NewLLMTradingEngine(mcpClient),
 		NewDefaultRiskGate(
 			riskConfig.BTCETHMaxLeverage,
@@ -116,7 +120,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 			marketPrices,
 			minSLDistances,
 		),
-		nil,
+		ctx.TradeMemory,
 	)
 
 	aiCallStart := time.Now()
@@ -126,6 +130,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 			Positions:      ctx.Positions,
 			Candidates:     ctx.CandidateCoins,
 			Rules:          rules,
+			Scoring:        scoring,
 			FactorSnapshot: factorSnapshots,
 			Now:            time.Now().UTC(),
 		},
@@ -141,10 +146,12 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		Decisions:           decisionsFromTradingResult(result),
 		CoTSummary:          tradingResultSummary(result, len(rules)),
 		SystemPrompt:        buildLLMReviewSystemPrompt(),
+		MarketContext:       result.MarketContext,
 	}
 	if userPrompt, promptErr := buildLLMReviewUserPrompt(AIReviewRequest{
 		Signals:          result.Signals,
 		FactorSnapshot:   factorSnapshots,
+		MarketContext:    result.MarketContext,
 		RelevantMemory:   result.Memory,
 		CurrentPositions: ctx.Positions,
 	}); promptErr == nil {
@@ -254,7 +261,22 @@ func buildFactorSnapshots(ctx *Context, config *store.StrategyConfig) (map[strin
 		}
 		snapshots[symbol] = snapshot
 	}
+	EnrichExternalFactors(ctx, snapshots, asOf)
 	return snapshots, nil
+}
+
+func signalEngineFromStrategyConfig(config *store.StrategyConfig) SignalEngine {
+	if config == nil {
+		return NewRuleSignalEngine()
+	}
+	switch config.StrategyMode {
+	case "scoring":
+		return NewScoreSignalEngine()
+	case "hybrid":
+		return NewCompositeSignalEngine(NewRuleSignalEngine(), NewScoreSignalEngine())
+	default:
+		return NewRuleSignalEngine()
+	}
 }
 
 func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.IndicatorRequest {
@@ -278,49 +300,81 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 		}
 	}
 	if indicators.EnableMACD {
-		req.MACD = &market.MACDSpec{Fast: 12, Slow: 26, Signal: 9}
+		req.MACD = &market.MACDSpec{Fast: indicators.MACDFastPeriod, Slow: indicators.MACDSlowPeriod, Signal: indicators.MACDSignalPeriod}
 	}
 	if indicators.EnableVolume {
-		req.VolumePeriods = []int{20}
+		req.VolumePeriods = indicators.VolumePeriods
 	}
-	req.VWAPPeriods = []int{20}
-	req.DonchianPeriods = []int{20}
-	req.RealizedVolPeriods = []int{20}
-	req.PriceChangeWindows = []int{12, 48}
+	req.VWAPPeriods = indicators.VWAPPeriods
+	req.DonchianPeriods = indicators.DonchianPeriods
+	req.RealizedVolPeriods = indicators.RealizedVolPeriods
+	req.PriceChangeWindows = indicators.PriceChangeWindows
+	if config.ScoringConfig != nil && config.ScoringConfig.Enabled {
+		for _, factor := range config.ScoringConfig.SelectedFactors {
+			switch factor {
+			case "trend":
+				req.EMAPeriods = appendIntUnique(req.EMAPeriods, 20, 50)
+				if req.MACD == nil {
+					req.MACD = &market.MACDSpec{Fast: indicators.MACDFastPeriod, Slow: indicators.MACDSlowPeriod, Signal: indicators.MACDSignalPeriod}
+				}
+			case "momentum":
+				req.RSIPeriods = appendIntUnique(req.RSIPeriods, 14)
+			}
+		}
+	}
 	return req
+}
+
+func appendIntUnique(values []int, add ...int) []int {
+	seen := map[int]bool{}
+	for _, value := range values {
+		seen[value] = true
+	}
+	for _, value := range add {
+		if value <= 0 || seen[value] {
+			continue
+		}
+		values = append(values, value)
+		seen[value] = true
+	}
+	return values
 }
 
 func StructureRequestFromStrategyConfig(config *store.StrategyConfig) market.StructureRequest {
 	if config == nil {
 		return market.StructureRequest{}
 	}
-	timeframe := config.Indicators.Klines.PrimaryTimeframe
-	if timeframe == "" && len(config.Indicators.Klines.SelectedTimeframes) > 0 {
-		timeframe = config.Indicators.Klines.SelectedTimeframes[0]
+	config.ClampLimits()
+	req := market.StructureRequest{}
+	if config.ResolvedParameters.Structure.Fibonacci != nil {
+		fib := config.ResolvedParameters.Structure.Fibonacci
+		if fib.Timeframe != "" {
+			req.Fibonacci = &market.FibonacciRequest{
+				Timeframe:             fib.Timeframe,
+				Lookback:              fib.Lookback,
+				SwingWindow:           fib.SwingWindow,
+				MinLegBars:            fib.MinLegBars,
+				MinLegATRMultiple:     fib.MinLegATRMultiple,
+				ZigZagThresholdPct:    fib.ZigZagThresholdPct,
+				Levels:                append([]float64(nil), fib.Levels...),
+				InvalidateOnBreakBase: fib.InvalidateOnBreakBase,
+			}
+		}
 	}
-	if timeframe == "" {
-		return market.StructureRequest{}
+	if config.ResolvedParameters.Structure.SupportResistance != nil {
+		support := config.ResolvedParameters.Structure.SupportResistance
+		if support.Timeframe != "" {
+			req.Support = &market.SupportRequest{
+				Timeframe:       support.Timeframe,
+				Lookback:        support.Lookback,
+				SwingWindow:     support.SwingWindow,
+				ZoneWidthATR:    support.ZoneWidthATR,
+				MinTouches:      support.MinTouches,
+				MinDistanceBars: support.MinDistanceBars,
+			}
+		}
 	}
-	return market.StructureRequest{
-		Fibonacci: &market.FibonacciRequest{
-			Timeframe:             timeframe,
-			Lookback:              120,
-			SwingWindow:           3,
-			MinLegBars:            8,
-			MinLegATRMultiple:     3,
-			ZigZagThresholdPct:    2,
-			Levels:                []float64{0.236, 0.382, 0.5, 0.618, 0.786},
-			InvalidateOnBreakBase: true,
-		},
-		Support: &market.SupportRequest{
-			Timeframe:       timeframe,
-			Lookback:        120,
-			SwingWindow:     3,
-			ZoneWidthATR:    0.5,
-			MinTouches:      2,
-			MinDistanceBars: 5,
-		},
-	}
+	return req
 }
 
 func buildMarketValidationMaps(ctx *Context, riskConfig store.RiskControlConfig) (map[string]float64, map[string]float64) {

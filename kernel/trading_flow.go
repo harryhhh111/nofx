@@ -51,9 +51,11 @@ type StrategyCompileRequest struct {
 }
 
 type StrategyCompileResult struct {
-	Rules    []StrategyRule `json:"rules"`
-	Warnings []string       `json:"warnings,omitempty"`
-	Errors   []string       `json:"errors,omitempty"`
+	StrategyMode  string           `json:"strategy_mode,omitempty"`
+	Rules         []StrategyRule   `json:"rules"`
+	ScoringConfig *ScoringStrategy `json:"scoring_config,omitempty"`
+	Warnings      []string         `json:"warnings,omitempty"`
+	Errors        []string         `json:"errors,omitempty"`
 }
 
 type StrategyCompiler interface {
@@ -66,8 +68,22 @@ type SignalRequest struct {
 	Positions      []PositionInfo                    `json:"positions"`
 	Candidates     []CandidateCoin                   `json:"candidates"`
 	Rules          []StrategyRule                    `json:"rules"`
+	Scoring        *ScoringStrategy                  `json:"scoring,omitempty"`
 	FactorSnapshot map[string]*market.FactorSnapshot `json:"factor_snapshot"`
 	Now            time.Time                         `json:"now"`
+}
+
+type ScoringStrategy struct {
+	Enabled         bool               `json:"enabled"`
+	Version         string             `json:"version,omitempty"`
+	SelectedFactors []string           `json:"selected_factors,omitempty"`
+	FactorWeights   map[string]float64 `json:"factor_weights,omitempty"`
+	LongThreshold   float64            `json:"long_threshold,omitempty"`
+	ShortThreshold  float64            `json:"short_threshold,omitempty"`
+	MinConfidence   int                `json:"min_confidence,omitempty"`
+	Timeframe       string             `json:"timeframe,omitempty"`
+	Symbols         []string           `json:"symbols,omitempty"`
+	Execution       RuleExecution      `json:"execution"`
 }
 
 type CandidateSignal struct {
@@ -96,6 +112,7 @@ type SignalEngine interface {
 type AIReviewRequest struct {
 	Signals          []CandidateSignal                 `json:"signals"`
 	FactorSnapshot   map[string]*market.FactorSnapshot `json:"factor_snapshot"`
+	MarketContext    *MarketContext                    `json:"market_context,omitempty"`
 	RelevantMemory   []TradeLesson                     `json:"relevant_memory,omitempty"`
 	CurrentPositions []PositionInfo                    `json:"current_positions,omitempty"`
 }
@@ -112,10 +129,11 @@ type AIReviewer interface {
 }
 
 type RiskGateRequest struct {
-	Account   AccountInfo        `json:"account"`
-	Positions []PositionInfo     `json:"positions"`
-	Signals   []CandidateSignal  `json:"signals"`
-	Reviews   []AIReviewDecision `json:"reviews"`
+	Account       AccountInfo        `json:"account"`
+	Positions     []PositionInfo     `json:"positions"`
+	Signals       []CandidateSignal  `json:"signals"`
+	Reviews       []AIReviewDecision `json:"reviews"`
+	MarketContext *MarketContext     `json:"market_context,omitempty"`
 }
 
 type RiskGateResult struct {
@@ -134,13 +152,26 @@ type RiskGate interface {
 }
 
 type TradeMemoryRecord struct {
-	Signal      CandidateSignal   `json:"signal"`
-	Review      AIReviewDecision  `json:"review"`
-	Result      string            `json:"result,omitempty"`
-	OutcomePnL  float64           `json:"outcome_pnl,omitempty"`
-	Summary     string            `json:"summary,omitempty"`
-	FactorTrace map[string]string `json:"factor_trace,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
+	TraderID        string            `json:"trader_id,omitempty"`
+	StrategyID      string            `json:"strategy_id,omitempty"`
+	StrategyVersion string            `json:"strategy_version,omitempty"`
+	PositionID      int64             `json:"position_id,omitempty"`
+	Signal          CandidateSignal   `json:"signal"`
+	Review          AIReviewDecision  `json:"review"`
+	Result          string            `json:"result,omitempty"`
+	OutcomePnL      float64           `json:"outcome_pnl,omitempty"`
+	OutcomePnLPct   float64           `json:"outcome_pnl_pct,omitempty"`
+	Summary         string            `json:"summary,omitempty"`
+	Evidence        string            `json:"evidence,omitempty"`
+	Lessons         []string          `json:"lessons,omitempty"`
+	Tags            []string          `json:"tags,omitempty"`
+	QualityScore    float64           `json:"quality_score,omitempty"`
+	Confidence      float64           `json:"confidence,omitempty"`
+	Scope           string            `json:"scope,omitempty"`
+	SourceType      string            `json:"source_type,omitempty"`
+	FactorTrace     map[string]string `json:"factor_trace,omitempty"`
+	ExpiresAt       *time.Time        `json:"expires_at,omitempty"`
+	CreatedAt       time.Time         `json:"created_at"`
 }
 
 type TradeLesson struct {
@@ -157,11 +188,34 @@ type TradeMemoryStore interface {
 	Record(ctx context.Context, record TradeMemoryRecord) error
 }
 
+type MarketContext struct {
+	GeneratedAt    time.Time              `json:"generated_at"`
+	MarketRegime   string                 `json:"market_regime"`
+	RiskFlags      []string               `json:"risk_flags,omitempty"`
+	ContextSummary string                 `json:"context_summary,omitempty"`
+	BTCTrend       string                 `json:"btc_trend,omitempty"`
+	ETHTrend       string                 `json:"eth_trend,omitempty"`
+	FundingState   string                 `json:"funding_state,omitempty"`
+	BreadthState   string                 `json:"breadth_state,omitempty"`
+	Metrics        map[string]interface{} `json:"metrics,omitempty"`
+}
+
+type MarketContextRequest struct {
+	FactorSnapshot map[string]*market.FactorSnapshot `json:"factor_snapshot"`
+	Signals        []CandidateSignal                 `json:"signals,omitempty"`
+	Now            time.Time                         `json:"now"`
+}
+
+type MarketContextEngine interface {
+	Build(ctx context.Context, req MarketContextRequest) (*MarketContext, error)
+}
+
 type TradingEngine struct {
-	SignalEngine SignalEngine
-	AIReviewer   AIReviewer
-	RiskGate     RiskGate
-	Memory       TradeMemoryStore
+	SignalEngine        SignalEngine
+	MarketContextEngine MarketContextEngine
+	AIReviewer          AIReviewer
+	RiskGate            RiskGate
+	Memory              TradeMemoryStore
 }
 
 type TradingEngineRequest struct {
@@ -169,18 +223,20 @@ type TradingEngineRequest struct {
 }
 
 type TradingEngineResult struct {
-	Signals []CandidateSignal  `json:"signals"`
-	Reviews []AIReviewDecision `json:"reviews"`
-	Risk    *RiskGateResult    `json:"risk"`
-	Memory  []TradeLesson      `json:"memory,omitempty"`
+	Signals       []CandidateSignal  `json:"signals"`
+	MarketContext *MarketContext     `json:"market_context,omitempty"`
+	Reviews       []AIReviewDecision `json:"reviews"`
+	Risk          *RiskGateResult    `json:"risk"`
+	Memory        []TradeLesson      `json:"memory,omitempty"`
 }
 
 func NewTradingEngine(signalEngine SignalEngine, reviewer AIReviewer, riskGate RiskGate, memory TradeMemoryStore) *TradingEngine {
 	return &TradingEngine{
-		SignalEngine: signalEngine,
-		AIReviewer:   reviewer,
-		RiskGate:     riskGate,
-		Memory:       memory,
+		SignalEngine:        signalEngine,
+		MarketContextEngine: NewDefaultMarketContextEngine(),
+		AIReviewer:          reviewer,
+		RiskGate:            riskGate,
+		Memory:              memory,
 	}
 }
 
@@ -208,6 +264,18 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		return &TradingEngineResult{Signals: signals, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
 	}
 
+	var marketContext *MarketContext
+	if e.MarketContextEngine != nil {
+		marketContext, err = e.MarketContextEngine.Build(ctx, MarketContextRequest{
+			FactorSnapshot: req.SignalRequest.FactorSnapshot,
+			Signals:        signals,
+			Now:            req.SignalRequest.Now,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build market context: %w", err)
+		}
+	}
+
 	var lessons []TradeLesson
 	if e.Memory != nil {
 		lessons, err = e.Memory.FindRelevant(ctx, signalSymbols(signals), 10)
@@ -219,6 +287,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	reviews, err := e.AIReviewer.Review(ctx, AIReviewRequest{
 		Signals:          signals,
 		FactorSnapshot:   req.SignalRequest.FactorSnapshot,
+		MarketContext:    marketContext,
 		RelevantMemory:   lessons,
 		CurrentPositions: req.SignalRequest.Positions,
 	})
@@ -227,20 +296,22 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	}
 
 	risk, err := e.RiskGate.Validate(ctx, RiskGateRequest{
-		Account:   req.SignalRequest.Account,
-		Positions: req.SignalRequest.Positions,
-		Signals:   signals,
-		Reviews:   reviews,
+		Account:       req.SignalRequest.Account,
+		Positions:     req.SignalRequest.Positions,
+		Signals:       signals,
+		Reviews:       reviews,
+		MarketContext: marketContext,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("risk gate: %w", err)
 	}
 
 	return &TradingEngineResult{
-		Signals: signals,
-		Reviews: reviews,
-		Risk:    risk,
-		Memory:  lessons,
+		Signals:       signals,
+		MarketContext: marketContext,
+		Reviews:       reviews,
+		Risk:          risk,
+		Memory:        lessons,
 	}, nil
 }
 

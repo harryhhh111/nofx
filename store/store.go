@@ -30,6 +30,8 @@ type Store struct {
 	grid           *GridStore
 	bbmacdSignal   *BBMACDSignalStore
 	aiCharge       *AIChargeStore
+	tradeMemory    *TradeMemoryStore
+	execution      *ExecutionAnalyticsStore
 	telegramConfig TelegramConfigStore
 
 	mu sync.RWMutex
@@ -167,6 +169,12 @@ func (s *Store) initTables() error {
 	}
 	if err := s.AICharge().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize AI charge tables: %w", err)
+	}
+	if err := s.TradeMemory().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize trade memory tables: %w", err)
+	}
+	if err := s.ExecutionAnalytics().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize execution analytics tables: %w", err)
 	}
 	return nil
 }
@@ -309,6 +317,26 @@ func (s *Store) AICharge() *AIChargeStore {
 		s.aiCharge = NewAIChargeStore(s.gdb)
 	}
 	return s.aiCharge
+}
+
+// TradeMemory gets trade memory storage
+func (s *Store) TradeMemory() *TradeMemoryStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.tradeMemory == nil {
+		s.tradeMemory = NewTradeMemoryStore(s.gdb)
+	}
+	return s.tradeMemory
+}
+
+// ExecutionAnalytics gets execution quality analytics storage
+func (s *Store) ExecutionAnalytics() *ExecutionAnalyticsStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.execution == nil {
+		s.execution = NewExecutionAnalyticsStore(s.gdb)
+	}
+	return s.execution
 }
 
 // TelegramConfig gets Telegram bot configuration storage

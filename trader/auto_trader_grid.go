@@ -399,10 +399,6 @@ func (at *AutoTrader) RunGridCycle() error {
 	}
 
 	gridConfig := at.config.StrategyConfig.GridConfig
-	lang := at.config.StrategyConfig.Language
-	if lang == "" {
-		lang = "en"
-	}
 
 	// Build grid context
 	gridCtx, err := at.buildGridContext()
@@ -410,10 +406,12 @@ func (at *AutoTrader) RunGridCycle() error {
 		return fmt.Errorf("failed to build grid context: %w", err)
 	}
 
-	// Get AI decisions
-	decision, err := kernel.GetGridDecisions(gridCtx, at.mcpClient, gridConfig, lang)
+	// Grid live execution is deterministic. The legacy LLM grid prompt remains
+	// available in kernel for inspection, but live cycles must not let the LLM
+	// directly create, resize, or cancel grid orders.
+	decision, err := kernel.GetGridRuleDecisions(gridCtx, gridConfig)
 	if err != nil {
-		return fmt.Errorf("failed to get grid decisions: %w", err)
+		return fmt.Errorf("failed to get deterministic grid decisions: %w", err)
 	}
 
 	// Check if trader is stopped before executing any decisions (prevent trades after Stop())

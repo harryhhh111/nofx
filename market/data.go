@@ -16,6 +16,7 @@ import (
 // Binance Funding Rate only updates every 8 hours, using 1-hour cache can significantly reduce API calls
 type FundingRateCache struct {
 	Rate      float64
+	SourceAt  time.Time
 	UpdatedAt time.Time
 }
 
@@ -117,7 +118,8 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 	}
 
 	// Get Funding Rate
-	fundingRate, _ := getFundingRate(symbol)
+	fundingRate, fundingRateTime, fundingErr := getFundingRate(symbol)
+	fundingAvailable := fundingErr == nil
 
 	// Calculate intraday series data
 	intradayData := calculateIntradaySeries(klines3m)
@@ -135,6 +137,8 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 		CurrentRSI7:       currentRSI7,
 		OpenInterest:      oiData,
 		FundingRate:       fundingRate,
+		FundingRateTime:   fundingRateTime,
+		FundingAvailable:  fundingAvailable,
 		IntradaySeries:    intradayData,
 		LongerTermContext: longerTermData,
 	}, nil
@@ -255,19 +259,22 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 	}
 
 	// Get Funding Rate
-	fundingRate, _ := getFundingRate(symbol)
+	fundingRate, fundingRateTime, fundingErr := getFundingRate(symbol)
+	fundingAvailable := fundingErr == nil
 
 	return &Data{
-		Symbol:        symbol,
-		CurrentPrice:  currentPrice,
-		PriceChange1h: priceChange1h,
-		PriceChange4h: priceChange4h,
-		CurrentEMA20:  currentEMA20,
-		CurrentMACD:   currentMACD,
-		CurrentRSI7:   currentRSI7,
-		OpenInterest:  oiData,
-		FundingRate:   fundingRate,
-		TimeframeData: timeframeData,
+		Symbol:           symbol,
+		CurrentPrice:     currentPrice,
+		PriceChange1h:    priceChange1h,
+		PriceChange4h:    priceChange4h,
+		CurrentEMA20:     currentEMA20,
+		CurrentMACD:      currentMACD,
+		CurrentRSI7:      currentRSI7,
+		OpenInterest:     oiData,
+		FundingRate:      fundingRate,
+		FundingRateTime:  fundingRateTime,
+		FundingAvailable: fundingAvailable,
+		TimeframeData:    timeframeData,
 	}, nil
 }
 
@@ -302,18 +309,19 @@ func getOpenInterestData(symbol string) (*OIData, error) {
 	return &OIData{
 		Latest:  oi,
 		Average: oi * 0.999, // Approximate average
+		Time:    unixMilliTime(result.Time),
 	}, nil
 }
 
 // getFundingRate retrieves funding rate (optimized: uses 1-hour cache)
-func getFundingRate(symbol string) (float64, error) {
+func getFundingRate(symbol string) (float64, time.Time, error) {
 	// Check cache (1-hour validity)
 	// Funding Rate only updates every 8 hours, 1-hour cache is very reasonable
 	if cached, ok := fundingRateMap.Load(symbol); ok {
 		cache := cached.(*FundingRateCache)
 		if time.Since(cache.UpdatedAt) < frCacheTTL {
 			// Cache hit, return directly
-			return cache.Rate, nil
+			return cache.Rate, cache.SourceAt, nil
 		}
 	}
 
@@ -323,13 +331,13 @@ func getFundingRate(symbol string) (float64, error) {
 	apiClient := NewAPIClient()
 	resp, err := apiClient.client.Get(url)
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 
 	var result struct {
@@ -343,18 +351,27 @@ func getFundingRate(symbol string) (float64, error) {
 	}
 
 	if err := json.Unmarshal(body, &result); err != nil {
-		return 0, err
+		return 0, time.Time{}, err
 	}
 
 	rate, _ := strconv.ParseFloat(result.LastFundingRate, 64)
+	sourceAt := unixMilliTime(result.Time)
 
 	// Update cache
 	fundingRateMap.Store(symbol, &FundingRateCache{
 		Rate:      rate,
+		SourceAt:  sourceAt,
 		UpdatedAt: time.Now(),
 	})
 
-	return rate, nil
+	return rate, sourceAt, nil
+}
+
+func unixMilliTime(ms int64) time.Time {
+	if ms <= 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms).UTC()
 }
 
 // Format formats and outputs market data

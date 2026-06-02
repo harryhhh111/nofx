@@ -13,6 +13,8 @@ type Data struct {
 	CurrentRSI7       float64
 	OpenInterest      *OIData
 	FundingRate       float64
+	FundingRateTime   time.Time
+	FundingAvailable  bool
 	IntradaySeries    *IntradayData
 	LongerTermContext *LongerTermData
 	// Multi-timeframe data (new)
@@ -76,6 +78,7 @@ type BBMACDData struct {
 type OIData struct {
 	Latest  float64
 	Average float64
+	Time    time.Time
 }
 
 // IntradayData intraday data (3-minute interval)

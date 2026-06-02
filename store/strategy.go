@@ -29,6 +29,13 @@ const (
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
 func (c *StrategyConfig) ClampLimits() {
+	if c.StrategyMode == "" {
+		c.StrategyMode = "rule"
+	}
+	if c.StrategyMode != "rule" && c.StrategyMode != "scoring" && c.StrategyMode != "hybrid" {
+		c.StrategyMode = "rule"
+	}
+
 	// Clamp coin source limits
 	if c.CoinSource.AI500Limit > MaxCandidateCoins {
 		c.CoinSource.AI500Limit = MaxCandidateCoins
@@ -78,6 +85,7 @@ func (c *StrategyConfig) ClampLimits() {
 	if len(c.Indicators.Klines.SelectedTimeframes) > MaxTimeframes {
 		c.Indicators.Klines.SelectedTimeframes = c.Indicators.Klines.SelectedTimeframes[:MaxTimeframes]
 	}
+	c.clampIndicatorConfig()
 
 	// Clamp max positions
 	if c.RiskControl.MaxPositions > MaxPositions {
@@ -139,6 +147,289 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.DrawdownCloseTriggerPct = 90.0
 	}
 
+	c.clampStructureConfig()
+	c.clampScoringConfig()
+	c.ensureComputeLookbackForCalculations()
+	c.resolveParameters()
+}
+
+func (c *StrategyConfig) clampIndicatorConfig() {
+	c.Indicators.EMAPeriods = sanitizeIndicatorPeriods(c.Indicators.EMAPeriods, []int{20, 50})
+	c.Indicators.RSIPeriods = sanitizeIndicatorPeriods(c.Indicators.RSIPeriods, []int{7, 14})
+	c.Indicators.ATRPeriods = sanitizeIndicatorPeriods(c.Indicators.ATRPeriods, []int{14})
+	c.Indicators.BOLLPeriods = sanitizeIndicatorPeriods(c.Indicators.BOLLPeriods, []int{20})
+	c.Indicators.VolumePeriods = sanitizeIndicatorPeriods(c.Indicators.VolumePeriods, []int{20})
+	c.Indicators.VWAPPeriods = sanitizeIndicatorPeriods(c.Indicators.VWAPPeriods, []int{20})
+	c.Indicators.DonchianPeriods = sanitizeIndicatorPeriods(c.Indicators.DonchianPeriods, []int{20})
+	c.Indicators.RealizedVolPeriods = sanitizeIndicatorPeriods(c.Indicators.RealizedVolPeriods, []int{20})
+	c.Indicators.PriceChangeWindows = sanitizeIndicatorPeriods(c.Indicators.PriceChangeWindows, []int{12, 48})
+
+	if c.Indicators.MACDFastPeriod <= 0 {
+		c.Indicators.MACDFastPeriod = 12
+	}
+	if c.Indicators.MACDSlowPeriod <= 0 {
+		c.Indicators.MACDSlowPeriod = 26
+	}
+	if c.Indicators.MACDSignalPeriod <= 0 {
+		c.Indicators.MACDSignalPeriod = 9
+	}
+	if c.Indicators.MACDFastPeriod >= c.Indicators.MACDSlowPeriod {
+		c.Indicators.MACDFastPeriod = 12
+		c.Indicators.MACDSlowPeriod = 26
+	}
+	if c.Indicators.MACDSlowPeriod > MaxComputeLookback/2 {
+		c.Indicators.MACDSlowPeriod = MaxComputeLookback / 2
+	}
+	if c.Indicators.MACDSignalPeriod > MaxComputeLookback/2 {
+		c.Indicators.MACDSignalPeriod = MaxComputeLookback / 2
+	}
+}
+
+func sanitizeIndicatorPeriods(values []int, defaults []int) []int {
+	out := make([]int, 0, len(values))
+	seen := map[int]bool{}
+	for _, value := range values {
+		if value <= 0 || value > MaxComputeLookback || seen[value] {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = true
+	}
+	if len(out) == 0 {
+		return append([]int(nil), defaults...)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
+	required := c.Indicators.Klines.ComputeLookback
+	required = maxInt(required, maxPeriod(c.Indicators.EMAPeriods))
+	required = maxInt(required, maxPeriod(c.Indicators.RSIPeriods)+1)
+	required = maxInt(required, maxPeriod(c.Indicators.ATRPeriods)+1)
+	required = maxInt(required, maxPeriod(c.Indicators.BOLLPeriods))
+	required = maxInt(required, maxPeriod(c.Indicators.VolumePeriods))
+	required = maxInt(required, maxPeriod(c.Indicators.VWAPPeriods))
+	required = maxInt(required, maxPeriod(c.Indicators.DonchianPeriods))
+	required = maxInt(required, maxPeriod(c.Indicators.RealizedVolPeriods)+1)
+	required = maxInt(required, maxPeriod(c.Indicators.PriceChangeWindows)+1)
+	required = maxInt(required, c.Indicators.MACDSlowPeriod+c.Indicators.MACDSignalPeriod)
+
+	if c.Structure.EnableFibonacci {
+		required = maxInt(required, c.Structure.Fibonacci.Lookback)
+	}
+	if c.Structure.EnableSupportResistance {
+		required = maxInt(required, c.Structure.SupportResistance.Lookback)
+	}
+	if required > MaxComputeLookback {
+		required = MaxComputeLookback
+	}
+	if required > c.Indicators.Klines.ComputeLookback {
+		c.Indicators.Klines.ComputeLookback = required
+	}
+}
+
+func maxPeriod(values []int) int {
+	max := 0
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func (c *StrategyConfig) clampScoringConfig() {
+	if c.ScoringConfig == nil {
+		return
+	}
+	if c.ScoringConfig.Timeframe == "" {
+		c.ScoringConfig.Timeframe = c.resolveStructureTimeframe("")
+	}
+	if c.ScoringConfig.LongThreshold <= 0 {
+		c.ScoringConfig.LongThreshold = 60
+	}
+	if c.ScoringConfig.LongThreshold > 100 {
+		c.ScoringConfig.LongThreshold = 100
+	}
+	if c.ScoringConfig.ShortThreshold <= 0 {
+		c.ScoringConfig.ShortThreshold = -60
+	}
+	if c.ScoringConfig.ShortThreshold < -100 {
+		c.ScoringConfig.ShortThreshold = -100
+	}
+	if c.ScoringConfig.MinConfidence <= 0 {
+		c.ScoringConfig.MinConfidence = c.RiskControl.MinConfidence
+	}
+	if c.ScoringConfig.MinConfidence < MinMinConfidence {
+		c.ScoringConfig.MinConfidence = MinMinConfidence
+	}
+	if c.ScoringConfig.MinConfidence > MaxMinConfidence {
+		c.ScoringConfig.MinConfidence = MaxMinConfidence
+	}
+	if len(c.ScoringConfig.SelectedFactors) == 0 {
+		c.ScoringConfig.SelectedFactors = []string{"trend", "momentum", "structure", "derivatives"}
+	}
+	if len(c.ScoringConfig.FactorWeights) == 0 {
+		c.ScoringConfig.FactorWeights = map[string]float64{
+			"trend":       1,
+			"momentum":    1,
+			"structure":   1,
+			"derivatives": 0.5,
+		}
+	}
+	for _, factor := range c.ScoringConfig.SelectedFactors {
+		if factor == "structure" {
+			c.Structure.EnableFibonacci = true
+			c.Structure.EnableSupportResistance = true
+		}
+	}
+}
+
+func (c *StrategyConfig) clampStructureConfig() {
+	defaults := defaultStructureFactorConfig()
+	if c.Structure.Fibonacci.Timeframe == "" {
+		c.Structure.Fibonacci.Timeframe = defaults.Fibonacci.Timeframe
+	}
+	if c.Structure.Fibonacci.Lookback <= 0 {
+		c.Structure.Fibonacci.Lookback = defaults.Fibonacci.Lookback
+	}
+	if c.Structure.Fibonacci.Lookback > MaxComputeLookback {
+		c.Structure.Fibonacci.Lookback = MaxComputeLookback
+	}
+	if c.Structure.Fibonacci.Lookback < 20 {
+		c.Structure.Fibonacci.Lookback = 20
+	}
+	if c.Structure.Fibonacci.SwingWindow <= 0 {
+		c.Structure.Fibonacci.SwingWindow = defaults.Fibonacci.SwingWindow
+	}
+	if c.Structure.Fibonacci.SwingWindow > 20 {
+		c.Structure.Fibonacci.SwingWindow = 20
+	}
+	if c.Structure.Fibonacci.MinLegBars <= 0 {
+		c.Structure.Fibonacci.MinLegBars = defaults.Fibonacci.MinLegBars
+	}
+	if c.Structure.Fibonacci.MinLegBars > c.Structure.Fibonacci.Lookback {
+		c.Structure.Fibonacci.MinLegBars = c.Structure.Fibonacci.Lookback
+	}
+	if c.Structure.Fibonacci.MinLegATRMultiple <= 0 {
+		c.Structure.Fibonacci.MinLegATRMultiple = defaults.Fibonacci.MinLegATRMultiple
+	}
+	if c.Structure.Fibonacci.MinLegATRMultiple > 20 {
+		c.Structure.Fibonacci.MinLegATRMultiple = 20
+	}
+	if c.Structure.Fibonacci.ZigZagThresholdPct <= 0 {
+		c.Structure.Fibonacci.ZigZagThresholdPct = defaults.Fibonacci.ZigZagThresholdPct
+	}
+	if c.Structure.Fibonacci.ZigZagThresholdPct > 100 {
+		c.Structure.Fibonacci.ZigZagThresholdPct = 100
+	}
+	c.Structure.Fibonacci.Levels = sanitizeFibLevels(c.Structure.Fibonacci.Levels)
+	if len(c.Structure.Fibonacci.Levels) == 0 {
+		c.Structure.Fibonacci.Levels = append([]float64(nil), defaults.Fibonacci.Levels...)
+	}
+
+	if c.Structure.SupportResistance.Timeframe == "" {
+		c.Structure.SupportResistance.Timeframe = defaults.SupportResistance.Timeframe
+	}
+	if c.Structure.SupportResistance.Lookback <= 0 {
+		c.Structure.SupportResistance.Lookback = defaults.SupportResistance.Lookback
+	}
+	if c.Structure.SupportResistance.Lookback > MaxComputeLookback {
+		c.Structure.SupportResistance.Lookback = MaxComputeLookback
+	}
+	if c.Structure.SupportResistance.Lookback < 20 {
+		c.Structure.SupportResistance.Lookback = 20
+	}
+	if c.Structure.SupportResistance.SwingWindow <= 0 {
+		c.Structure.SupportResistance.SwingWindow = defaults.SupportResistance.SwingWindow
+	}
+	if c.Structure.SupportResistance.SwingWindow > 20 {
+		c.Structure.SupportResistance.SwingWindow = 20
+	}
+	if c.Structure.SupportResistance.ZoneWidthATR <= 0 {
+		c.Structure.SupportResistance.ZoneWidthATR = defaults.SupportResistance.ZoneWidthATR
+	}
+	if c.Structure.SupportResistance.ZoneWidthATR > 10 {
+		c.Structure.SupportResistance.ZoneWidthATR = 10
+	}
+	if c.Structure.SupportResistance.MinTouches <= 0 {
+		c.Structure.SupportResistance.MinTouches = defaults.SupportResistance.MinTouches
+	}
+	if c.Structure.SupportResistance.MinTouches > 20 {
+		c.Structure.SupportResistance.MinTouches = 20
+	}
+	if c.Structure.SupportResistance.MinDistanceBars <= 0 {
+		c.Structure.SupportResistance.MinDistanceBars = defaults.SupportResistance.MinDistanceBars
+	}
+	if c.Structure.SupportResistance.MinDistanceBars > c.Structure.SupportResistance.Lookback {
+		c.Structure.SupportResistance.MinDistanceBars = c.Structure.SupportResistance.Lookback
+	}
+}
+
+func (c *StrategyConfig) resolveParameters() {
+	c.ResolvedParameters = ResolvedStrategyParameters{}
+	if c.Structure.EnableFibonacci {
+		fib := c.Structure.Fibonacci
+		fib.Timeframe = c.resolveStructureTimeframe(fib.Timeframe)
+		c.ResolvedParameters.Structure.Fibonacci = &fib
+	}
+	if c.Structure.EnableSupportResistance {
+		support := c.Structure.SupportResistance
+		support.Timeframe = c.resolveStructureTimeframe(support.Timeframe)
+		c.ResolvedParameters.Structure.SupportResistance = &support
+	}
+	if c.ScoringConfig != nil && c.ScoringConfig.Enabled {
+		scoring := *c.ScoringConfig
+		if scoring.FactorWeights != nil {
+			scoring.FactorWeights = copyFloatMap(scoring.FactorWeights)
+		}
+		scoring.SelectedFactors = append([]string(nil), scoring.SelectedFactors...)
+		scoring.Symbols = append([]string(nil), scoring.Symbols...)
+		c.ResolvedParameters.Scoring = &scoring
+	}
+}
+
+func copyFloatMap(in map[string]float64) map[string]float64 {
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func (c *StrategyConfig) resolveStructureTimeframe(timeframe string) string {
+	if timeframe != "" {
+		return timeframe
+	}
+	if c.Indicators.Klines.PrimaryTimeframe != "" {
+		return c.Indicators.Klines.PrimaryTimeframe
+	}
+	if len(c.Indicators.Klines.SelectedTimeframes) > 0 {
+		return c.Indicators.Klines.SelectedTimeframes[0]
+	}
+	return ""
+}
+
+func sanitizeFibLevels(levels []float64) []float64 {
+	sanitized := make([]float64, 0, len(levels))
+	seen := map[float64]bool{}
+	for _, level := range levels {
+		if level <= 0 || level >= 1 || seen[level] {
+			continue
+		}
+		seen[level] = true
+		sanitized = append(sanitized, level)
+	}
+	sort.Float64s(sanitized)
+	return sanitized
 }
 
 // StrategyStore strategy storage
@@ -167,6 +458,8 @@ func (Strategy) TableName() string { return "strategies" }
 type StrategyConfig struct {
 	// Strategy type: "ai_trading" (default) or "grid_trading"
 	StrategyType string `json:"strategy_type,omitempty"`
+	// Trading decision mode: rule, scoring, or hybrid.
+	StrategyMode string `json:"strategy_mode,omitempty"`
 
 	// language setting: "zh" for Chinese, "en" for English
 	Language string `json:"language,omitempty"`
@@ -174,6 +467,8 @@ type StrategyConfig struct {
 	CoinSource CoinSourceConfig `json:"coin_source"`
 	// quantitative data configuration
 	Indicators IndicatorConfig `json:"indicators"`
+	// deterministic market-structure factor configuration
+	Structure StructureFactorConfig `json:"structure,omitempty"`
 	// whether AI should see historical closed trades and performance stats
 	// default: true. current open positions are NOT affected by this switch.
 	IncludeHistoricalContext *bool `json:"include_historical_context,omitempty"`
@@ -185,9 +480,25 @@ type StrategyConfig struct {
 	// Compiled strategy rules. User natural-language prompts should be
 	// converted into these deterministic rules before live trading.
 	CompiledRules []CompiledStrategyRule `json:"compiled_rules,omitempty"`
+	// Deterministic scoring configuration. AI can suggest this during strategy
+	// creation, but live trading reads it as fixed configuration.
+	ScoringConfig *ScoringStrategyConfig `json:"scoring_config,omitempty"`
+	// Final parameters actually used by the deterministic engines. This is
+	// persisted for audit, replay, and UI display.
+	ResolvedParameters ResolvedStrategyParameters `json:"resolved_parameters,omitempty"`
 
 	// Grid trading configuration (only used when StrategyType == "grid_trading")
 	GridConfig *GridStrategyConfig `json:"grid_config,omitempty"`
+}
+
+type ResolvedStrategyParameters struct {
+	Structure ResolvedStructureParameters `json:"structure,omitempty"`
+	Scoring   *ScoringStrategyConfig      `json:"scoring,omitempty"`
+}
+
+type ResolvedStructureParameters struct {
+	Fibonacci         *StructureFibonacciConfig         `json:"fibonacci,omitempty"`
+	SupportResistance *StructureSupportResistanceConfig `json:"support_resistance,omitempty"`
 }
 
 type CompiledStrategyRule struct {
@@ -223,6 +534,45 @@ type CompiledRuleOperand struct {
 	Period    int     `json:"period,omitempty"`
 	Field     string  `json:"field,omitempty"`
 	Value     float64 `json:"value,omitempty"`
+}
+
+type ScoringStrategyConfig struct {
+	Enabled         bool                  `json:"enabled"`
+	SelectedFactors []string              `json:"selected_factors,omitempty"`
+	FactorWeights   map[string]float64    `json:"factor_weights,omitempty"`
+	LongThreshold   float64               `json:"long_threshold,omitempty"`
+	ShortThreshold  float64               `json:"short_threshold,omitempty"`
+	MinConfidence   int                   `json:"min_confidence,omitempty"`
+	Timeframe       string                `json:"timeframe,omitempty"`
+	Symbols         []string              `json:"symbols,omitempty"`
+	Execution       CompiledRuleExecution `json:"execution"`
+}
+
+type StructureFactorConfig struct {
+	EnableFibonacci         bool                             `json:"enable_fibonacci"`
+	EnableSupportResistance bool                             `json:"enable_support_resistance"`
+	Fibonacci               StructureFibonacciConfig         `json:"fibonacci,omitempty"`
+	SupportResistance       StructureSupportResistanceConfig `json:"support_resistance,omitempty"`
+}
+
+type StructureFibonacciConfig struct {
+	Timeframe             string    `json:"timeframe,omitempty"`
+	Lookback              int       `json:"lookback,omitempty"`
+	SwingWindow           int       `json:"swing_window,omitempty"`
+	MinLegBars            int       `json:"min_leg_bars,omitempty"`
+	MinLegATRMultiple     float64   `json:"min_leg_atr_multiple,omitempty"`
+	ZigZagThresholdPct    float64   `json:"zigzag_threshold_pct,omitempty"`
+	Levels                []float64 `json:"levels,omitempty"`
+	InvalidateOnBreakBase bool      `json:"invalidate_on_break_base"`
+}
+
+type StructureSupportResistanceConfig struct {
+	Timeframe       string  `json:"timeframe,omitempty"`
+	Lookback        int     `json:"lookback,omitempty"`
+	SwingWindow     int     `json:"swing_window,omitempty"`
+	ZoneWidthATR    float64 `json:"zone_width_atr,omitempty"`
+	MinTouches      int     `json:"min_touches,omitempty"`
+	MinDistanceBars int     `json:"min_distance_bars,omitempty"`
 }
 
 // GridStrategyConfig grid trading specific configuration
@@ -311,6 +661,16 @@ type IndicatorConfig struct {
 	ATRPeriods []int `json:"atr_periods,omitempty"` // default [14]
 	// BOLL period configuration (period, standard deviation multiplier is fixed at 2)
 	BOLLPeriods []int `json:"boll_periods,omitempty"` // default [20] - can select multiple timeframes
+	// MACD period configuration
+	MACDFastPeriod   int `json:"macd_fast_period,omitempty"`   // default 12
+	MACDSlowPeriod   int `json:"macd_slow_period,omitempty"`   // default 26
+	MACDSignalPeriod int `json:"macd_signal_period,omitempty"` // default 9
+	// Additional K-line derived indicator period configuration.
+	VolumePeriods      []int `json:"volume_periods,omitempty"`       // default [20]
+	VWAPPeriods        []int `json:"vwap_periods,omitempty"`         // default [20]
+	DonchianPeriods    []int `json:"donchian_periods,omitempty"`     // default [20]
+	RealizedVolPeriods []int `json:"realized_vol_periods,omitempty"` // default [20]
+	PriceChangeWindows []int `json:"price_change_windows,omitempty"` // default [12, 48], bar windows
 	// external data sources
 	ExternalDataSources []ExternalDataSource `json:"external_data_sources,omitempty"`
 
@@ -449,6 +809,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 
 	config := StrategyConfig{
 		StrategyType: "ai_trading",
+		StrategyMode: "rule",
 		Language:     normalizedLang,
 		CoinSource: CoinSourceConfig{
 			SourceType: "ai500",
@@ -485,6 +846,14 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			RSIPeriods:             []int{7, 14},
 			ATRPeriods:             []int{14},
 			BOLLPeriods:            []int{20},
+			MACDFastPeriod:         12,
+			MACDSlowPeriod:         26,
+			MACDSignalPeriod:       9,
+			VolumePeriods:          []int{20},
+			VWAPPeriods:            []int{20},
+			DonchianPeriods:        []int{20},
+			RealizedVolPeriods:     []int{20},
+			PriceChangeWindows:     []int{12, 48},
 			NofxOSAPIKey:           "cm_568c67eae410d912c54c",
 			EnableQuantData:        true,
 			EnableQuantOI:          true,
@@ -499,6 +868,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			PriceRankingDuration:   "1h,4h,24h",
 			PriceRankingLimit:      10,
 		},
+		Structure: defaultStructureFactorConfig(),
 		RiskControl: RiskControlConfig{
 			MaxPositions:                 3,
 			BTCETHMaxLeverage:            5,
@@ -512,7 +882,31 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinCloseConfidence:           DefaultMinCloseConfidence,
 		},
 	}
+	config.ClampLimits()
 	return config
+}
+
+func defaultStructureFactorConfig() StructureFactorConfig {
+	return StructureFactorConfig{
+		EnableFibonacci:         true,
+		EnableSupportResistance: true,
+		Fibonacci: StructureFibonacciConfig{
+			Lookback:              120,
+			SwingWindow:           3,
+			MinLegBars:            8,
+			MinLegATRMultiple:     3,
+			ZigZagThresholdPct:    2,
+			Levels:                []float64{0.236, 0.382, 0.5, 0.618, 0.786},
+			InvalidateOnBreakBase: true,
+		},
+		SupportResistance: StructureSupportResistanceConfig{
+			Lookback:        120,
+			SwingWindow:     3,
+			ZoneWidthATR:    0.5,
+			MinTouches:      2,
+			MinDistanceBars: 5,
+		},
+	}
 }
 
 // GetDefaultGridStrategyConfig returns backend-owned defaults for grid strategies.
@@ -767,6 +1161,9 @@ func (s *Strategy) ParseConfig() (*StrategyConfig, error) {
 
 // SetConfig set strategy configuration
 func (s *Strategy) SetConfig(config *StrategyConfig) error {
+	if config != nil {
+		config.ClampLimits()
+	}
 	data, err := json.Marshal(config)
 	if err != nil {
 		return fmt.Errorf("failed to serialize strategy configuration: %w", err)

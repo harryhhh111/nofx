@@ -331,6 +331,7 @@ func (at *AutoTrader) runCycle() error {
 		logger.Infof("⚠ Failed to save decision record: %v", err)
 	}
 
+	at.syncClosedTradeMemories(3)
 	return nil
 }
 
@@ -582,6 +583,9 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		Positions:       positionInfos,
 		CandidateCoins:  candidateCoins,
 		DataFetchErrors: dataFetchErrors,
+	}
+	if at.store != nil {
+		ctx.TradeMemory = kernel.NewStoreTradeMemory(at.store, at.id)
 	}
 
 	// Inject pending drawdown alerts (AI-decide mode) and clear the queue

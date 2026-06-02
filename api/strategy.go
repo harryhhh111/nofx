@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"nofx/kernel"
 	"nofx/logger"
@@ -477,28 +479,65 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		Config store.StrategyConfig `json:"config" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "Invalid request parameters")
+	config, err := parsePreviewStrategyConfig(c)
+	if err != nil {
+		SafeBadRequest(c, err.Error())
 		return
 	}
-
-	req.Config.ClampLimits()
+	config.ClampLimits()
+	endpoint := c.FullPath()
 	c.JSON(http.StatusOK, gin.H{
-		"flow":                "market_data -> factor_snapshot -> rule_signal_engine -> llm_review -> risk_gate",
-		"compiled_rules":      req.Config.CompiledRules,
-		"compiled_rule_count": len(req.Config.CompiledRules),
+		"endpoint":             endpoint,
+		"legacy_compatible":    endpoint == "/api/strategies/preview-prompt",
+		"replacement_endpoint": "/api/strategies/preview-flow",
+		"flow":                 "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+		"strategy_mode":        config.StrategyMode,
+		"compiled_rules":       config.CompiledRules,
+		"compiled_rule_count":  len(config.CompiledRules),
+		"scoring_config":       config.ScoringConfig,
+		"resolved_parameters":  config.ResolvedParameters,
 		"kline": gin.H{
-			"primary_timeframe":    req.Config.Indicators.Klines.PrimaryTimeframe,
-			"selected_timeframes":  req.Config.Indicators.Klines.SelectedTimeframes,
-			"compute_lookback":     req.Config.Indicators.Klines.ComputeLookback,
-			"prompt_display_count": req.Config.Indicators.Klines.PromptDisplayCount,
+			"primary_timeframe":    config.Indicators.Klines.PrimaryTimeframe,
+			"selected_timeframes":  config.Indicators.Klines.SelectedTimeframes,
+			"compute_lookback":     config.Indicators.Klines.ComputeLookback,
+			"prompt_display_count": config.Indicators.Klines.PromptDisplayCount,
 		},
-		"risk_control": req.Config.RiskControl,
+		"risk_control": config.RiskControl,
 		"note":         "Old long prompt preview has been removed on this branch. Natural-language prompts must be compiled into compiled_rules before trading.",
 	})
+}
+
+func parsePreviewStrategyConfig(c *gin.Context) (*store.StrategyConfig, error) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read request body")
+	}
+	if len(body) == 0 {
+		return nil, fmt.Errorf("request body is required")
+	}
+
+	var envelope struct {
+		Config json.RawMessage `json:"config"`
+		Lang   string          `json:"lang"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, fmt.Errorf("invalid request JSON")
+	}
+
+	rawConfig := body
+	if len(envelope.Config) > 0 && string(envelope.Config) != "null" {
+		rawConfig = envelope.Config
+	}
+	lang := envelope.Lang
+	if lang == "" {
+		lang = "zh"
+	}
+
+	config, err := store.ParseStrategyConfigWithDefaults(rawConfig, lang)
+	if err != nil {
+		return nil, fmt.Errorf("invalid strategy config")
+	}
+	return config, nil
 }
 
 // handleCompileStrategyPrompt compiles a natural-language strategy prompt into deterministic rules.
@@ -543,7 +582,9 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 	if err != nil {
 		response := gin.H{"error": err.Error()}
 		if result != nil {
+			response["strategy_mode"] = result.StrategyMode
 			response["compiled_rules"] = strategyRulesToStore(result.Rules)
+			response["scoring_config"] = scoringStrategyToStore(result.ScoringConfig)
 			response["warnings"] = result.Warnings
 			response["errors"] = result.Errors
 		}
@@ -552,6 +593,7 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 	}
 
 	compiledRules := strategyRulesToStore(result.Rules)
+	scoringConfig := scoringStrategyToStore(result.ScoringConfig)
 	if req.Persist {
 		strategy, err := s.store.Strategy().Get(userID, req.StrategyID)
 		if err != nil {
@@ -568,7 +610,10 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 			return
 		}
 		config.StrategyPrompt = req.Prompt
+		config.StrategyMode = result.StrategyMode
 		config.CompiledRules = compiledRules
+		config.ScoringConfig = scoringConfig
+		config.ResolvedParameters.Scoring = scoringConfig
 		if err := strategy.SetConfig(config); err != nil {
 			SafeInternalError(c, "Serialize configuration", err)
 			return
@@ -580,11 +625,81 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"strategy_prompt": req.Prompt,
-		"compiled_rules":  compiledRules,
-		"warnings":        result.Warnings,
-		"errors":          result.Errors,
-		"persisted":       req.Persist,
+		"strategy_prompt":     req.Prompt,
+		"strategy_mode":       result.StrategyMode,
+		"compiled_rules":      compiledRules,
+		"scoring_config":      scoringConfig,
+		"resolved_parameters": store.ResolvedStrategyParameters{Scoring: scoringConfig},
+		"warnings":            result.Warnings,
+		"errors":              result.Errors,
+		"persisted":           req.Persist,
+	})
+}
+
+// handleEvolveStrategy creates a versioned improvement proposal. It never
+// persists or activates the proposal; applying it must be a separate action.
+func (s *Server) handleEvolveStrategy(c *gin.Context) {
+	userID := c.GetString("user_id")
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	strategyID := c.Param("id")
+	strategy, err := s.store.Strategy().Get(userID, strategyID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found"})
+		return
+	}
+	config, err := strategy.ParseConfig()
+	if err != nil {
+		SafeInternalError(c, "Failed to parse strategy config", err)
+		return
+	}
+
+	var req struct {
+		AIModelID     string                 `json:"ai_model_id" binding:"required"`
+		Trigger       string                 `json:"trigger" binding:"required"`
+		BaseVersion   string                 `json:"base_version"`
+		Notes         string                 `json:"notes"`
+		Performance   map[string]interface{} `json:"performance"`
+		MarketContext *kernel.MarketContext  `json:"market_context"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		SafeBadRequest(c, "Invalid request parameters")
+		return
+	}
+	if !kernel.IsAllowedStrategyEvolutionTrigger(req.Trigger) {
+		SafeBadRequest(c, "Unsupported strategy evolution trigger")
+		return
+	}
+
+	aiClient, err := s.createAIClientForModel(userID, req.AIModelID)
+	if err != nil {
+		SafeBadRequest(c, err.Error())
+		return
+	}
+
+	evolver := kernel.NewLLMStrategyEvolver(aiClient)
+	proposal, err := evolver.Propose(c.Request.Context(), kernel.StrategyEvolutionRequest{
+		StrategyID:    strategyID,
+		BaseVersion:   req.BaseVersion,
+		Trigger:       req.Trigger,
+		CurrentConfig: config,
+		MarketContext: req.MarketContext,
+		Performance:   req.Performance,
+		Notes:         req.Notes,
+		RequestedAt:   time.Now().UTC(),
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"proposal": proposal,
+		"applied":  false,
+		"note":     "Proposal only. It has not been saved, activated, or applied to live trading.",
 	})
 }
 
@@ -618,6 +733,24 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		logger.Errorf("[API Error] Failed to get candidate coins: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get candidate coins"})
 		return
+	}
+
+	externalContext := &kernel.Context{}
+	if req.Config.Indicators.EnableQuantData {
+		symbols := make([]string, 0, len(candidates))
+		for _, coin := range candidates {
+			symbols = append(symbols, coin.Symbol)
+		}
+		externalContext.QuantDataMap = engine.FetchQuantDataBatch(symbols)
+	}
+	if req.Config.Indicators.EnableOIRanking {
+		externalContext.OIRankingData = engine.FetchOIRankingData()
+	}
+	if req.Config.Indicators.EnableNetFlowRanking {
+		externalContext.NetFlowRankingData = engine.FetchNetFlowRankingData()
+	}
+	if req.Config.Indicators.EnablePriceRanking {
+		externalContext.PriceRankingData = engine.FetchPriceRankingData()
 	}
 
 	timeframes := req.Config.Indicators.Klines.SelectedTimeframes
@@ -666,6 +799,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		}
 		factorSnapshots[coin.Symbol] = snapshot
 	}
+	kernel.EnrichExternalFactors(externalContext, factorSnapshots, asOf)
 
 	testContext := &kernel.Context{
 		CurrentTime:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
@@ -675,19 +809,27 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			TotalEquity:      1000.0,
 			AvailableBalance: 1000.0,
 		},
-		Positions:      []kernel.PositionInfo{},
-		CandidateCoins: candidates,
-		PromptVariant:  req.PromptVariant,
-		MarketDataMap:  marketDataMap,
+		Positions:          []kernel.PositionInfo{},
+		CandidateCoins:     candidates,
+		PromptVariant:      req.PromptVariant,
+		MarketDataMap:      marketDataMap,
+		QuantDataMap:       externalContext.QuantDataMap,
+		OIRankingData:      externalContext.OIRankingData,
+		NetFlowRankingData: externalContext.NetFlowRankingData,
+		PriceRankingData:   externalContext.PriceRankingData,
 	}
 
 	if !req.RunRealAI || req.AIModelID == "" {
 		c.JSON(http.StatusOK, gin.H{
-			"flow":                  "market_data -> factor_snapshot -> rule_signal_engine -> llm_review -> risk_gate",
+			"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+			"strategy_mode":         req.Config.StrategyMode,
 			"candidate_count":       len(candidates),
 			"candidates":            candidates,
 			"compiled_rules":        req.Config.CompiledRules,
 			"compiled_rule_count":   len(req.Config.CompiledRules),
+			"scoring_config":        req.Config.ScoringConfig,
+			"resolved_parameters":   req.Config.ResolvedParameters,
+			"market_context":        buildPreviewMarketContext(factorSnapshots),
 			"factor_snapshot_count": len(factorSnapshots),
 			"factor_snapshots":      factorSnapshots,
 			"note":                  "Real AI review was not run. Provide ai_model_id and run_real_ai=true to execute the full structured flow.",
@@ -698,10 +840,12 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	aiClient, err := s.createAIClientForModel(userID, req.AIModelID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"flow":                  "market_data -> factor_snapshot -> rule_signal_engine -> llm_review -> risk_gate",
+			"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+			"strategy_mode":         req.Config.StrategyMode,
 			"candidate_count":       len(candidates),
 			"candidates":            candidates,
 			"compiled_rules":        req.Config.CompiledRules,
+			"scoring_config":        req.Config.ScoringConfig,
 			"factor_snapshot_count": len(factorSnapshots),
 			"ai_error":              err.Error(),
 			"note":                  "AI client setup failed",
@@ -712,10 +856,12 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	decision, err := kernel.GetFullDecisionWithStrategy(testContext, aiClient, engine, req.PromptVariant)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"flow":                  "market_data -> factor_snapshot -> rule_signal_engine -> llm_review -> risk_gate",
+			"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+			"strategy_mode":         req.Config.StrategyMode,
 			"candidate_count":       len(candidates),
 			"candidates":            candidates,
 			"compiled_rules":        req.Config.CompiledRules,
+			"scoring_config":        req.Config.ScoringConfig,
 			"factor_snapshot_count": len(factorSnapshots),
 			"ai_error":              err.Error(),
 			"note":                  "Structured strategy run failed",
@@ -724,14 +870,29 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"flow":                  "market_data -> factor_snapshot -> rule_signal_engine -> llm_review -> risk_gate",
+		"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+		"strategy_mode":         req.Config.StrategyMode,
 		"candidate_count":       len(candidates),
 		"candidates":            candidates,
 		"compiled_rules":        req.Config.CompiledRules,
+		"scoring_config":        req.Config.ScoringConfig,
+		"resolved_parameters":   req.Config.ResolvedParameters,
 		"factor_snapshot_count": len(factorSnapshots),
+		"market_context":        decision.MarketContext,
 		"decision":              decision,
 		"note":                  "Structured strategy run completed",
 	})
+}
+
+func buildPreviewMarketContext(factorSnapshots map[string]*market.FactorSnapshot) *kernel.MarketContext {
+	marketContext, err := kernel.NewDefaultMarketContextEngine().Build(context.Background(), kernel.MarketContextRequest{
+		FactorSnapshot: factorSnapshots,
+		Now:            time.Now().UTC(),
+	})
+	if err != nil {
+		return nil
+	}
+	return marketContext
 }
 
 func strategyRulesToStore(rules []kernel.StrategyRule) []store.CompiledStrategyRule {
@@ -775,6 +936,37 @@ func ruleOperandToStore(operand kernel.RuleOperand) store.CompiledRuleOperand {
 		Field:     operand.Field,
 		Value:     operand.Value,
 	}
+}
+
+func scoringStrategyToStore(scoring *kernel.ScoringStrategy) *store.ScoringStrategyConfig {
+	if scoring == nil {
+		return nil
+	}
+	return &store.ScoringStrategyConfig{
+		Enabled:         scoring.Enabled,
+		SelectedFactors: append([]string(nil), scoring.SelectedFactors...),
+		FactorWeights:   copyAPIFloatMap(scoring.FactorWeights),
+		LongThreshold:   scoring.LongThreshold,
+		ShortThreshold:  scoring.ShortThreshold,
+		MinConfidence:   scoring.MinConfidence,
+		Timeframe:       scoring.Timeframe,
+		Symbols:         append([]string(nil), scoring.Symbols...),
+		Execution: store.CompiledRuleExecution{
+			Leverage:        scoring.Execution.Leverage,
+			PositionSizeUSD: scoring.Execution.PositionSizeUSD,
+			StopLossPct:     scoring.Execution.StopLossPct,
+			TakeProfitPct:   scoring.Execution.TakeProfitPct,
+			Confidence:      scoring.Execution.Confidence,
+		},
+	}
+}
+
+func copyAPIFloatMap(in map[string]float64) map[string]float64 {
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *Server) createAIClientForModel(userID, modelID string) (mcp.AIClient, error) {

@@ -70,6 +70,7 @@ Strict boundaries:
 - Do not infer from raw K-lines.
 - Do not choose Fibonacci anchors or support/resistance manually.
 - Only use the provided structured factor snapshots, candidate signals, current positions, and memory.
+- Market context can warn or reject a signal, but must not create new trades or rewrite strategy parameters.
 - If a required factor is unavailable, treat it as unavailable, not zero.
 
 Output only JSON inside <reviews> tags:
@@ -90,6 +91,7 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 	payload := struct {
 		GeneratedAt       time.Time         `json:"generated_at"`
 		Signals           []CandidateSignal `json:"signals"`
+		MarketContext     *MarketContext    `json:"market_context,omitempty"`
 		FactorSnapshot    interface{}       `json:"factor_snapshot"`
 		RelevantMemory    []TradeLesson     `json:"relevant_memory,omitempty"`
 		CurrentPositions  []PositionInfo    `json:"current_positions,omitempty"`
@@ -97,6 +99,7 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 	}{
 		GeneratedAt:       time.Now().UTC(),
 		Signals:           req.Signals,
+		MarketContext:     req.MarketContext,
 		FactorSnapshot:    req.FactorSnapshot,
 		RelevantMemory:    req.RelevantMemory,
 		CurrentPositions:  req.CurrentPositions,

@@ -31,6 +31,37 @@ func rulesFromStrategyConfig(config *store.StrategyConfig) []StrategyRule {
 	return out
 }
 
+func scoringFromStrategyConfig(config *store.StrategyConfig) *ScoringStrategy {
+	if config == nil || config.ScoringConfig == nil || !config.ScoringConfig.Enabled {
+		return nil
+	}
+	scoring := config.ScoringConfig
+	version := ""
+	if len(config.CompiledRules) > 0 {
+		version = config.CompiledRules[0].Version
+	}
+	return &ScoringStrategy{
+		Enabled:         scoring.Enabled,
+		Version:         version,
+		SelectedFactors: append([]string(nil), scoring.SelectedFactors...),
+		FactorWeights:   copyKernelFloatMap(scoring.FactorWeights),
+		LongThreshold:   scoring.LongThreshold,
+		ShortThreshold:  scoring.ShortThreshold,
+		MinConfidence:   scoring.MinConfidence,
+		Timeframe:       scoring.Timeframe,
+		Symbols:         append([]string(nil), scoring.Symbols...),
+		Execution:       executionFromStore(scoring.Execution),
+	}
+}
+
+func copyKernelFloatMap(in map[string]float64) map[string]float64 {
+	out := make(map[string]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func executionFromStore(execution store.CompiledRuleExecution) RuleExecution {
 	return RuleExecution{
 		Leverage:        execution.Leverage,

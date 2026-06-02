@@ -68,6 +68,7 @@ You compile user trading strategy prompts into deterministic executable rules.
 Output only JSON inside <compiled_strategy> tags:
 <compiled_strategy>
 {
+  "strategy_mode": "rule",
   "rules": [
     {
       "id": "stable_short_id",
@@ -93,6 +94,7 @@ Output only JSON inside <compiled_strategy> tags:
       "enabled": true
     }
   ],
+  "scoring_config": null,
   "warnings": [],
   "errors": []
 }
@@ -102,11 +104,15 @@ Rules:
 - Do not calculate indicators.
 - Do not invent unavailable data sources.
 - Convert user intent into indicator/external_factor/structure/literal operands.
+- If the user only selects indicators/factors but gives no exact trigger conditions, output strategy_mode="scoring" and a complete scoring_config instead of rules.
+- If both exact rules and factor scoring are useful, output strategy_mode="hybrid".
 - Supported actions: open_long, open_short, close_long, close_short, wait.
 - Open actions must include leverage, position_size_usd, stop_loss_pct, take_profit_pct, confidence.
 - Close and wait actions must include confidence.
+- For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_confidence, timeframe, execution.
+- Supported scoring factors: trend, momentum, structure, derivatives.
 - If the prompt lacks required execution parameters, put a clear message in errors instead of guessing.
-- If Fibonacci or support/resistance is requested, use a structure operand and state any unresolved anchor requirement in errors.
+- Fibonacci, support, and resistance are supported by the structure engine. Use structure operands or structure scoring; do not ask for manual anchors unless the user explicitly requires custom anchors.
 `)
 }
 
@@ -154,8 +160,22 @@ func validateCompiledStrategy(result *StrategyCompileResult) error {
 	if result == nil {
 		return fmt.Errorf("compiled strategy result is nil")
 	}
-	if len(result.Rules) == 0 {
+	if result.StrategyMode == "" {
+		result.StrategyMode = "rule"
+	}
+	if result.StrategyMode != "rule" && result.StrategyMode != "scoring" && result.StrategyMode != "hybrid" {
+		return fmt.Errorf("compiled strategy has unsupported strategy_mode %q", result.StrategyMode)
+	}
+	if (result.StrategyMode == "rule" || result.StrategyMode == "hybrid") && len(result.Rules) == 0 {
 		return fmt.Errorf("compiled strategy contains no executable rules")
+	}
+	if result.StrategyMode == "scoring" || result.StrategyMode == "hybrid" {
+		if result.ScoringConfig == nil || !result.ScoringConfig.Enabled {
+			return fmt.Errorf("compiled strategy missing enabled scoring_config")
+		}
+		if err := validateScoringStrategy(result.ScoringConfig); err != nil {
+			return err
+		}
 	}
 	for i := range result.Rules {
 		if err := validateCompiledRule(result.Rules[i]); err != nil {
@@ -222,10 +242,55 @@ func validateRuleOperand(ruleID string, conditionIndex int, side string, operand
 		if strings.TrimSpace(operand.Name) == "" {
 			return fmt.Errorf("rule %s condition %d %s operand missing name", ruleID, conditionIndex, side)
 		}
+		if !isSupportedOperandName(operand) {
+			return fmt.Errorf("rule %s condition %d %s operand has unsupported %s name %q", ruleID, conditionIndex, side, operand.Kind, operand.Name)
+		}
 	default:
 		return fmt.Errorf("rule %s condition %d %s operand has unsupported kind %q", ruleID, conditionIndex, side, operand.Kind)
 	}
 	return nil
+}
+
+func isSupportedOperandName(operand RuleOperand) bool {
+	name := strings.TrimSpace(operand.Name)
+	switch operand.Kind {
+	case "indicator":
+		switch name {
+		case "price", "ema", "rsi", "atr", "boll_upper", "boll_middle", "boll_lower",
+			"macd", "macd_signal", "macd_histogram", "volume", "volume_avg", "volume_ratio",
+			"vwap", "donchian_upper", "donchian_lower", "price_change", "realized_vol":
+			return true
+		default:
+			return false
+		}
+	case "structure":
+		if name != "fibonacci" && name != "support_resistance" {
+			return false
+		}
+		switch operand.Field {
+		case "", "valid", "invalid_price", "support", "resistance",
+			"fib_0_236", "fib_0_382", "fib_0_5", "fib_0_618", "fib_0_786":
+			return true
+		default:
+			return false
+		}
+	case "external_factor":
+		if operand.Field != "" && operand.Field != "score" && operand.Field != "value" {
+			return false
+		}
+		if name == "open_interest" || name == "funding_rate" || name == "oi_top_candidate" {
+			return true
+		}
+		for _, prefix := range []string{
+			"quant_price_change_", "quant_oi_", "quant_oi_delta_", "quant_netflow_",
+			"oi_ranking_", "netflow_ranking_", "price_ranking_",
+		} {
+			if strings.HasPrefix(name, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func isSupportedRuleAction(action string) bool {

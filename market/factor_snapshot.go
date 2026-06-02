@@ -86,16 +86,17 @@ type StructureAnchor struct {
 // ExternalFactor is the normalized form of data that cannot be calculated from
 // K-lines alone, such as OI, funding, rankings, orderbook, or netflow.
 type ExternalFactor struct {
-	Name        string    `json:"name"`
-	Source      string    `json:"source"`
-	Timeframe   string    `json:"timeframe,omitempty"`
-	Value       float64   `json:"value,omitempty"`
-	State       string    `json:"state,omitempty"`
-	Score       float64   `json:"score,omitempty"`
-	Available   bool      `json:"available"`
-	SourceTime  time.Time `json:"source_time,omitempty"`
-	AvailableAt time.Time `json:"available_at,omitempty"`
-	CostClass   string    `json:"cost_class,omitempty"` // free, paid, unknown
+	Name        string                 `json:"name"`
+	Source      string                 `json:"source"`
+	Timeframe   string                 `json:"timeframe,omitempty"`
+	Value       float64                `json:"value,omitempty"`
+	State       string                 `json:"state,omitempty"`
+	Score       float64                `json:"score,omitempty"`
+	Available   bool                   `json:"available"`
+	SourceTime  time.Time              `json:"source_time,omitempty"`
+	AvailableAt time.Time              `json:"available_at,omitempty"`
+	CostClass   string                 `json:"cost_class,omitempty"` // free, paid, unknown
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // FactorSnapshot is the structured market context the AI should read instead

@@ -25,8 +25,9 @@ import {
   Download,
   Upload,
   Globe,
+  FileJson,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel } from '../types'
+import type { Strategy, StrategyConfig, AIModel, CompiledStrategyRule, ScoringStrategyConfig, ResolvedStrategyParameters } from '../types'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
 import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
@@ -38,6 +39,30 @@ import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
 import { t } from '../i18n/translations'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
+
+interface StrategyCompileResponse {
+  strategy_prompt: string
+  strategy_mode?: 'rule' | 'scoring' | 'hybrid'
+  compiled_rules?: CompiledStrategyRule[]
+  scoring_config?: ScoringStrategyConfig
+  resolved_parameters?: ResolvedStrategyParameters
+  warnings?: string[]
+  errors?: string[]
+  persisted?: boolean
+}
+
+function buildStrategyVersion() {
+  const now = new Date()
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return [
+    now.getUTCFullYear(),
+    pad(now.getUTCMonth() + 1),
+    pad(now.getUTCDate()),
+    pad(now.getUTCHours()),
+    pad(now.getUTCMinutes()),
+    pad(now.getUTCSeconds()),
+  ].join('')
+}
 
 export function StrategyStudioPage() {
   const { token } = useAuth()
@@ -58,6 +83,7 @@ export function StrategyStudioPage() {
 
   // Accordion states for left panel
   const [expandedSections, setExpandedSections] = useState({
+    strategyPrompt: true,
     gridConfig: true,
     coinSource: true,
     indicators: false,
@@ -67,10 +93,12 @@ export function StrategyStudioPage() {
   })
 
   // Right panel states
-  const [activeRightTab, setActiveRightTab] = useState<'prompt' | 'test'>('prompt')
+  const [activeRightTab, setActiveRightTab] = useState<'structured' | 'prompt' | 'test'>('structured')
   const [promptPreview, setPromptPreview] = useState<Record<string, unknown> | null>(null)
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
   const [selectedVariant, setSelectedVariant] = useState('balanced')
+  const [compileResult, setCompileResult] = useState<StrategyCompileResponse | null>(null)
+  const [isCompilingStrategy, setIsCompilingStrategy] = useState(false)
 
   // AI Test Run states
   const [aiTestResult, setAiTestResult] = useState<Record<string, unknown> | null>(null)
@@ -393,6 +421,65 @@ export function StrategyStudioPage() {
     setHasChanges(true)
   }
 
+  const updateStrategyPrompt = (prompt: string) => {
+    if (!editingConfig) return
+    setEditingConfig({
+      ...editingConfig,
+      strategy_prompt: prompt,
+    })
+    setHasChanges(true)
+  }
+
+  const compileStrategyPrompt = async () => {
+    if (!token || !editingConfig || !selectedModelId) return
+    const prompt = (editingConfig.strategy_prompt || '').trim()
+    if (!prompt) {
+      notify.warning(language === 'zh' ? '请先填写策略 Prompt' : 'Enter a strategy prompt first')
+      return
+    }
+    setIsCompilingStrategy(true)
+    setCompileResult(null)
+    try {
+      const response = await fetch(`${API_BASE}/api/strategies/compile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          strategy_id: selectedStrategy?.id,
+          strategy_version: buildStrategyVersion(),
+          prompt,
+          ai_model_id: selectedModelId,
+          persist: false,
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setCompileResult(data as StrategyCompileResponse)
+        setActiveRightTab('structured')
+        throw new Error(data.error || 'Failed to compile strategy')
+      }
+      const result = data as StrategyCompileResponse
+      setCompileResult(result)
+      setEditingConfig({
+        ...editingConfig,
+        strategy_prompt: result.strategy_prompt || prompt,
+        strategy_mode: result.strategy_mode || 'rule',
+        compiled_rules: result.compiled_rules || [],
+        scoring_config: result.scoring_config,
+        resolved_parameters: result.resolved_parameters,
+      })
+      setHasChanges(true)
+      setActiveRightTab('structured')
+      notify.success(language === 'zh' ? '策略已编译，保存后生效' : 'Strategy compiled. Save to apply.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setIsCompilingStrategy(false)
+    }
+  }
+
   // Fetch prompt preview
   const fetchPromptPreview = async () => {
     if (!token || !editingConfig) return
@@ -470,6 +557,65 @@ export function StrategyStudioPage() {
   const currentStrategyType = editingConfig?.strategy_type || 'ai_trading'
 
   const configSections = [
+    {
+      key: 'strategyPrompt' as const,
+      icon: FileJson,
+      color: '#a855f7',
+      title: language === 'zh' ? '策略 Prompt 编译' : 'Strategy Prompt Compile',
+      forStrategyType: 'ai_trading' as const,
+      content: editingConfig && (
+        <div className="space-y-3">
+          <textarea
+            value={editingConfig.strategy_prompt || ''}
+            onChange={(e) => updateStrategyPrompt(e.target.value)}
+            disabled={selectedStrategy?.is_default}
+            rows={7}
+            className="w-full resize-none rounded-lg px-3 py-2 text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-purple-500 disabled:opacity-50"
+            placeholder={language === 'zh'
+              ? '写策略意图：使用哪些指标、希望捕捉什么行情、开平仓要求。可以只指定指标类型，参数由 AI 在编译阶段建议，程序保存后固定执行。'
+              : 'Describe the strategy intent, indicators, market setup, and execution requirements. AI can suggest parameters during compile; runtime execution stays deterministic.'}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={selectedModelId}
+              onChange={(e) => setSelectedModelId(e.target.value)}
+              disabled={selectedStrategy?.is_default || aiModels.length === 0}
+              className="px-3 py-2 rounded-lg text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none disabled:opacity-50"
+            >
+              {aiModels.length === 0 ? (
+                <option value="">{language === 'zh' ? '没有可用模型' : 'No model'}</option>
+              ) : aiModels.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name} ({model.provider})
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={compileStrategyPrompt}
+              disabled={selectedStrategy?.is_default || isCompilingStrategy || !selectedModelId || !(editingConfig.strategy_prompt || '').trim()}
+              className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50"
+            >
+              {isCompilingStrategy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              {language === 'zh' ? '编译为结构化策略' : 'Compile Structured Strategy'}
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-[11px]">
+            <div className="rounded bg-nofx-bg border border-white/10 p-2">
+              <div className="text-nofx-text-muted">{language === 'zh' ? '模式' : 'Mode'}</div>
+              <div className="text-nofx-text font-medium">{editingConfig.strategy_mode || 'rule'}</div>
+            </div>
+            <div className="rounded bg-nofx-bg border border-white/10 p-2">
+              <div className="text-nofx-text-muted">{language === 'zh' ? '规则' : 'Rules'}</div>
+              <div className="text-nofx-text font-medium">{editingConfig.compiled_rules?.length || 0}</div>
+            </div>
+            <div className="rounded bg-nofx-bg border border-white/10 p-2">
+              <div className="text-nofx-text-muted">{language === 'zh' ? '评分' : 'Scoring'}</div>
+              <div className="text-nofx-text font-medium">{editingConfig.scoring_config?.enabled ? 'on' : 'off'}</div>
+            </div>
+          </div>
+        </div>
+      ),
+    },
     // Grid Config - only for grid_trading
     {
       key: 'gridConfig' as const,
@@ -662,6 +808,7 @@ export function StrategyStudioPage() {
                     setHasChanges(false)
                     setPromptPreview(null)
                     setAiTestResult(null)
+                    setCompileResult(null)
                   }}
                   className={`group px-2 py-2 rounded-lg cursor-pointer transition-all ${selectedStrategy?.id === strategy.id
                     ? 'ring-1 ring-nofx-gold/50 bg-nofx-gold/10 shadow-[0_0_15px_rgba(240,185,11,0.1)]'
@@ -888,8 +1035,16 @@ export function StrategyStudioPage() {
           {/* Tabs */}
           <div className="flex-shrink-0 flex border-b border-nofx-gold/20">
             <button
+              onClick={() => setActiveRightTab('structured')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'structured' ? 'border-b-2 border-yellow-500 text-yellow-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+                }`}
+            >
+              <FileJson className="w-4 h-4" />
+              {language === 'zh' ? '结构化' : 'Structured'}
+            </button>
+            <button
               onClick={() => setActiveRightTab('prompt')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'prompt' ? 'border-b-2 border-purple-500 text-purple-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'prompt' ? 'border-b-2 border-purple-500 text-purple-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
                 }`}
             >
               <Eye className="w-4 h-4" />
@@ -897,7 +1052,7 @@ export function StrategyStudioPage() {
             </button>
             <button
               onClick={() => setActiveRightTab('test')}
-              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'test' ? 'border-b-2 border-green-500 text-green-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'test' ? 'border-b-2 border-green-500 text-green-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
                 }`}
             >
               <Play className="w-4 h-4" />
@@ -907,7 +1062,98 @@ export function StrategyStudioPage() {
 
           {/* Tab Content */}
           <div className="flex-1 overflow-y-auto">
-            {activeRightTab === 'prompt' ? (
+            {activeRightTab === 'structured' ? (
+              <div className="p-3 space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3">
+                    <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '策略模式' : 'Mode'}</div>
+                    <div className="text-sm font-semibold text-nofx-text">{editingConfig?.strategy_mode || 'rule'}</div>
+                  </div>
+                  <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3">
+                    <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '规则数' : 'Rules'}</div>
+                    <div className="text-sm font-semibold text-nofx-text">{editingConfig?.compiled_rules?.length || 0}</div>
+                  </div>
+                  <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3">
+                    <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '评分' : 'Scoring'}</div>
+                    <div className="text-sm font-semibold text-nofx-text">{editingConfig?.scoring_config?.enabled ? 'on' : 'off'}</div>
+                  </div>
+                </div>
+
+                {compileResult?.warnings && compileResult.warnings.length > 0 && (
+                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
+                    <div className="text-xs font-medium text-yellow-400 mb-1">{language === 'zh' ? '编译警告' : 'Compile Warnings'}</div>
+                    <ul className="space-y-1 text-[11px] text-yellow-100">
+                      {compileResult.warnings.map((warning, index) => (
+                        <li key={index}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {compileResult?.errors && compileResult.errors.length > 0 && (
+                  <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
+                    <div className="text-xs font-medium text-red-400 mb-1">{language === 'zh' ? '编译错误' : 'Compile Errors'}</div>
+                    <ul className="space-y-1 text-[11px] text-red-100">
+                      {compileResult.errors.map((compileError, index) => (
+                        <li key={index}>{compileError}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {editingConfig?.compiled_rules && editingConfig.compiled_rules.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '确定性规则' : 'Deterministic Rules'}</div>
+                    {editingConfig.compiled_rules.map((rule) => (
+                      <div key={rule.id} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium text-nofx-text truncate">{rule.description || rule.id}</div>
+                            <div className="text-[10px] text-nofx-text-muted">{rule.action} · {rule.timeframe || '-'}</div>
+                          </div>
+                          <span className={`text-[10px] px-2 py-1 rounded ${rule.enabled ? 'bg-green-500/15 text-green-400' : 'bg-white/10 text-nofx-text-muted'}`}>
+                            {rule.enabled ? 'enabled' : 'off'}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+                          <div className="text-nofx-text-muted">lev <span className="text-nofx-text">{rule.execution?.leverage || '-'}</span></div>
+                          <div className="text-nofx-text-muted">size <span className="text-nofx-text">{rule.execution?.position_size_usd || '-'}</span></div>
+                          <div className="text-nofx-text-muted">conf <span className="text-nofx-text">{rule.execution?.confidence || '-'}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {editingConfig?.scoring_config?.enabled && (
+                  <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                    <div className="text-xs font-medium text-nofx-text mb-2">{language === 'zh' ? '评分配置' : 'Scoring Config'}</div>
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="text-nofx-text-muted">long <span className="text-nofx-text">{editingConfig.scoring_config.long_threshold ?? '-'}</span></div>
+                      <div className="text-nofx-text-muted">short <span className="text-nofx-text">{editingConfig.scoring_config.short_threshold ?? '-'}</span></div>
+                      <div className="text-nofx-text-muted">conf <span className="text-nofx-text">{editingConfig.scoring_config.min_confidence ?? '-'}</span></div>
+                      <div className="text-nofx-text-muted">tf <span className="text-nofx-text">{editingConfig.scoring_config.timeframe || '-'}</span></div>
+                    </div>
+                    <pre className="mt-2 p-2 rounded text-[10px] overflow-auto bg-black/30 text-nofx-text max-h-48">
+                      {JSON.stringify(editingConfig.scoring_config.factor_weights || {}, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-xs font-medium text-nofx-text mb-2">{language === 'zh' ? '生效参数 / 原始结构' : 'Resolved / Raw Structure'}</div>
+                  <pre className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text max-h-[360px]">
+                    {JSON.stringify({
+                      strategy_prompt: editingConfig?.strategy_prompt,
+                      strategy_mode: editingConfig?.strategy_mode,
+                      compiled_rules: editingConfig?.compiled_rules,
+                      scoring_config: editingConfig?.scoring_config,
+                      resolved_parameters: editingConfig?.resolved_parameters,
+                    }, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            ) : activeRightTab === 'prompt' ? (
               /* Prompt Preview Tab */
               <div className="p-3 space-y-3">
                 {/* Controls */}

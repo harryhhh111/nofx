@@ -61,6 +61,7 @@ func BuildFactorSnapshotFromDataWithRequests(data *Data, asOf time.Time, req Ind
 			Source:      "binance_futures",
 			Value:       data.OpenInterest.Latest,
 			Available:   data.OpenInterest.Latest > 0,
+			SourceTime:  nonZeroTime(data.OpenInterest.Time, asOf),
 			AvailableAt: asOf,
 			CostClass:   "free",
 		}
@@ -69,8 +70,9 @@ func BuildFactorSnapshotFromDataWithRequests(data *Data, asOf time.Time, req Ind
 		Name:        "funding_rate",
 		Source:      "binance_futures",
 		Value:       data.FundingRate,
-		State:       fundingState(data.FundingRate),
-		Available:   true,
+		State:       fundingAvailabilityState(data.FundingRate, data.FundingAvailable),
+		Available:   data.FundingAvailable,
+		SourceTime:  nonZeroTime(data.FundingRateTime, asOf),
 		AvailableAt: asOf,
 		CostClass:   "free",
 	}
@@ -161,6 +163,20 @@ func fundingState(rate float64) string {
 	default:
 		return "neutral"
 	}
+}
+
+func fundingAvailabilityState(rate float64, available bool) string {
+	if !available {
+		return "unavailable"
+	}
+	return fundingState(rate)
+}
+
+func nonZeroTime(value time.Time, fallback time.Time) time.Time {
+	if value.IsZero() {
+		return fallback
+	}
+	return value
 }
 
 func (s *FactorSnapshot) IndicatorValue(name, timeframe string, period int) (float64, bool) {

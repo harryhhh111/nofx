@@ -1,6 +1,7 @@
 package trader
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"nofx/kernel"
@@ -8,6 +9,7 @@ import (
 	"nofx/market"
 	"nofx/store"
 	"nofx/telemetry"
+	"strings"
 	"time"
 )
 
@@ -107,6 +109,124 @@ func (at *AutoTrader) saveBBMACDSignals(ctx *kernel.Context) {
 		return
 	}
 	logger.Infof("Saved %d BB MACD signal snapshots", len(signals))
+}
+
+// syncClosedTradeMemories writes one AI-reviewed memory for each newly closed position.
+// It is deliberately post-trade only: memory can influence future review, but it cannot
+// rewrite the strategy that produced the trade.
+func (at *AutoTrader) syncClosedTradeMemories(limit int) {
+	if at.store == nil || at.mcpClient == nil {
+		return
+	}
+	if limit <= 0 {
+		limit = 3
+	}
+	closed, err := at.store.Position().GetClosedPositions(at.id, limit)
+	if err != nil {
+		logger.Warnf("[%s] failed to load closed positions for trade memory: %v", at.name, err)
+		return
+	}
+	if len(closed) == 0 {
+		return
+	}
+
+	memoryStore := kernel.NewStoreTradeMemory(at.store, at.id)
+	summarizer := kernel.NewLLMTradeMemorySummarizer(at.mcpClient)
+	for _, pos := range closed {
+		exists, err := at.store.TradeMemory().ExistsForPosition(at.id, pos.ID)
+		if err != nil {
+			logger.Warnf("[%s] failed to check trade memory for position %d: %v", at.name, pos.ID, err)
+			continue
+		}
+		if exists {
+			continue
+		}
+
+		outcome := at.closedTradeOutcome(pos)
+		reviewCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		summary, err := summarizer.SummarizeClosedTrade(reviewCtx, outcome)
+		cancel()
+		if err != nil {
+			logger.Warnf("[%s] failed to summarize closed trade memory for %s position %d: %v", at.name, pos.Symbol, pos.ID, err)
+			continue
+		}
+
+		record := kernel.BuildTradeMemoryRecord(outcome, *summary)
+		if err := memoryStore.Record(context.Background(), record); err != nil {
+			logger.Warnf("[%s] failed to save trade memory for %s position %d: %v", at.name, pos.Symbol, pos.ID, err)
+			continue
+		}
+		logger.Infof("[%s] saved trade memory for %s position %d (%s, pnl %.4f)",
+			at.name, pos.Symbol, pos.ID, summary.Result, pos.RealizedPnL)
+	}
+}
+
+func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.ClosedTradeOutcome {
+	if pos == nil {
+		return kernel.ClosedTradeOutcome{}
+	}
+	entryQty := pos.EntryQuantity
+	if entryQty <= 0 {
+		entryQty = pos.Quantity
+	}
+	notional := entryQty * pos.EntryPrice
+	pnlPct := 0.0
+	if notional > 0 {
+		pnlPct = pos.RealizedPnL / notional * 100
+	}
+	return kernel.ClosedTradeOutcome{
+		TraderID:          at.id,
+		StrategyVersion:   at.currentStrategyVersion(),
+		PositionID:        pos.ID,
+		Symbol:            pos.Symbol,
+		Side:              pos.Side,
+		EntryPrice:        pos.EntryPrice,
+		ExitPrice:         pos.ExitPrice,
+		Quantity:          entryQty,
+		Leverage:          pos.Leverage,
+		RealizedPnL:       pos.RealizedPnL,
+		RealizedPnLPct:    pnlPct,
+		Fee:               pos.Fee,
+		EntryTimeMs:       pos.EntryTime,
+		ExitTimeMs:        pos.ExitTime,
+		HoldDuration:      formatMemoryDuration(pos.EntryTime, pos.ExitTime),
+		CloseReason:       pos.CloseReason,
+		OpeningReasoning:  pos.OpeningReasoning,
+		LastReviewSummary: pos.LastReviewSummary,
+	}
+}
+
+func (at *AutoTrader) currentStrategyVersion() string {
+	if at == nil || at.strategyEngine == nil || at.strategyEngine.GetConfig() == nil {
+		return ""
+	}
+	config := at.strategyEngine.GetConfig()
+	for _, rule := range config.CompiledRules {
+		if rule.Version != "" {
+			return rule.Version
+		}
+	}
+	if config.ScoringConfig != nil && config.ScoringConfig.Enabled {
+		return "scoring"
+	}
+	return ""
+}
+
+func formatMemoryDuration(startMs, endMs int64) string {
+	if startMs <= 0 || endMs <= startMs {
+		return ""
+	}
+	d := time.Duration(endMs-startMs) * time.Millisecond
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
 // GetStatus gets system status (for API)
@@ -295,7 +415,7 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 // recordAndConfirmOrder polls order status for actual fill data and records position
 // action: open_long, open_short, close_long, close_short
 // entryPrice: entry price when closing (0 when opening)
-func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, symbol, action string, quantity float64, price float64, leverage int, entryPrice float64) {
+func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, symbol, action string, quantity float64, price float64, leverage int, entryPrice float64, executionAnalyticsID int64) {
 	if at.store == nil {
 		return
 	}
@@ -317,6 +437,8 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 		logger.Infof("  ⚠️ Order ID is empty, skipping record")
 		return
 	}
+
+	at.markExecutionOrderSubmitted(executionAnalyticsID, orderResult)
 
 	// Determine positionSide
 	var positionSide string
@@ -368,6 +490,8 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 				}
 				logger.Infof("  ✅ Order filled: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
 
+				at.markExecutionFinal(executionAnalyticsID, action, price, quantity, actualPrice, actualQty, "filled")
+
 				// Update order status to FILLED
 				if err := at.store.Order().UpdateOrderStatus(orderRecord.ID, "FILLED", actualQty, actualPrice, fee); err != nil {
 					logger.Infof("  ⚠️ Failed to update order status: %v", err)
@@ -378,6 +502,8 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 				break
 			} else if statusStr == "CANCELED" || statusStr == "EXPIRED" || statusStr == "REJECTED" {
 				logger.Infof("  ⚠️ Order %s, skipping position record", statusStr)
+				at.markExecutionFinal(executionAnalyticsID, action, price, quantity, actualPrice, actualQty, strings.ToLower(statusStr))
+
 				// Update order status
 				if err := at.store.Order().UpdateOrderStatus(orderRecord.ID, statusStr, 0, 0, 0); err != nil {
 					logger.Infof("  ⚠️ Failed to update order status: %v", err)

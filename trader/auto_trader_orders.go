@@ -115,8 +115,10 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// Open position
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "open_long", marketData.CurrentPrice, quantity)
 	order, err := at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
+		at.markExecutionFailed(executionAnalyticsID, err)
 		return err
 	}
 
@@ -128,7 +130,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	logger.Infof("  ✓ Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "open_long", quantity, marketData.CurrentPrice, decision.Leverage, 0)
+	at.recordAndConfirmOrder(order, decision.Symbol, "open_long", quantity, marketData.CurrentPrice, decision.Leverage, 0, executionAnalyticsID)
 
 	// Record position opening time
 	posKey := decision.Symbol + "_long"
@@ -232,8 +234,10 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Open position
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "open_short", marketData.CurrentPrice, quantity)
 	order, err := at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
+		at.markExecutionFailed(executionAnalyticsID, err)
 		return err
 	}
 
@@ -245,7 +249,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	logger.Infof("  ✓ Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "open_short", quantity, marketData.CurrentPrice, decision.Leverage, 0)
+	at.recordAndConfirmOrder(order, decision.Symbol, "open_short", quantity, marketData.CurrentPrice, decision.Leverage, 0, executionAnalyticsID)
 
 	// Record position opening time
 	posKey := decision.Symbol + "_short"
@@ -309,8 +313,10 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Close position
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "close_long", marketData.CurrentPrice, quantity)
 	order, err := at.trader.CloseLong(decision.Symbol, 0) // 0 = close all
 	if err != nil {
+		at.markExecutionFailed(executionAnalyticsID, err)
 		return err
 	}
 
@@ -327,7 +333,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, marketData.CurrentPrice, 0, entryPrice)
+	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, marketData.CurrentPrice, 0, entryPrice, executionAnalyticsID)
 
 	logger.Infof("  ✓ Position closed successfully")
 	return nil
@@ -380,8 +386,10 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	}
 
 	// Close position
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "close_short", marketData.CurrentPrice, quantity)
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = close all
 	if err != nil {
+		at.markExecutionFailed(executionAnalyticsID, err)
 		return err
 	}
 
@@ -398,7 +406,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	}
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice)
+	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice, executionAnalyticsID)
 
 	logger.Infof("  ✓ Position closed successfully")
 	return nil

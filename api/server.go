@@ -257,12 +257,20 @@ CRITICAL: Always use the "id" field for strategy_id.`,
 			s.routeWithSchema(protected, "GET", "/strategies/default-config", "Get default strategy config with all fields and sensible values — use as reference for building configs",
 				`No parameters needed. Returns a complete StrategyConfig object with all fields populated with recommended defaults. Read this before building a custom config.`,
 				s.handleGetDefaultStrategyConfig)
+			s.routeWithSchema(protected, "POST", "/strategies/preview-prompt", "Preview strategy flow through the legacy prompt-preview path",
+				`Body: {"config":<StrategyConfig>} or <StrategyConfig>. This legacy path now returns the structured strategy flow instead of a long raw prompt.`,
+				s.handlePreviewPrompt)
 			s.route(protected, "POST", "/strategies/preview-flow", "Preview the structured strategy flow generated from a config", s.handlePreviewPrompt)
 			s.routeWithSchema(protected, "POST", "/strategies/compile", "Compile a natural-language strategy prompt into deterministic rules",
 				`Body: {"prompt":"<natural-language strategy>","ai_model_id":"<EXACT id from GET /api/models>","strategy_id":"<optional strategy id>","strategy_version":"<optional version>","persist":false}
 Returns compiled_rules. If persist=true, strategy_id is required and the compiled rules are saved into that strategy config.`,
 				s.handleCompileStrategyPrompt)
 			s.route(protected, "POST", "/strategies/test-run", "Test-run strategy AI analysis", s.handleStrategyTestRun)
+			s.routeWithSchema(protected, "POST", "/strategies/:id/evolve", "Generate a strategy evolution proposal without applying it",
+				`:id = EXACT id from GET /api/strategies.
+Body: {"ai_model_id":"<EXACT id from GET /api/models>","trigger":"manual|daily_review|weekly_review|loss_streak|regime_shift","base_version":"<optional>","notes":"<optional>","performance":{},"market_context":{}}
+Returns a proposal only. It is not saved, activated, or applied to live trading.`,
+				s.handleEvolveStrategy)
 			s.route(protected, "GET", "/strategies/:id", "Get strategy by ID", s.handleGetStrategy)
 			s.routeWithSchema(protected, "POST", "/strategies", "Create a new trading strategy",
 				`Body: {"name":"<string, required>","description":"<string, optional>","lang":"zh|en","config":<StrategyConfig object, OPTIONAL — if omitted the system applies complete working defaults automatically (ai500 top coins, all standard indicators, standard risk control)>}
@@ -363,6 +371,14 @@ Returns: [{"id":"<string>","symbol":"<string>","action":"open_long|open_short|cl
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>
 Returns the most recent AI decision for each symbol analyzed in the last scan cycle.`,
 				s.handleLatestDecisions)
+			s.routeWithSchema(protected, "GET", "/trade-memories", "Post-trade memory lessons",
+				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&symbol=<optional>&limit=<int, default 50>
+Returns AI-reviewed post-trade lessons. These records are read by the structured LLM review layer but do not rewrite strategy parameters.`,
+				s.handleTradeMemories)
+			s.routeWithSchema(protected, "GET", "/execution-analytics", "Order execution quality analytics",
+				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>&symbol=<optional>&limit=<int, default 100>
+Returns signal/order timestamps, spread, fill ratio, and slippage metrics for executed decisions.`,
+				s.handleExecutionAnalytics)
 			s.routeWithSchema(protected, "GET", "/statistics", "Trading performance statistics",
 				`Query: ?trader_id=<EXACT trader_id from GET /api/my-traders>
 Returns: {"total_trades":<int>,"winning_trades":<int>,"win_rate":<float>,"total_pnl":<float>,"sharpe_ratio":<float>,"max_drawdown":<float>}`,

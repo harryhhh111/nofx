@@ -128,17 +128,18 @@ type Context struct {
 	PositionMemories   []PositionMemory                   `json:"-"` // AI reasoning from when each open position was created
 	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
 	DataFetchErrors    []string                           `json:"-"` // Non-fatal errors from candidate coin / data source fetching
+	TradeMemory        TradeMemoryStore                   `json:"-"` // Relevant post-trade lessons for structured review
 }
 
 // DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
 // so it can decide whether to close the position.
 type DrawdownAlert struct {
-	Symbol         string  `json:"symbol"`
-	Side           string  `json:"side"`
-	CurrentPnLPct  float64 `json:"current_pnl_pct"`
-	PeakPnLPct     float64 `json:"peak_pnl_pct"`
-	DrawdownPct    float64 `json:"drawdown_pct"`
-	OpeningReason  string  `json:"opening_reason,omitempty"`
+	Symbol        string  `json:"symbol"`
+	Side          string  `json:"side"`
+	CurrentPnLPct float64 `json:"current_pnl_pct"`
+	PeakPnLPct    float64 `json:"peak_pnl_pct"`
+	DrawdownPct   float64 `json:"drawdown_pct"`
+	OpeningReason string  `json:"opening_reason,omitempty"`
 }
 
 // ExternalDataItem holds the result of a single external data source fetch.
@@ -167,26 +168,28 @@ type Decision struct {
 	OrderID    string  `json:"order_id,omitempty"`    // Order ID (for cancel)
 
 	// Common parameters
-	Confidence int     `json:"confidence,omitempty"` // Confidence level (0-100)
-	RiskUSD    float64 `json:"risk_usd,omitempty"`   // Maximum USD risk
-	Reasoning  string  `json:"reasoning"`
+	Confidence        int     `json:"confidence,omitempty"`          // Confidence level (0-100)
+	RiskUSD           float64 `json:"risk_usd,omitempty"`            // Maximum USD risk
+	SignalGeneratedAt int64   `json:"signal_generated_at,omitempty"` // Unix milliseconds
+	Reasoning         string  `json:"reasoning"`
 }
 
 func (d *Decision) UnmarshalJSON(data []byte) error {
 	type rawDecision struct {
-		Symbol          string          `json:"symbol"`
-		Action          string          `json:"action"`
-		Leverage        int             `json:"leverage,omitempty"`
-		PositionSizeUSD json.RawMessage `json:"position_size_usd,omitempty"`
-		StopLoss        json.RawMessage `json:"stop_loss,omitempty"`
-		TakeProfit      json.RawMessage `json:"take_profit,omitempty"`
-		Price           json.RawMessage `json:"price,omitempty"`
-		Quantity        json.RawMessage `json:"quantity,omitempty"`
-		LevelIndex      int             `json:"level_index,omitempty"`
-		OrderID         string          `json:"order_id,omitempty"`
-		Confidence      int             `json:"confidence,omitempty"`
-		RiskUSD         json.RawMessage `json:"risk_usd,omitempty"`
-		Reasoning       string          `json:"reasoning"`
+		Symbol            string          `json:"symbol"`
+		Action            string          `json:"action"`
+		Leverage          int             `json:"leverage,omitempty"`
+		PositionSizeUSD   json.RawMessage `json:"position_size_usd,omitempty"`
+		StopLoss          json.RawMessage `json:"stop_loss,omitempty"`
+		TakeProfit        json.RawMessage `json:"take_profit,omitempty"`
+		Price             json.RawMessage `json:"price,omitempty"`
+		Quantity          json.RawMessage `json:"quantity,omitempty"`
+		LevelIndex        int             `json:"level_index,omitempty"`
+		OrderID           string          `json:"order_id,omitempty"`
+		Confidence        int             `json:"confidence,omitempty"`
+		RiskUSD           json.RawMessage `json:"risk_usd,omitempty"`
+		SignalGeneratedAt int64           `json:"signal_generated_at,omitempty"`
+		Reasoning         string          `json:"reasoning"`
 	}
 
 	var raw rawDecision
@@ -225,6 +228,7 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
+	d.SignalGeneratedAt = raw.SignalGeneratedAt
 	d.Reasoning = raw.Reasoning
 
 	return nil
@@ -259,14 +263,15 @@ func parseJSONNumber(raw json.RawMessage, field string) (float64, error) {
 
 // FullDecision AI's complete decision (including chain of thought)
 type FullDecision struct {
-	SystemPrompt        string     `json:"system_prompt"`
-	UserPrompt          string     `json:"user_prompt"`
-	CoTTrace            string     `json:"cot_trace"`
-	CoTSummary          string     `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
-	Decisions           []Decision `json:"decisions"`
-	RawResponse         string     `json:"raw_response"`
-	Timestamp           time.Time  `json:"timestamp"`
-	AIRequestDurationMs int64      `json:"ai_request_duration_ms,omitempty"`
+	SystemPrompt        string         `json:"system_prompt"`
+	UserPrompt          string         `json:"user_prompt"`
+	CoTTrace            string         `json:"cot_trace"`
+	CoTSummary          string         `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
+	Decisions           []Decision     `json:"decisions"`
+	RawResponse         string         `json:"raw_response"`
+	Timestamp           time.Time      `json:"timestamp"`
+	AIRequestDurationMs int64          `json:"ai_request_duration_ms,omitempty"`
+	MarketContext       *MarketContext `json:"market_context,omitempty"`
 }
 
 // QuantData quantitative data structure (fund flow, position changes, price changes)
