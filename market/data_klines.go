@@ -154,7 +154,7 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 }
 
 // calculateTimeframeSeries calculates series data for a single timeframe
-func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *TimeframeSeriesData {
+func calculateTimeframeSeries(klines []Kline, timeframe string, count int, smaPeriods ...int) *TimeframeSeriesData {
 	if count <= 0 {
 		count = 10 // default
 	}
@@ -166,13 +166,21 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 		MidPrices:   make([]float64, 0, count),
 		EMA20Values: make([]float64, 0, count),
 		EMA50Values: make([]float64, 0, count),
-		MACDValues:  make([]float64, 0, count),
-		RSI7Values:  make([]float64, 0, count),
-		RSI14Values: make([]float64, 0, count),
-		Volume:      make([]float64, 0, count),
-		BOLLUpper:   make([]float64, 0, count),
-		BOLLMiddle:  make([]float64, 0, count),
-		BOLLLower:   make([]float64, 0, count),
+		SMAValues:     make(map[int][]float64),
+		ADXValues:     make([]float64, 0, count),
+		PlusDIValues:  make([]float64, 0, count),
+		MinusDIValues: make([]float64, 0, count),
+		SARValues:     make([]float64, 0, count),
+		SARUptrend:    make([]bool, 0, count),
+		SARFlipUp:     make([]bool, 0, count),
+		SARFlipDown:   make([]bool, 0, count),
+		MACDValues:    make([]float64, 0, count),
+		RSI7Values:    make([]float64, 0, count),
+		RSI14Values:   make([]float64, 0, count),
+		Volume:        make([]float64, 0, count),
+		BOLLUpper:     make([]float64, 0, count),
+		BOLLMiddle:    make([]float64, 0, count),
+		BOLLLower:     make([]float64, 0, count),
 	}
 
 	// Get latest N data points based on count from config
@@ -208,6 +216,14 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 			data.EMA50Values = append(data.EMA50Values, ema50)
 		}
 
+		// Calculate SMA for configured periods
+		for _, p := range smaPeriods {
+			if p > 0 && i >= p-1 {
+				sma := calculateSMA(klines[:i+1], p)
+				data.SMAValues[p] = append(data.SMAValues[p], sma)
+			}
+		}
+
 		// Calculate MACD for each point
 		if i >= 25 {
 			macd := calculateMACD(klines[:i+1])
@@ -230,6 +246,23 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int) *Time
 			data.BOLLUpper = append(data.BOLLUpper, upper)
 			data.BOLLMiddle = append(data.BOLLMiddle, middle)
 			data.BOLLLower = append(data.BOLLLower, lower)
+		}
+
+		// Calculate ADX for each point
+		if i >= 28 {
+			adx, plusDI, minusDI := calculateADX(klines[:i+1], 14)
+			data.ADXValues = append(data.ADXValues, adx)
+			data.PlusDIValues = append(data.PlusDIValues, plusDI)
+			data.MinusDIValues = append(data.MinusDIValues, minusDI)
+		}
+
+		// Calculate Parabolic SAR for each point
+		if i >= 1 {
+			sar, isUp, flipUp, flipDown := calculateParabolicSAR(klines[:i+1])
+			data.SARValues = append(data.SARValues, sar)
+			data.SARUptrend = append(data.SARUptrend, isUp)
+			data.SARFlipUp = append(data.SARFlipUp, flipUp)
+			data.SARFlipDown = append(data.SARFlipDown, flipDown)
 		}
 	}
 
@@ -308,14 +341,22 @@ func parseTimeframeToMinutes(tf string) int {
 }
 
 // calculateIntradaySeries calculates intraday series data
-func calculateIntradaySeries(klines []Kline) *IntradayData {
+func calculateIntradaySeries(klines []Kline, smaPeriods ...int) *IntradayData {
 	data := &IntradayData{
 		MidPrices:   make([]float64, 0, 10),
 		EMA20Values: make([]float64, 0, 10),
-		MACDValues:  make([]float64, 0, 10),
-		RSI7Values:  make([]float64, 0, 10),
-		RSI14Values: make([]float64, 0, 10),
-		Volume:      make([]float64, 0, 10),
+		SMAValues:     make(map[int][]float64),
+		ADXValues:     make([]float64, 0, 10),
+		PlusDIValues:  make([]float64, 0, 10),
+		MinusDIValues: make([]float64, 0, 10),
+		SARValues:     make([]float64, 0, 10),
+		SARUptrend:    make([]bool, 0, 10),
+		SARFlipUp:     make([]bool, 0, 10),
+		SARFlipDown:   make([]bool, 0, 10),
+		MACDValues:    make([]float64, 0, 10),
+		RSI7Values:    make([]float64, 0, 10),
+		RSI14Values:   make([]float64, 0, 10),
+		Volume:        make([]float64, 0, 10),
 	}
 
 	// Get latest 10 data points
@@ -334,6 +375,14 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 			data.EMA20Values = append(data.EMA20Values, ema20)
 		}
 
+		// Calculate SMA for configured periods
+		for _, p := range smaPeriods {
+			if p > 0 && i >= p-1 {
+				sma := calculateSMA(klines[:i+1], p)
+				data.SMAValues[p] = append(data.SMAValues[p], sma)
+			}
+		}
+
 		// Calculate MACD for each point
 		if i >= 25 {
 			macd := calculateMACD(klines[:i+1])
@@ -349,6 +398,23 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 			rsi14 := calculateRSI(klines[:i+1], 14)
 			data.RSI14Values = append(data.RSI14Values, rsi14)
 		}
+
+		// Calculate ADX for each point
+		if i >= 28 {
+			adx, plusDI, minusDI := calculateADX(klines[:i+1], 14)
+			data.ADXValues = append(data.ADXValues, adx)
+			data.PlusDIValues = append(data.PlusDIValues, plusDI)
+			data.MinusDIValues = append(data.MinusDIValues, minusDI)
+		}
+
+		// Calculate Parabolic SAR for each point
+		if i >= 1 {
+			sar, isUp, flipUp, flipDown := calculateParabolicSAR(klines[:i+1])
+			data.SARValues = append(data.SARValues, sar)
+			data.SARUptrend = append(data.SARUptrend, isUp)
+			data.SARFlipUp = append(data.SARFlipUp, flipUp)
+			data.SARFlipDown = append(data.SARFlipDown, flipDown)
+		}
 	}
 
 	// Calculate 3m ATR14
@@ -358,8 +424,9 @@ func calculateIntradaySeries(klines []Kline) *IntradayData {
 }
 
 // calculateLongerTermData calculates longer-term data
-func calculateLongerTermData(klines []Kline) *LongerTermData {
+func calculateLongerTermData(klines []Kline, smaPeriods ...int) *LongerTermData {
 	data := &LongerTermData{
+		SMA:         make(map[int]float64),
 		MACDValues:  make([]float64, 0, 10),
 		RSI14Values: make([]float64, 0, 10),
 	}
@@ -371,6 +438,16 @@ func calculateLongerTermData(klines []Kline) *LongerTermData {
 	// Calculate ATR
 	data.ATR3 = calculateATR(klines, 3)
 	data.ATR14 = calculateATR(klines, 14)
+
+	// Calculate ADX
+	if len(klines) >= 29 {
+		data.ADX, data.PlusDI, data.MinusDI = calculateADX(klines, 14)
+	}
+
+	// Calculate Parabolic SAR
+	if len(klines) >= 2 {
+		data.SAR, data.SARIsUptrend, data.SARFlipUp, data.SARFlipDown = calculateParabolicSAR(klines)
+	}
 
 	// Calculate volume
 	if len(klines) > 0 {

@@ -155,6 +155,7 @@ func (c *StrategyConfig) ClampLimits() {
 
 func (c *StrategyConfig) clampIndicatorConfig() {
 	c.Indicators.EMAPeriods = sanitizeIndicatorPeriods(c.Indicators.EMAPeriods, []int{20, 50})
+	c.Indicators.SMAPeriods = sanitizeIndicatorPeriods(c.Indicators.SMAPeriods, []int{5, 20, 50})
 	c.Indicators.RSIPeriods = sanitizeIndicatorPeriods(c.Indicators.RSIPeriods, []int{7, 14})
 	c.Indicators.ATRPeriods = sanitizeIndicatorPeriods(c.Indicators.ATRPeriods, []int{14})
 	c.Indicators.BOLLPeriods = sanitizeIndicatorPeriods(c.Indicators.BOLLPeriods, []int{20})
@@ -172,6 +173,12 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	}
 	if c.Indicators.MACDSignalPeriod <= 0 {
 		c.Indicators.MACDSignalPeriod = 9
+	}
+	if c.Indicators.ADXPeriod <= 0 {
+		c.Indicators.ADXPeriod = 14
+	}
+	if c.Indicators.ADXPeriod > MaxComputeLookback/2 {
+		c.Indicators.ADXPeriod = MaxComputeLookback / 2
 	}
 	if c.Indicators.MACDFastPeriod >= c.Indicators.MACDSlowPeriod {
 		c.Indicators.MACDFastPeriod = 12
@@ -205,8 +212,10 @@ func sanitizeIndicatorPeriods(values []int, defaults []int) []int {
 func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
 	required := c.Indicators.Klines.ComputeLookback
 	required = maxInt(required, maxPeriod(c.Indicators.EMAPeriods))
+	required = maxInt(required, maxPeriod(c.Indicators.SMAPeriods))
 	required = maxInt(required, maxPeriod(c.Indicators.RSIPeriods)+1)
 	required = maxInt(required, maxPeriod(c.Indicators.ATRPeriods)+1)
+	required = maxInt(required, c.Indicators.ADXPeriod+1)
 	required = maxInt(required, maxPeriod(c.Indicators.BOLLPeriods))
 	required = maxInt(required, maxPeriod(c.Indicators.VolumePeriods))
 	required = maxInt(required, maxPeriod(c.Indicators.VWAPPeriods))
@@ -646,19 +655,27 @@ type IndicatorConfig struct {
 	EnableRawKlines bool `json:"enable_raw_klines"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
+	EnableSMA         bool `json:"enable_sma"` // Simple Moving Average
 	EnableMACD        bool `json:"enable_macd"`
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
-	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
+	EnableADX         bool `json:"enable_adx"`     // ADX/DMI trend strength
+	EnableSAR         bool `json:"enable_sar"`     // Parabolic SAR
+	EnableBOLL        bool `json:"enable_boll"`    // Bollinger Bands
+	EnableSession     bool `json:"enable_session"` // Previous session OHLCV
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
 	// EMA period configuration
 	EMAPeriods []int `json:"ema_periods,omitempty"` // default [20, 50]
+	// SMA period configuration
+	SMAPeriods []int `json:"sma_periods,omitempty"` // default [5, 20, 50]
 	// RSI period configuration
 	RSIPeriods []int `json:"rsi_periods,omitempty"` // default [7, 14]
 	// ATR period configuration
 	ATRPeriods []int `json:"atr_periods,omitempty"` // default [14]
+	// ADX period configuration
+	ADXPeriod int `json:"adx_period,omitempty"` // default 14
 	// BOLL period configuration (period, standard deviation multiplier is fixed at 2)
 	BOLLPeriods []int `json:"boll_periods,omitempty"` // default [20] - can select multiple timeframes
 	// MACD period configuration
@@ -671,6 +688,8 @@ type IndicatorConfig struct {
 	DonchianPeriods    []int `json:"donchian_periods,omitempty"`     // default [20]
 	RealizedVolPeriods []int `json:"realized_vol_periods,omitempty"` // default [20]
 	PriceChangeWindows []int `json:"price_change_windows,omitempty"` // default [12, 48], bar windows
+	// Session configuration (Phase 1: UTC day only)
+	Sessions []SessionSpec `json:"sessions,omitempty"`
 	// external data sources
 	ExternalDataSources []ExternalDataSource `json:"external_data_sources,omitempty"`
 
@@ -736,6 +755,13 @@ type ExternalDataSource struct {
 	RefreshSecs  int               `json:"refresh_secs,omitempty"`  // refresh interval (seconds)
 	Description  string            `json:"description,omitempty"`   // AI interpretation hint
 	ContextLabel string            `json:"context_label,omitempty"` // display title in prompt; defaults to Name
+}
+
+// SessionSpec defines a trading session boundary for Previous Session OHLCV.
+type SessionSpec struct {
+	Timezone string `json:"timezone"` // IANA timezone name, e.g. "UTC"
+	Offset   string `json:"offset"`   // Session start time, e.g. "00:00"
+	Duration int    `json:"duration"` // Session length in minutes, default 1440 (24h)
 }
 
 // RiskControlConfig risk control configuration
@@ -833,18 +859,24 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
-			EnableRawKlines:        true,
+			EnableRawKlines:        true, // Required - raw OHLCV data for AI analysis
 			EnableEMA:              false,
+			EnableSMA:              false,
 			EnableMACD:             false,
 			EnableRSI:              false,
 			EnableATR:              false,
+			EnableADX:              false,
+			EnableSAR:              false,
 			EnableBOLL:             false,
+			EnableSession:          false,
 			EnableVolume:           true,
 			EnableOI:               true,
 			EnableFundingRate:      true,
 			EMAPeriods:             []int{20, 50},
+			SMAPeriods:             []int{5, 20, 50},
 			RSIPeriods:             []int{7, 14},
 			ATRPeriods:             []int{14},
+			ADXPeriod:              14,
 			BOLLPeriods:            []int{20},
 			MACDFastPeriod:         12,
 			MACDSlowPeriod:         26,
@@ -1302,8 +1334,17 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	if c.Indicators.EnableATR {
 		indicatorCharsPerLine += 15
 	}
+	if c.Indicators.EnableADX {
+		indicatorCharsPerLine += 30 // ADX + +DI + -DI + direction + trending + strength
+	}
+	if c.Indicators.EnableSAR {
+		indicatorCharsPerLine += 25 // SAR + direction + flip signals
+	}
 	if c.Indicators.EnableBOLL {
 		indicatorCharsPerLine += 25
+	}
+	if c.Indicators.EnableSession {
+		indicatorCharsPerLine += 50 // session OHLCV + prev session + breakout signals
 	}
 	if c.Indicators.EnableVolume {
 		indicatorCharsPerLine += 10

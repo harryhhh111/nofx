@@ -13,16 +13,34 @@ type KlineWindowSpec struct {
 // IndicatorRequest describes the technical indicators the program should
 // calculate from OHLCV data. It intentionally contains parameters, not values.
 type IndicatorRequest struct {
-	EMAPeriods         []int      `json:"ema_periods,omitempty"`
-	RSIPeriods         []int      `json:"rsi_periods,omitempty"`
-	ATRPeriods         []int      `json:"atr_periods,omitempty"`
-	BOLLPeriods        []BOLLSpec `json:"boll_periods,omitempty"`
-	MACD               *MACDSpec  `json:"macd,omitempty"`
-	VWAPPeriods        []int      `json:"vwap_periods,omitempty"`
-	VolumePeriods      []int      `json:"volume_periods,omitempty"`
-	DonchianPeriods    []int      `json:"donchian_periods,omitempty"`
-	RealizedVolPeriods []int      `json:"realized_vol_periods,omitempty"`
-	PriceChangeWindows []int      `json:"price_change_windows,omitempty"`
+	EMAPeriods         []int         `json:"ema_periods,omitempty"`
+	SMAPeriods         []int         `json:"sma_periods,omitempty"`
+	RSIPeriods         []int         `json:"rsi_periods,omitempty"`
+	ATRPeriods         []int         `json:"atr_periods,omitempty"`
+	ADX                *ADXSpec      `json:"adx,omitempty"`
+	SAR                *SARSpec      `json:"sar,omitempty"`
+	BOLLPeriods        []BOLLSpec    `json:"boll_periods,omitempty"`
+	MACD               *MACDSpec     `json:"macd,omitempty"`
+	VWAPPeriods        []int         `json:"vwap_periods,omitempty"`
+	VolumePeriods      []int         `json:"volume_periods,omitempty"`
+	DonchianPeriods    []int         `json:"donchian_periods,omitempty"`
+	RealizedVolPeriods []int         `json:"realized_vol_periods,omitempty"`
+	PriceChangeWindows []int         `json:"price_change_windows,omitempty"`
+	Sessions           []SessionSpec `json:"sessions,omitempty"`
+}
+
+type ADXSpec struct {
+	Period int `json:"period"`
+}
+
+type SARSpec struct {
+	Enabled bool `json:"enabled"`
+}
+
+type SessionSpec struct {
+	Timezone string `json:"timezone"` // e.g. "UTC", "Asia/Shanghai"
+	Offset   string `json:"offset"`   // e.g. "00:00", "08:00"
+	Duration int    `json:"duration"` // minutes, default 1440 (24h)
 }
 
 type BOLLSpec struct {

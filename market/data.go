@@ -90,6 +90,8 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 	currentEMA20 := calculateEMA(klines3m, 20)
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
+	currentADX, currentPlusDI, currentMinusDI := calculateADX(klines3m, 14)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(klines3m)
 
 	// Calculate price change percentage
 	// 1-hour price change = price from 20 3-minute K-lines ago
@@ -135,6 +137,13 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 		CurrentEMA20:      currentEMA20,
 		CurrentMACD:       currentMACD,
 		CurrentRSI7:       currentRSI7,
+		CurrentADX:        currentADX,
+		CurrentPlusDI:     currentPlusDI,
+		CurrentMinusDI:    currentMinusDI,
+		CurrentSAR:        currentSAR,
+		SARIsUptrend:      sarIsUptrend,
+		SARFlipUp:         sarFlipUp,
+		SARFlipDown:       sarFlipDown,
 		OpenInterest:      oiData,
 		FundingRate:       fundingRate,
 		FundingRateTime:   fundingRateTime,
@@ -247,6 +256,16 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 	currentEMA20 := calculateEMA(primaryKlines, 20)
 	currentMACD := calculateMACD(primaryKlines)
 	currentRSI7 := calculateRSI(primaryKlines, 7)
+	currentADX, currentPlusDI, currentMinusDI := calculateADX(primaryKlines, 14)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(primaryKlines)
+
+	// Calculate SMA for default periods
+	currentSMA := make(map[int]float64)
+	for _, p := range []int{5, 20, 50} {
+		if len(primaryKlines) >= p {
+			currentSMA[p] = calculateSMA(primaryKlines, p)
+		}
+	}
 
 	// Calculate price changes
 	priceChange1h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 60)  // 1 hour
@@ -268,8 +287,16 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 		PriceChange1h:    priceChange1h,
 		PriceChange4h:    priceChange4h,
 		CurrentEMA20:     currentEMA20,
+		CurrentSMA:       currentSMA,
 		CurrentMACD:      currentMACD,
 		CurrentRSI7:      currentRSI7,
+		CurrentADX:       currentADX,
+		CurrentPlusDI:    currentPlusDI,
+		CurrentMinusDI:   currentMinusDI,
+		CurrentSAR:       currentSAR,
+		SARIsUptrend:     sarIsUptrend,
+		SARFlipUp:        sarFlipUp,
+		SARFlipDown:      sarFlipDown,
 		OpenInterest:     oiData,
 		FundingRate:      fundingRate,
 		FundingRateTime:  fundingRateTime,
@@ -495,6 +522,12 @@ func formatTimeframeData(sb *strings.Builder, data *TimeframeSeriesData) {
 		sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
 	}
 
+	for period, values := range data.SMAValues {
+		if len(values) > 0 {
+			sb.WriteString(fmt.Sprintf("SMA%d: %s\n", period, formatFloatSlice(values)))
+		}
+	}
+
 	if len(data.MACDValues) > 0 {
 		sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
 	}
@@ -636,7 +669,7 @@ func parseFloat(v interface{}) (float64, error) {
 }
 
 // BuildDataFromKlines constructs market data snapshot from preloaded K-line series.
-func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline) (*Data, error) {
+func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline, smaPeriods ...int) (*Data, error) {
 	if len(primary) == 0 {
 		return nil, fmt.Errorf("primary series is empty")
 	}
@@ -645,22 +678,32 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline) (*Data,
 	current := primary[len(primary)-1]
 	currentPrice := current.Close
 
+	currentADX, currentPlusDI, currentMinusDI := calculateADX(primary, 14)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(primary)
+
 	data := &Data{
 		Symbol:            symbol,
 		CurrentPrice:      currentPrice,
 		CurrentEMA20:      calculateEMA(primary, 20),
 		CurrentMACD:       calculateMACD(primary),
 		CurrentRSI7:       calculateRSI(primary, 7),
+		CurrentADX:        currentADX,
+		CurrentPlusDI:     currentPlusDI,
+		CurrentMinusDI:    currentMinusDI,
+		CurrentSAR:        currentSAR,
+		SARIsUptrend:      sarIsUptrend,
+		SARFlipUp:         sarFlipUp,
+		SARFlipDown:       sarFlipDown,
 		PriceChange1h:     priceChangeFromSeries(primary, time.Hour),
 		PriceChange4h:     priceChangeFromSeries(primary, 4*time.Hour),
 		OpenInterest:      &OIData{Latest: 0, Average: 0},
 		FundingRate:       0,
-		IntradaySeries:    calculateIntradaySeries(primary),
+		IntradaySeries:    calculateIntradaySeries(primary, smaPeriods...),
 		LongerTermContext: nil,
 	}
 
 	if len(longer) > 0 {
-		data.LongerTermContext = calculateLongerTermData(longer)
+		data.LongerTermContext = calculateLongerTermData(longer, smaPeriods...)
 	}
 
 	return data, nil

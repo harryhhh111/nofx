@@ -210,14 +210,19 @@ export interface IndicatorConfig {
   enable_raw_klines: boolean;
   // Technical indicators (optional)
   enable_ema: boolean;
+  enable_sma: boolean;
   enable_macd: boolean;
   enable_rsi: boolean;
   enable_atr: boolean;
+  enable_adx: boolean;
+  enable_sar: boolean;
   enable_boll: boolean;
+  enable_session: boolean;
   enable_volume: boolean;
   enable_oi: boolean;
   enable_funding_rate: boolean;
   ema_periods?: number[];
+  sma_periods?: number[];
   rsi_periods?: number[];
   atr_periods?: number[];
   boll_periods?: number[];
@@ -229,6 +234,7 @@ export interface IndicatorConfig {
   donchian_periods?: number[];
   realized_vol_periods?: number[];
   price_change_windows?: number[];
+  sessions?: SessionSpec[];
   external_data_sources?: ExternalDataSource[];
 
   // ========== NofxOS 数据源统一配置 ==========
@@ -277,6 +283,12 @@ export interface ExternalDataSource {
   headers?: Record<string, string>;
   data_path?: string;
   refresh_secs?: number;
+}
+
+export interface SessionSpec {
+  timezone: string;
+  offset: string;
+  duration: number;
 }
 
 export interface RiskControlConfig {

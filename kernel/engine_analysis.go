@@ -288,11 +288,20 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 	if indicators.EnableEMA {
 		req.EMAPeriods = indicators.EMAPeriods
 	}
+	if indicators.EnableSMA {
+		req.SMAPeriods = indicators.SMAPeriods
+	}
 	if indicators.EnableRSI {
 		req.RSIPeriods = indicators.RSIPeriods
 	}
 	if indicators.EnableATR {
 		req.ATRPeriods = indicators.ATRPeriods
+	}
+	if indicators.EnableADX {
+		req.ADX = &market.ADXSpec{Period: indicators.ADXPeriod}
+	}
+	if indicators.EnableSAR {
+		req.SAR = &market.SARSpec{Enabled: true}
 	}
 	if indicators.EnableBOLL {
 		for _, period := range indicators.BOLLPeriods {
@@ -320,6 +329,19 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 			case "momentum":
 				req.RSIPeriods = appendIntUnique(req.RSIPeriods, 14)
 			}
+		}
+	}
+	if indicators.EnableSession {
+		if len(indicators.Sessions) > 0 {
+			for _, s := range indicators.Sessions {
+				req.Sessions = append(req.Sessions, market.SessionSpec{
+					Timezone: s.Timezone,
+					Offset:   s.Offset,
+					Duration: s.Duration,
+				})
+			}
+		} else {
+			req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
 		}
 	}
 	return req
