@@ -1,9 +1,13 @@
 package paper
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"nofx/logger"
 	"nofx/market"
+	"nofx/provider/coinank/coinank_api"
+	"nofx/provider/coinank/coinank_enum"
 	"nofx/store"
 	"nofx/trader/types"
 	"strconv"
@@ -13,6 +17,19 @@ import (
 )
 
 const takerFeeRate = 0.0004
+
+// priceCache avoids repeated HTTP calls when GetPositions is polled every 15s
+type priceCacheEntry struct {
+	price     float64
+	timestamp time.Time
+}
+
+var (
+	priceCache    = make(map[string]*priceCacheEntry)
+	priceCacheMu  sync.RWMutex
+	priceCacheTTL = 30 * time.Second
+	apiClient     = market.NewAPIClient()
+)
 
 type Position struct {
 	Symbol     string
@@ -38,7 +55,7 @@ type PaperTrader struct {
 	traderID       string
 	initialBalance float64
 	walletBalance  float64
-	positions      map[string]*Position
+	positions      map[string][]*Position
 	orders         map[string]*Order
 	stopOrders     []types.OpenOrder
 	nextOrderID    int64
@@ -52,7 +69,7 @@ func NewPaperTrader(initialBalance float64, st *store.Store, traderID string) *P
 		traderID:       traderID,
 		initialBalance: initialBalance,
 		walletBalance:  initialBalance,
-		positions:      make(map[string]*Position),
+		positions:      make(map[string][]*Position),
 		orders:         make(map[string]*Order),
 		nextOrderID:    time.Now().UnixMilli(),
 	}
@@ -62,6 +79,7 @@ func NewPaperTrader(initialBalance float64, st *store.Store, traderID string) *P
 
 func (t *PaperTrader) loadOpenPositions(st *store.Store) {
 	if st == nil || t.traderID == "" {
+		logger.Infof("⚠️ [PaperTrader %s] loadOpenPositions skipped: st=%v, traderID=%s", t.traderID, st != nil, t.traderID)
 		return
 	}
 	closedPositions, err := st.Position().GetClosedPositions(t.traderID, 10000)
@@ -69,21 +87,38 @@ func (t *PaperTrader) loadOpenPositions(st *store.Store) {
 		for _, p := range closedPositions {
 			t.walletBalance += p.RealizedPnL - p.Fee
 		}
+		logger.Infof("✓ [PaperTrader %s] Loaded %d closed positions, wallet balance adjusted", t.traderID, len(closedPositions))
+	} else {
+		logger.Infof("⚠️ [PaperTrader %s] Failed to load closed positions: %v", t.traderID, err)
 	}
 	positions, err := st.Position().GetOpenPositions(t.traderID)
 	if err != nil {
+		logger.Infof("⚠️ [PaperTrader %s] Failed to load open positions: %v", t.traderID, err)
 		return
 	}
+	logger.Infof("✓ [PaperTrader %s] Loading %d open positions into memory", t.traderID, len(positions))
 	for _, p := range positions {
 		side := strings.ToLower(p.Side)
-		t.positions[positionKey(p.Symbol, side)] = &Position{
+		key := positionKey(p.Symbol, side)
+		t.positions[key] = append(t.positions[key], &Position{
 			Symbol:     market.Normalize(p.Symbol),
 			Side:       side,
 			Quantity:   p.Quantity,
 			EntryPrice: p.EntryPrice,
 			Leverage:   p.Leverage,
 			EntryTime:  time.UnixMilli(p.EntryTime),
-		}
+		})
+		logger.Infof("  → [PaperTrader %s] Loaded position: %s %s @ %.2f x%d", t.traderID, p.Symbol, side, p.EntryPrice, p.Leverage)
+	}
+
+	// Pre-warm price cache for all open positions so first API call is fast
+	if len(positions) > 0 {
+		go func() {
+			for _, p := range positions {
+				_, _ = marketPrice(p.Symbol)
+			}
+			logger.Infof("✓ [PaperTrader %s] Price cache pre-warmed for %d positions", t.traderID, len(positions))
+		}()
 	}
 }
 
@@ -115,20 +150,58 @@ func (t *PaperTrader) GetPositions() ([]map[string]interface{}, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	result := make([]map[string]interface{}, 0, len(t.positions))
-	for _, p := range t.positions {
-		markPrice, _ := marketPrice(p.Symbol)
-		unrealized := pnl(p.Side, p.EntryPrice, markPrice, p.Quantity)
-		result = append(result, map[string]interface{}{
-			"symbol":           p.Symbol,
-			"side":             p.Side,
-			"entryPrice":       p.EntryPrice,
-			"markPrice":        markPrice,
-			"positionAmt":      p.Quantity,
-			"unRealizedProfit": unrealized,
-			"liquidationPrice": 0.0,
-			"leverage":         float64(p.Leverage),
-		})
+	// Concurrently fetch prices for all positions to avoid serial delays
+	type priceResult struct {
+		symbol string
+		price  float64
+		err    error
+	}
+
+	// Collect unique symbols for concurrent price fetch
+	symbolSet := make(map[string]struct{})
+	for _, group := range t.positions {
+		for _, p := range group {
+			symbolSet[p.Symbol] = struct{}{}
+		}
+	}
+
+	priceMap := make(map[string]float64)
+	if len(symbolSet) > 0 {
+		resCh := make(chan priceResult, len(symbolSet))
+		for sym := range symbolSet {
+			go func(s string) {
+				price, err := marketPrice(s)
+				resCh <- priceResult{symbol: s, price: price, err: err}
+			}(sym)
+		}
+		for i := 0; i < len(symbolSet); i++ {
+			res := <-resCh
+			if res.err != nil {
+				logger.Infof("⚠️ [PaperTrader] Failed to get price for %s: %v", res.symbol, res.err)
+			}
+			priceMap[res.symbol] = res.price
+		}
+	}
+
+	result := make([]map[string]interface{}, 0)
+	for _, group := range t.positions {
+		for _, p := range group {
+			markPrice := priceMap[p.Symbol]
+			if markPrice <= 0 {
+				markPrice = p.EntryPrice // fallback so position is still visible
+			}
+			unrealized := pnl(p.Side, p.EntryPrice, markPrice, p.Quantity)
+			result = append(result, map[string]interface{}{
+				"symbol":           p.Symbol,
+				"side":             p.Side,
+				"entryPrice":       p.EntryPrice,
+				"markPrice":        markPrice,
+				"positionAmt":      p.Quantity,
+				"unRealizedProfit": unrealized,
+				"liquidationPrice": 0.0,
+				"leverage":         float64(p.Leverage),
+			})
+		}
 	}
 	return result, nil
 }
@@ -159,9 +232,6 @@ func (t *PaperTrader) open(symbol, side string, quantity float64, leverage int) 
 	defer t.mu.Unlock()
 
 	key := positionKey(normalized, side)
-	if _, exists := t.positions[key]; exists {
-		return nil, fmt.Errorf("%s already has %s paper position", normalized, side)
-	}
 
 	notional := price * quantity
 	fee := notional * takerFeeRate
@@ -173,14 +243,14 @@ func (t *PaperTrader) open(symbol, side string, quantity float64, leverage int) 
 	}
 
 	t.walletBalance -= fee
-	t.positions[key] = &Position{
+	t.positions[key] = append(t.positions[key], &Position{
 		Symbol:     normalized,
 		Side:       side,
 		Quantity:   quantity,
 		EntryPrice: price,
 		Leverage:   leverage,
 		EntryTime:  time.Now(),
-	}
+	})
 
 	return t.recordFilledOrderLocked(normalized, price, quantity, fee), nil
 }
@@ -204,10 +274,12 @@ func (t *PaperTrader) close(symbol, side string, quantity float64) (map[string]i
 	defer t.mu.Unlock()
 
 	key := positionKey(normalized, side)
-	pos := t.positions[key]
-	if pos == nil {
+	group := t.positions[key]
+	if len(group) == 0 {
 		return nil, fmt.Errorf("no %s paper position for %s", side, normalized)
 	}
+	// Close the first position (FIFO)
+	pos := group[0]
 	if quantity <= 0 || quantity > pos.Quantity {
 		quantity = pos.Quantity
 	}
@@ -217,7 +289,10 @@ func (t *PaperTrader) close(symbol, side string, quantity float64) (map[string]i
 	t.walletBalance += realized - fee
 	pos.Quantity -= quantity
 	if pos.Quantity <= 1e-12 {
-		delete(t.positions, key)
+		t.positions[key] = group[1:]
+		if len(t.positions[key]) == 0 {
+			delete(t.positions, key)
+		}
 	}
 
 	return t.recordFilledOrderLocked(normalized, price, quantity, fee), nil
@@ -359,14 +434,44 @@ func (t *PaperTrader) cancelStopOrders(symbol, orderType string) error {
 }
 
 func (t *PaperTrader) accountExposureLocked() (unrealized float64, marginUsed float64) {
-	for _, p := range t.positions {
-		markPrice, _ := marketPrice(p.Symbol)
-		unrealized += pnl(p.Side, p.EntryPrice, markPrice, p.Quantity)
-		leverage := p.Leverage
-		if leverage <= 0 {
-			leverage = 1
-		}
-		marginUsed += markPrice * p.Quantity / float64(leverage)
+	type exposureResult struct {
+		unrealized float64
+		marginUsed float64
+	}
+
+	// Flatten all positions into a slice
+	allPositions := make([]*Position, 0)
+	for _, group := range t.positions {
+		allPositions = append(allPositions, group...)
+	}
+
+	if len(allPositions) == 0 {
+		return 0, 0
+	}
+
+	// Concurrently fetch prices to avoid serial delays
+	resCh := make(chan exposureResult, len(allPositions))
+	for _, p := range allPositions {
+		go func(pos *Position) {
+			markPrice, _ := marketPrice(pos.Symbol)
+			if markPrice <= 0 {
+				markPrice = pos.EntryPrice // fallback
+			}
+			lev := pos.Leverage
+			if lev <= 0 {
+				lev = 1
+			}
+			resCh <- exposureResult{
+				unrealized: pnl(pos.Side, pos.EntryPrice, markPrice, pos.Quantity),
+				marginUsed: markPrice * pos.Quantity / float64(lev),
+			}
+		}(p)
+	}
+
+	for i := 0; i < len(allPositions); i++ {
+		res := <-resCh
+		unrealized += res.unrealized
+		marginUsed += res.marginUsed
 	}
 	return unrealized, marginUsed
 }
@@ -400,11 +505,52 @@ func (t *PaperTrader) nextOrderIDLocked() string {
 }
 
 func marketPrice(symbol string) (float64, error) {
-	data, err := market.GetWithExchange(symbol, "binance")
-	if err != nil {
-		return 0, err
+	symbol = market.Normalize(symbol)
+
+	// Check cache first
+	priceCacheMu.RLock()
+	if entry, ok := priceCache[symbol]; ok && time.Since(entry.timestamp) < priceCacheTTL {
+		priceCacheMu.RUnlock()
+		return entry.price, nil
 	}
-	return data.CurrentPrice, nil
+	priceCacheMu.RUnlock()
+
+	// Fetch price via lightweight CoinAnk API (1 kline vs 200 klines in GetWithExchange)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type result struct {
+		price float64
+		err   error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		ts := time.Now().UnixMilli()
+		klines, err := coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, 1, coinank_enum.Minute3)
+		if err != nil {
+			resCh <- result{err: err}
+			return
+		}
+		if len(klines) == 0 {
+			resCh <- result{err: fmt.Errorf("no kline data for %s", symbol)}
+			return
+		}
+		resCh <- result{price: klines[len(klines)-1].Close}
+	}()
+
+	select {
+	case res := <-resCh:
+		if res.err != nil {
+			return 0, res.err
+		}
+		// Update cache
+		priceCacheMu.Lock()
+		priceCache[symbol] = &priceCacheEntry{price: res.price, timestamp: time.Now()}
+		priceCacheMu.Unlock()
+		return res.price, nil
+	case <-ctx.Done():
+		return 0, fmt.Errorf("market price fetch timeout for %s", symbol)
+	}
 }
 
 func pnl(side string, entryPrice, markPrice, quantity float64) float64 {
