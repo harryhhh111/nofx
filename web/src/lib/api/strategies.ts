@@ -1,7 +1,10 @@
 import type {
   Strategy,
   StrategyConfig,
+  StrategyCompileResponse,
   StrategyEvolutionProposal,
+  StrategyPreviewFlowResponse,
+  StrategyTestRunResponse,
 } from '../../types'
 import { API_BASE, httpClient } from './helpers'
 
@@ -68,6 +71,46 @@ export const strategyApi = {
   async duplicateStrategy(strategyId: string): Promise<Strategy> {
     const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/duplicate`)
     if (!result.success) throw new Error('Failed to duplicate strategy')
+    return result.data!
+  },
+
+  async compileStrategyPrompt(data: {
+    prompt: string
+    ai_model_id: string
+    strategy_id?: string
+    strategy_version?: string
+    persist?: boolean
+  }): Promise<StrategyCompileResponse> {
+    const result = await httpClient.post<StrategyCompileResponse>(
+      `${API_BASE}/strategies/compile`,
+      data
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to compile strategy')
+    return result.data!
+  },
+
+  async previewStrategyFlow(data: {
+    config: StrategyConfig
+  }): Promise<StrategyPreviewFlowResponse> {
+    const result = await httpClient.post<StrategyPreviewFlowResponse>(
+      `${API_BASE}/strategies/preview-flow`,
+      data
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to preview strategy flow')
+    return result.data!
+  },
+
+  async testRunStrategy(data: {
+    config: StrategyConfig
+    prompt_variant?: string
+    ai_model_id: string
+    run_real_ai?: boolean
+  }): Promise<StrategyTestRunResponse> {
+    const result = await httpClient.post<StrategyTestRunResponse>(
+      `${API_BASE}/strategies/test-run`,
+      data
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to run strategy test')
     return result.data!
   },
 

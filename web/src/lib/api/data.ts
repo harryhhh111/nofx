@@ -8,6 +8,10 @@ import type {
   BBMACDConfig,
   CompetitionData,
   PositionHistoryResponse,
+  TradeMemory,
+  ExecutionAnalytics,
+  NofxOSStatus,
+  AI500CoinsResponse,
 } from '../../types'
 import { API_BASE, httpClient } from './helpers'
 
@@ -122,6 +126,62 @@ export const dataApi = {
     )
     if (!result.success) throw new Error(result.message || 'Failed to update BB MACD config')
     return result.data!
+  },
+
+  async getTradeMemories(
+    traderId: string,
+    symbol?: string,
+    limit: number = 20,
+    silent?: boolean
+  ): Promise<TradeMemory[]> {
+    const params = new URLSearchParams()
+    params.append('trader_id', traderId)
+    params.append('limit', limit.toString())
+    if (symbol) params.append('symbol', symbol)
+
+    const result = await httpClient.request<TradeMemory[]>(
+      `${API_BASE}/trade-memories?${params}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch trade memories')
+    return Array.isArray(result.data) ? result.data : []
+  },
+
+  async getExecutionAnalytics(
+    traderId: string,
+    symbol?: string,
+    limit: number = 30,
+    silent?: boolean
+  ): Promise<ExecutionAnalytics[]> {
+    const params = new URLSearchParams()
+    params.append('trader_id', traderId)
+    params.append('limit', limit.toString())
+    if (symbol) params.append('symbol', symbol)
+
+    const result = await httpClient.request<ExecutionAnalytics[]>(
+      `${API_BASE}/execution-analytics?${params}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch execution analytics')
+    return Array.isArray(result.data) ? result.data : []
+  },
+
+  async getNofxOSStatus(silent?: boolean): Promise<NofxOSStatus> {
+    const result = await httpClient.request<NofxOSStatus>(
+      `${API_BASE}/nofxos/status`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch NofxOS status')
+    return result.data || { records: [], count: 0 }
+  },
+
+  async getAI500Coins(limit: number = 20, silent?: boolean): Promise<AI500CoinsResponse> {
+    const result = await httpClient.request<AI500CoinsResponse>(
+      `${API_BASE}/ai500/coins?limit=${limit}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch AI500 coins')
+    return result.data || { coins: [], count: 0 }
   },
 
   async getEquityHistory(traderId?: string, silent?: boolean): Promise<any[]> {

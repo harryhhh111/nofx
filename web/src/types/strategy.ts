@@ -123,6 +123,25 @@ export interface StrategyEvolutionProposal {
   created_at: string;
 }
 
+export interface StrategyCompileResponse {
+  strategy_prompt: string;
+  strategy_mode?: 'rule' | 'scoring' | 'hybrid';
+  compiled_rules?: CompiledStrategyRule[];
+  scoring_config?: ScoringStrategyConfig;
+  resolved_parameters?: ResolvedStrategyParameters;
+  warnings?: string[];
+  errors?: string[];
+  persisted?: boolean;
+}
+
+export interface StrategyPreviewFlowResponse {
+  [key: string]: unknown;
+}
+
+export interface StrategyTestRunResponse {
+  [key: string]: unknown;
+}
+
 export interface StrategyParamChange {
   path: string;
   old_value?: unknown;

@@ -471,6 +471,34 @@ func trendScore(timeframe string, snapshot *market.FactorSnapshot) (float64, boo
 			score -= 30
 		}
 	}
+	if adx, ok := snapshot.IndicatorValue("adx", timeframe, 14); ok {
+		plusDI, hasPlus := snapshot.IndicatorValue("plus_di", timeframe, 14)
+		minusDI, hasMinus := snapshot.IndicatorValue("minus_di", timeframe, 14)
+		if adx >= 20 && hasPlus && hasMinus {
+			used++
+			if plusDI > minusDI {
+				score += 25
+			} else if minusDI > plusDI {
+				score -= 25
+			}
+		}
+	}
+	if sarUptrend, ok := snapshot.IndicatorValue("sar_uptrend", timeframe, 0); ok {
+		used++
+		if sarUptrend >= 0.5 {
+			score += 15
+		} else {
+			score -= 15
+		}
+	}
+	if breakAbove, ok := snapshot.IndicatorValue("break_above_donchian", timeframe, 20); ok && breakAbove >= 0.5 {
+		used++
+		score += 20
+	}
+	if breakBelow, ok := snapshot.IndicatorValue("break_below_donchian", timeframe, 20); ok && breakBelow >= 0.5 {
+		used++
+		score -= 20
+	}
 	if used == 0 {
 		return 0, false
 	}

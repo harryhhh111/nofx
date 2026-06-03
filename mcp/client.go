@@ -55,6 +55,8 @@ type TokenUsage struct {
 // Returns "claw402" or "native" based on the provider.
 func (u TokenUsage) Channel() string {
 	switch u.Provider {
+	case ProviderClaw402:
+		return "claw402"
 	default:
 		return "native"
 	}

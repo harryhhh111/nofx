@@ -182,6 +182,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	// Resolve API key (provider-specific overrides)
 	apiKey := config.CustomAPIKey
 	customURL := config.CustomAPIURL
+	if store.IsClaw402Config(aiModel) {
+		return nil, fmt.Errorf("claw402 is a payment/data channel; configure a real LLM model for trader %s", config.Name)
+	}
 	switch aiModel {
 	case "qwen":
 		if config.QwenKey != "" {
@@ -206,7 +209,6 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		mcpClient = mcp.New()
 	}
 
-	// Payment providers (claw402) ignore customURL
 	mcpClient.SetAPIKey(apiKey, customURL, config.CustomModelName)
 	logger.Infof("🤖 [%s] Using %s AI", config.Name, aiModel)
 
@@ -332,8 +334,6 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	if config.StrategyConfig == nil {
 		return nil, fmt.Errorf("[%s] strategy not configured", config.Name)
 	}
-	// Pass claw402 wallet key to strategy engine so nofxos data requests
-	// are routed through claw402 (reuses the same wallet as AI calls)
 	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig)
 	strategyEngine.SetTraderInfo(config.ID, config.Name)
 	logger.Infof("✓ [%s] Using strategy engine (strategy configuration loaded)", config.Name)
@@ -578,4 +578,3 @@ func calculatePnLPercentage(unrealizedPnl, marginUsed float64) float64 {
 	}
 	return 0.0
 }
-

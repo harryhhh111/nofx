@@ -27,7 +27,8 @@ import {
   Globe,
   FileJson,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel, CompiledStrategyRule, ScoringStrategyConfig, ResolvedStrategyParameters } from '../types'
+import type { Strategy, StrategyConfig, AIModel, StrategyCompileResponse, StrategyEvolutionProposal, AI500CoinsResponse, NofxOSStatus } from '../types'
+import { api } from '../lib/api'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
 import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
@@ -39,17 +40,6 @@ import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
 import { t } from '../i18n/translations'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
-
-interface StrategyCompileResponse {
-  strategy_prompt: string
-  strategy_mode?: 'rule' | 'scoring' | 'hybrid'
-  compiled_rules?: CompiledStrategyRule[]
-  scoring_config?: ScoringStrategyConfig
-  resolved_parameters?: ResolvedStrategyParameters
-  warnings?: string[]
-  errors?: string[]
-  persisted?: boolean
-}
 
 function buildStrategyVersion() {
   const now = new Date()
@@ -93,12 +83,17 @@ export function StrategyStudioPage() {
   })
 
   // Right panel states
-  const [activeRightTab, setActiveRightTab] = useState<'structured' | 'prompt' | 'test'>('structured')
-  const [promptPreview, setPromptPreview] = useState<Record<string, unknown> | null>(null)
-  const [isLoadingPrompt, setIsLoadingPrompt] = useState(false)
+  const [activeRightTab, setActiveRightTab] = useState<'structured' | 'flow' | 'test'>('structured')
+  const [flowPreview, setFlowPreview] = useState<Record<string, unknown> | null>(null)
+  const [isLoadingFlowPreview, setIsLoadingFlowPreview] = useState(false)
   const [selectedVariant, setSelectedVariant] = useState('balanced')
   const [compileResult, setCompileResult] = useState<StrategyCompileResponse | null>(null)
   const [isCompilingStrategy, setIsCompilingStrategy] = useState(false)
+  const [evolutionProposal, setEvolutionProposal] = useState<StrategyEvolutionProposal | null>(null)
+  const [isEvolvingStrategy, setIsEvolvingStrategy] = useState(false)
+  const [ai500Preview, setAI500Preview] = useState<AI500CoinsResponse | null>(null)
+  const [nofxOSStatus, setNofxOSStatus] = useState<NofxOSStatus | null>(null)
+  const [isLoadingDataStatus, setIsLoadingDataStatus] = useState(false)
 
   // AI Test Run states
   const [aiTestResult, setAiTestResult] = useState<Record<string, unknown> | null>(null)
@@ -115,18 +110,11 @@ export function StrategyStudioPage() {
   const fetchAiModels = useCallback(async () => {
     if (!token) return
     try {
-      const response = await fetch(`${API_BASE}/api/models`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (response.ok) {
-        const data = await response.json()
-        // Backend returns an array, not { models: [] }
-        const allModels = Array.isArray(data) ? data : (data.models || [])
-        const enabledModels = allModels.filter((m: AIModel) => m.enabled)
-        setAiModels(enabledModels)
-        if (enabledModels.length > 0 && !selectedModelId) {
-          setSelectedModelId(enabledModels[0].id)
-        }
+      const allModels = await api.getModelConfigs()
+      const enabledModels = allModels.filter((m: AIModel) => m.enabled && m.provider !== 'claw402')
+      setAiModels(enabledModels)
+      if (enabledModels.length > 0 && !selectedModelId) {
+        setSelectedModelId(enabledModels[0].id)
       }
     } catch (err) {
       console.error('Failed to fetch AI models:', err)
@@ -440,27 +428,13 @@ export function StrategyStudioPage() {
     setIsCompilingStrategy(true)
     setCompileResult(null)
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/compile`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          strategy_id: selectedStrategy?.id,
-          strategy_version: buildStrategyVersion(),
-          prompt,
-          ai_model_id: selectedModelId,
-          persist: false,
-        }),
+      const result = await api.compileStrategyPrompt({
+        strategy_id: selectedStrategy?.id,
+        strategy_version: buildStrategyVersion(),
+        prompt,
+        ai_model_id: selectedModelId,
+        persist: false,
       })
-      const data = await response.json().catch(() => ({}))
-      if (!response.ok) {
-        setCompileResult(data as StrategyCompileResponse)
-        setActiveRightTab('structured')
-        throw new Error(data.error || 'Failed to compile strategy')
-      }
-      const result = data as StrategyCompileResponse
       setCompileResult(result)
       setEditingConfig({
         ...editingConfig,
@@ -480,30 +454,19 @@ export function StrategyStudioPage() {
     }
   }
 
-  // Fetch prompt preview
-  const fetchPromptPreview = async () => {
+  // Fetch structured trading flow preview
+  const fetchFlowPreview = async () => {
     if (!token || !editingConfig) return
-    setIsLoadingPrompt(true)
+    setIsLoadingFlowPreview(true)
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/preview-flow`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          config: editingConfig,
-          account_equity: 1000,
-          prompt_variant: selectedVariant,
-        }),
+      const data = await api.previewStrategyFlow({
+        config: editingConfig,
       })
-      if (!response.ok) throw new Error('Failed to fetch prompt preview')
-      const data = await response.json()
-      setPromptPreview(data)
+      setFlowPreview(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
-      setIsLoadingPrompt(false)
+      setIsLoadingFlowPreview(false)
     }
   }
 
@@ -513,21 +476,12 @@ export function StrategyStudioPage() {
     setIsRunningAiTest(true)
     setAiTestResult(null)
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/test-run`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          config: editingConfig,
-          prompt_variant: selectedVariant,
-          ai_model_id: selectedModelId,
-          run_real_ai: true,
-        }),
+      const data = await api.testRunStrategy({
+        config: editingConfig,
+        prompt_variant: selectedVariant,
+        ai_model_id: selectedModelId,
+        run_real_ai: true,
       })
-      if (!response.ok) throw new Error('Failed to run AI test')
-      const data = await response.json()
       setAiTestResult(data)
     } catch (err) {
       setAiTestResult({
@@ -535,6 +489,40 @@ export function StrategyStudioPage() {
       })
     } finally {
       setIsRunningAiTest(false)
+    }
+  }
+
+  const loadDataSourceStatus = async () => {
+    setIsLoadingDataStatus(true)
+    try {
+      const [ai500, nofxos] = await Promise.all([
+        api.getAI500Coins(10, true).catch(() => ({ coins: [], count: 0 })),
+        api.getNofxOSStatus(true).catch(() => ({ records: [], count: 0 })),
+      ])
+      setAI500Preview(ai500)
+      setNofxOSStatus(nofxos)
+    } finally {
+      setIsLoadingDataStatus(false)
+    }
+  }
+
+  const generateEvolutionProposal = async () => {
+    if (!selectedStrategy || !selectedModelId) return
+    setIsEvolvingStrategy(true)
+    setEvolutionProposal(null)
+    try {
+      const proposal = await api.evolveStrategy(selectedStrategy.id, {
+        ai_model_id: selectedModelId,
+        trigger: 'manual',
+        base_version: buildStrategyVersion(),
+        notes: 'Manual Strategy Studio review',
+      })
+      setEvolutionProposal(proposal)
+      setActiveRightTab('structured')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error')
+    } finally {
+      setIsEvolvingStrategy(false)
     }
   }
 
@@ -565,6 +553,16 @@ export function StrategyStudioPage() {
       forStrategyType: 'ai_trading' as const,
       content: editingConfig && (
         <div className="space-y-3">
+          <div className="rounded-lg border border-purple-500/20 bg-purple-500/10 p-3 text-[11px] text-nofx-text-muted">
+            <div className="mb-1 text-xs font-medium text-nofx-text">
+              {language === 'zh' ? '使用流程' : 'Workflow'}
+            </div>
+            <div>
+              {language === 'zh'
+                ? '先写策略意图和指标范围，选择推理模型编译成结构化规则，保存后由程序计算指标并执行；右侧可查看交易流和真实 AI 测试结果。'
+                : 'Describe the strategy intent and indicator scope, compile it into structured rules with the reasoning model, then save. Runtime indicators are calculated by the program; use the right panel to inspect flow and real AI test output.'}
+            </div>
+          </div>
           <textarea
             value={editingConfig.strategy_prompt || ''}
             onChange={(e) => updateStrategyPrompt(e.target.value)}
@@ -612,6 +610,42 @@ export function StrategyStudioPage() {
               <div className="text-nofx-text-muted">{language === 'zh' ? '评分' : 'Scoring'}</div>
               <div className="text-nofx-text font-medium">{editingConfig.scoring_config?.enabled ? 'on' : 'off'}</div>
             </div>
+          </div>
+          <div className="rounded-lg bg-nofx-bg border border-white/10 p-2">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-medium text-nofx-text">
+                  {language === 'zh' ? '数据源状态' : 'Data Sources'}
+                </div>
+                <div className="text-[11px] text-nofx-text-muted">
+                  AI500 / NofxOS live data check
+                </div>
+              </div>
+              <button
+                onClick={loadDataSourceStatus}
+                disabled={isLoadingDataStatus}
+                className="flex items-center gap-1 rounded border border-white/10 px-2 py-1 text-[11px] text-nofx-text hover:border-nofx-gold/40 disabled:opacity-50"
+              >
+                {isLoadingDataStatus ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                {language === 'zh' ? '检查' : 'Check'}
+              </button>
+            </div>
+            {(ai500Preview || nofxOSStatus) && (
+              <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rounded border border-white/10 bg-black/20 p-2">
+                  <div className="text-nofx-text-muted">AI500</div>
+                  <div className="mt-1 font-mono text-nofx-text">
+                    {ai500Preview?.coins?.slice(0, 5).map((coin) => coin.symbol).join(', ') || '--'}
+                  </div>
+                </div>
+                <div className="rounded border border-white/10 bg-black/20 p-2">
+                  <div className="text-nofx-text-muted">NofxOS</div>
+                  <div className="mt-1 font-mono text-nofx-text">
+                    {nofxOSStatus?.count ?? 0} calls
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ),
@@ -806,9 +840,10 @@ export function StrategyStudioPage() {
                     setSelectedStrategy(strategy)
                     setEditingConfig(strategy.config)
                     setHasChanges(false)
-                    setPromptPreview(null)
+                    setFlowPreview(null)
                     setAiTestResult(null)
                     setCompileResult(null)
+                    setEvolutionProposal(null)
                   }}
                   className={`group px-2 py-2 rounded-lg cursor-pointer transition-all ${selectedStrategy?.id === strategy.id
                     ? 'ring-1 ring-nofx-gold/50 bg-nofx-gold/10 shadow-[0_0_15px_rgba(240,185,11,0.1)]'
@@ -1030,7 +1065,7 @@ export function StrategyStudioPage() {
           )}
         </div>
 
-        {/* Right Column - Prompt Preview & AI Test */}
+        {/* Right Column - Structured Flow & AI Test */}
         <div className="w-[420px] flex-shrink-0 flex flex-col overflow-hidden">
           {/* Tabs */}
           <div className="flex-shrink-0 flex border-b border-nofx-gold/20">
@@ -1043,12 +1078,12 @@ export function StrategyStudioPage() {
               {language === 'zh' ? '结构化' : 'Structured'}
             </button>
             <button
-              onClick={() => setActiveRightTab('prompt')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'prompt' ? 'border-b-2 border-purple-500 text-purple-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              onClick={() => setActiveRightTab('flow')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'flow' ? 'border-b-2 border-purple-500 text-purple-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
                 }`}
             >
               <Eye className="w-4 h-4" />
-              {tr('promptPreview')}
+              {language === 'zh' ? '交易流' : 'Flow'}
             </button>
             <button
               onClick={() => setActiveRightTab('test')}
@@ -1100,6 +1135,39 @@ export function StrategyStudioPage() {
                     </ul>
                   </div>
                 )}
+
+                <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium text-nofx-text">
+                        {language === 'zh' ? '策略进化提案' : 'Strategy Evolution'}
+                      </div>
+                      <div className="text-[11px] text-nofx-text-muted">
+                        Proposal only. It will not change live config.
+                      </div>
+                    </div>
+                    <button
+                      onClick={generateEvolutionProposal}
+                      disabled={!selectedStrategy || !selectedModelId || isEvolvingStrategy}
+                      className="flex items-center gap-1 rounded bg-nofx-gold px-2 py-1 text-[11px] font-medium text-black disabled:opacity-50"
+                    >
+                      {isEvolvingStrategy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      {language === 'zh' ? '生成' : 'Generate'}
+                    </button>
+                  </div>
+                  {evolutionProposal && (
+                    <div className="mt-3 rounded border border-white/10 bg-black/20 p-2 text-[11px]">
+                      <div className="font-medium text-nofx-text">{evolutionProposal.summary}</div>
+                      {evolutionProposal.change_reasons && evolutionProposal.change_reasons.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-nofx-text-muted">
+                          {evolutionProposal.change_reasons.slice(0, 3).map((reason, index) => (
+                            <li key={index}>- {reason}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {editingConfig?.compiled_rules && editingConfig.compiled_rules.length > 0 && (
                   <div className="space-y-2">
@@ -1153,41 +1221,32 @@ export function StrategyStudioPage() {
                   </pre>
                 </div>
               </div>
-            ) : activeRightTab === 'prompt' ? (
-              /* Prompt Preview Tab */
+            ) : activeRightTab === 'flow' ? (
+              /* Structured Flow Preview Tab */
               <div className="p-3 space-y-3">
                 {/* Controls */}
                 <div className="flex items-center gap-2 flex-wrap">
-                  <select
-                    value={selectedVariant}
-                    onChange={(e) => setSelectedVariant(e.target.value)}
-                    className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-nofx-gold"
-                  >
-                    <option value="balanced">{tr('balanced')}</option>
-                    <option value="aggressive">{tr('aggressive')}</option>
-                    <option value="conservative">{tr('conservative')}</option>
-                  </select>
                   <button
-                    onClick={fetchPromptPreview}
-                    disabled={isLoadingPrompt || !editingConfig}
+                    onClick={fetchFlowPreview}
+                    disabled={isLoadingFlowPreview || !editingConfig}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-purple-600 hover:bg-purple-700 text-white"
                   >
-                    {isLoadingPrompt ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {promptPreview ? tr('refreshPrompt') : tr('loadPrompt')}
+                    {isLoadingFlowPreview ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    {flowPreview ? (language === 'zh' ? '刷新' : 'Refresh') : (language === 'zh' ? '生成预览' : 'Preview')}
                   </button>
                 </div>
 
-                {promptPreview ? (
+                {flowPreview ? (
                   <pre
                     className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
                     style={{ maxHeight: '520px' }}
                   >
-                    {JSON.stringify(promptPreview, null, 2)}
+                    {JSON.stringify(flowPreview, null, 2)}
                   </pre>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Eye className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-sm">{tr('generatePromptPreview')}</p>
+                    <p className="text-sm">{language === 'zh' ? '生成交易流预览' : 'Generate a trading flow preview'}</p>
                   </div>
                 )}
               </div>

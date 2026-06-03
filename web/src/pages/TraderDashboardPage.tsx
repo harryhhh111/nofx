@@ -22,6 +22,8 @@ import type {
     BBMACDConfig,
     TraderInfo,
     Exchange,
+    TradeMemory,
+    ExecutionAnalytics,
 } from '../types'
 
 // --- Helper Functions ---
@@ -112,6 +114,26 @@ function formatBBMACDSubtitle(stats?: BBMACDAccuracyStats): string {
     return `${label} | raw ${rawAccuracy} | eff>${threshold}% ${stats.breakout_effective.resolved}/${stats.breakout_overall.resolved}`
 }
 
+function formatMillis(value?: number): string {
+    if (!value) return '--'
+    return new Date(value).toLocaleString()
+}
+
+function formatDateTime(value?: string): string {
+    if (!value) return '--'
+    return new Date(value).toLocaleString()
+}
+
+function parseJSONList(value?: string): string[] {
+    if (!value) return []
+    try {
+        const parsed = JSON.parse(value)
+        return Array.isArray(parsed) ? parsed.map(String) : []
+    } catch {
+        return []
+    }
+}
+
 const defaultBBMACDConfig: BBMACDConfig = {
     use_custom: false,
     fast: 8,
@@ -187,6 +209,16 @@ export function TraderDashboardPage({
         'bbmacd-config',
         () => api.getBBMACDConfig(true),
         { refreshInterval: 60000 }
+    )
+    const { data: tradeMemories, error: tradeMemoriesError } = useSWR(
+        selectedTraderId ? `trade-memories-${selectedTraderId}` : null,
+        () => api.getTradeMemories(selectedTraderId!, undefined, 8, true),
+        { refreshInterval: 60000 }
+    )
+    const { data: executionAnalytics, error: executionAnalyticsError } = useSWR(
+        selectedTraderId ? `execution-analytics-${selectedTraderId}` : null,
+        () => api.getExecutionAnalytics(selectedTraderId!, undefined, 10, true),
+        { refreshInterval: 30000 }
     )
 
     useEffect(() => {
@@ -952,6 +984,19 @@ export function TraderDashboardPage({
                     </div>
                 </div>
 
+                {selectedTraderId && (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                        <TradeMemoryPanel
+                            memories={tradeMemories}
+                            failed={Boolean(tradeMemoriesError)}
+                        />
+                        <ExecutionQualityPanel
+                            records={executionAnalytics}
+                            failed={Boolean(executionAnalyticsError)}
+                        />
+                    </div>
+                )}
+
                 {/* Position History Section */}
                 {selectedTraderId && (
                     <div
@@ -969,6 +1014,133 @@ export function TraderDashboardPage({
                 )}
             </div>
         </DeepVoidBackground>
+    )
+}
+
+function TradeMemoryPanel({
+    memories,
+    failed,
+}: {
+    memories?: TradeMemory[]
+    failed: boolean
+}) {
+    return (
+        <div className="nofx-glass p-6 animate-slide-in">
+            <div className="mb-5 flex items-center justify-between border-b border-white/5 pb-4">
+                <div>
+                    <h2 className="text-lg font-bold text-nofx-text-main">Trade Memory</h2>
+                    <p className="mt-1 text-xs text-nofx-text-muted">AI post-trade lessons used by later reviews</p>
+                </div>
+                <span className="rounded border border-white/10 px-2 py-1 text-xs text-nofx-text-muted">
+                    {memories?.length ?? 0}
+                </span>
+            </div>
+
+            {failed ? (
+                <div className="py-10 text-center text-sm text-nofx-text-muted">Failed to load trade memories</div>
+            ) : memories && memories.length > 0 ? (
+                <div className="space-y-3">
+                    {memories.map((memory) => {
+                        const lessons = parseJSONList(memory.lessons_json)
+                        return (
+                            <div key={memory.id} className="rounded-lg border border-white/10 bg-black/20 p-3">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                    <div className="flex items-center gap-2">
+                                        <span className="font-mono text-sm font-semibold text-nofx-text-main">{memory.symbol}</span>
+                                        {memory.result && (
+                                            <span className={`rounded px-2 py-0.5 text-[10px] uppercase ${memory.result === 'win' ? 'bg-nofx-green/10 text-nofx-green' : 'bg-nofx-red/10 text-nofx-red'}`}>
+                                                {memory.result}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <span className="text-[10px] text-nofx-text-muted">{formatDateTime(memory.created_at)}</span>
+                                </div>
+                                <p className="text-xs leading-relaxed text-nofx-text-main">{memory.summary}</p>
+                                {lessons.length > 0 && (
+                                    <div className="mt-2 space-y-1">
+                                        {lessons.slice(0, 2).map((lesson, index) => (
+                                            <div key={index} className="text-[11px] text-nofx-text-muted">
+                                                - {lesson}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
+                                    <span>pnl {memory.outcome_pnl_pct?.toFixed(2) ?? '--'}%</span>
+                                    <span>quality {memory.quality_score?.toFixed(2) ?? '--'}</span>
+                                    <span>conf {memory.confidence?.toFixed(2) ?? '--'}</span>
+                                </div>
+                            </div>
+                        )
+                    })}
+                </div>
+            ) : (
+                <div className="py-10 text-center text-sm text-nofx-text-muted">No trade memory yet</div>
+            )}
+        </div>
+    )
+}
+
+function ExecutionQualityPanel({
+    records,
+    failed,
+}: {
+    records?: ExecutionAnalytics[]
+    failed: boolean
+}) {
+    return (
+        <div className="nofx-glass p-6 animate-slide-in">
+            <div className="mb-5 flex items-center justify-between border-b border-white/5 pb-4">
+                <div>
+                    <h2 className="text-lg font-bold text-nofx-text-main">Execution Quality</h2>
+                    <p className="mt-1 text-xs text-nofx-text-muted">Slippage, fill ratio, and order timing</p>
+                </div>
+                <span className="rounded border border-white/10 px-2 py-1 text-xs text-nofx-text-muted">
+                    {records?.length ?? 0}
+                </span>
+            </div>
+
+            {failed ? (
+                <div className="py-10 text-center text-sm text-nofx-text-muted">Failed to load execution analytics</div>
+            ) : records && records.length > 0 ? (
+                <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                        <thead className="border-b border-white/5 text-left text-nofx-text-muted">
+                            <tr>
+                                <th className="pb-2">Symbol</th>
+                                <th className="pb-2">Action</th>
+                                <th className="pb-2 text-right">Slip</th>
+                                <th className="pb-2 text-right">Fill</th>
+                                <th className="pb-2 text-right">Spread</th>
+                                <th className="pb-2 text-right">Time</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {records.map((record) => (
+                                <tr key={record.id} className="border-b border-white/5 last:border-0">
+                                    <td className="py-2 font-mono font-semibold text-nofx-text-main">{record.symbol}</td>
+                                    <td className="py-2 text-nofx-text-muted">{record.action}</td>
+                                    <td className={`py-2 text-right font-mono ${(record.realized_slippage_bps ?? 0) <= 0 ? 'text-nofx-green' : 'text-nofx-red'}`}>
+                                        {record.realized_slippage_bps?.toFixed(2) ?? '--'} bps
+                                    </td>
+                                    <td className="py-2 text-right font-mono text-nofx-text-main">
+                                        {record.partial_fill_ratio !== undefined ? `${(record.partial_fill_ratio * 100).toFixed(0)}%` : '--'}
+                                    </td>
+                                    <td className="py-2 text-right font-mono text-nofx-text-muted">
+                                        {record.spread_bps?.toFixed(2) ?? '--'}
+                                    </td>
+                                    <td className="py-2 text-right text-[10px] text-nofx-text-muted">
+                                        {formatMillis(record.order_submitted_at)}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <div className="py-10 text-center text-sm text-nofx-text-muted">No execution records yet</div>
+            )}
+        </div>
     )
 }
 

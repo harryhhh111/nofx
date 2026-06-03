@@ -202,14 +202,14 @@ func (s *Server) findConfiguredClaw402ModelID(userID string) (string, error) {
 
 func walletAddressFromPrivateKey(privateKey string) (string, error) {
 	key := strings.TrimSpace(privateKey)
-	if !strings.HasPrefix(key, "0x") {
-		return "", fmt.Errorf("private key must start with 0x")
+	if strings.HasPrefix(key, "0x") || strings.HasPrefix(key, "0X") {
+		key = key[2:]
 	}
-	if len(key) != 66 {
-		return "", fmt.Errorf("private key must be 66 characters")
+	if len(key) != 64 {
+		return "", fmt.Errorf("private key must be 64 hex characters")
 	}
 
-	privateKeyObj, err := gethcrypto.HexToECDSA(strings.TrimPrefix(key, "0x"))
+	privateKeyObj, err := gethcrypto.HexToECDSA(key)
 	if err != nil {
 		return "", err
 	}

@@ -111,6 +111,7 @@ Rules:
 - Close and wait actions must include confidence.
 - For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_confidence, timeframe, execution.
 - Supported scoring factors: trend, momentum, structure, derivatives.
+- Supported indicator operands: price, ema, sma, rsi, atr, adx, plus_di, minus_di, sar, sar_uptrend, sar_flip_up, sar_flip_down, boll_upper, boll_middle, boll_lower, macd, macd_signal, macd_histogram, volume, volume_avg, volume_ratio, vwap, donchian_upper, donchian_lower, donchian_middle, break_above_donchian, break_below_donchian, price_change, realized_vol, session_open, session_high, session_low, session_close, session_volume, bars_since_session_open, prev_session_high, prev_session_low, prev_session_close, prev_session_volume, break_above_prev_session_high, break_below_prev_session_low.
 - If the prompt lacks required execution parameters, put a clear message in errors instead of guessing.
 - Fibonacci, support, and resistance are supported by the structure engine. Use structure operands or structure scoring; do not ask for manual anchors unless the user explicitly requires custom anchors.
 `)
@@ -256,9 +257,16 @@ func isSupportedOperandName(operand RuleOperand) bool {
 	switch operand.Kind {
 	case "indicator":
 		switch name {
-		case "price", "ema", "rsi", "atr", "boll_upper", "boll_middle", "boll_lower",
+		case "price", "ema", "sma", "rsi", "atr", "adx", "plus_di", "minus_di",
+			"sar", "sar_uptrend", "sar_flip_up", "sar_flip_down",
+			"boll_upper", "boll_middle", "boll_lower",
 			"macd", "macd_signal", "macd_histogram", "volume", "volume_avg", "volume_ratio",
-			"vwap", "donchian_upper", "donchian_lower", "price_change", "realized_vol":
+			"vwap", "donchian_upper", "donchian_lower", "donchian_middle",
+			"break_above_donchian", "break_below_donchian",
+			"price_change", "realized_vol",
+			"session_open", "session_high", "session_low", "session_close", "session_volume",
+			"bars_since_session_open", "prev_session_high", "prev_session_low", "prev_session_close",
+			"prev_session_volume", "break_above_prev_session_high", "break_below_prev_session_low":
 			return true
 		default:
 			return false

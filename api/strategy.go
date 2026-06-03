@@ -986,6 +986,9 @@ func (s *Server) createAIClientForModel(userID, modelID string) (mcp.AIClient, e
 
 	// Create AI client via registry
 	provider := model.Provider
+	if provider == "claw402" {
+		return nil, fmt.Errorf("claw402 is a payment/data channel and cannot be used as the LLM reasoning model")
+	}
 	apiKey := string(model.APIKey)
 
 	aiClient := mcp.NewAIClientByProvider(provider)
@@ -993,13 +996,7 @@ func (s *Server) createAIClientForModel(userID, modelID string) (mcp.AIClient, e
 		aiClient = mcp.NewClient()
 	}
 
-	// Payment providers ignore custom URL
-	switch provider {
-	case "claw402":
-		aiClient.SetAPIKey(apiKey, "", model.CustomModelName)
-	default:
-		aiClient.SetAPIKey(apiKey, model.CustomAPIURL, model.CustomModelName)
-	}
+	aiClient.SetAPIKey(apiKey, model.CustomAPIURL, model.CustomModelName)
 
 	return aiClient, nil
 }

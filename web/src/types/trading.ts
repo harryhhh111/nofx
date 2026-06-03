@@ -149,6 +149,88 @@ export interface BBMACDAccuracyStats {
 }
 
 // AI Trading鐩稿叧绫诲瀷
+export interface TradeMemory {
+  id: number
+  trader_id: string
+  strategy_id?: string
+  strategy_version?: string
+  symbol: string
+  side?: string
+  action?: string
+  scope: string
+  source_type: string
+  signal_id?: string
+  decision_id?: number
+  position_id?: number
+  result?: string
+  outcome_pnl?: number
+  outcome_pnl_pct?: number
+  summary: string
+  evidence?: string
+  lessons_json?: string
+  tags_json?: string
+  quality_score: number
+  confidence: number
+  expires_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ExecutionAnalytics {
+  id: number
+  trader_id: string
+  exchange_id?: string
+  exchange_type?: string
+  symbol: string
+  action: string
+  exchange_order_id?: string
+  signal_generated_at?: number
+  order_submitted_at?: number
+  first_fill_at?: number
+  final_fill_at?: number
+  intended_price?: number
+  intended_quantity?: number
+  submitted_quantity?: number
+  filled_quantity?: number
+  avg_fill_price?: number
+  best_bid?: number
+  best_ask?: number
+  spread_bps?: number
+  expected_slippage_bps?: number
+  realized_slippage_bps?: number
+  partial_fill_ratio?: number
+  status: string
+  error_message?: string
+  created_at: number
+  updated_at: number
+}
+
+export interface NofxOSCallRecord {
+  path?: string
+  url?: string
+  status?: number
+  cost?: string
+  started_at?: string
+  finished_at?: string
+  error?: string
+  [key: string]: unknown
+}
+
+export interface NofxOSStatus {
+  records: NofxOSCallRecord[]
+  count: number
+}
+
+export interface AI500Coin {
+  symbol: string
+  [key: string]: unknown
+}
+
+export interface AI500CoinsResponse {
+  coins: AI500Coin[]
+  count: number
+}
+
 export interface TraderInfo {
   trader_id: string
   trader_name: string
