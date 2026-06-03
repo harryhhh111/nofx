@@ -226,13 +226,14 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		data, err := market.GetWithTimeframesWindow(coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for %s: %v", coin.Symbol, err)
+			ctx.DataFetchErrors = append(ctx.DataFetchErrors, fmt.Sprintf("%s: market data fetch failed", coin.Symbol))
 			continue
 		}
 
 		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance)
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
-		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
+		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.OpenInterest.Latest > 0 && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 			if oiValueInMillions < minOIThresholdMillions {
