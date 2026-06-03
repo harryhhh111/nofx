@@ -617,13 +617,23 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	// BTC market
 	if btcData, hasBTC := ctx.MarketDataMap["BTCUSDT"]; hasBTC {
 		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("BTC: %.2f（1h: %+.2f%%, 4h: %+.2f%%） | MACD: %.4f | RSI: %.2f\n\n",
-				btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
-				btcData.CurrentMACD, btcData.CurrentRSI7))
+			sb.WriteString(fmt.Sprintf("BTC: %.2f（1h: %+.2f%%, 4h: %+.2f%%）", btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h))
+			if e.config.Indicators.EnableMACD {
+				sb.WriteString(fmt.Sprintf(" | MACD: %.4f", btcData.CurrentMACD))
+			}
+			if e.config.Indicators.EnableRSI {
+				sb.WriteString(fmt.Sprintf(" | RSI: %.2f", btcData.CurrentRSI7))
+			}
+			sb.WriteString("\n\n")
 		} else {
-			sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%) | MACD: %.4f | RSI: %.2f\n\n",
-				btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h,
-				btcData.CurrentMACD, btcData.CurrentRSI7))
+			sb.WriteString(fmt.Sprintf("BTC: %.2f (1h: %+.2f%%, 4h: %+.2f%%)", btcData.CurrentPrice, btcData.PriceChange1h, btcData.PriceChange4h))
+			if e.config.Indicators.EnableMACD {
+				sb.WriteString(fmt.Sprintf(" | MACD: %.4f", btcData.CurrentMACD))
+			}
+			if e.config.Indicators.EnableRSI {
+				sb.WriteString(fmt.Sprintf(" | RSI: %.2f", btcData.CurrentRSI7))
+			}
+			sb.WriteString("\n\n")
 		}
 	}
 

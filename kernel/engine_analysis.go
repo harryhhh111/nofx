@@ -231,13 +231,15 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		data, err := market.GetWithTimeframes(coin.Symbol, timeframes, primaryTimeframe, klineCount, config.Indicators.SMAPeriods...)
 		if err != nil {
 			logger.Infof("⚠️  Failed to fetch market data for %s: %v", coin.Symbol, err)
+			ctx.DataFetchErrors = append(ctx.DataFetchErrors, fmt.Sprintf("%s: market data fetch failed", coin.Symbol))
 			continue
 		}
 
 		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance)
+		// Also skip when OI data is unavailable (Latest <= 0 means fetch failure)
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
-		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
+		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.OpenInterest.Latest > 0 && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 			if oiValueInMillions < minOIThresholdMillions {
@@ -259,6 +261,12 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 // ============================================================================
 
 func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64, minSLDistances map[string]float64) (*FullDecision, error) {
+	// Detect truncated response: if AI started outputting (<reasoning> present)
+	// but never closed the response (</decision> missing)
+	if strings.Contains(aiResponse, "<reasoning>") && !strings.Contains(aiResponse, "</decision>") {
+		return nil, fmt.Errorf("AI response appears truncated: missing </decision> tag")
+	}
+
 	cotTrace := extractCoTTrace(aiResponse)
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 
