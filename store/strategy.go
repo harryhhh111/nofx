@@ -860,12 +860,12 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
 			EnableRawKlines:        true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:              false,
+			EnableEMA:              true,  // Core trend indicator
 			EnableSMA:              false,
 			EnableMACD:             false,
 			EnableRSI:              false,
-			EnableATR:              false,
-			EnableADX:              false,
+			EnableATR:              true,  // Stop-loss sizing
+			EnableADX:              true,  // Trend strength confirmation
 			EnableSAR:              false,
 			EnableBOLL:             false,
 			EnableSession:          false,
@@ -909,9 +909,9 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			AltcoinMaxPositionValueRatio: 1.0,
 			MaxMarginUsage:               0.9,
 			MinPositionSize:              12,
-			MinRiskRewardRatio:           3.0,
+			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
-			MinCloseConfidence:           DefaultMinCloseConfidence,
+			MinCloseConfidence:           75,  // Lowered from 85 to allow more flexible exits
 		},
 	}
 	config.ClampLimits()
