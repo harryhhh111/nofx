@@ -25,8 +25,6 @@ const (
 	DefaultMinCloseConfidence = 85
 	MinMinCloseConfidence     = 70
 	MaxMinCloseConfidence     = 95
-
-	DefaultMinScoringAvailableWeightRatio = 0.5
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -37,7 +35,6 @@ func (c *StrategyConfig) ClampLimits() {
 	if c.StrategyMode != "rule" && c.StrategyMode != "scoring" && c.StrategyMode != "hybrid" {
 		c.StrategyMode = "rule"
 	}
-	c.normalizeCoinSource()
 
 	// Clamp coin source limits
 	if c.CoinSource.AI500Limit > MaxCandidateCoins {
@@ -195,56 +192,6 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	}
 }
 
-func (c *StrategyConfig) normalizeCoinSource() {
-	switch c.CoinSource.SourceType {
-	case "":
-		c.CoinSource.SourceType = "ai500"
-		c.CoinSource.UseAI500 = true
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
-	case "static":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
-	case "ai500":
-		c.CoinSource.UseAI500 = true
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
-	case "oi_top":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = true
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
-	case "oi_low":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = true
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
-	case "hyper_all":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = true
-		c.CoinSource.UseHyperMain = false
-	case "hyper_main":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = true
-	case "mixed":
-		// Mixed mode intentionally preserves the individual source toggles.
-	}
-}
-
 func sanitizeIndicatorPeriods(values []int, defaults []int) []int {
 	out := make([]int, 0, len(values))
 	seen := map[int]bool{}
@@ -326,12 +273,6 @@ func (c *StrategyConfig) clampScoringConfig() {
 	}
 	if c.ScoringConfig.ShortThreshold < -100 {
 		c.ScoringConfig.ShortThreshold = -100
-	}
-	if c.ScoringConfig.MinAvailableWeightRatio < DefaultMinScoringAvailableWeightRatio {
-		c.ScoringConfig.MinAvailableWeightRatio = DefaultMinScoringAvailableWeightRatio
-	}
-	if c.ScoringConfig.MinAvailableWeightRatio > 1 {
-		c.ScoringConfig.MinAvailableWeightRatio = 1
 	}
 	if c.ScoringConfig.MinConfidence <= 0 {
 		c.ScoringConfig.MinConfidence = c.RiskControl.MinConfidence
@@ -596,7 +537,7 @@ type CompiledRuleCondition struct {
 }
 
 type CompiledRuleOperand struct {
-	Kind      string  `json:"kind"` // indicator, external_factor, structure, literal/value
+	Kind      string  `json:"kind"` // indicator, external_factor, structure, literal
 	Name      string  `json:"name,omitempty"`
 	Timeframe string  `json:"timeframe,omitempty"`
 	Period    int     `json:"period,omitempty"`
@@ -605,16 +546,15 @@ type CompiledRuleOperand struct {
 }
 
 type ScoringStrategyConfig struct {
-	Enabled                 bool                  `json:"enabled"`
-	SelectedFactors         []string              `json:"selected_factors,omitempty"`
-	FactorWeights           map[string]float64    `json:"factor_weights,omitempty"`
-	LongThreshold           float64               `json:"long_threshold,omitempty"`
-	ShortThreshold          float64               `json:"short_threshold,omitempty"`
-	MinAvailableWeightRatio float64               `json:"min_available_weight_ratio,omitempty"`
-	MinConfidence           int                   `json:"min_confidence,omitempty"`
-	Timeframe               string                `json:"timeframe,omitempty"`
-	Symbols                 []string              `json:"symbols,omitempty"`
-	Execution               CompiledRuleExecution `json:"execution"`
+	Enabled         bool                  `json:"enabled"`
+	SelectedFactors []string              `json:"selected_factors,omitempty"`
+	FactorWeights   map[string]float64    `json:"factor_weights,omitempty"`
+	LongThreshold   float64               `json:"long_threshold,omitempty"`
+	ShortThreshold  float64               `json:"short_threshold,omitempty"`
+	MinConfidence   int                   `json:"min_confidence,omitempty"`
+	Timeframe       string                `json:"timeframe,omitempty"`
+	Symbols         []string              `json:"symbols,omitempty"`
+	Execution       CompiledRuleExecution `json:"execution"`
 }
 
 type StructureFactorConfig struct {
@@ -711,7 +651,7 @@ type CoinSourceConfig struct {
 type IndicatorConfig struct {
 	// K-line configuration
 	Klines KlineConfig `json:"klines"`
-	// raw kline data (OHLCV) - always enabled for deterministic indicator computation
+	// raw kline data (OHLCV) - always enabled, required for AI analysis
 	EnableRawKlines bool `json:"enable_raw_klines"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
@@ -919,13 +859,13 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
-			EnableRawKlines:        true, // Required for deterministic OHLCV-derived indicator computation
-			EnableEMA:              false,
+			EnableRawKlines:        true, // Required - raw OHLCV data for AI analysis
+			EnableEMA:              true,  // Core trend indicator
 			EnableSMA:              false,
 			EnableMACD:             false,
 			EnableRSI:              false,
-			EnableATR:              false,
-			EnableADX:              false,
+			EnableATR:              true,  // Stop-loss sizing
+			EnableADX:              true,  // Trend strength confirmation
 			EnableSAR:              false,
 			EnableBOLL:             false,
 			EnableSession:          false,
@@ -946,7 +886,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			DonchianPeriods:        []int{20},
 			RealizedVolPeriods:     []int{20},
 			PriceChangeWindows:     []int{12, 48},
-			NofxOSAPIKey:           "",
+			NofxOSAPIKey:           "cm_568c67eae410d912c54c",
 			EnableQuantData:        true,
 			EnableQuantOI:          true,
 			EnableQuantNetflow:     true,
@@ -969,9 +909,9 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			AltcoinMaxPositionValueRatio: 1.0,
 			MaxMarginUsage:               0.9,
 			MinPositionSize:              12,
-			MinRiskRewardRatio:           3.0,
+			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
-			MinCloseConfidence:           DefaultMinCloseConfidence,
+			MinCloseConfidence:           75,  // Lowered from 85 to allow more flexible exits
 		},
 	}
 	config.ClampLimits()
