@@ -73,6 +73,44 @@ export function CoinSourceEditor({
 
   const MAX_STATIC_COINS = 10
 
+  const formatSymbol = (rawSymbol: string): string => {
+    const symbol = rawSymbol.toUpperCase().trim()
+    if (!symbol) return ''
+
+    if (isXyzDexAsset(symbol)) {
+      const base = symbol.replace(/^xyz:/i, '').replace(/USDT$|USD$|-USDC$/i, '')
+      return `xyz:${base}`
+    }
+
+    return symbol.endsWith('USDT') ? symbol : `${symbol}USDT`
+  }
+
+  const parseCoinInput = (rawInput: string): string[] => {
+    const seen = new Set<string>()
+    return rawInput
+      .split(/[\s,;，；]+/)
+      .map(formatSymbol)
+      .filter((symbol) => {
+        if (!symbol || seen.has(symbol)) return false
+        seen.add(symbol)
+        return true
+      })
+  }
+
+  const buildSourceTypeConfig = (sourceType: CoinSourceConfig['source_type']): CoinSourceConfig => {
+    if (sourceType === 'mixed') {
+      return { ...config, source_type: sourceType }
+    }
+
+    return {
+      ...config,
+      source_type: sourceType,
+      use_ai500: sourceType === 'ai500',
+      use_oi_top: sourceType === 'oi_top',
+      use_oi_low: sourceType === 'oi_low',
+    }
+  }
+
   const showToast = (msg: string) => {
     const toast = document.createElement('div')
     toast.textContent = msg
@@ -86,27 +124,21 @@ export function CoinSourceEditor({
     if (!newCoin.trim()) return
 
     const currentCoins = config.static_coins || []
-    if (currentCoins.length >= MAX_STATIC_COINS) {
+    const availableSlots = MAX_STATIC_COINS - currentCoins.length
+    if (availableSlots <= 0) {
       showToast(language === 'zh' ? `最多添加 ${MAX_STATIC_COINS} 个币种` : `Maximum ${MAX_STATIC_COINS} coins allowed`)
       return
     }
 
-    const symbol = newCoin.toUpperCase().trim()
+    const existing = new Set(currentCoins)
+    const symbols = parseCoinInput(newCoin)
+      .filter((symbol) => !existing.has(symbol))
+      .slice(0, availableSlots)
 
-    // For xyz dex assets (stocks, forex, commodities), use xyz: prefix without USDT
-    let formattedSymbol: string
-    if (isXyzDexAsset(symbol)) {
-      // Remove xyz: prefix (case-insensitive) and any USD suffixes
-      const base = symbol.replace(/^xyz:/i, '').replace(/USDT$|USD$|-USDC$/i, '')
-      formattedSymbol = `xyz:${base}`
-    } else {
-      formattedSymbol = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`
-    }
-
-    if (!currentCoins.includes(formattedSymbol)) {
+    if (symbols.length > 0) {
       onChange({
         ...config,
-        static_coins: [...currentCoins, formattedSymbol],
+        static_coins: [...currentCoins, ...symbols],
       })
     }
     setNewCoin('')
@@ -121,22 +153,15 @@ export function CoinSourceEditor({
 
   const handleAddExcludedCoin = () => {
     if (!newExcludedCoin.trim()) return
-    const symbol = newExcludedCoin.toUpperCase().trim()
-
-    // For xyz dex assets, use xyz: prefix without USDT
-    let formattedSymbol: string
-    if (isXyzDexAsset(symbol)) {
-      const base = symbol.replace(/^xyz:/i, '').replace(/USDT$|USD$|-USDC$/i, '')
-      formattedSymbol = `xyz:${base}`
-    } else {
-      formattedSymbol = symbol.endsWith('USDT') ? symbol : `${symbol}USDT`
-    }
 
     const currentExcluded = config.excluded_coins || []
-    if (!currentExcluded.includes(formattedSymbol)) {
+    const existing = new Set(currentExcluded)
+    const symbols = parseCoinInput(newExcludedCoin).filter((symbol) => !existing.has(symbol))
+
+    if (symbols.length > 0) {
       onChange({
         ...config,
-        excluded_coins: [...currentExcluded, formattedSymbol],
+        excluded_coins: [...currentExcluded, ...symbols],
       })
     }
     setNewExcludedCoin('')
@@ -169,10 +194,7 @@ export function CoinSourceEditor({
           {sourceTypes.map(({ value, icon: Icon, color }) => (
             <button
               key={value}
-              onClick={() =>
-                !disabled &&
-                onChange({ ...config, source_type: value as CoinSourceConfig['source_type'] })
-              }
+              onClick={() => !disabled && onChange(buildSourceTypeConfig(value as CoinSourceConfig['source_type']))}
               disabled={disabled}
               className={`p-4 rounded-lg border transition-all ${config.source_type === value
                 ? 'ring-2 ring-nofx-gold bg-nofx-gold/10'
@@ -222,6 +244,7 @@ export function CoinSourceEditor({
                 value={newCoin}
                 onChange={(e) => setNewCoin(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddCoin()}
+                aria-label={language === 'zh' ? '添加自定义币种' : 'Add custom coins'}
                 placeholder="BTC, ETH, SOL..."
                 className="flex-1 px-4 py-2 rounded-lg bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
               />
@@ -278,6 +301,7 @@ export function CoinSourceEditor({
               value={newExcludedCoin}
               onChange={(e) => setNewExcludedCoin(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddExcludedCoin()}
+              aria-label={language === 'zh' ? '添加排除币种' : 'Add excluded coins'}
               placeholder="BTC, ETH, DOGE..."
               className="flex-1 px-4 py-2 rounded-lg text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
             />
@@ -638,6 +662,7 @@ export function CoinSourceEditor({
                       if (e.key === 'Enter') handleAddCoin()
                     }}
                     onClick={(e) => e.stopPropagation()}
+                    aria-label={language === 'zh' ? '添加自定义币种' : 'Add custom coins'}
                     placeholder="BTC, ETH..."
                     className="flex-1 px-2 py-1 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
                   />

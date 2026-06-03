@@ -16,6 +16,10 @@ import (
 
 // getKlinesFromCoinAnk fetches kline data from CoinAnk API (replacement for WSMonitorCli)
 func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline, error) {
+	return getKlinesFromCoinAnkContext(context.Background(), symbol, interval, exchange, limit)
+}
+
+func getKlinesFromCoinAnkContext(ctx context.Context, symbol, interval, exchange string, limit int) ([]Kline, error) {
 	// Map interval string to coinank enum
 	var coinankInterval coinank_enum.Interval
 	switch interval {
@@ -74,7 +78,6 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 	}
 
 	// Call CoinAnk free/open API (no authentication required)
-	ctx := context.Background()
 	ts := time.Now().UnixMilli()
 	// Use "To" side to search backward from current time (get historical klines)
 	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
@@ -114,6 +117,10 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 
 // getKlinesFromHyperliquid fetches kline data from Hyperliquid API for xyz dex assets
 func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, error) {
+	return getKlinesFromHyperliquidContext(context.Background(), symbol, interval, limit)
+}
+
+func getKlinesFromHyperliquidContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	// Remove xyz: prefix if present for the API call
 	baseCoin := strings.TrimPrefix(symbol, "xyz:")
 
@@ -124,7 +131,6 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 	client := hyperliquid.NewClient()
 
 	// Fetch candles
-	ctx := context.Background()
 	candles, err := client.GetCandles(ctx, baseCoin, hlInterval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("Hyperliquid API error: %w", err)
@@ -160,12 +166,12 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int, smaPe
 	}
 
 	data := &TimeframeSeriesData{
-		Timeframe:   timeframe,
-		ComputeBars: append([]Kline(nil), klines...),
-		Klines:      make([]KlineBar, 0, count),
-		MidPrices:   make([]float64, 0, count),
-		EMA20Values: make([]float64, 0, count),
-		EMA50Values: make([]float64, 0, count),
+		Timeframe:     timeframe,
+		ComputeBars:   append([]Kline(nil), klines...),
+		Klines:        make([]KlineBar, 0, count),
+		MidPrices:     make([]float64, 0, count),
+		EMA20Values:   make([]float64, 0, count),
+		EMA50Values:   make([]float64, 0, count),
 		SMAValues:     make(map[int][]float64),
 		ADXValues:     make([]float64, 0, count),
 		PlusDIValues:  make([]float64, 0, count),
@@ -343,8 +349,8 @@ func parseTimeframeToMinutes(tf string) int {
 // calculateIntradaySeries calculates intraday series data
 func calculateIntradaySeries(klines []Kline, smaPeriods ...int) *IntradayData {
 	data := &IntradayData{
-		MidPrices:   make([]float64, 0, 10),
-		EMA20Values: make([]float64, 0, 10),
+		MidPrices:     make([]float64, 0, 10),
+		EMA20Values:   make([]float64, 0, 10),
 		SMAValues:     make(map[int][]float64),
 		ADXValues:     make([]float64, 0, 10),
 		PlusDIValues:  make([]float64, 0, 10),

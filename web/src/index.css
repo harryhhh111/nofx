@@ -294,15 +294,19 @@ body {
   color: var(--text-primary) !important;
   box-shadow: var(--shadow-lg) !important;
   border-radius: 6px !important;
+  max-width: min(92vw, 560px) !important;
+  white-space: normal !important;
 }
 
 .nofx-toast .sonner-title {
   color: var(--text-primary) !important;
   font-weight: 700;
+  line-height: 1.45;
 }
 
 .nofx-toast .sonner-description {
   color: var(--text-secondary) !important;
+  line-height: 1.45;
 }
 
 /* Success / Error / Warning tint */
@@ -940,14 +944,16 @@ tr:hover {
 
 /* Holographic overlay effect */
 .holo-overlay {
-  /* Complex gradient + noise for texture */
+  /* Complex gradient + local texture */
   background:
-    url('https://grainy-gradients.vercel.app/noise.svg'),
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px),
+    radial-gradient(circle at 70% 60%, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px),
     conic-gradient(from 0deg at 50% 50%,
       rgba(240, 185, 11, 0.1) 0deg,
       rgba(0, 240, 255, 0.1) 120deg,
       rgba(240, 185, 11, 0.1) 240deg,
       rgba(240, 185, 11, 0.1) 360deg);
   mix-blend-mode: overlay;
-  background-blend-mode: overlay, normal;
+  background-size: 18px 18px, 27px 27px, auto;
+  background-blend-mode: overlay, overlay, normal;
 }

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import useSWR from 'swr'
+import useSWR, { mutate } from 'swr'
 import { api } from './lib/api'
 import { TraderDashboardPage } from './pages/TraderDashboardPage'
 
@@ -137,12 +137,16 @@ function App() {
   const [accountPollOff, setAccountPollOff] = useState(false)
   const [positionsPollOff, setPositionsPollOff] = useState(false)
   const [decisionsPollOff, setDecisionsPollOff] = useState(false)
+  const lastDecisionCycleRef = useRef<Record<string, number>>({})
 
   // Reset poll-off states when trader changes
   useEffect(() => {
     setAccountPollOff(false)
     setPositionsPollOff(false)
     setDecisionsPollOff(false)
+    if (selectedTraderId) {
+      delete lastDecisionCycleRef.current[selectedTraderId]
+    }
   }, [selectedTraderId])
 
   // 监听URL变化，同步页面状态
@@ -289,9 +293,9 @@ function App() {
       : null,
     () => api.getLatestDecisions(selectedTraderId, decisionsLimit, true),
     {
-      refreshInterval: decisionsPollOff ? 0 : 30000,
+      refreshInterval: 0,
       revalidateOnFocus: false,
-      dedupingInterval: 20000,
+      dedupingInterval: 1000,
       onErrorRetry: (_err, _key, _config, revalidate, { retryCount }) => {
         if (retryCount >= 2) { setDecisionsPollOff(true); return }
         setTimeout(() => revalidate({ retryCount }), 500)
@@ -299,6 +303,21 @@ function App() {
       onSuccess: () => { if (decisionsPollOff) setDecisionsPollOff(false) },
     }
   )
+
+  useEffect(() => {
+    if (!selectedTraderId || !status || currentPage !== 'trader' || decisionsPollOff) {
+      return
+    }
+    const currentCycle = Number(status.call_count || 0)
+    if (currentCycle <= 0) {
+      return
+    }
+    const previousCycle = lastDecisionCycleRef.current[selectedTraderId]
+    lastDecisionCycleRef.current[selectedTraderId] = currentCycle
+    if (previousCycle !== undefined && currentCycle > previousCycle) {
+      mutate(`decisions/latest-${selectedTraderId}-${decisionsLimit}`)
+    }
+  }, [currentPage, decisionsLimit, decisionsPollOff, selectedTraderId, status])
 
   const { data: stats } = useSWR<Statistics>(
     currentPage === 'trader' && selectedTraderId

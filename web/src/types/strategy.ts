@@ -101,6 +101,7 @@ export interface ScoringStrategyConfig {
   factor_weights?: Record<string, number>;
   long_threshold?: number;
   short_threshold?: number;
+  min_available_weight_ratio?: number;
   min_confidence?: number;
   timeframe?: string;
   symbols?: string[];
@@ -140,6 +141,33 @@ export interface StrategyPreviewFlowResponse {
 
 export interface StrategyTestRunResponse {
   [key: string]: unknown;
+}
+
+export interface StrategyMetadataTimeframe {
+  value: string;
+  label: string;
+  category: string;
+}
+
+export interface StrategyMetadataIndicator {
+  key: keyof IndicatorConfig;
+  label: string;
+  desc: string;
+  color: string;
+  period_key?: keyof IndicatorConfig;
+  default_periods?: number[];
+  operands?: string[];
+}
+
+export interface StrategyMetadata {
+  timeframes: StrategyMetadataTimeframe[];
+  technical_indicators: StrategyMetadataIndicator[];
+  always_calculated_indicators?: string[];
+  indicator_operands: string[];
+  structure_operands: string[];
+  external_factors: string[];
+  external_factor_prefixes: string[];
+  scoring_factors: string[];
 }
 
 export interface StrategyParamChange {
@@ -225,7 +253,7 @@ export interface CoinSourceConfig {
 
 export interface IndicatorConfig {
   klines: KlineConfig;
-  // Raw OHLCV kline data - required for AI analysis
+  // Raw OHLCV kline data - required for deterministic indicator computation
   enable_raw_klines: boolean;
   // Technical indicators (optional)
   enable_ema: boolean;

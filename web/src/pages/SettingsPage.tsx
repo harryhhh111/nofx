@@ -18,7 +18,7 @@ import type { Exchange, AIModel } from '../types'
 type Tab = 'account' | 'models' | 'exchanges' | 'telegram'
 
 export function SettingsPage() {
-  const { user } = useAuth()
+  const { user, token } = useAuth()
   const { language } = useLanguage()
   const [activeTab, setActiveTab] = useState<Tab>('account')
   const [userMode, setUserModeState] = useState<UserMode>(() => getUserMode() ?? 'advanced')
@@ -65,13 +65,17 @@ export function SettingsPage() {
       toast.error('Password must be at least 8 characters')
       return
     }
+    if (!token) {
+      toast.error('Login session expired, please sign in again')
+      return
+    }
     setChangingPassword(true)
     try {
       const res = await fetch('/api/user/password', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ new_password: newPassword }),
       })

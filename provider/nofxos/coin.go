@@ -1,6 +1,7 @@
 package nofxos
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -12,7 +13,7 @@ type QuantData struct {
 	Symbol      string             `json:"symbol"`
 	Price       float64            `json:"price"`
 	Netflow     *NetflowData       `json:"netflow,omitempty"`
-	OI          map[string]*OIData `json:"oi,omitempty"` // keyed by exchange: "binance", "bybit"
+	OI          map[string]*OIData `json:"oi,omitempty"`           // keyed by exchange: "binance", "bybit"
 	PriceChange map[string]float64 `json:"price_change,omitempty"` // keyed by duration: "1h", "4h", etc.
 }
 
@@ -52,6 +53,11 @@ type CoinResponse struct {
 
 // GetCoinData retrieves quantitative data for a single coin
 func (c *Client) GetCoinData(symbol string, include string) (*QuantData, error) {
+	return c.GetCoinDataContext(context.Background(), symbol, include)
+}
+
+// GetCoinDataContext retrieves quantitative data for a single coin.
+func (c *Client) GetCoinDataContext(ctx context.Context, symbol string, include string) (*QuantData, error) {
 	if symbol == "" {
 		return nil, fmt.Errorf("symbol is required")
 	}
@@ -65,7 +71,7 @@ func (c *Client) GetCoinData(symbol string, include string) (*QuantData, error) 
 
 	endpoint := fmt.Sprintf("/api/coin/%s?include=%s", symbol, include)
 
-	body, err := c.doRequest(endpoint)
+	body, err := c.doRequestContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

@@ -4,6 +4,8 @@
 package nofxos
 
 import (
+	"context"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"nofx/security"
@@ -16,7 +18,6 @@ import (
 const (
 	DefaultBaseURL = "https://nofxos.ai"
 	DefaultTimeout = 30 * time.Second
-	DefaultAuthKey = "cm_568c67eae410d912c54c"
 )
 
 // Client is the NofxOS API client
@@ -38,7 +39,7 @@ func DefaultClient() *Client {
 	clientOnce.Do(func() {
 		defaultClient = &Client{
 			BaseURL: DefaultBaseURL,
-			AuthKey: DefaultAuthKey,
+			AuthKey: "",
 			Timeout: DefaultTimeout,
 		}
 	})
@@ -49,9 +50,6 @@ func DefaultClient() *Client {
 func NewClient(baseURL, authKey string) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
-	}
-	if authKey == "" {
-		authKey = DefaultAuthKey
 	}
 	return &Client{
 		BaseURL: baseURL,
@@ -65,6 +63,12 @@ func (c *Client) SetClaw402(claw402Client *Claw402DataClient) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.claw402 = claw402Client
+}
+
+func (c *Client) GetClaw402() *Claw402DataClient {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.claw402
 }
 
 // SetConfig updates client configuration
@@ -96,6 +100,10 @@ func (c *Client) GetAuthKey() string {
 // doRequest performs an HTTP GET request with authentication.
 // If claw402 client is configured, routes through claw402 payment gateway instead.
 func (c *Client) doRequest(endpoint string) ([]byte, error) {
+	return c.doRequestContext(context.Background(), endpoint)
+}
+
+func (c *Client) doRequestContext(ctx context.Context, endpoint string) ([]byte, error) {
 	c.mu.RLock()
 	claw402Client := c.claw402
 	baseURL := c.BaseURL
@@ -105,7 +113,10 @@ func (c *Client) doRequest(endpoint string) ([]byte, error) {
 
 	// Route through claw402 if configured
 	if claw402Client != nil {
-		return claw402Client.DoRequest(endpoint)
+		return claw402Client.DoRequestContext(ctx, endpoint)
+	}
+	if strings.TrimSpace(authKey) == "" {
+		return nil, fmt.Errorf("NofxOS API key is required. Configure a valid key or use a supported data gateway")
 	}
 
 	url := baseURL + endpoint

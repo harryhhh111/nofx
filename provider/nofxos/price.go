@@ -1,6 +1,7 @@
 package nofxos
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -52,6 +53,11 @@ var (
 
 // GetPriceRanking retrieves price ranking data with global caching.
 func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData, error) {
+	return c.GetPriceRankingContext(context.Background(), durations, limit)
+}
+
+// GetPriceRankingContext retrieves price ranking data with global caching.
+func (c *Client) GetPriceRankingContext(ctx context.Context, durations string, limit int) (*PriceRankingData, error) {
 	if durations == "" {
 		durations = "1h"
 	}
@@ -72,7 +78,7 @@ func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData
 		return data, nil
 	}
 
-	data, err := fetchPriceRankingData(GetGlobalClient(), durations, limit)
+	data, err := fetchPriceRankingData(ctx, GetGlobalClient(), durations, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -80,10 +86,10 @@ func (c *Client) GetPriceRanking(durations string, limit int) (*PriceRankingData
 	return data, nil
 }
 
-func fetchPriceRankingData(client *Client, durations string, limit int) (*PriceRankingData, error) {
+func fetchPriceRankingData(ctx context.Context, client *Client, durations string, limit int) (*PriceRankingData, error) {
 	endpoint := fmt.Sprintf("/api/price/ranking?duration=%s&limit=%d", durations, limit)
 
-	body, err := client.doRequest(endpoint)
+	body, err := client.doRequestContext(ctx, endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

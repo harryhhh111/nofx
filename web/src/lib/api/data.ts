@@ -171,7 +171,7 @@ export const dataApi = {
       `${API_BASE}/nofxos/status`,
       { silent }
     )
-    if (!result.success) throw new Error('Failed to fetch NofxOS status')
+    if (!result.success) throw new Error(result.message || 'Failed to fetch NofxOS status')
     return result.data || { records: [], count: 0 }
   },
 
@@ -180,7 +180,7 @@ export const dataApi = {
       `${API_BASE}/ai500/coins?limit=${limit}`,
       { silent }
     )
-    if (!result.success) throw new Error('Failed to fetch AI500 coins')
+    if (!result.success) throw new Error(result.message || 'Failed to fetch AI500 coins')
     return result.data || { coins: [], count: 0 }
   },
 

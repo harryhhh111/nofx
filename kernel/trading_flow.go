@@ -36,7 +36,7 @@ type RuleCondition struct {
 }
 
 type RuleOperand struct {
-	Kind      string  `json:"kind"` // indicator, external_factor, structure, literal
+	Kind      string  `json:"kind"` // indicator, external_factor, structure, literal/value
 	Name      string  `json:"name,omitempty"`
 	Timeframe string  `json:"timeframe,omitempty"`
 	Period    int     `json:"period,omitempty"`
@@ -74,16 +74,17 @@ type SignalRequest struct {
 }
 
 type ScoringStrategy struct {
-	Enabled         bool               `json:"enabled"`
-	Version         string             `json:"version,omitempty"`
-	SelectedFactors []string           `json:"selected_factors,omitempty"`
-	FactorWeights   map[string]float64 `json:"factor_weights,omitempty"`
-	LongThreshold   float64            `json:"long_threshold,omitempty"`
-	ShortThreshold  float64            `json:"short_threshold,omitempty"`
-	MinConfidence   int                `json:"min_confidence,omitempty"`
-	Timeframe       string             `json:"timeframe,omitempty"`
-	Symbols         []string           `json:"symbols,omitempty"`
-	Execution       RuleExecution      `json:"execution"`
+	Enabled                 bool               `json:"enabled"`
+	Version                 string             `json:"version,omitempty"`
+	SelectedFactors         []string           `json:"selected_factors,omitempty"`
+	FactorWeights           map[string]float64 `json:"factor_weights,omitempty"`
+	LongThreshold           float64            `json:"long_threshold,omitempty"`
+	ShortThreshold          float64            `json:"short_threshold,omitempty"`
+	MinAvailableWeightRatio float64            `json:"min_available_weight_ratio,omitempty"`
+	MinConfidence           int                `json:"min_confidence,omitempty"`
+	Timeframe               string             `json:"timeframe,omitempty"`
+	Symbols                 []string           `json:"symbols,omitempty"`
+	Execution               RuleExecution      `json:"execution"`
 }
 
 type CandidateSignal struct {

@@ -41,16 +41,17 @@ func scoringFromStrategyConfig(config *store.StrategyConfig) *ScoringStrategy {
 		version = config.CompiledRules[0].Version
 	}
 	return &ScoringStrategy{
-		Enabled:         scoring.Enabled,
-		Version:         version,
-		SelectedFactors: append([]string(nil), scoring.SelectedFactors...),
-		FactorWeights:   copyKernelFloatMap(scoring.FactorWeights),
-		LongThreshold:   scoring.LongThreshold,
-		ShortThreshold:  scoring.ShortThreshold,
-		MinConfidence:   scoring.MinConfidence,
-		Timeframe:       scoring.Timeframe,
-		Symbols:         append([]string(nil), scoring.Symbols...),
-		Execution:       executionFromStore(scoring.Execution),
+		Enabled:                 scoring.Enabled,
+		Version:                 version,
+		SelectedFactors:         append([]string(nil), scoring.SelectedFactors...),
+		FactorWeights:           copyKernelFloatMap(scoring.FactorWeights),
+		LongThreshold:           scoring.LongThreshold,
+		ShortThreshold:          scoring.ShortThreshold,
+		MinAvailableWeightRatio: scoring.MinAvailableWeightRatio,
+		MinConfidence:           scoring.MinConfidence,
+		Timeframe:               scoring.Timeframe,
+		Symbols:                 append([]string(nil), scoring.Symbols...),
+		Execution:               executionFromStore(scoring.Execution),
 	}
 }
 

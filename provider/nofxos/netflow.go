@@ -1,6 +1,7 @@
 package nofxos
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -50,6 +51,11 @@ var (
 
 // GetNetFlowRanking retrieves NetFlow ranking data with global caching.
 func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingData, error) {
+	return c.GetNetFlowRankingContext(context.Background(), duration, limit)
+}
+
+// GetNetFlowRankingContext retrieves NetFlow ranking data with global caching.
+func (c *Client) GetNetFlowRankingContext(ctx context.Context, duration string, limit int) (*NetFlowRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
@@ -70,7 +76,7 @@ func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingD
 		return data, nil
 	}
 
-	data, err := fetchNetFlowData(GetGlobalClient(), duration, limit)
+	data, err := fetchNetFlowData(ctx, GetGlobalClient(), duration, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +84,13 @@ func (c *Client) GetNetFlowRanking(duration string, limit int) (*NetFlowRankingD
 	return data, nil
 }
 
-func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRankingData, error) {
+func fetchNetFlowData(ctx context.Context, client *Client, duration string, limit int) (*NetFlowRankingData, error) {
 	result := &NetFlowRankingData{
 		Duration:  duration,
 		FetchedAt: time.Now(),
 	}
 
-	positions, timeRange, err := client.fetchNetFlowRanking("top", duration, limit, "institution", "future")
+	positions, timeRange, err := client.fetchNetFlowRanking(ctx, "top", duration, limit, "institution", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch institution future inflow ranking: %v", err)
 	} else {
@@ -92,21 +98,21 @@ func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRanki
 		result.TimeRange = timeRange
 	}
 
-	positions, _, err = client.fetchNetFlowRanking("low", duration, limit, "institution", "future")
+	positions, _, err = client.fetchNetFlowRanking(ctx, "low", duration, limit, "institution", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch institution future outflow ranking: %v", err)
 	} else {
 		result.InstitutionFutureLow = positions
 	}
 
-	positions, _, err = client.fetchNetFlowRanking("top", duration, limit, "personal", "future")
+	positions, _, err = client.fetchNetFlowRanking(ctx, "top", duration, limit, "personal", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch personal future inflow ranking: %v", err)
 	} else {
 		result.PersonalFutureTop = positions
 	}
 
-	positions, _, err = client.fetchNetFlowRanking("low", duration, limit, "personal", "future")
+	positions, _, err = client.fetchNetFlowRanking(ctx, "low", duration, limit, "personal", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch personal future outflow ranking: %v", err)
 	} else {
@@ -120,11 +126,11 @@ func fetchNetFlowData(client *Client, duration string, limit int) (*NetFlowRanki
 	return result, nil
 }
 
-func (c *Client) fetchNetFlowRanking(rankType, duration string, limit int, flowType, trade string) ([]NetFlowPosition, string, error) {
+func (c *Client) fetchNetFlowRanking(ctx context.Context, rankType, duration string, limit int, flowType, trade string) ([]NetFlowPosition, string, error) {
 	endpoint := fmt.Sprintf("/api/netflow/%s-ranking?limit=%d&duration=%s&type=%s&trade=%s",
 		rankType, limit, duration, flowType, trade)
 
-	body, err := c.doRequest(endpoint)
+	body, err := c.doRequestContext(ctx, endpoint)
 	if err != nil {
 		return nil, "", fmt.Errorf("request failed: %w", err)
 	}

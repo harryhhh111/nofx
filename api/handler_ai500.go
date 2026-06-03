@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"nofx/logger"
@@ -27,6 +28,17 @@ func (s *Server) handleAI500Coins(c *gin.Context) {
 		SafeInternalError(c, "AI500 data client not initialized", nil)
 		return
 	}
+	if strings.TrimSpace(s.nofxosClient.GetAuthKey()) == "" && s.nofxosClient.GetClaw402() == nil {
+		SafeErrorWithDetails(
+			c,
+			http.StatusBadRequest,
+			"NofxOS API key is required. Configure NOFXOS_API_KEY or use a supported data gateway.",
+			"nofxos.api_key_required",
+			nil,
+			nil,
+		)
+		return
+	}
 
 	coins, err := s.nofxosClient.GetAI500List()
 	if err != nil {
@@ -47,7 +59,7 @@ func (s *Server) handleAI500Coins(c *gin.Context) {
 
 // initNofxosClient creates the nofxos client with claw402 backend payment.
 func initNofxosClient() *nofxos.Client {
-	client := nofxos.NewClient(nofxos.DefaultBaseURL, nofxos.DefaultAuthKey)
+	client := nofxos.NewClient(nofxos.DefaultBaseURL, strings.TrimSpace(os.Getenv("NOFXOS_API_KEY")))
 
 	walletKey := os.Getenv("CLAW402_WALLET_KEY")
 	if walletKey != "" {

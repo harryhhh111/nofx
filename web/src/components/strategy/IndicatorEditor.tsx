@@ -1,10 +1,9 @@
+import { useEffect, useState } from 'react'
 import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
-import type { IndicatorConfig } from '../../types'
+import type { IndicatorConfig, StrategyMetadata, StrategyMetadataIndicator, StrategyMetadataTimeframe } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
-
-// Default NofxOS API Key
-const DEFAULT_NOFXOS_API_KEY = 'cm_568c67eae410d912c54c'
+import { api } from '../../lib/api'
 
 interface IndicatorEditorProps {
   config: IndicatorConfig
@@ -14,7 +13,7 @@ interface IndicatorEditorProps {
 }
 
 // All available timeframes
-const allTimeframes = [
+const fallbackTimeframes: StrategyMetadataTimeframe[] = [
   { value: '1m', label: '1m', category: 'scalp' },
   { value: '3m', label: '3m', category: 'scalp' },
   { value: '5m', label: '5m', category: 'scalp' },
@@ -31,12 +30,42 @@ const allTimeframes = [
   { value: '1w', label: '1W', category: 'position' },
 ]
 
+const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
+  { key: 'enable_ema', label: 'ema', desc: 'emaDesc', color: '#F0B90B', period_key: 'ema_periods', default_periods: [20, 50] },
+  { key: 'enable_sma', label: 'sma', desc: 'smaDesc', color: '#4ade80', period_key: 'sma_periods', default_periods: [5, 20, 50] },
+  { key: 'enable_macd', label: 'macd', desc: 'macdDesc', color: '#a855f7' },
+  { key: 'enable_rsi', label: 'rsi', desc: 'rsiDesc', color: '#F6465D', period_key: 'rsi_periods', default_periods: [7, 14] },
+  { key: 'enable_atr', label: 'atr', desc: 'atrDesc', color: '#60a5fa', period_key: 'atr_periods', default_periods: [14] },
+  { key: 'enable_adx', label: 'adx', desc: 'adxDesc', color: '#f97316' },
+  { key: 'enable_sar', label: 'sar', desc: 'sarDesc', color: '#06b6d4' },
+  { key: 'enable_boll', label: 'boll', desc: 'bollDesc', color: '#ec4899', period_key: 'boll_periods', default_periods: [20] },
+  { key: 'enable_session', label: 'session', desc: 'sessionDesc', color: '#84cc16' },
+]
+
 export function IndicatorEditor({
   config,
   onChange,
   disabled,
   language,
 }: IndicatorEditorProps) {
+  const [metadata, setMetadata] = useState<StrategyMetadata | null>(null)
+  const timeframes = metadata?.timeframes?.length ? metadata.timeframes : fallbackTimeframes
+  const technicalIndicators = metadata?.technical_indicators?.length ? metadata.technical_indicators : fallbackTechnicalIndicators
+
+  useEffect(() => {
+    let mounted = true
+    api.getStrategyMetadata()
+      .then((data) => {
+        if (mounted) setMetadata(data)
+      })
+      .catch(() => {
+        if (mounted) setMetadata(null)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [])
+
   // Get currently selected timeframes
   const selectedTimeframes = config.klines.selected_timeframes || [config.klines.primary_timeframe]
 
@@ -204,19 +233,6 @@ export function IndicatorEditor({
                 }}
               />
             </div>
-            {!disabled && !config.nofxos_api_key && (
-              <button
-                type="button"
-                onClick={() => onChange({ ...config, nofxos_api_key: DEFAULT_NOFXOS_API_KEY })}
-                className="px-3 py-2 rounded-lg text-xs font-medium transition-all hover:scale-[1.02]"
-                style={{
-                  background: 'linear-gradient(135deg, #6366f1, #a855f7)',
-                  color: '#fff',
-                }}
-              >
-                {ts(indicator.fillDefault, language)}
-              </button>
-            )}
           </div>
 
           {/* NofxOS Data Sources Grid */}
@@ -530,7 +546,7 @@ export function IndicatorEditor({
             {/* Timeframe Grid */}
             <div className="space-y-1.5">
               {(['scalp', 'intraday', 'swing', 'position'] as const).map((category) => {
-                const categoryTfs = allTimeframes.filter((tf) => tf.category === category)
+                const categoryTfs = timeframes.filter((tf) => tf.category === category)
                 return (
                   <div key={category} className="flex items-center gap-2">
                     <span className="text-[10px] w-10 flex-shrink-0" style={{ color: categoryColors[category] }}>
@@ -590,17 +606,7 @@ export function IndicatorEditor({
 
           {/* Indicator Grid */}
           <div className="grid grid-cols-2 gap-2">
-            {[
-              { key: 'enable_ema', label: 'ema', desc: 'emaDesc', color: '#F0B90B', periodKey: 'ema_periods', defaultPeriods: '20,50' },
-              { key: 'enable_sma', label: 'sma', desc: 'smaDesc', color: '#4ade80', periodKey: 'sma_periods', defaultPeriods: '5,20,50' },
-              { key: 'enable_macd', label: 'macd', desc: 'macdDesc', color: '#a855f7' },
-              { key: 'enable_rsi', label: 'rsi', desc: 'rsiDesc', color: '#F6465D', periodKey: 'rsi_periods', defaultPeriods: '7,14' },
-              { key: 'enable_atr', label: 'atr', desc: 'atrDesc', color: '#60a5fa', periodKey: 'atr_periods', defaultPeriods: '14' },
-              { key: 'enable_adx', label: 'adx', desc: 'adxDesc', color: '#f97316' },
-              { key: 'enable_sar', label: 'sar', desc: 'sarDesc', color: '#06b6d4' },
-              { key: 'enable_boll', label: 'boll', desc: 'bollDesc', color: '#ec4899', periodKey: 'boll_periods', defaultPeriods: '20' },
-              { key: 'enable_session', label: 'session', desc: 'sessionDesc', color: '#84cc16' },
-            ].map(({ key, label, desc, color, periodKey, defaultPeriods }) => (
+            {technicalIndicators.map(({ key, label, desc, color, period_key: periodKey, default_periods: defaultPeriods }) => (
               <div
                 key={key}
                 className="p-2.5 rounded-lg transition-all"
@@ -626,7 +632,7 @@ export function IndicatorEditor({
                 {periodKey && config[key as keyof IndicatorConfig] && (
                   <input
                     type="text"
-                    value={(config[periodKey as keyof IndicatorConfig] as number[])?.join(',') || defaultPeriods}
+                    value={(config[periodKey as keyof IndicatorConfig] as number[])?.join(',') || defaultPeriods?.join(',') || ''}
                     onChange={(e) => {
                       if (disabled) return
                       const periods = e.target.value
@@ -636,7 +642,7 @@ export function IndicatorEditor({
                       onChange({ ...config, [periodKey]: periods })
                     }}
                     disabled={disabled}
-                    placeholder={defaultPeriods}
+                    placeholder={defaultPeriods?.join(',') || ''}
                     className="w-full px-2 py-1 rounded text-[10px] text-center"
                     style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
                   />

@@ -39,9 +39,9 @@ const (
 
 // X402v2PaymentRequired is the structure of the Payment-Required header (x402 v2).
 type X402v2PaymentRequired struct {
-	X402Version int              `json:"x402Version"`
+	X402Version int                `json:"x402Version"`
 	Accepts     []X402AcceptOption `json:"accepts"`
-	Resource    *X402Resource    `json:"resource"`
+	Resource    *X402Resource      `json:"resource"`
 }
 
 // X402AcceptOption is a payment option from the x402 v2 header.
@@ -120,10 +120,24 @@ func DoX402Request(
 	providerTag string,
 	logger mcp.Logger,
 ) ([]byte, error) {
+	return DoX402RequestWithContext(context.Background(), httpClient, buildReqFn, signFn, providerTag, logger)
+}
+
+// DoX402RequestWithContext executes an HTTP request and handles the x402 v2
+// payment flow, respecting ctx during HTTP calls and retry waits.
+func DoX402RequestWithContext(
+	ctx context.Context,
+	httpClient *http.Client,
+	buildReqFn func() (*http.Request, error),
+	signFn X402SignFunc,
+	providerTag string,
+	logger mcp.Logger,
+) ([]byte, error) {
 	req, err := buildReqFn()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
+	req = req.WithContext(ctx)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -166,7 +180,9 @@ func DoX402Request(
 					wait := X402RetryBaseWait * time.Duration(attempt)
 					logger.Warnf("⚠️  [%s] Payment request failed: %v, retrying in %v (%d/%d)...",
 						providerTag, err, wait, attempt+1, X402MaxPaymentRetries)
-					time.Sleep(wait)
+					if err := sleepWithContext(ctx, wait); err != nil {
+						return nil, err
+					}
 					continue
 				}
 				return nil, fmt.Errorf("failed to send payment retry: %w", err)
@@ -221,7 +237,9 @@ func DoX402Request(
 						providerTag, resp2.StatusCode, wait, attempt+1, X402MaxPaymentRetries)
 				}
 
-				time.Sleep(wait)
+				if err := sleepWithContext(ctx, wait); err != nil {
+					return nil, err
+				}
 				continue
 			}
 
@@ -240,6 +258,17 @@ func DoX402Request(
 		return nil, fmt.Errorf("%s API error (status %d): %s", providerTag, resp.StatusCode, string(body))
 	}
 	return body, nil
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 // DoX402RequestStream executes an HTTP request with x402 v2 payment flow and

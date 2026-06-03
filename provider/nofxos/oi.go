@@ -1,6 +1,7 @@
 package nofxos
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -55,6 +56,11 @@ var (
 
 // GetOIRanking retrieves OI ranking data with global caching.
 func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error) {
+	return c.GetOIRankingContext(context.Background(), duration, limit)
+}
+
+// GetOIRankingContext retrieves OI ranking data with global caching.
+func (c *Client) GetOIRankingContext(ctx context.Context, duration string, limit int) (*OIRankingData, error) {
 	if duration == "" {
 		duration = "1h"
 	}
@@ -75,7 +81,7 @@ func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error
 		return data, nil
 	}
 
-	data, err := fetchOIRankingData(GetGlobalClient(), duration, limit)
+	data, err := fetchOIRankingData(ctx, GetGlobalClient(), duration, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -83,13 +89,13 @@ func (c *Client) GetOIRanking(duration string, limit int) (*OIRankingData, error
 	return data, nil
 }
 
-func fetchOIRankingData(client *Client, duration string, limit int) (*OIRankingData, error) {
+func fetchOIRankingData(ctx context.Context, client *Client, duration string, limit int) (*OIRankingData, error) {
 	result := &OIRankingData{
 		Duration:  duration,
 		FetchedAt: time.Now(),
 	}
 
-	topPositions, timeRange, err := client.fetchOIRanking("top", duration, limit)
+	topPositions, timeRange, err := client.fetchOIRanking(ctx, "top", duration, limit)
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch OI top ranking: %v", err)
 	} else {
@@ -97,7 +103,7 @@ func fetchOIRankingData(client *Client, duration string, limit int) (*OIRankingD
 		result.TimeRange = timeRange
 	}
 
-	lowPositions, _, err := client.fetchOIRanking("low", duration, limit)
+	lowPositions, _, err := client.fetchOIRanking(ctx, "low", duration, limit)
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch OI low ranking: %v", err)
 	} else {
@@ -110,10 +116,10 @@ func fetchOIRankingData(client *Client, duration string, limit int) (*OIRankingD
 	return result, nil
 }
 
-func (c *Client) fetchOIRanking(rankType, duration string, limit int) ([]OIPosition, string, error) {
+func (c *Client) fetchOIRanking(ctx context.Context, rankType, duration string, limit int) ([]OIPosition, string, error) {
 	endpoint := fmt.Sprintf("/api/oi/%s-ranking?limit=%d&duration=%s", rankType, limit, duration)
 
-	body, err := c.doRequest(endpoint)
+	body, err := c.doRequestContext(ctx, endpoint)
 	if err != nil {
 		return nil, "", fmt.Errorf("request failed: %w", err)
 	}

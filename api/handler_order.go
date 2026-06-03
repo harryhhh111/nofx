@@ -95,11 +95,12 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"scan_interval_minutes": traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":      traderConfig.BTCETHLeverage,
 		"altcoin_leverage":      traderConfig.AltcoinLeverage,
-		"trading_symbols":       traderConfig.TradingSymbols,
-		"is_cross_margin":       traderConfig.IsCrossMargin,
-		"use_ai500":             traderConfig.UseAI500,
-		"use_oi_top":            traderConfig.UseOITop,
-		"is_running":            isRunning,
+			"trading_symbols":       traderConfig.TradingSymbols,
+			"is_cross_margin":       traderConfig.IsCrossMargin,
+			"show_in_competition":   traderConfig.ShowInCompetition,
+			"use_ai500":             traderConfig.UseAI500,
+			"use_oi_top":            traderConfig.UseOITop,
+			"is_running":            isRunning,
 	}
 
 	c.JSON(http.StatusOK, result)

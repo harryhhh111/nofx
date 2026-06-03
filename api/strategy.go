@@ -12,7 +12,11 @@ import (
 	"nofx/mcp"
 	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
+	"nofx/provider/nofxos"
 	"nofx/store"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -494,6 +498,7 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 		"strategy_mode":        config.StrategyMode,
 		"compiled_rules":       config.CompiledRules,
 		"compiled_rule_count":  len(config.CompiledRules),
+		"dependency_check":     strategyDependencyStatus(config),
 		"scoring_config":       config.ScoringConfig,
 		"resolved_parameters":  config.ResolvedParameters,
 		"kline": gin.H{
@@ -736,21 +741,40 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	}
 
 	externalContext := &kernel.Context{}
+	externalDataWarnings := []string{}
+	externalDataTimeout := strategyTestExternalDataTimeout()
+	externalDataCtx, cancelExternalData := context.WithTimeout(c.Request.Context(), externalDataTimeout)
+	defer cancelExternalData()
 	if req.Config.Indicators.EnableQuantData {
 		symbols := make([]string, 0, len(candidates))
 		for _, coin := range candidates {
 			symbols = append(symbols, coin.Symbol)
 		}
-		externalContext.QuantDataMap = engine.FetchQuantDataBatch(symbols)
+		externalContext.QuantDataMap = engine.FetchQuantDataBatchContext(externalDataCtx, symbols)
+		if len(symbols) > 0 && len(externalContext.QuantDataMap) == 0 {
+			externalDataWarnings = append(externalDataWarnings, "Quant data is enabled but no coin-level NofxOS data was available; external factor signals may be missing.")
+		}
 	}
 	if req.Config.Indicators.EnableOIRanking {
-		externalContext.OIRankingData = engine.FetchOIRankingData()
+		externalContext.OIRankingData = engine.FetchOIRankingDataContext(externalDataCtx)
+		if !hasOIRankingData(externalContext.OIRankingData) {
+			externalDataWarnings = append(externalDataWarnings, "OI ranking is enabled but ranking data was not available; derivatives scoring may have less evidence.")
+		}
 	}
 	if req.Config.Indicators.EnableNetFlowRanking {
-		externalContext.NetFlowRankingData = engine.FetchNetFlowRankingData()
+		externalContext.NetFlowRankingData = engine.FetchNetFlowRankingDataContext(externalDataCtx)
+		if !hasNetFlowRankingData(externalContext.NetFlowRankingData) {
+			externalDataWarnings = append(externalDataWarnings, "NetFlow ranking is enabled but ranking data was not available; derivatives scoring may have less evidence.")
+		}
 	}
 	if req.Config.Indicators.EnablePriceRanking {
-		externalContext.PriceRankingData = engine.FetchPriceRankingData()
+		externalContext.PriceRankingData = engine.FetchPriceRankingDataContext(externalDataCtx)
+		if !hasPriceRankingData(externalContext.PriceRankingData) {
+			externalDataWarnings = append(externalDataWarnings, "Price ranking is enabled but ranking data was not available; price ranking factors may be missing.")
+		}
+	}
+	if externalDataCtx.Err() != nil {
+		externalDataWarnings = append(externalDataWarnings, fmt.Sprintf("External data fetch stopped after %s: %v", externalDataTimeout, externalDataCtx.Err()))
 	}
 
 	timeframes := req.Config.Indicators.Klines.SelectedTimeframes
@@ -779,11 +803,20 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 
 	marketDataMap := make(map[string]*market.Data)
 	factorSnapshots := make(map[string]*market.FactorSnapshot)
+	marketDataWarnings := []string{}
+	marketDataTimeout := strategyTestMarketDataTimeout()
+	marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
+	defer cancelMarketData()
 	asOf := time.Now().UTC()
 	for _, coin := range candidates {
-		data, err := market.GetWithTimeframesWindow(coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
+		if marketDataCtx.Err() != nil {
+			marketDataWarnings = append(marketDataWarnings, fmt.Sprintf("Market data fetch stopped after %s: %v", marketDataTimeout, marketDataCtx.Err()))
+			break
+		}
+		data, err := market.GetWithTimeframesWindowContext(marketDataCtx, coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
 		if err != nil {
 			logger.Infof("Failed to get market data for %s: %v", coin.Symbol, err)
+			marketDataWarnings = append(marketDataWarnings, fmt.Sprintf("%s market data unavailable: %v", coin.Symbol, err))
 			continue
 		}
 		marketDataMap[coin.Symbol] = data
@@ -800,6 +833,11 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		factorSnapshots[coin.Symbol] = snapshot
 	}
 	kernel.EnrichExternalFactors(externalContext, factorSnapshots, asOf)
+	signalPreview, previewErr := kernel.PreviewStrategySignals(&req.Config, candidates, factorSnapshots, asOf)
+	if previewErr != nil {
+		logger.Infof("Failed to preview strategy signals: %v", previewErr)
+		signalPreview = &kernel.StrategySignalPreview{}
+	}
 
 	testContext := &kernel.Context{
 		CurrentTime:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
@@ -821,18 +859,26 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 
 	if !req.RunRealAI || req.AIModelID == "" {
 		c.JSON(http.StatusOK, gin.H{
-			"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-			"strategy_mode":         req.Config.StrategyMode,
-			"candidate_count":       len(candidates),
-			"candidates":            candidates,
-			"compiled_rules":        req.Config.CompiledRules,
-			"compiled_rule_count":   len(req.Config.CompiledRules),
-			"scoring_config":        req.Config.ScoringConfig,
-			"resolved_parameters":   req.Config.ResolvedParameters,
-			"market_context":        buildPreviewMarketContext(factorSnapshots),
-			"factor_snapshot_count": len(factorSnapshots),
-			"factor_snapshots":      factorSnapshots,
-			"note":                  "Real AI review was not run. Provide ai_model_id and run_real_ai=true to execute the full structured flow.",
+			"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+			"strategy_mode":          req.Config.StrategyMode,
+			"candidate_count":        len(candidates),
+			"candidates":             candidates,
+			"compiled_rules":         req.Config.CompiledRules,
+			"compiled_rule_count":    len(req.Config.CompiledRules),
+			"dependency_check":       strategyDependencyStatus(&req.Config),
+			"scoring_config":         req.Config.ScoringConfig,
+			"resolved_parameters":    req.Config.ResolvedParameters,
+			"market_context":         buildPreviewMarketContext(factorSnapshots),
+			"factor_snapshot_count":  len(factorSnapshots),
+			"factor_snapshots":       factorSnapshots,
+			"signal_count":           len(signalPreview.Signals),
+			"signals":                signalPreview.Signals,
+			"rule_evaluations":       signalPreview.RuleEvaluations,
+			"scoring_evaluations":    signalPreview.ScoringEvaluations,
+			"external_data_warnings": externalDataWarnings,
+			"market_data_warnings":   marketDataWarnings,
+			"signal_preview_error":   errorString(previewErr),
+			"note":                   "Real AI review was not run. Provide ai_model_id and run_real_ai=true to execute the full structured flow.",
 		})
 		return
 	}
@@ -840,15 +886,23 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	aiClient, err := s.createAIClientForModel(userID, req.AIModelID)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-			"strategy_mode":         req.Config.StrategyMode,
-			"candidate_count":       len(candidates),
-			"candidates":            candidates,
-			"compiled_rules":        req.Config.CompiledRules,
-			"scoring_config":        req.Config.ScoringConfig,
-			"factor_snapshot_count": len(factorSnapshots),
-			"ai_error":              err.Error(),
-			"note":                  "AI client setup failed",
+			"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+			"strategy_mode":          req.Config.StrategyMode,
+			"candidate_count":        len(candidates),
+			"candidates":             candidates,
+			"compiled_rules":         req.Config.CompiledRules,
+			"dependency_check":       strategyDependencyStatus(&req.Config),
+			"scoring_config":         req.Config.ScoringConfig,
+			"factor_snapshot_count":  len(factorSnapshots),
+			"signal_count":           len(signalPreview.Signals),
+			"signals":                signalPreview.Signals,
+			"rule_evaluations":       signalPreview.RuleEvaluations,
+			"scoring_evaluations":    signalPreview.ScoringEvaluations,
+			"external_data_warnings": externalDataWarnings,
+			"market_data_warnings":   marketDataWarnings,
+			"signal_preview_error":   errorString(previewErr),
+			"ai_error":               err.Error(),
+			"note":                   "AI client setup failed",
 		})
 		return
 	}
@@ -856,32 +910,97 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	decision, err := kernel.GetFullDecisionWithStrategy(testContext, aiClient, engine, req.PromptVariant)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-			"strategy_mode":         req.Config.StrategyMode,
-			"candidate_count":       len(candidates),
-			"candidates":            candidates,
-			"compiled_rules":        req.Config.CompiledRules,
-			"scoring_config":        req.Config.ScoringConfig,
-			"factor_snapshot_count": len(factorSnapshots),
-			"ai_error":              err.Error(),
-			"note":                  "Structured strategy run failed",
+			"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+			"strategy_mode":          req.Config.StrategyMode,
+			"candidate_count":        len(candidates),
+			"candidates":             candidates,
+			"compiled_rules":         req.Config.CompiledRules,
+			"dependency_check":       strategyDependencyStatus(&req.Config),
+			"scoring_config":         req.Config.ScoringConfig,
+			"factor_snapshot_count":  len(factorSnapshots),
+			"signal_count":           len(signalPreview.Signals),
+			"signals":                signalPreview.Signals,
+			"rule_evaluations":       signalPreview.RuleEvaluations,
+			"scoring_evaluations":    signalPreview.ScoringEvaluations,
+			"external_data_warnings": externalDataWarnings,
+			"market_data_warnings":   marketDataWarnings,
+			"signal_preview_error":   errorString(previewErr),
+			"ai_error":               err.Error(),
+			"note":                   "Structured strategy run failed",
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"flow":                  "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-		"strategy_mode":         req.Config.StrategyMode,
-		"candidate_count":       len(candidates),
-		"candidates":            candidates,
-		"compiled_rules":        req.Config.CompiledRules,
-		"scoring_config":        req.Config.ScoringConfig,
-		"resolved_parameters":   req.Config.ResolvedParameters,
-		"factor_snapshot_count": len(factorSnapshots),
-		"market_context":        decision.MarketContext,
-		"decision":              decision,
-		"note":                  "Structured strategy run completed",
+		"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+		"strategy_mode":          req.Config.StrategyMode,
+		"candidate_count":        len(candidates),
+		"candidates":             candidates,
+		"compiled_rules":         req.Config.CompiledRules,
+		"dependency_check":       strategyDependencyStatus(&req.Config),
+		"scoring_config":         req.Config.ScoringConfig,
+		"resolved_parameters":    req.Config.ResolvedParameters,
+		"factor_snapshot_count":  len(factorSnapshots),
+		"signal_count":           len(signalPreview.Signals),
+		"signals":                signalPreview.Signals,
+		"rule_evaluations":       signalPreview.RuleEvaluations,
+		"scoring_evaluations":    signalPreview.ScoringEvaluations,
+		"external_data_warnings": externalDataWarnings,
+		"market_data_warnings":   marketDataWarnings,
+		"signal_preview_error":   errorString(previewErr),
+		"market_context":         decision.MarketContext,
+		"decision":               decision,
+		"note":                   "Structured strategy run completed",
 	})
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func strategyTestExternalDataTimeout() time.Duration {
+	const defaultTimeout = 12 * time.Second
+	raw := strings.TrimSpace(os.Getenv("STRATEGY_TEST_EXTERNAL_DATA_TIMEOUT_SECONDS"))
+	if raw == "" {
+		return defaultTimeout
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return defaultTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func strategyTestMarketDataTimeout() time.Duration {
+	const defaultTimeout = 15 * time.Second
+	raw := strings.TrimSpace(os.Getenv("STRATEGY_TEST_MARKET_DATA_TIMEOUT_SECONDS"))
+	if raw == "" {
+		return defaultTimeout
+	}
+	seconds, err := strconv.Atoi(raw)
+	if err != nil || seconds <= 0 {
+		return defaultTimeout
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func hasOIRankingData(data *nofxos.OIRankingData) bool {
+	return data != nil && (len(data.TopPositions) > 0 || len(data.LowPositions) > 0)
+}
+
+func hasNetFlowRankingData(data *nofxos.NetFlowRankingData) bool {
+	return data != nil &&
+		(len(data.InstitutionFutureTop) > 0 ||
+			len(data.InstitutionFutureLow) > 0 ||
+			len(data.PersonalFutureTop) > 0 ||
+			len(data.PersonalFutureLow) > 0)
+}
+
+func hasPriceRankingData(data *nofxos.PriceRankingData) bool {
+	return data != nil && len(data.Durations) > 0
 }
 
 func buildPreviewMarketContext(factorSnapshots map[string]*market.FactorSnapshot) *kernel.MarketContext {
@@ -943,14 +1062,15 @@ func scoringStrategyToStore(scoring *kernel.ScoringStrategy) *store.ScoringStrat
 		return nil
 	}
 	return &store.ScoringStrategyConfig{
-		Enabled:         scoring.Enabled,
-		SelectedFactors: append([]string(nil), scoring.SelectedFactors...),
-		FactorWeights:   copyAPIFloatMap(scoring.FactorWeights),
-		LongThreshold:   scoring.LongThreshold,
-		ShortThreshold:  scoring.ShortThreshold,
-		MinConfidence:   scoring.MinConfidence,
-		Timeframe:       scoring.Timeframe,
-		Symbols:         append([]string(nil), scoring.Symbols...),
+		Enabled:                 scoring.Enabled,
+		SelectedFactors:         append([]string(nil), scoring.SelectedFactors...),
+		FactorWeights:           copyAPIFloatMap(scoring.FactorWeights),
+		LongThreshold:           scoring.LongThreshold,
+		ShortThreshold:          scoring.ShortThreshold,
+		MinAvailableWeightRatio: scoring.MinAvailableWeightRatio,
+		MinConfidence:           scoring.MinConfidence,
+		Timeframe:               scoring.Timeframe,
+		Symbols:                 append([]string(nil), scoring.Symbols...),
 		Execution: store.CompiledRuleExecution{
 			Leverage:        scoring.Execution.Leverage,
 			PositionSizeUSD: scoring.Execution.PositionSizeUSD,
@@ -980,8 +1100,13 @@ func (s *Server) createAIClientForModel(userID, modelID string) (mcp.AIClient, e
 		return nil, fmt.Errorf("AI model %s is not enabled", model.Name)
 	}
 
-	if model.APIKey == "" {
+	apiKey := strings.TrimSpace(string(model.APIKey))
+	if apiKey == "" {
 		return nil, fmt.Errorf("AI model %s is missing API Key", model.Name)
+	}
+	if s.cryptoHandler != nil && s.cryptoHandler.cryptoService != nil &&
+		s.cryptoHandler.cryptoService.IsEncryptedStorageValue(apiKey) {
+		return nil, fmt.Errorf("AI model %s API Key cannot be decrypted with the current DATA_ENCRYPTION_KEY; please re-save this model API key in Settings > Model Config", model.Name)
 	}
 
 	// Create AI client via registry
@@ -989,7 +1114,6 @@ func (s *Server) createAIClientForModel(userID, modelID string) (mcp.AIClient, e
 	if provider == "claw402" {
 		return nil, fmt.Errorf("claw402 is a payment/data channel and cannot be used as the LLM reasoning model")
 	}
-	apiKey := string(model.APIKey)
 
 	aiClient := mcp.NewAIClientByProvider(provider)
 	if aiClient == nil {

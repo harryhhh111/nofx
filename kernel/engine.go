@@ -321,9 +321,6 @@ type StrategyEngine struct {
 func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string) *StrategyEngine {
 	// Create NofxOS client with API key from config
 	apiKey := config.Indicators.NofxOSAPIKey
-	if apiKey == "" {
-		apiKey = nofxos.DefaultAuthKey
-	}
 	client := nofxos.NewClient(nofxos.DefaultBaseURL, apiKey)
 
 	// If claw402 wallet key is provided (from trader's AI config), route through claw402
@@ -830,6 +827,10 @@ func extractJSONPath(data interface{}, path string) interface{} {
 
 // FetchQuantData fetches quantitative data for a single coin
 func (e *StrategyEngine) FetchQuantData(symbol string) (*QuantData, error) {
+	return e.FetchQuantDataContext(context.Background(), symbol)
+}
+
+func (e *StrategyEngine) FetchQuantDataContext(ctx context.Context, symbol string) (*QuantData, error) {
 	if !e.config.Indicators.EnableQuantData {
 		return nil, nil
 	}
@@ -840,7 +841,7 @@ func (e *StrategyEngine) FetchQuantData(symbol string) (*QuantData, error) {
 		include = "netflow,oi,price"
 	}
 
-	nofxosData, err := e.nofxosClient.GetCoinData(symbol, include)
+	nofxosData, err := e.nofxosClient.GetCoinDataContext(ctx, symbol, include)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch quant data: %w", err)
 	}
@@ -903,6 +904,10 @@ func (e *StrategyEngine) FetchQuantData(symbol string) (*QuantData, error) {
 
 // FetchQuantDataBatch batch fetches quantitative data
 func (e *StrategyEngine) FetchQuantDataBatch(symbols []string) map[string]*QuantData {
+	return e.FetchQuantDataBatchContext(context.Background(), symbols)
+}
+
+func (e *StrategyEngine) FetchQuantDataBatchContext(ctx context.Context, symbols []string) map[string]*QuantData {
 	result := make(map[string]*QuantData)
 
 	if !e.config.Indicators.EnableQuantData {
@@ -910,7 +915,11 @@ func (e *StrategyEngine) FetchQuantDataBatch(symbols []string) map[string]*Quant
 	}
 
 	for _, symbol := range symbols {
-		data, err := e.FetchQuantData(symbol)
+		if ctx.Err() != nil {
+			logger.Warnf("⚠️  Quant data batch stopped: %v", ctx.Err())
+			break
+		}
+		data, err := e.FetchQuantDataContext(ctx, symbol)
 		if err != nil {
 			logger.Infof("⚠️  Failed to fetch quantitative data for %s: %v", symbol, err)
 			continue
@@ -925,6 +934,10 @@ func (e *StrategyEngine) FetchQuantDataBatch(symbols []string) map[string]*Quant
 
 // FetchOIRankingData fetches market-wide OI ranking data
 func (e *StrategyEngine) FetchOIRankingData() *nofxos.OIRankingData {
+	return e.FetchOIRankingDataContext(context.Background())
+}
+
+func (e *StrategyEngine) FetchOIRankingDataContext(ctx context.Context) *nofxos.OIRankingData {
 	indicators := e.config.Indicators
 	if !indicators.EnableOIRanking {
 		return nil
@@ -942,7 +955,7 @@ func (e *StrategyEngine) FetchOIRankingData() *nofxos.OIRankingData {
 
 	logger.Infof("📊 Fetching OI ranking data (duration: %s, limit: %d)", duration, limit)
 
-	data, err := e.nofxosClient.GetOIRanking(duration, limit)
+	data, err := e.nofxosClient.GetOIRankingContext(ctx, duration, limit)
 	if err != nil {
 		logger.Warnf("⚠️  Failed to fetch OI ranking data: %v", err)
 		return nil
@@ -956,6 +969,10 @@ func (e *StrategyEngine) FetchOIRankingData() *nofxos.OIRankingData {
 
 // FetchNetFlowRankingData fetches market-wide NetFlow ranking data
 func (e *StrategyEngine) FetchNetFlowRankingData() *nofxos.NetFlowRankingData {
+	return e.FetchNetFlowRankingDataContext(context.Background())
+}
+
+func (e *StrategyEngine) FetchNetFlowRankingDataContext(ctx context.Context) *nofxos.NetFlowRankingData {
 	indicators := e.config.Indicators
 	if !indicators.EnableNetFlowRanking {
 		return nil
@@ -973,7 +990,7 @@ func (e *StrategyEngine) FetchNetFlowRankingData() *nofxos.NetFlowRankingData {
 
 	logger.Infof("💰 Fetching NetFlow ranking data (duration: %s, limit: %d)", duration, limit)
 
-	data, err := e.nofxosClient.GetNetFlowRanking(duration, limit)
+	data, err := e.nofxosClient.GetNetFlowRankingContext(ctx, duration, limit)
 	if err != nil {
 		logger.Warnf("⚠️  Failed to fetch NetFlow ranking data: %v", err)
 		return nil
@@ -988,6 +1005,10 @@ func (e *StrategyEngine) FetchNetFlowRankingData() *nofxos.NetFlowRankingData {
 
 // FetchPriceRankingData fetches market-wide price ranking data (gainers/losers)
 func (e *StrategyEngine) FetchPriceRankingData() *nofxos.PriceRankingData {
+	return e.FetchPriceRankingDataContext(context.Background())
+}
+
+func (e *StrategyEngine) FetchPriceRankingDataContext(ctx context.Context) *nofxos.PriceRankingData {
 	indicators := e.config.Indicators
 	if !indicators.EnablePriceRanking {
 		return nil
@@ -1005,7 +1026,7 @@ func (e *StrategyEngine) FetchPriceRankingData() *nofxos.PriceRankingData {
 
 	logger.Infof("📈 Fetching Price ranking data (durations: %s, limit: %d)", durations, limit)
 
-	data, err := e.nofxosClient.GetPriceRanking(durations, limit)
+	data, err := e.nofxosClient.GetPriceRankingContext(ctx, durations, limit)
 	if err != nil {
 		logger.Warnf("⚠️  Failed to fetch Price ranking data: %v", err)
 		return nil

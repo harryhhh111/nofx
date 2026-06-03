@@ -51,6 +51,7 @@ func (c *LLMStrategyCompiler) Compile(ctx context.Context, req StrategyCompileRe
 		if err != nil {
 			return nil, err
 		}
+		normalizeCompiledScoringConfig(result)
 		if len(result.Errors) > 0 {
 			return result, fmt.Errorf("strategy compile returned errors: %s", strings.Join(result.Errors, "; "))
 		}
@@ -62,7 +63,7 @@ func (c *LLMStrategyCompiler) Compile(ctx context.Context, req StrategyCompileRe
 }
 
 func buildStrategyCompilerSystemPrompt() string {
-	return strings.TrimSpace(`
+	return strings.TrimSpace(fmt.Sprintf(`
 You compile user trading strategy prompts into deterministic executable rules.
 
 Output only JSON inside <compiled_strategy> tags:
@@ -109,12 +110,14 @@ Rules:
 - Supported actions: open_long, open_short, close_long, close_short, wait.
 - Open actions must include leverage, position_size_usd, stop_loss_pct, take_profit_pct, confidence.
 - Close and wait actions must include confidence.
-- For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_confidence, timeframe, execution.
+- For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution.
+- Scoring scores are signed from -100 to 100. long_threshold must be positive, short_threshold must be negative. Example: long_threshold=70, short_threshold=-70. Never output short_threshold as a positive magnitude.
+- min_available_weight_ratio should normally be 0.5 or higher so scoring does not trade from one missing-heavy factor snapshot.
 - Supported scoring factors: trend, momentum, structure, derivatives.
-- Supported indicator operands: price, ema, sma, rsi, atr, adx, plus_di, minus_di, sar, sar_uptrend, sar_flip_up, sar_flip_down, boll_upper, boll_middle, boll_lower, macd, macd_signal, macd_histogram, volume, volume_avg, volume_ratio, vwap, donchian_upper, donchian_lower, donchian_middle, break_above_donchian, break_below_donchian, price_change, realized_vol, session_open, session_high, session_low, session_close, session_volume, bars_since_session_open, prev_session_high, prev_session_low, prev_session_close, prev_session_volume, break_above_prev_session_high, break_below_prev_session_low.
+- Supported indicator operands: %s.
 - If the prompt lacks required execution parameters, put a clear message in errors instead of guessing.
 - Fibonacci, support, and resistance are supported by the structure engine. Use structure operands or structure scoring; do not ask for manual anchors unless the user explicitly requires custom anchors.
-`)
+`, strings.Join(SupportedIndicatorOperands(), ", ")))
 }
 
 func buildStrategyCompilerUserPrompt(req StrategyCompileRequest) (string, error) {
@@ -167,6 +170,7 @@ func validateCompiledStrategy(result *StrategyCompileResult) error {
 	if result.StrategyMode != "rule" && result.StrategyMode != "scoring" && result.StrategyMode != "hybrid" {
 		return fmt.Errorf("compiled strategy has unsupported strategy_mode %q", result.StrategyMode)
 	}
+	normalizeCompiledScoringConfig(result)
 	if (result.StrategyMode == "rule" || result.StrategyMode == "hybrid") && len(result.Rules) == 0 {
 		return fmt.Errorf("compiled strategy contains no executable rules")
 	}
@@ -184,6 +188,21 @@ func validateCompiledStrategy(result *StrategyCompileResult) error {
 		}
 	}
 	return nil
+}
+
+func normalizeCompiledScoringConfig(result *StrategyCompileResult) {
+	if result == nil || result.ScoringConfig == nil {
+		return
+	}
+	scoring := result.ScoringConfig
+	if scoring.ShortThreshold > 0 && scoring.ShortThreshold <= 100 {
+		scoring.ShortThreshold = -scoring.ShortThreshold
+		result.Warnings = append(result.Warnings, "Normalized scoring_config.short_threshold from positive magnitude to negative signed score.")
+	}
+	if scoring.LongThreshold < 0 && scoring.LongThreshold >= -100 {
+		scoring.LongThreshold = -scoring.LongThreshold
+		result.Warnings = append(result.Warnings, "Normalized scoring_config.long_threshold from negative value to positive signed score.")
+	}
 }
 
 func validateCompiledRule(rule StrategyRule) error {
@@ -237,7 +256,7 @@ func validateRuleCondition(ruleID string, index int, condition RuleCondition) er
 
 func validateRuleOperand(ruleID string, conditionIndex int, side string, operand RuleOperand) error {
 	switch operand.Kind {
-	case "literal":
+	case "literal", "value":
 		return nil
 	case "indicator", "external_factor", "structure":
 		if strings.TrimSpace(operand.Name) == "" {
@@ -256,21 +275,10 @@ func isSupportedOperandName(operand RuleOperand) bool {
 	name := strings.TrimSpace(operand.Name)
 	switch operand.Kind {
 	case "indicator":
-		switch name {
-		case "price", "ema", "sma", "rsi", "atr", "adx", "plus_di", "minus_di",
-			"sar", "sar_uptrend", "sar_flip_up", "sar_flip_down",
-			"boll_upper", "boll_middle", "boll_lower",
-			"macd", "macd_signal", "macd_histogram", "volume", "volume_avg", "volume_ratio",
-			"vwap", "donchian_upper", "donchian_lower", "donchian_middle",
-			"break_above_donchian", "break_below_donchian",
-			"price_change", "realized_vol",
-			"session_open", "session_high", "session_low", "session_close", "session_volume",
-			"bars_since_session_open", "prev_session_high", "prev_session_low", "prev_session_close",
-			"prev_session_volume", "break_above_prev_session_high", "break_below_prev_session_low":
+		if IsSupportedIndicatorOperand(name) {
 			return true
-		default:
-			return false
 		}
+		return false
 	case "structure":
 		if name != "fibonacci" && name != "support_resistance" {
 			return false

@@ -117,6 +117,7 @@ func (s *Server) setupRoutes() {
 		s.route(api, "GET", "/nofxos/status", s.handleNofxosStatus)
 
 		// Public strategy market (no authentication required)
+		s.route(api, "GET", "/strategies/metadata", s.handleStrategyMetadata)
 		s.route(api, "GET", "/strategies/public", s.handlePublicStrategies)
 		s.route(api, "POST", "/strategies/estimate-tokens", s.handleEstimateTokens)
 
@@ -480,10 +481,17 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+		user, err := s.store.User().GetByID(claims.UserID)
+		if err != nil {
+			logger.Warnf("[Auth] Token user not found in current database: %s", claims.UserID)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Session user not found, please login again"})
+			c.Abort()
+			return
+		}
 
 		// Store user information in context
-		c.Set("user_id", claims.UserID)
-		c.Set("email", claims.Email)
+		c.Set("user_id", user.ID)
+		c.Set("email", user.Email)
 		c.Next()
 	}
 }

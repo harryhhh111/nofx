@@ -54,6 +54,116 @@ function buildStrategyVersion() {
   ].join('')
 }
 
+function getDependencyCheck(flowPreview: Record<string, unknown> | null): { required: string[]; missing: string[] } | null {
+  const value = flowPreview?.dependency_check
+  if (!value || typeof value !== 'object') return null
+  const check = value as { required?: unknown; missing?: unknown }
+  return {
+    required: Array.isArray(check.required) ? check.required.map(String) : [],
+    missing: Array.isArray(check.missing) ? check.missing.map(String) : [],
+  }
+}
+
+function getResultArray<T = Record<string, unknown>>(result: Record<string, unknown> | null, key: string): T[] {
+  const value = result?.[key]
+  return Array.isArray(value) ? value as T[] : []
+}
+
+function formatPreviewValue(value: unknown) {
+  return typeof value === 'number' ? Number(value).toFixed(4) : '-'
+}
+
+function formatRatio(value: unknown) {
+  if (typeof value !== 'number') return '-'
+  return `${Math.round(value * 100)}%`
+}
+
+function formatStrategyError(error: unknown, language: string) {
+  const raw = error instanceof Error ? error.message : String(error || 'Unknown error')
+  if (raw.includes('cannot be decrypted with the current DATA_ENCRYPTION_KEY')) {
+    return language === 'zh'
+      ? '当前模型 API Key 无法解密。请到 Config > AI Model 重新粘贴并保存该模型的 API Key，然后再生成策略。'
+      : 'This model API key cannot be decrypted. Re-save the API key in Config > AI Model, then generate the strategy again.'
+  }
+  if (raw.includes('Missing Authentication header') || raw.includes('status 401')) {
+    return language === 'zh'
+      ? '模型认证失败。请检查 Config > AI Model 中的 API Key、Base URL 和模型名称是否正确。'
+      : 'Model authentication failed. Check the API key, Base URL, and model name in Config > AI Model.'
+  }
+  return raw
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (Number.isNaN(value)) return min
+  return Math.min(max, Math.max(min, value))
+}
+
+function formatPeriods(periods?: number[]) {
+  return periods && periods.length > 0 ? `(${periods.join('/')})` : ''
+}
+
+function getSelectedIndicatorLabels(config: StrategyConfig | null): string[] {
+  const indicators = config?.indicators
+  if (!indicators) return []
+  const selected: string[] = []
+  if (indicators.enable_ema) selected.push(`EMA${formatPeriods(indicators.ema_periods)}`)
+  if (indicators.enable_sma) selected.push(`SMA${formatPeriods(indicators.sma_periods)}`)
+  if (indicators.enable_macd) selected.push(`MACD(${indicators.macd_fast_period || 12}/${indicators.macd_slow_period || 26}/${indicators.macd_signal_period || 9})`)
+  if (indicators.enable_rsi) selected.push(`RSI${formatPeriods(indicators.rsi_periods)}`)
+  if (indicators.enable_atr) selected.push(`ATR${formatPeriods(indicators.atr_periods)}`)
+  if (indicators.enable_adx) selected.push('ADX/+DI/-DI')
+  if (indicators.enable_sar) selected.push('Parabolic SAR')
+  if (indicators.enable_boll) selected.push(`BOLL${formatPeriods(indicators.boll_periods)}`)
+  if (indicators.enable_volume) selected.push(`Volume${formatPeriods(indicators.volume_periods)}`)
+  if (indicators.enable_session) selected.push('Session')
+  if (indicators.enable_oi) selected.push('Open Interest')
+  if (indicators.enable_funding_rate) selected.push('Funding Rate')
+  if (indicators.enable_quant_data) selected.push('NofxOS Quant')
+  if (indicators.enable_oi_ranking) selected.push(`OI Ranking(${indicators.oi_ranking_duration || '1h'})`)
+  if (indicators.enable_netflow_ranking) selected.push(`NetFlow Ranking(${indicators.netflow_ranking_duration || '1h'})`)
+  if (indicators.enable_price_ranking) selected.push(`Price Ranking(${indicators.price_ranking_duration || '1h'})`)
+  if (config?.structure?.enable_fibonacci) selected.push('Fibonacci Structure')
+  if (config?.structure?.enable_support_resistance) selected.push('Support/Resistance Structure')
+  return selected
+}
+
+function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
+  const indicators = getSelectedIndicatorLabels(config)
+  if (indicators.length === 0) return ''
+  const kline = config.indicators.klines
+  const timeframes = kline.selected_timeframes?.length
+    ? kline.selected_timeframes.join(', ')
+    : [kline.primary_timeframe, kline.longer_timeframe].filter(Boolean).join(', ')
+  const coinSource = config.coin_source.source_type
+  const risk = config.risk_control
+  const positionSize = risk.min_position_size || 12
+  const leverage = Math.min(risk.btc_eth_max_leverage || 2, risk.altcoin_max_leverage || risk.btc_eth_max_leverage || 2)
+  const minConfidence = risk.min_confidence || 70
+  const minRiskReward = risk.min_risk_reward_ratio || 2
+
+  if (language === 'zh') {
+    return [
+      '用户没有填写自然语言策略，只勾选了指标。请基于这些已启用指标生成可执行的结构化交易策略。',
+      `已启用指标/因子：${indicators.join('、')}。`,
+      `交易周期：${timeframes || '使用配置中的主周期'}。币种来源：${coinSource}。`,
+      '如果没有明确的数值触发条件，请优先生成 strategy_mode="scoring" 的评分策略，而不是编造精确规则。',
+      '评分因子应只使用已启用指标能够支持的 trend、momentum、structure、derivatives，不要使用未启用或不可用的数据。',
+      `执行约束：最大持仓数 ${risk.max_positions || 1}，开仓杠杆不超过 ${leverage}，position_size_usd 使用 ${positionSize}，min_confidence 不低于 ${minConfidence}，止盈止损至少满足风险收益比 ${minRiskReward}。`,
+      '程序负责计算 K 线和指标；AI 只负责编译策略结构，不要要求 AI 计算原始 K 线或指标值。',
+    ].join('\n')
+  }
+
+  return [
+    'The user did not write a natural-language strategy and only selected indicators. Generate an executable structured trading strategy from the enabled indicators.',
+    `Enabled indicators/factors: ${indicators.join(', ')}.`,
+    `Timeframes: ${timeframes || 'use configured primary timeframe'}. Coin source: ${coinSource}.`,
+    'If there are no exact numeric trigger conditions, prefer strategy_mode="scoring" instead of inventing precise rules.',
+    'Use only scoring factors supported by enabled data: trend, momentum, structure, derivatives. Do not use unavailable data.',
+    `Execution constraints: max positions ${risk.max_positions || 1}, leverage no more than ${leverage}, position_size_usd ${positionSize}, min_confidence at least ${minConfidence}, risk/reward at least ${minRiskReward}.`,
+    'The program calculates K-lines and indicators; AI only compiles strategy structure and must not calculate raw K-line indicators.',
+  ].join('\n')
+}
+
 export function StrategyStudioPage() {
   const { token } = useAuth()
   const { language } = useLanguage()
@@ -93,11 +203,13 @@ export function StrategyStudioPage() {
   const [isEvolvingStrategy, setIsEvolvingStrategy] = useState(false)
   const [ai500Preview, setAI500Preview] = useState<AI500CoinsResponse | null>(null)
   const [nofxOSStatus, setNofxOSStatus] = useState<NofxOSStatus | null>(null)
+  const [dataSourceError, setDataSourceError] = useState<string | null>(null)
   const [isLoadingDataStatus, setIsLoadingDataStatus] = useState(false)
 
   // AI Test Run states
   const [aiTestResult, setAiTestResult] = useState<Record<string, unknown> | null>(null)
   const [isRunningAiTest, setIsRunningAiTest] = useState(false)
+  const dependencyCheck = getDependencyCheck(flowPreview)
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({
@@ -113,13 +225,13 @@ export function StrategyStudioPage() {
       const allModels = await api.getModelConfigs()
       const enabledModels = allModels.filter((m: AIModel) => m.enabled && m.provider !== 'claw402')
       setAiModels(enabledModels)
-      if (enabledModels.length > 0 && !selectedModelId) {
-        setSelectedModelId(enabledModels[0].id)
+      if (enabledModels.length > 0) {
+        setSelectedModelId((current) => current || enabledModels[0].id)
       }
     } catch (err) {
       console.error('Failed to fetch AI models:', err)
     }
-  }, [token, selectedModelId])
+  }, [token])
 
   // Fetch strategies
   const fetchStrategies = useCallback(async () => {
@@ -418,11 +530,40 @@ export function StrategyStudioPage() {
     setHasChanges(true)
   }
 
+  const updateScoringConfig = (updates: Partial<NonNullable<StrategyConfig['scoring_config']>>) => {
+    if (!editingConfig?.scoring_config) return
+    const nextScoring = {
+      ...editingConfig.scoring_config,
+      ...updates,
+    }
+    setEditingConfig({
+      ...editingConfig,
+      scoring_config: nextScoring,
+      resolved_parameters: {
+        ...editingConfig.resolved_parameters,
+        scoring: nextScoring,
+      },
+    })
+    setHasChanges(true)
+  }
+
+  const updateScoringWeight = (factor: string, weight: number) => {
+    if (!editingConfig?.scoring_config) return
+    updateScoringConfig({
+      factor_weights: {
+        ...(editingConfig.scoring_config.factor_weights || {}),
+        [factor]: clampNumber(weight, 0.1, 5),
+      },
+    })
+  }
+
   const compileStrategyPrompt = async () => {
     if (!token || !editingConfig || !selectedModelId) return
-    const prompt = (editingConfig.strategy_prompt || '').trim()
+    const manualPrompt = (editingConfig.strategy_prompt || '').trim()
+    const indicatorPrompt = buildIndicatorDrivenPrompt(editingConfig, language)
+    const prompt = manualPrompt || indicatorPrompt
     if (!prompt) {
-      notify.warning(language === 'zh' ? '请先填写策略 Prompt' : 'Enter a strategy prompt first')
+      notify.warning(language === 'zh' ? '请先填写策略 Prompt，或至少勾选一个指标/因子' : 'Enter a strategy prompt or select at least one indicator/factor')
       return
     }
     setIsCompilingStrategy(true)
@@ -438,7 +579,7 @@ export function StrategyStudioPage() {
       setCompileResult(result)
       setEditingConfig({
         ...editingConfig,
-        strategy_prompt: result.strategy_prompt || prompt,
+        strategy_prompt: result.strategy_prompt || manualPrompt,
         strategy_mode: result.strategy_mode || 'rule',
         compiled_rules: result.compiled_rules || [],
         scoring_config: result.scoring_config,
@@ -448,7 +589,8 @@ export function StrategyStudioPage() {
       setActiveRightTab('structured')
       notify.success(language === 'zh' ? '策略已编译，保存后生效' : 'Strategy compiled. Save to apply.')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      const message = formatStrategyError(err, language)
+      notify.error(message, { duration: 8000 })
     } finally {
       setIsCompilingStrategy(false)
     }
@@ -484,6 +626,28 @@ export function StrategyStudioPage() {
       })
       setAiTestResult(data)
     } catch (err) {
+      const message = formatStrategyError(err, language)
+      notify.error(message, { duration: 8000 })
+      setAiTestResult({
+        error: message,
+      })
+    } finally {
+      setIsRunningAiTest(false)
+    }
+  }
+
+  const runDeterministicPreview = async () => {
+    if (!token || !editingConfig) return
+    setIsRunningAiTest(true)
+    setAiTestResult(null)
+    try {
+      const data = await api.testRunStrategy({
+        config: editingConfig,
+        prompt_variant: selectedVariant,
+        run_real_ai: false,
+      })
+      setAiTestResult(data)
+    } catch (err) {
       setAiTestResult({
         error: err instanceof Error ? err.message : 'Unknown error',
       })
@@ -494,13 +658,27 @@ export function StrategyStudioPage() {
 
   const loadDataSourceStatus = async () => {
     setIsLoadingDataStatus(true)
+    setDataSourceError(null)
     try {
-      const [ai500, nofxos] = await Promise.all([
-        api.getAI500Coins(10, true).catch(() => ({ coins: [], count: 0 })),
-        api.getNofxOSStatus(true).catch(() => ({ records: [], count: 0 })),
+      const [ai500Result, nofxosResult] = await Promise.allSettled([
+        api.getAI500Coins(10, true),
+        api.getNofxOSStatus(true),
       ])
+      const ai500 = ai500Result.status === 'fulfilled' ? ai500Result.value : { coins: [], count: 0 }
+      const nofxos = nofxosResult.status === 'fulfilled' ? nofxosResult.value : { records: [], count: 0 }
       setAI500Preview(ai500)
       setNofxOSStatus(nofxos)
+
+      const errors: string[] = []
+      if (ai500Result.status === 'rejected') {
+        errors.push(ai500Result.reason instanceof Error ? ai500Result.reason.message : 'AI500 check failed')
+      }
+      if (nofxosResult.status === 'rejected') {
+        errors.push(nofxosResult.reason instanceof Error ? nofxosResult.reason.message : 'NofxOS status check failed')
+      }
+      if (errors.length > 0) {
+        setDataSourceError(errors.join('; '))
+      }
     } finally {
       setIsLoadingDataStatus(false)
     }
@@ -520,7 +698,8 @@ export function StrategyStudioPage() {
       setEvolutionProposal(proposal)
       setActiveRightTab('structured')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error')
+      const message = formatStrategyError(err, language)
+      notify.error(message, { duration: 8000 })
     } finally {
       setIsEvolvingStrategy(false)
     }
@@ -559,8 +738,8 @@ export function StrategyStudioPage() {
             </div>
             <div>
               {language === 'zh'
-                ? '先写策略意图和指标范围，选择推理模型编译成结构化规则，保存后由程序计算指标并执行；右侧可查看交易流和真实 AI 测试结果。'
-                : 'Describe the strategy intent and indicator scope, compile it into structured rules with the reasoning model, then save. Runtime indicators are calculated by the program; use the right panel to inspect flow and real AI test output.'}
+                ? '可直接勾选指标生成评分策略，也可以补充策略意图让 AI 编译成结构化规则。保存后由程序计算指标并执行；右侧可查看交易流和真实 AI 测试结果。'
+                : 'Select indicators to generate a scoring strategy, or add strategy intent so AI can compile structured rules. Runtime indicators are calculated by the program; use the right panel to inspect flow and real AI test output.'}
             </div>
           </div>
           <textarea
@@ -570,9 +749,14 @@ export function StrategyStudioPage() {
             rows={7}
             className="w-full resize-none rounded-lg px-3 py-2 text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-purple-500 disabled:opacity-50"
             placeholder={language === 'zh'
-              ? '写策略意图：使用哪些指标、希望捕捉什么行情、开平仓要求。可以只指定指标类型，参数由 AI 在编译阶段建议，程序保存后固定执行。'
-              : 'Describe the strategy intent, indicators, market setup, and execution requirements. AI can suggest parameters during compile; runtime execution stays deterministic.'}
+              ? '可选：写策略意图、希望捕捉什么行情、开平仓偏好。不填写时，将根据已勾选指标生成评分策略。'
+              : 'Optional: describe market setup and execution preference. If empty, the selected indicators will be used to generate a scoring strategy.'}
           />
+          <div className="text-[10px] text-nofx-text-muted">
+            {language === 'zh'
+              ? '提示词模式也会经过代码支持的指标/结构校验；编译后可在右侧交易流查看依赖是否缺失。'
+              : 'Prompt mode is validated against supported indicator and structure operands; check missing dependencies in the Flow tab after compile.'}
+          </div>
           <div className="grid grid-cols-2 gap-2">
             <select
               value={selectedModelId}
@@ -590,11 +774,13 @@ export function StrategyStudioPage() {
             </select>
             <button
               onClick={compileStrategyPrompt}
-              disabled={selectedStrategy?.is_default || isCompilingStrategy || !selectedModelId || !(editingConfig.strategy_prompt || '').trim()}
+              disabled={selectedStrategy?.is_default || isCompilingStrategy || !selectedModelId || (!(editingConfig.strategy_prompt || '').trim() && getSelectedIndicatorLabels(editingConfig).length === 0)}
               className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50"
             >
               {isCompilingStrategy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-              {language === 'zh' ? '编译为结构化策略' : 'Compile Structured Strategy'}
+              {(editingConfig.strategy_prompt || '').trim()
+                ? (language === 'zh' ? '编译为结构化策略' : 'Compile Structured Strategy')
+                : (language === 'zh' ? '根据指标生成策略' : 'Generate from Indicators')}
             </button>
           </div>
           <div className="grid grid-cols-3 gap-2 text-[11px]">
@@ -630,6 +816,16 @@ export function StrategyStudioPage() {
                 {language === 'zh' ? '检查' : 'Check'}
               </button>
             </div>
+            {dataSourceError && (
+              <div className="mt-2 rounded border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
+                <div className="font-medium">
+                  {language === 'zh' ? '数据源检查失败' : 'Data source check failed'}
+                </div>
+                <div className="mt-1 font-mono">
+                  {dataSourceError}
+                </div>
+              </div>
+            )}
             {(ai500Preview || nofxOSStatus) && (
               <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
                 <div className="rounded border border-white/10 bg-black/20 p-2">
@@ -792,14 +988,20 @@ export function StrategyStudioPage() {
               <Sparkles className="w-5 h-5 text-black" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-nofx-text">{tr('strategyStudio')}</h1>
+              <h1 className="text-lg font-bold text-nofx-text">{tr('title')}</h1>
               <p className="text-xs text-nofx-text-muted">{tr('subtitle')}</p>
             </div>
           </div>
           {error && (
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-nofx-danger/10 text-nofx-danger">
-              {error}
-              <button onClick={() => setError(null)} className="hover:underline">×</button>
+            <div className="ml-4 flex max-w-[560px] items-start gap-3 rounded-lg bg-nofx-danger/10 px-3 py-2 text-xs text-nofx-danger">
+              <span className="min-w-0 whitespace-normal break-words leading-relaxed">{error}</span>
+              <button
+                onClick={() => setError(null)}
+                className="shrink-0 rounded px-1 text-sm leading-none hover:bg-white/10"
+                aria-label={language === 'zh' ? '关闭错误提示' : 'Dismiss error'}
+              >
+                ×
+              </button>
             </div>
           )}
         </div>
@@ -1195,14 +1397,107 @@ export function StrategyStudioPage() {
 
                 {editingConfig?.scoring_config?.enabled && (
                   <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                    <div className="text-xs font-medium text-nofx-text mb-2">{language === 'zh' ? '评分配置' : 'Scoring Config'}</div>
-                    <div className="grid grid-cols-2 gap-2 text-[11px]">
-                      <div className="text-nofx-text-muted">long <span className="text-nofx-text">{editingConfig.scoring_config.long_threshold ?? '-'}</span></div>
-                      <div className="text-nofx-text-muted">short <span className="text-nofx-text">{editingConfig.scoring_config.short_threshold ?? '-'}</span></div>
-                      <div className="text-nofx-text-muted">conf <span className="text-nofx-text">{editingConfig.scoring_config.min_confidence ?? '-'}</span></div>
-                      <div className="text-nofx-text-muted">tf <span className="text-nofx-text">{editingConfig.scoring_config.timeframe || '-'}</span></div>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '评分配置' : 'Scoring Config'}</div>
+                        <div className="mt-1 text-[11px] text-nofx-text-muted">
+                          {language === 'zh' ? 'LLM 生成后的可选微调；修改后请到 AI Test 点击预演验证。' : 'Optional tuning after LLM generation. Run Preview in AI Test after changes.'}
+                        </div>
+                      </div>
+                      <span className="rounded bg-blue-500/15 px-2 py-1 text-[10px] text-blue-300">
+                        {editingConfig.scoring_config.timeframe || '-'}
+                      </span>
                     </div>
-                    <pre className="mt-2 p-2 rounded text-[10px] overflow-auto bg-black/30 text-nofx-text max-h-48">
+
+                    <div className="mt-3 space-y-3">
+                      {(editingConfig.scoring_config.selected_factors || Object.keys(editingConfig.scoring_config.factor_weights || {})).map((factor) => {
+                        const weight = editingConfig.scoring_config?.factor_weights?.[factor] ?? 1
+                        return (
+                          <div key={factor} className="space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[11px] font-medium text-nofx-text">{factor}</div>
+                              <input
+                                type="number"
+                                min={0.1}
+                                max={5}
+                                step={0.1}
+                                value={weight}
+                                disabled={selectedStrategy?.is_default}
+                                onChange={(e) => updateScoringWeight(factor, parseFloat(e.target.value))}
+                                className="w-16 rounded border border-white/10 bg-black/20 px-2 py-1 text-right text-[11px] text-nofx-text disabled:opacity-50"
+                              />
+                            </div>
+                            <input
+                              type="range"
+                              min={0.1}
+                              max={5}
+                              step={0.1}
+                              value={weight}
+                              disabled={selectedStrategy?.is_default}
+                              onChange={(e) => updateScoringWeight(factor, parseFloat(e.target.value))}
+                              className="w-full accent-yellow-500 disabled:opacity-50"
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <label className="space-y-1">
+                        <span className="text-[10px] text-nofx-text-muted">long threshold</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={100}
+                          step={1}
+                          value={editingConfig.scoring_config.long_threshold ?? 60}
+                          disabled={selectedStrategy?.is_default}
+                          onChange={(e) => updateScoringConfig({ long_threshold: clampNumber(parseFloat(e.target.value), 1, 100) })}
+                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] text-nofx-text-muted">short threshold</span>
+                        <input
+                          type="number"
+                          min={-100}
+                          max={-1}
+                          step={1}
+                          value={editingConfig.scoring_config.short_threshold ?? -60}
+                          disabled={selectedStrategy?.is_default}
+                          onChange={(e) => updateScoringConfig({ short_threshold: clampNumber(parseFloat(e.target.value), -100, -1) })}
+                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] text-nofx-text-muted">min evidence</span>
+                        <input
+                          type="number"
+                          min={0.5}
+                          max={1}
+                          step={0.05}
+                          value={editingConfig.scoring_config.min_available_weight_ratio ?? 0.5}
+                          disabled={selectedStrategy?.is_default}
+                          onChange={(e) => updateScoringConfig({ min_available_weight_ratio: clampNumber(parseFloat(e.target.value), 0.5, 1) })}
+                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                        />
+                      </label>
+                      <label className="space-y-1">
+                        <span className="text-[10px] text-nofx-text-muted">min confidence</span>
+                        <input
+                          type="number"
+                          min={50}
+                          max={90}
+                          step={1}
+                          value={editingConfig.scoring_config.min_confidence ?? 70}
+                          disabled={selectedStrategy?.is_default}
+                          onChange={(e) => updateScoringConfig({ min_confidence: Math.round(clampNumber(parseFloat(e.target.value), 50, 90)) })}
+                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                        />
+                      </label>
+                    </div>
+
+                    <pre className="mt-3 p-2 rounded text-[10px] overflow-auto bg-black/30 text-nofx-text max-h-36">
                       {JSON.stringify(editingConfig.scoring_config.factor_weights || {}, null, 2)}
                     </pre>
                   </div>
@@ -1237,12 +1532,29 @@ export function StrategyStudioPage() {
                 </div>
 
                 {flowPreview ? (
-                  <pre
-                    className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                    style={{ maxHeight: '520px' }}
-                  >
-                    {JSON.stringify(flowPreview, null, 2)}
-                  </pre>
+                  <>
+                    {dependencyCheck && dependencyCheck.missing.length > 0 && (
+                      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+                        <div className="font-medium">
+                          {language === 'zh' ? '规则依赖未满足' : 'Rule dependencies missing'}
+                        </div>
+                        <div className="mt-1 font-mono text-[11px]">
+                          {dependencyCheck.missing.join(', ')}
+                        </div>
+                      </div>
+                    )}
+                    {dependencyCheck && dependencyCheck.missing.length === 0 && dependencyCheck.required.length > 0 && (
+                      <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
+                        {language === 'zh' ? '规则依赖已满足' : 'Rule dependencies satisfied'}
+                      </div>
+                    )}
+                    <pre
+                      className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                      style={{ maxHeight: '520px' }}
+                    >
+                      {JSON.stringify(flowPreview, null, 2)}
+                    </pre>
+                  </>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Eye className="w-10 h-10 mb-2 opacity-30" />
@@ -1288,6 +1600,14 @@ export function StrategyStudioPage() {
                       <option value="conservative">{tr('conservative')}</option>
                     </select>
                     <button
+                      onClick={runDeterministicPreview}
+                      disabled={isRunningAiTest || !editingConfig}
+                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 bg-nofx-bg border border-blue-500/30 text-blue-300"
+                    >
+                      {isRunningAiTest ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
+                      {language === 'zh' ? '预演' : 'Preview'}
+                    </button>
+                    <button
                       onClick={runAiTest}
                       disabled={isRunningAiTest || !editingConfig || !selectedModelId}
                       className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 text-white shadow-lg shadow-green-500/20 bg-gradient-to-br from-green-500 to-green-600"
@@ -1310,12 +1630,139 @@ export function StrategyStudioPage() {
 
                 {/* Test Results */}
                 {aiTestResult ? (
-                  <pre
-                    className="p-2 rounded-lg text-[10px] font-mono overflow-auto whitespace-pre-wrap bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                    style={{ maxHeight: '520px' }}
-                  >
-                    {JSON.stringify(aiTestResult, null, 2)}
-                  </pre>
+                  <div className="space-y-3">
+                    {aiTestResult.error ? (
+                      <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+                        {String(aiTestResult.error)}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                            <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '候选币' : 'Candidates'}</div>
+                            <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.candidate_count ?? 0)}</div>
+                          </div>
+                          <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                            <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '快照' : 'Snapshots'}</div>
+                            <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.factor_snapshot_count ?? 0)}</div>
+                          </div>
+                          <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                            <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '信号' : 'Signals'}</div>
+                            <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.signal_count ?? 0)}</div>
+                          </div>
+                        </div>
+
+	                        {String(aiTestResult.signal_preview_error || '') && (
+	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">
+	                            {String(aiTestResult.signal_preview_error)}
+	                          </div>
+	                        )}
+
+	                        {getResultArray(aiTestResult, 'external_data_warnings').length > 0 && (
+	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100 space-y-1">
+	                            <div className="font-medium">{language === 'zh' ? '外部数据提示' : 'External Data'}</div>
+	                            {getResultArray(aiTestResult, 'external_data_warnings').map((warning, index) => (
+	                              <div key={index}>{String(warning)}</div>
+	                            ))}
+	                          </div>
+	                        )}
+
+	                        {getResultArray(aiTestResult, 'market_data_warnings').length > 0 && (
+	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100 space-y-1">
+	                            <div className="font-medium">{language === 'zh' ? '市场数据提示' : 'Market Data'}</div>
+	                            {getResultArray(aiTestResult, 'market_data_warnings').map((warning, index) => (
+	                              <div key={index}>{String(warning)}</div>
+	                            ))}
+	                          </div>
+	                        )}
+
+	                        {getResultArray(aiTestResult, 'signals').length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '候选信号' : 'Candidate Signals'}</div>
+                            {getResultArray(aiTestResult, 'signals').map((signal, index) => (
+                              <div key={`${String(signal.id || index)}`} className="rounded-lg bg-nofx-bg border border-green-500/20 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-sm font-semibold text-nofx-text">{String(signal.symbol || '-')}</div>
+                                  <span className="rounded bg-green-500/15 px-2 py-1 text-[10px] text-green-300">{String(signal.action || '-')}</span>
+                                </div>
+                                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
+                                  <div>entry <span className="text-nofx-text">{formatPreviewValue(signal.entry_price)}</span></div>
+                                  <div>conf <span className="text-nofx-text">{String(signal.confidence ?? '-')}</span></div>
+                                  <div>rule <span className="text-nofx-text">{String(signal.rule_id || '-')}</span></div>
+                                </div>
+                                <div className="mt-2 text-[11px] text-nofx-text-muted">{String(signal.trigger_reason || '')}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {getResultArray(aiTestResult, 'scoring_evaluations').length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '评分判定' : 'Scoring Checks'}</div>
+                            {getResultArray(aiTestResult, 'scoring_evaluations').slice(0, 20).map((trace, index) => (
+                              <div key={`${String(trace.symbol || index)}-scoring`} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-xs font-medium text-nofx-text">{String(trace.symbol || '-')} · {formatPreviewValue(trace.score)}</div>
+                                  <span className={`rounded px-2 py-1 text-[10px] ${String(trace.action || '') ? 'bg-green-500/15 text-green-300' : Boolean(trace.eligible) ? 'bg-blue-500/15 text-blue-300' : 'bg-yellow-500/15 text-yellow-300'}`}>
+                                    {String(trace.action || '') || (Boolean(trace.eligible) ? (language === 'zh' ? '未达阈值' : 'below threshold') : (language === 'zh' ? '证据不足' : 'insufficient evidence'))}
+                                  </span>
+                                </div>
+                                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
+                                  <div>{language === 'zh' ? '证据权重' : 'evidence'} <span className="text-nofx-text">{formatRatio(trace.available_weight_ratio)}</span></div>
+                                  <div>{language === 'zh' ? '最低要求' : 'required'} <span className="text-nofx-text">{formatRatio(trace.min_available_weight_ratio)}</span></div>
+                                  <div>{language === 'zh' ? '因子' : 'factors'} <span className="text-nofx-text">{String(trace.available_factor_count ?? 0)}/{String(trace.required_factor_count ?? 0)}</span></div>
+                                </div>
+                                <div className="mt-2 text-[10px] text-nofx-text-muted">
+                                  ok: {Array.isArray(trace.available_factors) ? trace.available_factors.join(', ') || '-' : '-'}
+                                </div>
+                                <div className="mt-1 text-[10px] text-nofx-text-muted">
+                                  missing: {Array.isArray(trace.missing_factors) ? trace.missing_factors.join(', ') || '-' : '-'}
+                                </div>
+                                {String(trace.reason || '') && (
+                                  <div className="mt-2 text-[11px] text-yellow-200">{String(trace.reason)}</div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {getResultArray(aiTestResult, 'rule_evaluations').length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '条件判定' : 'Condition Checks'}</div>
+                            {getResultArray(aiTestResult, 'rule_evaluations').slice(0, 20).map((trace, index) => (
+                              <div key={`${String(trace.rule_id || index)}-${String(trace.symbol || index)}`} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-xs font-medium text-nofx-text">{String(trace.symbol || '-')} · {String(trace.rule_id || '-')}</div>
+                                  <span className={`rounded px-2 py-1 text-[10px] ${Boolean(trace.matched) ? 'bg-green-500/15 text-green-300' : Boolean(trace.missing) ? 'bg-yellow-500/15 text-yellow-300' : 'bg-white/10 text-nofx-text-muted'}`}>
+                                    {Boolean(trace.matched) ? (language === 'zh' ? '触发' : 'matched') : Boolean(trace.missing) ? (language === 'zh' ? '缺数据' : 'missing') : (language === 'zh' ? '未触发' : 'no match')}
+                                  </span>
+                                </div>
+                                <div className="mt-2 space-y-1">
+                                  {getResultArray(trace, 'conditions').map((condition, conditionIndex) => (
+                                    <div key={conditionIndex} className="rounded border border-white/5 bg-black/20 px-2 py-1 text-[10px] text-nofx-text-muted">
+                                      <span className={Boolean(condition.passed) ? 'text-green-300' : 'text-nofx-text-muted'}>{Boolean(condition.passed) ? '✓' : '×'}</span>
+                                      {' '}{String(condition.left)} {formatPreviewValue(condition.left_value)} {String(condition.operator)} {String(condition.right)} {formatPreviewValue(condition.right_value)}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    )}
+	                    <details className="rounded-lg border border-nofx-gold/20 bg-nofx-bg">
+	                      <summary className="cursor-pointer px-3 py-2 text-xs text-nofx-text-muted hover:text-nofx-text">
+	                        {language === 'zh' ? '原始 JSON' : 'Raw JSON'}
+	                      </summary>
+	                      <pre
+	                        className="border-t border-white/10 p-2 text-[10px] font-mono overflow-auto whitespace-pre-wrap text-nofx-text"
+	                        style={{ maxHeight: '360px' }}
+	                      >
+	                        {JSON.stringify(aiTestResult, null, 2)}
+	                      </pre>
+	                    </details>
+                  </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Play className="w-10 h-10 mb-2 opacity-30" />

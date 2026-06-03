@@ -3,12 +3,19 @@ import type {
   StrategyConfig,
   StrategyCompileResponse,
   StrategyEvolutionProposal,
+  StrategyMetadata,
   StrategyPreviewFlowResponse,
   StrategyTestRunResponse,
 } from '../../types'
 import { API_BASE, httpClient } from './helpers'
 
 export const strategyApi = {
+  async getStrategyMetadata(): Promise<StrategyMetadata> {
+    const result = await httpClient.get<StrategyMetadata>(`${API_BASE}/strategies/metadata`)
+    if (!result.success) throw new Error('Failed to fetch strategy metadata')
+    return result.data!
+  },
+
   async getStrategies(): Promise<Strategy[]> {
     const result = await httpClient.get<{ strategies: Strategy[] }>(`${API_BASE}/strategies`)
     if (!result.success) throw new Error('Failed to fetch strategy list')
@@ -103,7 +110,7 @@ export const strategyApi = {
   async testRunStrategy(data: {
     config: StrategyConfig
     prompt_variant?: string
-    ai_model_id: string
+    ai_model_id?: string
     run_real_ai?: boolean
   }): Promise<StrategyTestRunResponse> {
     const result = await httpClient.post<StrategyTestRunResponse>(

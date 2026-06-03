@@ -1,10 +1,12 @@
 package market
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"nofx/logger"
 	"strconv"
 	"strings"
@@ -164,6 +166,12 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 // GetWithTimeframesWindow retrieves market data with separate prompt display
 // count and calculation lookback.
 func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int) (*Data, error) {
+	return GetWithTimeframesWindowContext(context.Background(), symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
+}
+
+// GetWithTimeframesWindowContext retrieves market data with separate prompt
+// display count and calculation lookback.
+func GetWithTimeframesWindowContext(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -205,19 +213,22 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 
 	// Get K-line data for each timeframe
 	for _, tf := range timeframes {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		var klines []Kline
 		var err error
 
 		if isXyzAsset {
 			// Use Hyperliquid API for xyz dex assets
-			klines, err = getKlinesFromHyperliquid(symbol, tf, computeLookback)
+			klines, err = getKlinesFromHyperliquidContext(ctx, symbol, tf, computeLookback)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from Hyperliquid: %v", symbol, tf, err)
 				continue
 			}
 		} else {
 			// Use CoinAnk for regular crypto assets (default to Binance)
-			klines, err = getKlinesFromCoinAnk(symbol, tf, "binance", computeLookback)
+			klines, err = getKlinesFromCoinAnkContext(ctx, symbol, tf, "binance", computeLookback)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from CoinAnk: %v", symbol, tf, err)
 				continue
@@ -272,13 +283,13 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 	priceChange4h := calculatePriceChangeByBars(primaryKlines, primaryTimeframe, 240) // 4 hours
 
 	// Get OI data
-	oiData, err := getOpenInterestData(symbol)
+	oiData, err := getOpenInterestDataContext(ctx, symbol)
 	if err != nil {
 		oiData = &OIData{Latest: 0, Average: 0}
 	}
 
 	// Get Funding Rate
-	fundingRate, fundingRateTime, fundingErr := getFundingRate(symbol)
+	fundingRate, fundingRateTime, fundingErr := getFundingRateContext(ctx, symbol)
 	fundingAvailable := fundingErr == nil
 
 	return &Data{
@@ -307,10 +318,18 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 
 // getOpenInterestData retrieves OI data
 func getOpenInterestData(symbol string) (*OIData, error) {
+	return getOpenInterestDataContext(context.Background(), symbol)
+}
+
+func getOpenInterestDataContext(ctx context.Context, symbol string) (*OIData, error) {
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/openInterest?symbol=%s", symbol)
 
 	apiClient := NewAPIClient()
-	resp, err := apiClient.client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := apiClient.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -342,6 +361,10 @@ func getOpenInterestData(symbol string) (*OIData, error) {
 
 // getFundingRate retrieves funding rate (optimized: uses 1-hour cache)
 func getFundingRate(symbol string) (float64, time.Time, error) {
+	return getFundingRateContext(context.Background(), symbol)
+}
+
+func getFundingRateContext(ctx context.Context, symbol string) (float64, time.Time, error) {
 	// Check cache (1-hour validity)
 	// Funding Rate only updates every 8 hours, 1-hour cache is very reasonable
 	if cached, ok := fundingRateMap.Load(symbol); ok {
@@ -356,7 +379,11 @@ func getFundingRate(symbol string) (float64, time.Time, error) {
 	url := fmt.Sprintf("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=%s", symbol)
 
 	apiClient := NewAPIClient()
-	resp, err := apiClient.client.Get(url)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	resp, err := apiClient.client.Do(req)
 	if err != nil {
 		return 0, time.Time{}, err
 	}

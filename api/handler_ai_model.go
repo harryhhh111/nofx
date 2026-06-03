@@ -204,7 +204,11 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		// Don't return error here since model config was successfully updated to database
 	}
 
-	logger.Infof("✓ AI model config updated: %+v", req.Models)
+	updatedModelIDs := make([]string, 0, len(req.Models))
+	for modelID := range req.Models {
+		updatedModelIDs = append(updatedModelIDs, modelID)
+	}
+	logger.Infof("✓ AI model config updated: %s", strings.Join(updatedModelIDs, ","))
 	c.JSON(http.StatusOK, gin.H{"message": "Model configuration updated"})
 }
 
