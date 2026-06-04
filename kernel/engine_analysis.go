@@ -345,6 +345,17 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 			req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
 		}
 	}
+	if indicators.EnableOpeningRange {
+		minutes := indicators.OpeningRangeMinutes
+		if minutes <= 0 {
+			minutes = 30
+		}
+		req.OpeningRange = &market.OpeningRangeSpec{RangeMinutes: minutes}
+		// Ensure session definition is available for opening range calculation
+		if len(req.Sessions) == 0 {
+			req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
+		}
+	}
 	return req
 }
 

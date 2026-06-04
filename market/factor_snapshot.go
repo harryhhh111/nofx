@@ -23,14 +23,19 @@ type IndicatorRequest struct {
 	MACD               *MACDSpec     `json:"macd,omitempty"`
 	VWAPPeriods        []int         `json:"vwap_periods,omitempty"`
 	VolumePeriods      []int         `json:"volume_periods,omitempty"`
-	DonchianPeriods    []int         `json:"donchian_periods,omitempty"`
-	RealizedVolPeriods []int         `json:"realized_vol_periods,omitempty"`
-	PriceChangeWindows []int         `json:"price_change_windows,omitempty"`
-	Sessions           []SessionSpec `json:"sessions,omitempty"`
+	DonchianPeriods    []int              `json:"donchian_periods,omitempty"`
+	RealizedVolPeriods []int              `json:"realized_vol_periods,omitempty"`
+	PriceChangeWindows []int              `json:"price_change_windows,omitempty"`
+	Sessions           []SessionSpec      `json:"sessions,omitempty"`
+	OpeningRange       *OpeningRangeSpec  `json:"opening_range,omitempty"`
 }
 
 type ADXSpec struct {
 	Period int `json:"period"`
+}
+
+type OpeningRangeSpec struct {
+	RangeMinutes int `json:"range_minutes"` // e.g. 30
 }
 
 type SARSpec struct {

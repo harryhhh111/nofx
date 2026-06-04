@@ -663,6 +663,7 @@ type IndicatorConfig struct {
 	EnableSAR         bool `json:"enable_sar"`     // Parabolic SAR
 	EnableBOLL        bool `json:"enable_boll"`    // Bollinger Bands
 	EnableSession     bool `json:"enable_session"` // Previous session OHLCV
+	EnableOpeningRange bool `json:"enable_opening_range"` // Opening Range (first N minutes of session)
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
@@ -690,6 +691,8 @@ type IndicatorConfig struct {
 	PriceChangeWindows []int `json:"price_change_windows,omitempty"` // default [12, 48], bar windows
 	// Session configuration (Phase 1: UTC day only)
 	Sessions []SessionSpec `json:"sessions,omitempty"`
+	// Opening Range configuration (shares session definition with SessionModule)
+	OpeningRangeMinutes int `json:"opening_range_minutes,omitempty"` // default 30
 	// external data sources
 	ExternalDataSources []ExternalDataSource `json:"external_data_sources,omitempty"`
 
@@ -869,6 +872,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableSAR:              false,
 			EnableBOLL:             false,
 			EnableSession:          false,
+			EnableOpeningRange:     false,
+			OpeningRangeMinutes:    30,
 			EnableVolume:           true,
 			EnableOI:               true,
 			EnableFundingRate:      true,
