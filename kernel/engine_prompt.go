@@ -65,14 +65,14 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 			sb.WriteString(fmt.Sprintf("- 本轮已配置 K 线周期：%s\n", strings.Join(configuredTimeframes, ", ")))
 			sb.WriteString("- 你必须对每个持仓和候选币逐个分析上述所有已配置周期，不能忽略任一周期\n")
 			sb.WriteString("- 开仓、平仓、HOLD、WAIT 都必须综合全部已配置周期，而不是只盯某一个周期\n")
-			sb.WriteString("- 高周期负责方向和结构，中周期负责形态确认，低周期只负责入场时机辅助\n")
+			sb.WriteString("- 以主周期为核心判断依据，大周期辅助确认方向，小周期辅助入场时机\n")
 			sb.WriteString("- 若某个已配置周期缺失数据，必须明确说明“该周期数据缺失”，禁止脑补结论\n\n")
 		} else {
 			sb.WriteString("## Multi-Timeframe Analysis Requirement\n")
 			sb.WriteString(fmt.Sprintf("- Configured K-line timeframes for this run: %s\n", strings.Join(configuredTimeframes, ", ")))
 			sb.WriteString("- You MUST analyze every configured timeframe for each position and candidate symbol; do not skip any configured timeframe\n")
 			sb.WriteString("- OPEN, CLOSE, HOLD, and WAIT decisions must synthesize all configured timeframes, not just one anchor timeframe\n")
-			sb.WriteString("- Higher timeframes define trend/structure, mid timeframes confirm setup quality, lower timeframes only assist entry timing\n")
+			sb.WriteString("- Base decisions primarily on the primary timeframe; higher timeframes provide directional context, lower timeframes assist entry timing only\n")
 			sb.WriteString("- If data for any configured timeframe is missing, state that explicitly and do not invent conclusions for that timeframe\n\n")
 		}
 	}
@@ -1762,6 +1762,22 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 			adxStrength = "very_strong"
 		}
 
+		// ADX trend direction (last 3 values)
+		var adxTrend string
+		var v1, v2, v3 float64
+		if len(data.ADXValues) >= 3 {
+			v1 = data.ADXValues[len(data.ADXValues)-3]
+			v2 = data.ADXValues[len(data.ADXValues)-2]
+			v3 = adxLast
+			if v3 > v2 && v2 > v1 {
+				adxTrend = "rising"
+			} else if v3 < v2 && v2 < v1 {
+				adxTrend = "falling"
+			} else {
+				adxTrend = "fluctuating"
+			}
+		}
+
 		diBullish := plusDI > minusDI
 
 		if lang == LangChinese {
@@ -1770,13 +1786,25 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 			if !diBullish {
 				diStr = "空方主导 (-DI > +DI)"
 			}
-			sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s\n", adxLast, strLabels[adxStrength], diStr))
+			trendStr := ""
+			if adxTrend == "rising" {
+				trendStr = fmt.Sprintf(", 趋势上升中（%.1f→%.1f→%.1f）", v1, v2, v3)
+			} else if adxTrend == "falling" {
+				trendStr = fmt.Sprintf(", 趋势下降中（%.1f→%.1f→%.1f）", v1, v2, v3)
+			}
+			sb.WriteString(fmt.Sprintf("ADX: %.2f %s%s, %s\n", adxLast, strLabels[adxStrength], trendStr, diStr))
 		} else {
 			diStr := "Bullish (+DI > -DI)"
 			if !diBullish {
 				diStr = "Bearish (-DI > +DI)"
 			}
-			sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s\n", adxLast, adxStrength, diStr))
+			trendStr := ""
+			if adxTrend == "rising" {
+				trendStr = fmt.Sprintf(", rising (%.1f→%.1f→%.1f)", v1, v2, v3)
+			} else if adxTrend == "falling" {
+				trendStr = fmt.Sprintf(", falling (%.1f→%.1f→%.1f)", v1, v2, v3)
+			}
+			sb.WriteString(fmt.Sprintf("ADX: %.2f %s%s, %s\n", adxLast, adxStrength, trendStr, diStr))
 		}
 	}
 
@@ -1799,6 +1827,27 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 			posStr = "below_lower"
 		}
 
+		// Price direction relative to mid band
+		var priceDirNote string
+		if len(data.Klines) >= 2 {
+			prevClose := data.Klines[len(data.Klines)-2].Close
+			movingToward := (lastClose < bollMid && lastClose > prevClose) || (lastClose > bollMid && lastClose < prevClose)
+			movingAway := (lastClose < bollMid && lastClose < prevClose) || (lastClose > bollMid && lastClose > prevClose)
+			if lang == LangChinese {
+				if movingToward {
+					priceDirNote = ", 向中轨回归"
+				} else if movingAway {
+					priceDirNote = ", 远离中轨"
+				}
+			} else {
+				if movingToward {
+					priceDirNote = ", regressing to mid"
+				} else if movingAway {
+					priceDirNote = ", moving away from mid"
+				}
+			}
+		}
+
 		// Bandwidth trend
 		firstBW := (data.BOLLUpper[0] - data.BOLLLower[0]) / data.BOLLMiddle[0] * 100
 		var bwTrend string
@@ -1816,16 +1865,16 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 				"below_mid": "中轨下方(偏空)", "below_lower": "跌破下轨(超卖)",
 			}
 			bwLabel := map[string]string{"expanding": "扩张中", "narrowing": "收窄中", "stable": "稳定"}
-			sb.WriteString(fmt.Sprintf("BOLL: 价格 %.2f %s, 中轨 %.2f, 带宽 %.1f%% %s\n",
-				lastClose, posLabel[posStr], bollMid, bw, bwLabel[bwTrend]))
+			sb.WriteString(fmt.Sprintf("BOLL: 价格 %.2f %s%s, 中轨 %.2f, 带宽 %.1f%% %s（%.1f%%→%.1f%%）\n",
+				lastClose, posLabel[posStr], priceDirNote, bollMid, bw, bwLabel[bwTrend], firstBW, bw))
 		} else {
 			posLabel := map[string]string{
 				"above_upper": "above upper (overbought)", "above_mid": "above mid (bullish)",
 				"below_mid": "below mid (bearish)", "below_lower": "below lower (oversold)",
 			}
 			bwLabel := map[string]string{"expanding": "expanding", "narrowing": "narrowing", "stable": "stable"}
-			sb.WriteString(fmt.Sprintf("BOLL: Price %.2f %s, Mid %.2f, BW %.1f%% %s\n",
-				lastClose, posLabel[posStr], bollMid, bw, bwLabel[bwTrend]))
+			sb.WriteString(fmt.Sprintf("BOLL: Price %.2f %s%s, Mid %.2f, BW %.1f%% %s (%.1f%%→%.1f%%)\n",
+				lastClose, posLabel[posStr], priceDirNote, bollMid, bw, bwLabel[bwTrend], firstBW, bw))
 		}
 	}
 
