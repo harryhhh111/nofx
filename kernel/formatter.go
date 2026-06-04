@@ -167,7 +167,7 @@ func formatContextData(ctx *Context, lang Language) string {
 		if lang == LangChinese {
 			nofxosLang = nofxos.LangChinese
 		}
-		sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang))
+		sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang, nil))
 	}
 
 	return sb.String()

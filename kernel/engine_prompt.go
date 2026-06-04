@@ -944,25 +944,34 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 	}
 	sb.WriteString("\n")
 
+	// Build trading symbols set for filtering ranking data
+	tradingSymbols := make(map[string]bool)
+	for _, pos := range ctx.Positions {
+		tradingSymbols[market.Normalize(pos.Symbol)] = true
+	}
+	for _, coin := range ctx.CandidateCoins {
+		tradingSymbols[market.Normalize(coin.Symbol)] = true
+	}
+
 	// Get language for market data formatting
 	nofxosLang := nofxos.LangEnglish
 	if e.GetLanguage() == LangChinese {
 		nofxosLang = nofxos.LangChinese
 	}
 
-	// OI Ranking data (market-wide open interest changes)
+	// OI Ranking data (only trading symbols)
 	if ctx.OIRankingData != nil {
-		sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang))
+		sb.WriteString(nofxos.FormatOIRankingForAI(ctx.OIRankingData, nofxosLang, tradingSymbols))
 	}
 
-	// NetFlow Ranking data (market-wide fund flow)
+	// NetFlow Ranking data (only trading symbols)
 	if ctx.NetFlowRankingData != nil {
-		sb.WriteString(nofxos.FormatNetFlowRankingForAI(ctx.NetFlowRankingData, nofxosLang))
+		sb.WriteString(nofxos.FormatNetFlowRankingForAI(ctx.NetFlowRankingData, nofxosLang, tradingSymbols))
 	}
 
-	// Price Ranking data (market-wide gainers/losers)
+	// Price Ranking data (only trading symbols)
 	if ctx.PriceRankingData != nil {
-		sb.WriteString(nofxos.FormatPriceRankingForAI(ctx.PriceRankingData, nofxosLang))
+		sb.WriteString(nofxos.FormatPriceRankingForAI(ctx.PriceRankingData, nofxosLang, tradingSymbols))
 	}
 
 	sb.WriteString("---\n\n")

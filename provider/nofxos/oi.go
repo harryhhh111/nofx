@@ -180,17 +180,17 @@ func (c *Client) GetOILowSymbols() ([]string, error) {
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
-func FormatOIRankingForAI(data *OIRankingData, lang Language) string {
+func FormatOIRankingForAI(data *OIRankingData, lang Language, tradingSymbols map[string]bool) string {
 	if data == nil {
 		return ""
 	}
 	if lang == LangChinese {
-		return formatOIRankingZH(data)
+		return formatOIRankingZH(data, tradingSymbols)
 	}
-	return formatOIRankingEN(data)
+	return formatOIRankingEN(data, tradingSymbols)
 }
 
-func formatOIRankingZH(data *OIRankingData) string {
+func formatOIRankingZH(data *OIRankingData, tradingSymbols map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## 持仓量变化排行 (%s)\n\n", data.Duration))
 	if len(data.TopPositions) > 0 {
@@ -199,6 +199,9 @@ func formatOIRankingZH(data *OIRankingData) string {
 		sb.WriteString("| 排名 | 币种 | 持仓变化(USDT) | OI变化% | 价格变化% |\n")
 		sb.WriteString("|------|------|----------------|---------|----------|\n")
 		for _, pos := range data.TopPositions {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | %+.2f%% | %+.2f%% |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.OIDeltaValue), pos.OIDeltaPercent, pos.PriceDeltaPercent))
 		}
@@ -210,6 +213,9 @@ func formatOIRankingZH(data *OIRankingData) string {
 		sb.WriteString("| 排名 | 币种 | 持仓变化(USDT) | OI变化% | 价格变化% |\n")
 		sb.WriteString("|------|------|----------------|---------|----------|\n")
 		for _, pos := range data.LowPositions {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | %+.2f%% | %+.2f%% |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.OIDeltaValue), pos.OIDeltaPercent, pos.PriceDeltaPercent))
 		}
@@ -219,7 +225,7 @@ func formatOIRankingZH(data *OIRankingData) string {
 	return sb.String()
 }
 
-func formatOIRankingEN(data *OIRankingData) string {
+func formatOIRankingEN(data *OIRankingData, tradingSymbols map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## Open Interest Changes (%s)\n\n", data.Duration))
 	if len(data.TopPositions) > 0 {
@@ -228,6 +234,9 @@ func formatOIRankingEN(data *OIRankingData) string {
 		sb.WriteString("| Rank | Symbol | OI Change (USDT) | OI Change % | Price Change % |\n")
 		sb.WriteString("|------|--------|------------------|-------------|----------------|\n")
 		for _, pos := range data.TopPositions {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | %+.2f%% | %+.2f%% |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.OIDeltaValue), pos.OIDeltaPercent, pos.PriceDeltaPercent))
 		}
@@ -239,6 +248,9 @@ func formatOIRankingEN(data *OIRankingData) string {
 		sb.WriteString("| Rank | Symbol | OI Change (USDT) | OI Change % | Price Change % |\n")
 		sb.WriteString("|------|--------|------------------|-------------|----------------|\n")
 		for _, pos := range data.LowPositions {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | %+.2f%% | %+.2f%% |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.OIDeltaValue), pos.OIDeltaPercent, pos.PriceDeltaPercent))
 		}

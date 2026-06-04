@@ -143,17 +143,17 @@ func (c *Client) fetchNetFlowRanking(rankType, duration string, limit int, flowT
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
-func FormatNetFlowRankingForAI(data *NetFlowRankingData, lang Language) string {
+func FormatNetFlowRankingForAI(data *NetFlowRankingData, lang Language, tradingSymbols map[string]bool) string {
 	if data == nil {
 		return ""
 	}
 	if lang == LangChinese {
-		return formatNetFlowRankingZH(data)
+		return formatNetFlowRankingZH(data, tradingSymbols)
 	}
-	return formatNetFlowRankingEN(data)
+	return formatNetFlowRankingEN(data, tradingSymbols)
 }
 
-func formatNetFlowRankingZH(data *NetFlowRankingData) string {
+func formatNetFlowRankingZH(data *NetFlowRankingData, tradingSymbols map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## 资金流向排行 (%s)\n\n", data.Duration))
 	if len(data.InstitutionFutureTop) > 0 {
@@ -162,6 +162,9 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		sb.WriteString("| 排名 | 币种 | 流入金额(USDT) | 价格 |\n")
 		sb.WriteString("|------|------|----------------|------|\n")
 		for _, pos := range data.InstitutionFutureTop {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | $%.4f |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.Amount), pos.Price))
 		}
@@ -173,6 +176,9 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 		sb.WriteString("| 排名 | 币种 | 流出金额(USDT) | 价格 |\n")
 		sb.WriteString("|------|------|----------------|------|\n")
 		for _, pos := range data.InstitutionFutureLow {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | $%.4f |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.Amount), pos.Price))
 		}
@@ -185,6 +191,9 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 			for i, pos := range data.PersonalFutureTop {
 				if i >= 3 {
 					break
+				}
+				if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+					continue
 				}
 				if i > 0 {
 					sb.WriteString(", ")
@@ -199,6 +208,9 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 				if i >= 3 {
 					break
 				}
+				if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+					continue
+				}
 				if i > 0 {
 					sb.WriteString(", ")
 				}
@@ -212,7 +224,7 @@ func formatNetFlowRankingZH(data *NetFlowRankingData) string {
 	return sb.String()
 }
 
-func formatNetFlowRankingEN(data *NetFlowRankingData) string {
+func formatNetFlowRankingEN(data *NetFlowRankingData, tradingSymbols map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("## Fund Flow Ranking (%s)\n\n", data.Duration))
 	if len(data.InstitutionFutureTop) > 0 {
@@ -221,6 +233,9 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		sb.WriteString("| Rank | Symbol | Inflow (USDT) | Price |\n")
 		sb.WriteString("|------|--------|---------------|-------|\n")
 		for _, pos := range data.InstitutionFutureTop {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | $%.4f |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.Amount), pos.Price))
 		}
@@ -232,6 +247,9 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 		sb.WriteString("| Rank | Symbol | Outflow (USDT) | Price |\n")
 		sb.WriteString("|------|--------|----------------|-------|\n")
 		for _, pos := range data.InstitutionFutureLow {
+			if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+				continue
+			}
 			sb.WriteString(fmt.Sprintf("| %d | %s | %s | $%.4f |\n",
 				pos.Rank, pos.Symbol, formatValue(pos.Amount), pos.Price))
 		}
@@ -245,6 +263,9 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 				if i >= 3 {
 					break
 				}
+				if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+					continue
+				}
 				if i > 0 {
 					sb.WriteString(", ")
 				}
@@ -257,6 +278,9 @@ func formatNetFlowRankingEN(data *NetFlowRankingData) string {
 			for i, pos := range data.PersonalFutureLow {
 				if i >= 3 {
 					break
+				}
+				if tradingSymbols != nil && !tradingSymbols[pos.Symbol] {
+					continue
 				}
 				if i > 0 {
 					sb.WriteString(", ")

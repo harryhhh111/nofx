@@ -114,17 +114,17 @@ func fetchPriceRankingData(client *Client, durations string, limit int) (*PriceR
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
-func FormatPriceRankingForAI(data *PriceRankingData, lang Language) string {
+func FormatPriceRankingForAI(data *PriceRankingData, lang Language, tradingSymbols map[string]bool) string {
 	if data == nil || len(data.Durations) == 0 {
 		return ""
 	}
 	if lang == LangChinese {
-		return formatPriceRankingZH(data)
+		return formatPriceRankingZH(data, tradingSymbols)
 	}
-	return formatPriceRankingEN(data)
+	return formatPriceRankingEN(data, tradingSymbols)
 }
 
-func formatPriceRankingZH(data *PriceRankingData) string {
+func formatPriceRankingZH(data *PriceRankingData, tradingSymbols map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString("## 涨跌幅排行\n\n")
 	durationOrder := []string{"1h", "4h", "24h"}
@@ -139,6 +139,9 @@ func formatPriceRankingZH(data *PriceRankingData) string {
 			sb.WriteString("| 币种 | 涨幅 | 价格 | 资金流 | OI变化 |\n")
 			sb.WriteString("|------|------|------|--------|--------|\n")
 			for _, item := range durationData.Top {
+				if tradingSymbols != nil && !tradingSymbols[item.Symbol] {
+					continue
+				}
 				sb.WriteString(fmt.Sprintf("| %s | %+.2f%% | $%.4f | %s | %s |\n",
 					item.Symbol, item.PriceDelta*100, item.Price,
 					formatValue(item.FutureFlow), formatValue(item.OIDeltaValue)))
@@ -150,6 +153,9 @@ func formatPriceRankingZH(data *PriceRankingData) string {
 			sb.WriteString("| 币种 | 跌幅 | 价格 | 资金流 | OI变化 |\n")
 			sb.WriteString("|------|------|------|--------|--------|\n")
 			for _, item := range durationData.Low {
+				if tradingSymbols != nil && !tradingSymbols[item.Symbol] {
+					continue
+				}
 				sb.WriteString(fmt.Sprintf("| %s | %.2f%% | $%.4f | %s | %s |\n",
 					item.Symbol, item.PriceDelta*100, item.Price,
 					formatValue(item.FutureFlow), formatValue(item.OIDeltaValue)))
@@ -161,7 +167,7 @@ func formatPriceRankingZH(data *PriceRankingData) string {
 	return sb.String()
 }
 
-func formatPriceRankingEN(data *PriceRankingData) string {
+func formatPriceRankingEN(data *PriceRankingData, tradingSymbols map[string]bool) string {
 	var sb strings.Builder
 	sb.WriteString("## Price Gainers/Losers\n\n")
 	durationOrder := []string{"1h", "4h", "24h"}
@@ -176,6 +182,9 @@ func formatPriceRankingEN(data *PriceRankingData) string {
 			sb.WriteString("| Symbol | Change | Price | Fund Flow | OI Change |\n")
 			sb.WriteString("|--------|--------|-------|-----------|----------|\n")
 			for _, item := range durationData.Top {
+				if tradingSymbols != nil && !tradingSymbols[item.Symbol] {
+					continue
+				}
 				sb.WriteString(fmt.Sprintf("| %s | %+.2f%% | $%.4f | %s | %s |\n",
 					item.Symbol, item.PriceDelta*100, item.Price,
 					formatValue(item.FutureFlow), formatValue(item.OIDeltaValue)))
@@ -187,6 +196,9 @@ func formatPriceRankingEN(data *PriceRankingData) string {
 			sb.WriteString("| Symbol | Change | Price | Fund Flow | OI Change |\n")
 			sb.WriteString("|--------|--------|-------|-----------|----------|\n")
 			for _, item := range durationData.Low {
+				if tradingSymbols != nil && !tradingSymbols[item.Symbol] {
+					continue
+				}
 				sb.WriteString(fmt.Sprintf("| %s | %.2f%% | $%.4f | %s | %s |\n",
 					item.Symbol, item.PriceDelta*100, item.Price,
 					formatValue(item.FutureFlow), formatValue(item.OIDeltaValue)))
