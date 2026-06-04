@@ -59,17 +59,18 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 	}
 
 	configuredTimeframes := e.configuredAnalysisTimeframes()
+	primaryTF := strings.TrimSpace(e.config.Indicators.Klines.PrimaryTimeframe)
 	if len(configuredTimeframes) > 0 {
 		if lang == LangChinese {
 			sb.WriteString("## 多周期分析要求\n")
-			sb.WriteString(fmt.Sprintf("- 本轮已配置 K 线周期：%s\n", strings.Join(configuredTimeframes, ", ")))
+			sb.WriteString(fmt.Sprintf("- 本轮已配置 K 线周期：%s（主周期：%s）\n", strings.Join(configuredTimeframes, ", "), primaryTF))
 			sb.WriteString("- 你必须对每个持仓和候选币逐个分析上述所有已配置周期，不能忽略任一周期\n")
 			sb.WriteString("- 开仓、平仓、HOLD、WAIT 都必须综合全部已配置周期，而不是只盯某一个周期\n")
 			sb.WriteString("- 以主周期为核心判断依据，大周期辅助确认方向，小周期辅助入场时机\n")
 			sb.WriteString("- 若某个已配置周期缺失数据，必须明确说明“该周期数据缺失”，禁止脑补结论\n\n")
 		} else {
 			sb.WriteString("## Multi-Timeframe Analysis Requirement\n")
-			sb.WriteString(fmt.Sprintf("- Configured K-line timeframes for this run: %s\n", strings.Join(configuredTimeframes, ", ")))
+			sb.WriteString(fmt.Sprintf("- Configured K-line timeframes for this run: %s (primary: %s)\n", strings.Join(configuredTimeframes, ", "), primaryTF))
 			sb.WriteString("- You MUST analyze every configured timeframe for each position and candidate symbol; do not skip any configured timeframe\n")
 			sb.WriteString("- OPEN, CLOSE, HOLD, and WAIT decisions must synthesize all configured timeframes, not just one anchor timeframe\n")
 			sb.WriteString("- Base decisions primarily on the primary timeframe; higher timeframes provide directional context, lower timeframes assist entry timing only\n")
