@@ -28,6 +28,7 @@ type IndicatorRequest struct {
 	PriceChangeWindows []int              `json:"price_change_windows,omitempty"`
 	Sessions           []SessionSpec      `json:"sessions,omitempty"`
 	OpeningRange       *OpeningRangeSpec  `json:"opening_range,omitempty"`
+	EnableRBreaker     bool               `json:"enable_rbreaker,omitempty"`
 }
 
 type ADXSpec struct {

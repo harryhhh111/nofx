@@ -38,6 +38,7 @@ func NewDefaultIndicatorEngine() *DefaultIndicatorEngine {
 			&RealizedVolModule{},
 			&SessionModule{},
 			&OpeningRangeModule{},
+			&RBreakerModule{},
 		},
 	}
 }

@@ -664,6 +664,7 @@ type IndicatorConfig struct {
 	EnableBOLL        bool `json:"enable_boll"`    // Bollinger Bands
 	EnableSession     bool `json:"enable_session"` // Previous session OHLCV
 	EnableOpeningRange bool `json:"enable_opening_range"` // Opening Range (first N minutes of session)
+	EnableRBreaker     bool `json:"enable_rbreaker"`      // R-Breaker pivot levels
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
 	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
@@ -874,6 +875,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableSession:          false,
 			EnableOpeningRange:     false,
 			OpeningRangeMinutes:    30,
+			EnableRBreaker:         false,
 			EnableVolume:           true,
 			EnableOI:               true,
 			EnableFundingRate:      true,
