@@ -1,4 +1,4 @@
-import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
+import { Clock, Activity, TrendingUp, BarChart2, Info, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
 import type { IndicatorConfig } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
@@ -101,18 +101,6 @@ export function IndicatorEditor({
     intraday: '#F0B90B',
     swing: '#0ECB81',
     position: '#60a5fa',
-  }
-
-  // Ensure enable_raw_klines is always true
-  const ensureRawKlines = () => {
-    if (!config.enable_raw_klines) {
-      onChange({ ...config, enable_raw_klines: true })
-    }
-  }
-
-  // Call on mount if needed
-  if (config.enable_raw_klines === undefined || config.enable_raw_klines === false) {
-    ensureRawKlines()
   }
 
   // Check if any NofxOS feature is enabled
@@ -473,7 +461,7 @@ export function IndicatorEditor({
         </div>
 
         <div className="p-3 space-y-4">
-          {/* Raw Klines - Required, Always On */}
+          {/* Raw Klines Toggle */}
           <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'rgba(240, 185, 11, 0.08)', border: '1px solid rgba(240, 185, 11, 0.2)' }}>
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(240, 185, 11, 0.15)' }}>
@@ -482,19 +470,19 @@ export function IndicatorEditor({
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.rawKlines, language)}</span>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium flex items-center gap-1" style={{ background: 'rgba(240, 185, 11, 0.2)', color: '#F0B90B' }}>
-                    <Lock className="w-2.5 h-2.5" />
-                    {ts(indicator.required, language)}
-                  </span>
                 </div>
                 <p className="text-xs mt-0.5" style={{ color: '#848E9C' }}>{ts(indicator.rawKlinesDesc, language)}</p>
               </div>
             </div>
             <input
               type="checkbox"
-              checked={true}
-              disabled={true}
-              className="w-5 h-5 rounded accent-yellow-500 cursor-not-allowed"
+              checked={!!config.enable_raw_klines}
+              onChange={(e) =>
+                !disabled &&
+                onChange({ ...config, enable_raw_klines: e.target.checked })
+              }
+              disabled={disabled}
+              className="w-5 h-5 rounded accent-yellow-500"
             />
           </div>
 
@@ -567,6 +555,49 @@ export function IndicatorEditor({
                 )
               })}
             </div>
+
+            {/* Summarized Timeframes - only show when raw klines is enabled */}
+            {config.enable_raw_klines !== false && selectedTimeframes.length > 1 && (
+              <div className="mt-4 p-3 rounded-lg" style={{ background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
+                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.summarizedTimeframes, language)}</span>
+                </div>
+                <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.summarizedTimeframesDesc, language)}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedTimeframes.map((tf: string) => {
+                    const summarized = config.summarized_timeframes || []
+                    const isSummarized = summarized.includes(tf)
+                    return (
+                      <button
+                        key={tf}
+                        onClick={() => {
+                          const current = [...summarized]
+                          if (isSummarized) {
+                            onChange({ ...config, summarized_timeframes: current.filter((t) => t !== tf) })
+                          } else {
+                            current.push(tf)
+                            onChange({ ...config, summarized_timeframes: current })
+                          }
+                        }}
+                        disabled={disabled}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                          isSummarized ? '' : 'opacity-50 hover:opacity-80'
+                        }`}
+                        style={{
+                          background: isSummarized ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
+                          border: `1px solid ${isSummarized ? 'rgba(99, 102, 241, 0.5)' : '#2B3139'}`,
+                          color: isSummarized ? '#a5b4fc' : '#848E9C',
+                        }}
+                        title={isSummarized ? `${tf} summary mode` : `${tf} raw klines`}
+                      >
+                        {tf} {isSummarized ? '📊' : '📈'}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

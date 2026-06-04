@@ -426,18 +426,27 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 
 	if len(configuredTimeframes) > 0 {
 		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("- K\u7ebf\u5e8f\u5217\uff1a%s\n", strings.Join(configuredTimeframes, ", ")))
+			sb.WriteString(fmt.Sprintf("- K\u7ebf\u5e8f\u5217\uff1a%s", strings.Join(configuredTimeframes, ", ")))
 		} else {
-			sb.WriteString(fmt.Sprintf("- K-line series: %s\n", strings.Join(configuredTimeframes, ", ")))
+			sb.WriteString(fmt.Sprintf("- K-line series: %s", strings.Join(configuredTimeframes, ", ")))
 		}
 	} else {
 		kline := indicators.Klines
 		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("- %s K\u7ebf\u5e8f\u5217\n", kline.PrimaryTimeframe))
+			sb.WriteString(fmt.Sprintf("- %s K\u7ebf\u5e8f\u5217", kline.PrimaryTimeframe))
 		} else {
-			sb.WriteString(fmt.Sprintf("- %s price series\n", kline.PrimaryTimeframe))
+			sb.WriteString(fmt.Sprintf("- %s price series", kline.PrimaryTimeframe))
 		}
 	}
+	// Append summary mode note if any timeframes are summarized
+	if len(indicators.SummarizedTimeframes) > 0 {
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("\uff08%s \u4e3a\u6307\u6807\u8d8b\u52bf\u6458\u8981\uff0c\u4e0d\u542b\u539f\u59cbK\u7ebf\uff09", strings.Join(indicators.SummarizedTimeframes, ", ")))
+		} else {
+			sb.WriteString(fmt.Sprintf(" (%s: indicator summary, no raw K-lines)", strings.Join(indicators.SummarizedTimeframes, ", ")))
+		}
+	}
+	sb.WriteString("\n")
 
 	if indicators.EnableEMA {
 		if lang == LangChinese {
@@ -1324,7 +1333,7 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 				} else {
 					sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest) ===\n\n", strings.ToUpper(tf)))
 				}
-				e.formatTimeframeSeriesData(&sb, tfData, indicators)
+				e.formatTimeframeSeriesData(&sb, tfData, indicators, tf)
 			}
 		}
 	} else {
@@ -1546,7 +1555,13 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 	return sb.String()
 }
 
-func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig) {
+func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig, timeframe string) {
+	// Check if this timeframe should use indicator summary instead of raw data
+	if indicators.IsTimeframeSummarized(timeframe) {
+		e.formatTimeframeSummary(sb, data, indicators)
+		return
+	}
+
 	lang := e.GetLanguage()
 	if len(data.Klines) > 0 {
 		if lang == LangChinese {
@@ -1638,6 +1653,248 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 		sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
 		sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
 		sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
+	}
+
+	sb.WriteString("\n")
+}
+
+// formatTimeframeSummary outputs a concise indicator trend state summary instead of
+// raw OHLCV tables and indicator value arrays. Designed for smaller models (e.g. DeepSeek
+// Flash) that benefit more from pre-digested trend conclusions than raw numeric data.
+func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig) {
+	lang := e.GetLanguage()
+
+	// Get last close price for BOLL position and price reference
+	var lastClose float64
+	if len(data.Klines) > 0 {
+		lastClose = data.Klines[len(data.Klines)-1].Close
+	}
+
+	// --- EMA ---
+	if indicators.EnableEMA && len(data.EMA20Values) >= 2 && len(data.EMA50Values) >= 2 {
+		e20Last := data.EMA20Values[len(data.EMA20Values)-1]
+		e20Prev := data.EMA20Values[len(data.EMA20Values)-2]
+		e50Last := data.EMA50Values[len(data.EMA50Values)-1]
+		e50Prev := data.EMA50Values[len(data.EMA50Values)-2]
+
+		// Direction
+		e20Dir, e50Dir := "→", "→"
+		if e20Last > e20Prev {
+			e20Dir = "↑"
+		} else if e20Last < e20Prev {
+			e20Dir = "↓"
+		}
+		if e50Last > e50Prev {
+			e50Dir = "↑"
+		} else if e50Last < e50Prev {
+			e50Dir = "↓"
+		}
+
+		// Alignment
+		bullish := e20Last > e50Last
+
+		// Convergence
+		firstDiff := data.EMA20Values[0] - data.EMA50Values[0]
+		lastDiff := e20Last - e50Last
+		absFirst, absLast := firstDiff, lastDiff
+		if absFirst < 0 {
+			absFirst = -absFirst
+		}
+		if absLast < 0 {
+			absLast = -absLast
+		}
+		gapTrend := "stable"
+		if absLast > absFirst*1.02 {
+			gapTrend = "widening"
+		} else if absLast < absFirst*0.98 {
+			gapTrend = "narrowing"
+		}
+
+		op := "<"
+		if bullish {
+			op = ">"
+		}
+		if lang == LangChinese {
+			alignStr := "多头"
+			if !bullish {
+				alignStr = "空头"
+			}
+			gapStr := "开口稳定"
+			if gapTrend == "widening" {
+				gapStr = "开口扩大"
+			} else if gapTrend == "narrowing" {
+				gapStr = "开口收敛"
+			}
+			sb.WriteString(fmt.Sprintf("EMA: %s排列 (20=%.2f%s %s 50=%.2f%s), %s\n",
+				alignStr, e20Last, e20Dir, op, e50Last, e50Dir, gapStr))
+		} else {
+			alignStr := "Bullish"
+			if !bullish {
+				alignStr = "Bearish"
+			}
+			gapStr := "stable"
+			if gapTrend == "widening" {
+				gapStr = "widening"
+			} else if gapTrend == "narrowing" {
+				gapStr = "narrowing"
+			}
+			sb.WriteString(fmt.Sprintf("EMA: %s (20=%.2f%s %s 50=%.2f%s), %s\n",
+				alignStr, e20Last, e20Dir, op, e50Last, e50Dir, gapStr))
+		}
+	}
+
+	// --- ADX ---
+	if indicators.EnableADX && len(data.ADXValues) > 0 {
+		adxLast := data.ADXValues[len(data.ADXValues)-1]
+		plusDI := data.PlusDIValues[len(data.PlusDIValues)-1]
+		minusDI := data.MinusDIValues[len(data.MinusDIValues)-1]
+
+		// Strength classification (same as formatMarketData)
+		var adxStrength string
+		switch {
+		case adxLast < 20:
+			adxStrength = "weak"
+		case adxLast < 40:
+			adxStrength = "moderate"
+		case adxLast < 60:
+			adxStrength = "strong"
+		default:
+			adxStrength = "very_strong"
+		}
+
+		diBullish := plusDI > minusDI
+
+		if lang == LangChinese {
+			strLabels := map[string]string{"weak": "弱", "moderate": "中等", "strong": "强", "very_strong": "极强"}
+			diStr := "多方主导 (+DI > -DI)"
+			if !diBullish {
+				diStr = "空方主导 (-DI > +DI)"
+			}
+			sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s\n", adxLast, strLabels[adxStrength], diStr))
+		} else {
+			diStr := "Bullish (+DI > -DI)"
+			if !diBullish {
+				diStr = "Bearish (-DI > +DI)"
+			}
+			sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s\n", adxLast, adxStrength, diStr))
+		}
+	}
+
+	// --- BOLL ---
+	if indicators.EnableBOLL && len(data.BOLLMiddle) > 0 && lastClose > 0 {
+		bollMid := data.BOLLMiddle[len(data.BOLLMiddle)-1]
+		bollUpper := data.BOLLUpper[len(data.BOLLUpper)-1]
+		bollLower := data.BOLLLower[len(data.BOLLLower)-1]
+		bw := (bollUpper - bollLower) / bollMid * 100
+
+		// Position
+		var posStr string
+		if lastClose > bollUpper {
+			posStr = "above_upper"
+		} else if lastClose > bollMid {
+			posStr = "above_mid"
+		} else if lastClose > bollLower {
+			posStr = "below_mid"
+		} else {
+			posStr = "below_lower"
+		}
+
+		// Bandwidth trend
+		firstBW := (data.BOLLUpper[0] - data.BOLLLower[0]) / data.BOLLMiddle[0] * 100
+		var bwTrend string
+		if bw > firstBW*1.02 {
+			bwTrend = "expanding"
+		} else if bw < firstBW*0.98 {
+			bwTrend = "narrowing"
+		} else {
+			bwTrend = "stable"
+		}
+
+		if lang == LangChinese {
+			posLabel := map[string]string{
+				"above_upper": "突破上轨(超买)", "above_mid": "中轨上方(偏多)",
+				"below_mid": "中轨下方(偏空)", "below_lower": "跌破下轨(超卖)",
+			}
+			bwLabel := map[string]string{"expanding": "扩张中", "narrowing": "收窄中", "stable": "稳定"}
+			sb.WriteString(fmt.Sprintf("BOLL: 价格 %.2f %s, 中轨 %.2f, 带宽 %.1f%% %s\n",
+				lastClose, posLabel[posStr], bollMid, bw, bwLabel[bwTrend]))
+		} else {
+			posLabel := map[string]string{
+				"above_upper": "above upper (overbought)", "above_mid": "above mid (bullish)",
+				"below_mid": "below mid (bearish)", "below_lower": "below lower (oversold)",
+			}
+			bwLabel := map[string]string{"expanding": "expanding", "narrowing": "narrowing", "stable": "stable"}
+			sb.WriteString(fmt.Sprintf("BOLL: Price %.2f %s, Mid %.2f, BW %.1f%% %s\n",
+				lastClose, posLabel[posStr], bollMid, bw, bwLabel[bwTrend]))
+		}
+	}
+
+	// --- ATR ---
+	if indicators.EnableATR && data.ATR14 > 0 {
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+		} else {
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+		}
+	}
+
+	// --- SAR ---
+	if indicators.EnableSAR && len(data.SARValues) > 0 {
+		sarLast := data.SARValues[len(data.SARValues)-1]
+		uptrend := len(data.SARUptrend) > 0 && data.SARUptrend[len(data.SARUptrend)-1]
+		flipUp := len(data.SARFlipUp) > 0 && data.SARFlipUp[len(data.SARFlipUp)-1]
+		flipDown := len(data.SARFlipDown) > 0 && data.SARFlipDown[len(data.SARFlipDown)-1]
+
+		var flipNote string
+		if flipUp {
+			flipNote = "flip_up"
+		} else if flipDown {
+			flipNote = "flip_down"
+		}
+
+		if lang == LangChinese {
+			dirStr := "下行"
+			if uptrend {
+				dirStr = "上行"
+			}
+			sb.WriteString(fmt.Sprintf("SAR: %.4f %s", sarLast, dirStr))
+			if flipNote == "flip_up" {
+				sb.WriteString(", 向上翻转")
+			} else if flipNote == "flip_down" {
+				sb.WriteString(", 向下翻转")
+			}
+			sb.WriteString("\n")
+		} else {
+			dirStr := "Downtrend"
+			if uptrend {
+				dirStr = "Uptrend"
+			}
+			sb.WriteString(fmt.Sprintf("SAR: %.4f %s", sarLast, dirStr))
+			if flipNote == "flip_up" {
+				sb.WriteString(", flip up")
+			} else if flipNote == "flip_down" {
+				sb.WriteString(", flip down")
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	// --- Key Levels ---
+	if len(data.Klines) > 0 {
+		high, low := data.Klines[0].High, data.Klines[0].Low
+		for _, k := range data.Klines {
+			if k.High > high {
+				high = k.High
+			}
+			if k.Low < low {
+				low = k.Low
+			}
+		}
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("关键位: 阻力 %.2f | 支撑 %.2f\n", high, low))
+		} else {
+			sb.WriteString(fmt.Sprintf("Key Levels: R %.2f | S %.2f\n", high, low))
+		}
 	}
 
 	sb.WriteString("\n")

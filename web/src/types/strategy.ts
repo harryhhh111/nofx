@@ -103,8 +103,10 @@ export interface CoinSourceConfig {
 
 export interface IndicatorConfig {
   klines: KlineConfig;
-  // Raw OHLCV kline data - required for AI analysis
+  // Raw OHLCV kline data
   enable_raw_klines: boolean;
+  // Timeframes to show as indicator trend summary (no raw OHLCV or indicator arrays)
+  summarized_timeframes?: string[];
   // Technical indicators (optional)
   enable_ema: boolean;
   enable_sma: boolean;

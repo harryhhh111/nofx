@@ -251,6 +251,9 @@ type IndicatorConfig struct {
 	Klines KlineConfig `json:"klines"`
 	// raw kline data (OHLCV) - always enabled, required for AI analysis
 	EnableRawKlines bool `json:"enable_raw_klines"`
+	// Timeframes to summarize (indicator trend state instead of raw OHLCV + indicator arrays).
+	// Empty = all raw. Example: ["5m"] = 5m summarized, others raw.
+	SummarizedTimeframes []string `json:"summarized_timeframes,omitempty"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
 	EnableSMA         bool `json:"enable_sma"`          // Simple Moving Average
@@ -301,6 +304,16 @@ type IndicatorConfig struct {
 	EnablePriceRanking   bool   `json:"enable_price_ranking"`             // whether to enable price ranking data
 	PriceRankingDuration string `json:"price_ranking_duration,omitempty"` // durations: "1h" or "1h,4h,24h"
 	PriceRankingLimit    int    `json:"price_ranking_limit,omitempty"`    // number of entries per ranking (default 10)
+}
+
+// IsTimeframeSummarized checks whether a given timeframe should use indicator summary mode.
+func (c *IndicatorConfig) IsTimeframeSummarized(tf string) bool {
+	for _, s := range c.SummarizedTimeframes {
+		if s == tf {
+			return true
+		}
+	}
+	return false
 }
 
 // KlineConfig K-line configuration
@@ -961,7 +974,15 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	}
 	charsPerCoinTF += klineCount * indicatorCharsPerLine
 
-	totalMarketChars := numCoins * numTimeframes * charsPerCoinTF
+	// Adjust for summarized timeframes (indicator summary mode — no raw OHLCV or indicator arrays)
+	numSummarizedTF := len(c.Indicators.SummarizedTimeframes)
+	if numSummarizedTF > numTimeframes {
+		numSummarizedTF = numTimeframes
+	}
+	numRawTF := numTimeframes - numSummarizedTF
+
+	totalMarketChars := numCoins * numRawTF * charsPerCoinTF
+	totalMarketChars += numCoins * numSummarizedTF * 350 // ~350 chars per summary block
 
 	// OI + Funding per coin
 	if c.Indicators.EnableOI || c.Indicators.EnableFundingRate {
