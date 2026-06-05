@@ -237,13 +237,14 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 		data, err := market.GetWithTimeframesWindow(coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for %s: %v", coin.Symbol, err)
+			ctx.DataFetchErrors = append(ctx.DataFetchErrors, fmt.Sprintf("%s: market data fetch failed", coin.Symbol))
 			continue
 		}
 
 		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance)
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
-		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.CurrentPrice > 0 {
+		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.OpenInterest.Latest > 0 && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 			if oiValueInMillions < minOIThresholdMillions {
@@ -592,6 +593,22 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 		} else {
 			req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
 		}
+	}
+	if indicators.EnableOpeningRange {
+		minutes := indicators.OpeningRangeMinutes
+		if minutes <= 0 {
+			minutes = 30
+		}
+		req.OpeningRange = &market.OpeningRangeSpec{RangeMinutes: minutes}
+		// Ensure session definition is available for opening range calculation
+		if len(req.Sessions) == 0 {
+			req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
+		}
+	}
+	req.EnableRBreaker = indicators.EnableRBreaker
+	if indicators.EnableRBreaker && len(req.Sessions) == 0 {
+		// R-Breaker also needs session definition
+		req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}
 	}
 	return req
 }

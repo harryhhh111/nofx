@@ -49,6 +49,9 @@ func (e *LLMTradingEngine) Review(ctx context.Context, req AIReviewRequest) ([]A
 		if resp.err != nil {
 			return nil, fmt.Errorf("LLM review call failed: %w", resp.err)
 		}
+		if strings.Contains(resp.text, "<reviews>") && !strings.Contains(resp.text, "</reviews>") {
+			return nil, fmt.Errorf("AI review response appears truncated: missing </reviews> tag")
+		}
 		reviews, err := parseLLMReviewResponse(resp.text)
 		if err != nil {
 			return nil, err

@@ -1,9 +1,13 @@
 package paper
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"nofx/logger"
 	"nofx/market"
+	"nofx/provider/coinank/coinank_api"
+	"nofx/provider/coinank/coinank_enum"
 	"nofx/store"
 	"nofx/trader/types"
 	"strconv"
@@ -13,6 +17,18 @@ import (
 )
 
 const takerFeeRate = 0.0004
+
+// priceCache avoids repeated HTTP calls when GetPositions is polled every 15s
+type priceCacheEntry struct {
+	price     float64
+	timestamp time.Time
+}
+
+var (
+	priceCache    = make(map[string]*priceCacheEntry)
+	priceCacheMu  sync.RWMutex
+	priceCacheTTL = 30 * time.Second
+)
 
 type Position struct {
 	Symbol     string
@@ -62,6 +78,7 @@ func NewPaperTrader(initialBalance float64, st *store.Store, traderID string) *P
 
 func (t *PaperTrader) loadOpenPositions(st *store.Store) {
 	if st == nil || t.traderID == "" {
+		logger.Infof("⚠️ [PaperTrader %s] loadOpenPositions skipped: st=%v, traderID=%s", t.traderID, st != nil, t.traderID)
 		return
 	}
 	closedPositions, err := st.Position().GetClosedPositions(t.traderID, 10000)
@@ -69,11 +86,16 @@ func (t *PaperTrader) loadOpenPositions(st *store.Store) {
 		for _, p := range closedPositions {
 			t.walletBalance += p.RealizedPnL - p.Fee
 		}
+		logger.Infof("✓ [PaperTrader %s] Loaded %d closed positions, wallet balance adjusted", t.traderID, len(closedPositions))
+	} else {
+		logger.Infof("⚠️ [PaperTrader %s] Failed to load closed positions: %v", t.traderID, err)
 	}
 	positions, err := st.Position().GetOpenPositions(t.traderID)
 	if err != nil {
+		logger.Infof("⚠️ [PaperTrader %s] Failed to load open positions: %v", t.traderID, err)
 		return
 	}
+	logger.Infof("✓ [PaperTrader %s] Loading %d open positions into memory", t.traderID, len(positions))
 	for _, p := range positions {
 		side := strings.ToLower(p.Side)
 		t.positions[positionKey(p.Symbol, side)] = &Position{
@@ -84,6 +106,17 @@ func (t *PaperTrader) loadOpenPositions(st *store.Store) {
 			Leverage:   p.Leverage,
 			EntryTime:  time.UnixMilli(p.EntryTime),
 		}
+		logger.Infof("  → [PaperTrader %s] Loaded position: %s %s @ %.2f x%d", t.traderID, p.Symbol, side, p.EntryPrice, p.Leverage)
+	}
+
+	// Pre-warm price cache for all open positions so first API call is fast
+	if len(positions) > 0 {
+		go func() {
+			for _, p := range positions {
+				_, _ = marketPrice(p.Symbol)
+			}
+			logger.Infof("✓ [PaperTrader %s] Price cache pre-warmed for %d positions", t.traderID, len(positions))
+		}()
 	}
 }
 
@@ -115,9 +148,37 @@ func (t *PaperTrader) GetPositions() ([]map[string]interface{}, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
+	// Concurrently fetch prices for all positions to avoid serial delays
+	type priceResult struct {
+		symbol string
+		price  float64
+		err    error
+	}
+
+	priceMap := make(map[string]float64)
+	if len(t.positions) > 0 {
+		resCh := make(chan priceResult, len(t.positions))
+		for _, p := range t.positions {
+			go func(s string) {
+				price, err := marketPrice(s)
+				resCh <- priceResult{symbol: s, price: price, err: err}
+			}(p.Symbol)
+		}
+		for i := 0; i < len(t.positions); i++ {
+			res := <-resCh
+			if res.err != nil {
+				logger.Infof("⚠️ [PaperTrader] Failed to get price for %s: %v", res.symbol, res.err)
+			}
+			priceMap[res.symbol] = res.price
+		}
+	}
+
 	result := make([]map[string]interface{}, 0, len(t.positions))
 	for _, p := range t.positions {
-		markPrice, _ := marketPrice(p.Symbol)
+		markPrice := priceMap[p.Symbol]
+		if markPrice <= 0 {
+			markPrice = p.EntryPrice // fallback so position is still visible
+		}
 		unrealized := pnl(p.Side, p.EntryPrice, markPrice, p.Quantity)
 		result = append(result, map[string]interface{}{
 			"symbol":           p.Symbol,
@@ -359,14 +420,38 @@ func (t *PaperTrader) cancelStopOrders(symbol, orderType string) error {
 }
 
 func (t *PaperTrader) accountExposureLocked() (unrealized float64, marginUsed float64) {
+	type exposureResult struct {
+		unrealized float64
+		marginUsed float64
+	}
+
+	if len(t.positions) == 0 {
+		return 0, 0
+	}
+
+	// Concurrently fetch prices to avoid serial delays
+	resCh := make(chan exposureResult, len(t.positions))
 	for _, p := range t.positions {
-		markPrice, _ := marketPrice(p.Symbol)
-		unrealized += pnl(p.Side, p.EntryPrice, markPrice, p.Quantity)
-		leverage := p.Leverage
-		if leverage <= 0 {
-			leverage = 1
-		}
-		marginUsed += markPrice * p.Quantity / float64(leverage)
+		go func(pos *Position) {
+			markPrice, _ := marketPrice(pos.Symbol)
+			if markPrice <= 0 {
+				markPrice = pos.EntryPrice // fallback
+			}
+			lev := pos.Leverage
+			if lev <= 0 {
+				lev = 1
+			}
+			resCh <- exposureResult{
+				unrealized: pnl(pos.Side, pos.EntryPrice, markPrice, pos.Quantity),
+				marginUsed: markPrice * pos.Quantity / float64(lev),
+			}
+		}(p)
+	}
+
+	for i := 0; i < len(t.positions); i++ {
+		res := <-resCh
+		unrealized += res.unrealized
+		marginUsed += res.marginUsed
 	}
 	return unrealized, marginUsed
 }
@@ -400,11 +485,52 @@ func (t *PaperTrader) nextOrderIDLocked() string {
 }
 
 func marketPrice(symbol string) (float64, error) {
-	data, err := market.GetWithExchange(symbol, "binance")
-	if err != nil {
-		return 0, err
+	symbol = market.Normalize(symbol)
+
+	// Check cache first
+	priceCacheMu.RLock()
+	if entry, ok := priceCache[symbol]; ok && time.Since(entry.timestamp) < priceCacheTTL {
+		priceCacheMu.RUnlock()
+		return entry.price, nil
 	}
-	return data.CurrentPrice, nil
+	priceCacheMu.RUnlock()
+
+	// Fetch price via lightweight CoinAnk API (1 kline vs 200 klines in GetWithExchange)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	type result struct {
+		price float64
+		err   error
+	}
+	resCh := make(chan result, 1)
+	go func() {
+		ts := time.Now().UnixMilli()
+		klines, err := coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, 1, coinank_enum.Minute3)
+		if err != nil {
+			resCh <- result{err: err}
+			return
+		}
+		if len(klines) == 0 {
+			resCh <- result{err: fmt.Errorf("no kline data for %s", symbol)}
+			return
+		}
+		resCh <- result{price: klines[len(klines)-1].Close}
+	}()
+
+	select {
+	case res := <-resCh:
+		if res.err != nil {
+			return 0, res.err
+		}
+		// Update cache
+		priceCacheMu.Lock()
+		priceCache[symbol] = &priceCacheEntry{price: res.price, timestamp: time.Now()}
+		priceCacheMu.Unlock()
+		return res.price, nil
+	case <-ctx.Done():
+		return 0, fmt.Errorf("market price fetch timeout for %s", symbol)
+	}
 }
 
 func pnl(side string, entryPrice, markPrice, quantity float64) float64 {

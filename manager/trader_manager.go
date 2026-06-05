@@ -271,7 +271,7 @@ func (tm *TraderManager) getConcurrentTraderData(traders []*trader.AutoTrader) [
 	for i, t := range traders {
 		go func(index int, trader *trader.AutoTrader) {
 			// Set timeout to 10 seconds for single trader (increased from 3s for DEX reliability)
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 
 			// Use channel for timeout control

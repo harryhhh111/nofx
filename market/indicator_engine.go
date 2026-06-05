@@ -37,6 +37,8 @@ func NewDefaultIndicatorEngine() *DefaultIndicatorEngine {
 			&PriceChangeModule{},
 			&RealizedVolModule{},
 			&SessionModule{},
+			&OpeningRangeModule{},
+			&RBreakerModule{},
 		},
 	}
 }
