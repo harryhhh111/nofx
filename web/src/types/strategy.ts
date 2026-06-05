@@ -107,6 +107,8 @@ export interface IndicatorConfig {
   enable_raw_klines: boolean;
   // Timeframes to show as indicator trend summary (no raw OHLCV or indicator arrays)
   summarized_timeframes?: string[];
+  // Indicators to summarize (empty = all summarized). Only relevant when summarized_timeframes is set.
+  summarized_indicators?: string[];
   // Technical indicators (optional)
   enable_ema: boolean;
   enable_sma: boolean;

@@ -254,14 +254,14 @@ func ExportCalculateBoxData(klines []Kline, currentPrice float64) *BoxData {
 // calculateParabolicSAR calculates Parabolic SAR (Stop and Reverse).
 // Returns the current SAR value, whether trend is up, and flip signals.
 // AF starts at 0.02, increments by 0.02 on new extremes, max 0.2.
-func calculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flipDown bool) {
+func calculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flipDown bool, af float64) {
 	if len(klines) < 2 {
-		return 0, false, false, false
+		return 0, false, false, false, 0
 	}
 
 	// Initial trend: up if close[1] >= close[0]
 	isUptrend = klines[1].Close >= klines[0].Close
-	af := 0.02
+	af = 0.02
 	var ep float64
 
 	if isUptrend {
@@ -338,11 +338,11 @@ func calculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flip
 		}
 	}
 
-	return sar, isUptrend, flipUp, flipDown
+	return sar, isUptrend, flipUp, flipDown, af
 }
 
 // ExportCalculateParabolicSAR exports calculateParabolicSAR for testing
-func ExportCalculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flipDown bool) {
+func ExportCalculateParabolicSAR(klines []Kline) (sar float64, isUptrend, flipUp, flipDown bool, af float64) {
 	return calculateParabolicSAR(klines)
 }
 

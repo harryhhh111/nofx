@@ -52,6 +52,7 @@ type TimeframeSeriesData struct {
 	SARUptrend  []bool              `json:"sar_uptrend,omitempty"`  // Parabolic SAR trend direction series
 	SARFlipUp   []bool              `json:"sar_flip_up,omitempty"`  // Parabolic SAR flip-up series
 	SARFlipDown []bool              `json:"sar_flip_down,omitempty"` // Parabolic SAR flip-down series
+	SARAF       float64             `json:"sar_af,omitempty"`         // Parabolic SAR acceleration factor
 	MACDValues  []float64           `json:"macd_values"`  // MACD series
 	RSI7Values  []float64           `json:"rsi7_values"`  // RSI7 series
 	RSI14Values []float64           `json:"rsi14_values"` // RSI14 series

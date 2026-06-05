@@ -90,7 +90,7 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 	currentMACD := calculateMACD(klines3m)
 	currentRSI7 := calculateRSI(klines3m, 7)
 	currentADX, currentPlusDI, currentMinusDI := calculateADX(klines3m, 14)
-	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(klines3m)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown, _ := calculateParabolicSAR(klines3m)
 
 	// Calculate price change percentage
 	// 1-hour price change = price from 20 3-minute K-lines ago
@@ -237,7 +237,7 @@ func GetWithTimeframes(symbol string, timeframes []string, primaryTimeframe stri
 	currentMACD := calculateMACD(primaryKlines)
 	currentRSI7 := calculateRSI(primaryKlines, 7)
 	currentADX, currentPlusDI, currentMinusDI := calculateADX(primaryKlines, 14)
-	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(primaryKlines)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown, _ := calculateParabolicSAR(primaryKlines)
 
 	// Calculate SMA for configured periods
 	currentSMA := make(map[int]float64)
@@ -646,7 +646,7 @@ func BuildDataFromKlines(symbol string, primary []Kline, longer []Kline, smaPeri
 	currentPrice := current.Close
 
 	currentADX, currentPlusDI, currentMinusDI := calculateADX(primary, 14)
-	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown := calculateParabolicSAR(primary)
+	currentSAR, sarIsUptrend, sarFlipUp, sarFlipDown, _ := calculateParabolicSAR(primary)
 
 	data := &Data{
 		Symbol:            symbol,

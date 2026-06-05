@@ -254,6 +254,10 @@ type IndicatorConfig struct {
 	// Timeframes to summarize (indicator trend state instead of raw OHLCV + indicator arrays).
 	// Empty = all raw. Example: ["5m"] = 5m summarized, others raw.
 	SummarizedTimeframes []string `json:"summarized_timeframes,omitempty"`
+		// Indicators to summarize in summary mode timeframes.
+		// Empty = all enabled indicators summarized (current behavior).
+		// e.g. ["ema", "adx", "boll"] = only these summarized, others output raw arrays.
+		SummarizedIndicators []string `json:"summarized_indicators,omitempty"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
 	EnableSMA         bool `json:"enable_sma"`          // Simple Moving Average
@@ -315,6 +319,18 @@ func (c *IndicatorConfig) IsTimeframeSummarized(tf string) bool {
 	}
 	return false
 }
+
+// ShouldSummarizeIndicator checks whether a given indicator should always output summary
+// (even when its timeframe is not in summarized_timeframes).
+func (c *IndicatorConfig) ShouldSummarizeIndicator(name string) bool {
+	for _, s := range c.SummarizedIndicators {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
 
 // KlineConfig K-line configuration
 type KlineConfig struct {

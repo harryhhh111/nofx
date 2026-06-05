@@ -1607,48 +1607,77 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 	}
 
 	if indicators.EnableEMA {
-		if len(data.EMA20Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
-		}
-		if len(data.EMA50Values) > 0 {
-			sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
+		if indicators.ShouldSummarizeIndicator("ema") {
+			e.writeEMASummary(sb, data)
+		} else {
+			if len(data.EMA20Values) > 0 {
+				sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
+			}
+			if len(data.EMA50Values) > 0 {
+				sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
+			}
 		}
 	}
 
 	if indicators.EnableSMA && len(data.SMAValues) > 0 {
-		periods := make([]int, 0, len(data.SMAValues))
-		for p := range data.SMAValues {
-			periods = append(periods, p)
-		}
-		sort.Ints(periods)
-		for _, p := range periods {
-			values := data.SMAValues[p]
-			if len(values) > 0 {
-				sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(values)))
+		if indicators.ShouldSummarizeIndicator("sma") {
+			e.writeSMASummary(sb, data)
+		} else {
+			periods := make([]int, 0, len(data.SMAValues))
+			for p := range data.SMAValues {
+				periods = append(periods, p)
+			}
+			sort.Ints(periods)
+			for _, p := range periods {
+				values := data.SMAValues[p]
+				if len(values) > 0 {
+					sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(values)))
+				}
 			}
 		}
 	}
 
 	if indicators.EnableADX && len(data.ADXValues) > 0 {
-		sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
-		sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
-		sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
+		if indicators.ShouldSummarizeIndicator("adx") {
+			e.writeADXSummary(sb, data)
+		} else {
+			sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
+			sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
+			sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
+		}
 	}
 
 	if indicators.EnableSAR && len(data.SARValues) > 0 {
-		sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
+		if indicators.ShouldSummarizeIndicator("sar") {
+			e.writeSARSummary(sb, data)
+		} else {
+			sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
+		}
 	}
 
 	if indicators.EnableMACD && len(data.MACDValues) > 0 {
-		sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
+		if indicators.ShouldSummarizeIndicator("macd") {
+			sb.WriteString(fmt.Sprintf("MACD: %.4f\n", data.MACDValues[len(data.MACDValues)-1]))
+		} else {
+			sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
+		}
 	}
 
 	if indicators.EnableRSI {
-		if len(data.RSI7Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
-		}
-		if len(data.RSI14Values) > 0 {
-			sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
+		if indicators.ShouldSummarizeIndicator("rsi") {
+			if len(data.RSI7Values) > 0 {
+				sb.WriteString(fmt.Sprintf("RSI7: %.2f\n", data.RSI7Values[len(data.RSI7Values)-1]))
+			}
+			if len(data.RSI14Values) > 0 {
+				sb.WriteString(fmt.Sprintf("RSI14: %.2f\n", data.RSI14Values[len(data.RSI14Values)-1]))
+			}
+		} else {
+			if len(data.RSI7Values) > 0 {
+				sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
+			}
+			if len(data.RSI14Values) > 0 {
+				sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
+			}
 		}
 	}
 
@@ -1657,9 +1686,13 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 	}
 
 	if indicators.EnableBOLL && len(data.BOLLUpper) > 0 {
-		sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
-		sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
-		sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
+		if indicators.ShouldSummarizeIndicator("boll") {
+			e.writeBOLLSummary(sb, data)
+		} else {
+			sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
+			sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
+			sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
+		}
 	}
 
 	sb.WriteString("\n")
@@ -1908,12 +1941,27 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 			flipNote = "flip_down"
 		}
 
+		// Price distance from SAR, bars since last flip, acceleration factor
+		sarAF := data.SARAF
+		barsSinceFlip := 0
+		for i := len(data.SARFlipUp) - 1; i >= 0; i-- {
+			if data.SARFlipUp[i] || data.SARFlipDown[i] {
+				break
+			}
+			barsSinceFlip++
+		}
+		priceDistAbs := lastClose - sarLast
+		priceDistPct := priceDistAbs / lastClose * 100
+		if !uptrend {
+			priceDistAbs = sarLast - lastClose
+			priceDistPct = (sarLast - lastClose) / lastClose * 100
+		}
 		if lang == LangChinese {
 			dirStr := "下行"
 			if uptrend {
 				dirStr = "上行"
 			}
-			sb.WriteString(fmt.Sprintf("SAR: %.4f %s", sarLast, dirStr))
+			sb.WriteString(fmt.Sprintf("SAR: %.4f %s, 价格距SAR %+.1f%%(%.0f点), 趋势持续%d周期, AF=%.2f", sarLast, dirStr, priceDistPct, priceDistAbs, barsSinceFlip, sarAF))
 			if flipNote == "flip_up" {
 				sb.WriteString(", 向上翻转")
 			} else if flipNote == "flip_down" {
@@ -1925,7 +1973,7 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 			if uptrend {
 				dirStr = "Uptrend"
 			}
-			sb.WriteString(fmt.Sprintf("SAR: %.4f %s", sarLast, dirStr))
+			sb.WriteString(fmt.Sprintf("SAR: %.4f %s, price %+.1f%% from SAR(%.0f pts), trend %d bars, AF=%.2f", sarLast, dirStr, priceDistPct, priceDistAbs, barsSinceFlip, sarAF))
 			if flipNote == "flip_up" {
 				sb.WriteString(", flip up")
 			} else if flipNote == "flip_down" {
@@ -1954,7 +2002,162 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	sb.WriteString("\n")
+
 }
+
+
+// writeEMASummary writes a one-line EMA trend summary.
+func (e *StrategyEngine) writeEMASummary(sb *strings.Builder, data *market.TimeframeSeriesData) {
+	if len(data.EMA20Values) < 2 || len(data.EMA50Values) < 2 {
+		return
+	}
+	lang := e.GetLanguage()
+	e20Last := data.EMA20Values[len(data.EMA20Values)-1]
+	e20Prev := data.EMA20Values[len(data.EMA20Values)-2]
+	e50Last := data.EMA50Values[len(data.EMA50Values)-1]
+	e50Prev := data.EMA50Values[len(data.EMA50Values)-2]
+	e20Dir, e50Dir := "→", "→"
+	if e20Last > e20Prev { e20Dir = "↑" } else if e20Last < e20Prev { e20Dir = "↓" }
+	if e50Last > e50Prev { e50Dir = "↑" } else if e50Last < e50Prev { e50Dir = "↓" }
+	if lang == LangChinese {
+		align := "多头排列"
+		if e20Last <= e50Last { align = "空头排列" }
+		sb.WriteString(fmt.Sprintf("EMA: 20%s=%.2f 50%s=%.2f, %s\n", e20Dir, e20Last, e50Dir, e50Last, align))
+	} else {
+		align := "Bullish"
+		if e20Last <= e50Last { align = "Bearish" }
+		sb.WriteString(fmt.Sprintf("EMA: 20%s=%.2f 50%s=%.2f, %s\n", e20Dir, e20Last, e50Dir, e50Last, align))
+	}
+}
+
+// writeSMASummary writes a one-line SMA summary (last value per period).
+func (e *StrategyEngine) writeSMASummary(sb *strings.Builder, data *market.TimeframeSeriesData) {
+	if len(data.SMAValues) == 0 {
+		return
+	}
+	lang := e.GetLanguage()
+	periods := make([]int, 0, len(data.SMAValues))
+	for p := range data.SMAValues { periods = append(periods, p) }
+	sort.Ints(periods)
+	var parts []string
+	for _, p := range periods {
+		vals := data.SMAValues[p]
+		if len(vals) > 0 {
+			if lang == LangChinese {
+				parts = append(parts, fmt.Sprintf("SMA%d=%.2f", p, vals[len(vals)-1]))
+			} else {
+				parts = append(parts, fmt.Sprintf("SMA%d=%.2f", p, vals[len(vals)-1]))
+			}
+		}
+	}
+	if len(parts) > 0 {
+		sb.WriteString(fmt.Sprintf("SMA: %s\n", strings.Join(parts, ", ")))
+	}
+}
+
+// writeADXSummary writes a one-line ADX trend strength summary.
+func (e *StrategyEngine) writeADXSummary(sb *strings.Builder, data *market.TimeframeSeriesData) {
+	if len(data.ADXValues) == 0 {
+		return
+	}
+	lang := e.GetLanguage()
+	adxLast := data.ADXValues[len(data.ADXValues)-1]
+	plusDI := data.PlusDIValues[len(data.PlusDIValues)-1]
+	minusDI := data.MinusDIValues[len(data.MinusDIValues)-1]
+	var strength string
+	switch {
+	case adxLast < 20: strength = "weak"
+	case adxLast < 40: strength = "moderate"
+	case adxLast < 60: strength = "strong"
+	default: strength = "very_strong"
+	}
+	if lang == LangChinese {
+		strMap := map[string]string{"weak": "弱", "moderate": "中等", "strong": "强", "very_strong": "极强"}
+		diStr := "多方主导"
+		if minusDI > plusDI { diStr = "空方主导" }
+		sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s (+DI=%.2f -DI=%.2f)\n", adxLast, strMap[strength], diStr, plusDI, minusDI))
+	} else {
+		diStr := "Bullish (+DI > -DI)"
+		if minusDI > plusDI { diStr = "Bearish (-DI > +DI)" }
+		sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s (+DI=%.2f -DI=%.2f)\n", adxLast, strength, diStr, plusDI, minusDI))
+	}
+}
+
+// writeBOLLSummary writes a one-line Bollinger Band summary.
+func (e *StrategyEngine) writeBOLLSummary(sb *strings.Builder, data *market.TimeframeSeriesData) {
+	if len(data.BOLLMiddle) == 0 || len(data.Klines) == 0 {
+		return
+	}
+	lang := e.GetLanguage()
+	lastClose := data.Klines[len(data.Klines)-1].Close
+	bollMid := data.BOLLMiddle[len(data.BOLLMiddle)-1]
+	bollUpper := data.BOLLUpper[len(data.BOLLUpper)-1]
+	bollLower := data.BOLLLower[len(data.BOLLLower)-1]
+	bw := (bollUpper - bollLower) / bollMid * 100
+	var posLabel string
+	if lang == LangChinese {
+		switch {
+		case lastClose > bollUpper: posLabel = "突破上轨(超买)"
+		case lastClose > bollMid: posLabel = "中轨上方(偏多)"
+		case lastClose > bollLower: posLabel = "中轨下方(偏空)"
+		default: posLabel = "跌破下轨(超卖)"
+		}
+		sb.WriteString(fmt.Sprintf("BOLL: 价格%.2f %s, 中轨%.2f, 带宽%.1f%%\n", lastClose, posLabel, bollMid, bw))
+	} else {
+		switch {
+		case lastClose > bollUpper: posLabel = "above upper (overbought)"
+		case lastClose > bollMid: posLabel = "above mid (bullish)"
+		case lastClose > bollLower: posLabel = "below mid (bearish)"
+		default: posLabel = "below lower (oversold)"
+		}
+		sb.WriteString(fmt.Sprintf("BOLL: Price %.2f %s, Mid %.2f, BW %.1f%%\n", lastClose, posLabel, bollMid, bw))
+	}
+}
+
+// writeSARSummary writes a one-line enhanced SAR summary with price distance, trend bars, and AF.
+func (e *StrategyEngine) writeSARSummary(sb *strings.Builder, data *market.TimeframeSeriesData) {
+	if len(data.SARValues) == 0 {
+		return
+	}
+	lang := e.GetLanguage()
+	sarLast := data.SARValues[len(data.SARValues)-1]
+	uptrend := len(data.SARUptrend) > 0 && data.SARUptrend[len(data.SARUptrend)-1]
+	flipUp := len(data.SARFlipUp) > 0 && data.SARFlipUp[len(data.SARFlipUp)-1]
+	flipDown := len(data.SARFlipDown) > 0 && data.SARFlipDown[len(data.SARFlipDown)-1]
+	lastClose := data.Klines[len(data.Klines)-1].Close
+
+	// Bars since last flip
+	barsSinceFlip := 0
+	for i := len(data.SARFlipUp) - 1; i >= 0; i-- {
+		if data.SARFlipUp[i] || data.SARFlipDown[i] { break }
+		barsSinceFlip++
+	}
+
+	// Price distance
+	priceDistAbs := lastClose - sarLast
+	priceDistPct := priceDistAbs / lastClose * 100
+	if !uptrend {
+		priceDistAbs = sarLast - lastClose
+		priceDistPct = (sarLast - lastClose) / lastClose * 100
+	}
+
+	sarAF := data.SARAF
+
+	if lang == LangChinese {
+		dirStr := "下行"
+		if uptrend { dirStr = "上行" }
+		sb.WriteString(fmt.Sprintf("SAR: %.2f %s, 距价格%+.1f%%(%.0f点), %d周期, AF=%.2f", sarLast, dirStr, priceDistPct, priceDistAbs, barsSinceFlip, sarAF))
+		if flipUp { sb.WriteString(", 向上翻转") } else if flipDown { sb.WriteString(", 向下翻转") }
+		sb.WriteString("\n")
+	} else {
+		dirStr := "Downtrend"
+		if uptrend { dirStr = "Uptrend" }
+		sb.WriteString(fmt.Sprintf("SAR: %.2f %s, price %+.1f%%(%.0f pts), %d bars, AF=%.2f", sarLast, dirStr, priceDistPct, priceDistAbs, barsSinceFlip, sarAF))
+		if flipUp { sb.WriteString(", flip up") } else if flipDown { sb.WriteString(", flip down") }
+		sb.WriteString("\n")
+	}
+}
+
 
 func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 	if data == nil {

@@ -1,4 +1,4 @@
-import { Clock, Activity, TrendingUp, BarChart2, Info, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
+import { Clock, Activity, TrendingUp, BarChart2, Info, ExternalLink, Zap, Check, AlertCircle, Key, Filter } from 'lucide-react'
 import type { IndicatorConfig } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
@@ -592,6 +592,65 @@ export function IndicatorEditor({
                         title={isSummarized ? `${tf} summary mode` : `${tf} raw klines`}
                       >
                         {tf} {isSummarized ? '📊' : '📈'}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Summarized indicators selection (only visible when timeframes are summarized) */}
+            {config.summarized_timeframes && config.summarized_timeframes.length > 0 && (
+              <div className="mt-4 p-3 rounded-lg" style={{ background: 'rgba(14, 203, 129, 0.04)', border: '1px solid rgba(14, 203, 129, 0.15)' }}>
+                <div className="flex items-center gap-2 mb-2">
+                  <Filter className="w-3.5 h-3.5" style={{ color: '#0ECB81' }} />
+                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.summarizedIndicators, language)}</span>
+                </div>
+                <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.summarizedIndicatorsDesc, language)}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    { key: 'ema', label: 'EMA', color: '#F0B90B' },
+                    { key: 'adx', label: 'ADX', color: '#f97316' },
+                    { key: 'boll', label: 'BOLL', color: '#ec4899' },
+                    { key: 'atr', label: 'ATR', color: '#60a5fa' },
+                    { key: 'sar', label: 'SAR', color: '#06b6d4' },
+                    { key: 'sma', label: 'SMA', color: '#4ade80' },
+                    { key: 'macd', label: 'MACD', color: '#a855f7' },
+                    { key: 'rsi', label: 'RSI', color: '#F6465D' },
+                  ].map(({ key, label, color }) => {
+                    const selected = config.summarized_indicators || []
+                    const isActive = selected.length === 0 || selected.includes(key)
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => {
+                          if (disabled) return
+                          const current = [...(config.summarized_indicators || [])]
+                          if (selected.length === 0) {
+                            // All active currently — remove all except this one
+                            const allKeys = ['ema', 'adx', 'boll', 'atr', 'sar', 'sma', 'macd', 'rsi']
+                            onChange({ ...config, summarized_indicators: allKeys.filter((k) => k !== key) })
+                          } else if (isActive) {
+                            // Currently active — deactivate it
+                            const next = current.filter((k) => k !== key)
+                            onChange({ ...config, summarized_indicators: next.length === 0 ? [] : next })
+                          } else {
+                            // Currently inactive — activate it
+                            onChange({ ...config, summarized_indicators: [...current, key] })
+                          }
+                        }}
+                        disabled={disabled}
+                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                          isActive ? '' : 'opacity-40 hover:opacity-60'
+                        }`}
+                        style={{
+                          background: isActive ? `${color}18` : 'transparent',
+                          border: `1px solid ${isActive ? `${color}40` : '#2B3139'}`,
+                          color: isActive ? color : '#5E6673',
+                        }}
+                        title={isActive ? `∑ ${label}` : `${label} raw`}
+                      >
+                        {isActive ? '∑' : '≡'} {label}
                       </button>
                     )
                   })}

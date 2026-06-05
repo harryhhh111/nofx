@@ -257,11 +257,12 @@ func calculateTimeframeSeries(klines []Kline, timeframe string, count int, adxPe
 
 		// Calculate Parabolic SAR for each point
 		if i >= 1 {
-			sar, isUp, flipUp, flipDown := calculateParabolicSAR(klines[:i+1])
+			sar, isUp, flipUp, flipDown, af := calculateParabolicSAR(klines[:i+1])
 			data.SARValues = append(data.SARValues, sar)
 			data.SARUptrend = append(data.SARUptrend, isUp)
 			data.SARFlipUp = append(data.SARFlipUp, flipUp)
 			data.SARFlipDown = append(data.SARFlipDown, flipDown)
+				data.SARAF = af
 		}
 	}
 
@@ -408,7 +409,7 @@ func calculateIntradaySeries(klines []Kline, adxPeriod int, smaPeriods ...int) *
 
 		// Calculate Parabolic SAR for each point
 		if i >= 1 {
-			sar, isUp, flipUp, flipDown := calculateParabolicSAR(klines[:i+1])
+			sar, isUp, flipUp, flipDown, _ := calculateParabolicSAR(klines[:i+1])
 			data.SARValues = append(data.SARValues, sar)
 			data.SARUptrend = append(data.SARUptrend, isUp)
 			data.SARFlipUp = append(data.SARFlipUp, flipUp)
@@ -445,7 +446,7 @@ func calculateLongerTermData(klines []Kline, adxPeriod int, smaPeriods ...int) *
 
 	// Calculate Parabolic SAR
 	if len(klines) >= 2 {
-		data.SAR, data.SARIsUptrend, data.SARFlipUp, data.SARFlipDown = calculateParabolicSAR(klines)
+		data.SAR, data.SARIsUptrend, data.SARFlipUp, data.SARFlipDown, _ = calculateParabolicSAR(klines)
 	}
 
 	// Calculate volume
