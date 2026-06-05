@@ -156,6 +156,31 @@ function formatRatio(value: unknown) {
   return `${Math.round(value * 100)}%`
 }
 
+function marketTrendLabel(value: unknown, language: string) {
+  const raw = String(value || '-')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    bullish: '偏多',
+    bearish: '偏空',
+    mixed: '混合',
+    neutral: '中性',
+    unavailable: '不可用',
+  }
+  return labels[raw] || raw
+}
+
+function marketDirectionLabel(value: unknown, language: string) {
+  const raw = String(value || '-')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    bullish: '偏多',
+    bearish: '偏空',
+    neutral: '中性',
+    unavailable: '不可用',
+  }
+  return labels[raw] || raw
+}
+
 function formatStrategyError(error: unknown, language: string) {
   const raw = error instanceof Error ? error.message : String(error || 'Unknown error')
   if (raw.includes('cannot be decrypted with the current DATA_ENCRYPTION_KEY')) {
@@ -2241,9 +2266,29 @@ export function StrategyStudioPage() {
 	                              </div>
 	                            </div>
 	                          )
-	                        })()}
+		                        })()}
 
-	                        {String(aiTestResult.signal_preview_error || '') && (
+		                        {(() => {
+		                          const marketContext = getResultObject<Record<string, unknown>>(aiTestResult, 'market_context')
+		                          const metrics = marketContext?.metrics && typeof marketContext.metrics === 'object' ? marketContext.metrics as Record<string, unknown> : {}
+		                          if (!marketContext) return null
+		                          return (
+		                            <div className="rounded-lg bg-nofx-bg border border-white/10 p-3 text-[10px] text-nofx-text-muted">
+		                              <div className="mb-2 text-xs font-medium text-nofx-text">{language === 'zh' ? '市场方向原因' : 'Market Direction Reason'}</div>
+		                              <div className="grid grid-cols-2 gap-2">
+		                                <div>{language === 'zh' ? '方向' : 'Direction'} <span className="text-nofx-text">{marketDirectionLabel(marketContext.direction_bias, language)}</span></div>
+		                                <div>{language === 'zh' ? '偏多比例' : 'Bullish breadth'} <span className="text-nofx-text">{formatRatio(metrics.bullish_breadth_ratio)}</span></div>
+		                                <div>BTC <span className="text-nofx-text">{marketTrendLabel(marketContext.btc_trend, language)}</span></div>
+		                                <div>ETH <span className="text-nofx-text">{marketTrendLabel(marketContext.eth_trend, language)}</span></div>
+		                              </div>
+		                              {String(marketContext.context_summary || '') && (
+		                                <div className="mt-2 font-mono text-[10px] text-nofx-text-muted">{String(marketContext.context_summary)}</div>
+		                              )}
+		                            </div>
+		                          )
+		                        })()}
+
+		                        {String(aiTestResult.signal_preview_error || '') && (
 	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">
 	                            {String(aiTestResult.signal_preview_error)}
 	                          </div>

@@ -199,6 +199,30 @@ function directionBiasLabel(value: unknown, language: Language): string {
   return labels[raw] || raw
 }
 
+function formatRatioPercent(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'
+}
+
+function marketDirectionReasons(marketContext: Record<string, any> | null, language: Language): string[] {
+  if (!marketContext) return []
+  const metrics = marketContext.metrics && typeof marketContext.metrics === 'object' ? marketContext.metrics : {}
+  const reasons = [
+    language === 'zh'
+      ? `BTC ${trendLabel(marketContext.btc_trend, language)}，ETH ${trendLabel(marketContext.eth_trend, language)}`
+      : `BTC ${trendLabel(marketContext.btc_trend, language)}, ETH ${trendLabel(marketContext.eth_trend, language)}`,
+    language === 'zh'
+      ? `候选币偏多比例 ${formatRatioPercent(metrics.bullish_breadth_ratio)}`
+      : `Bullish breadth ${formatRatioPercent(metrics.bullish_breadth_ratio)}`,
+  ]
+  if (marketContext.funding_state) {
+    reasons.push(language === 'zh' ? `资金费率 ${String(marketContext.funding_state)}` : `Funding ${String(marketContext.funding_state)}`)
+  }
+  if (typeof metrics.external_signal_score === 'number') {
+    reasons.push(language === 'zh' ? `外部信号 ${metrics.external_signal_score.toFixed(2)}` : `External score ${metrics.external_signal_score.toFixed(2)}`)
+  }
+  return reasons
+}
+
 function volatilityRegimeLabel(value: unknown, language: Language): string {
   const raw = String(value || '-')
   if (language !== 'zh') return raw
@@ -634,14 +658,23 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
                     {trendLabel(marketContext?.eth_trend, language)}
                   </span>
                 </div>
-                {Array.isArray(marketContext?.risk_flags) && marketContext.risk_flags.length > 0 && (
-                  <div className="col-span-2" style={{ color: '#F0B90B' }}>
-                    {language === 'zh' ? '风险标记' : 'Risk flags'}: {marketContext.risk_flags.map((flag: unknown) => riskFlagLabel(flag, language)).join(', ')}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+	                {Array.isArray(marketContext?.risk_flags) && marketContext.risk_flags.length > 0 && (
+	                  <div className="col-span-2" style={{ color: '#F0B90B' }}>
+	                    {language === 'zh' ? '风险标记' : 'Risk flags'}: {marketContext.risk_flags.map((flag: unknown) => riskFlagLabel(flag, language)).join(', ')}
+	                  </div>
+	                )}
+	                <div className="col-span-2">
+	                  {language === 'zh' ? '方向原因' : 'Direction reason'}:
+	                  <span className="ml-1">{marketDirectionReasons(marketContext, language).join('；') || '-'}</span>
+	                </div>
+	                {typeof marketContext?.context_summary === 'string' && marketContext.context_summary && (
+	                  <div className="col-span-2 font-mono" style={{ color: '#848E9C' }}>
+	                    {marketContext.context_summary}
+	                  </div>
+	                )}
+	              </div>
+	            </div>
+	          )}
           {inputAudit && (
             <div
               className="mb-3 rounded-md p-2"
