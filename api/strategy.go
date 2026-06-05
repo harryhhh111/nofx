@@ -849,7 +849,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			defer marketWG.Done()
 			marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
 			defer cancelMarketData()
-			data, err := market.GetWithTimeframesWindowContextWithExchange(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar, "paper")
+			data, err := market.GetWithTimeframesWindowContextWithExchange(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar, req.Config.Indicators.Klines.MarketDataSource)
 			if err != nil {
 				logger.Infof("Failed to get market data for %s: %v", symbol, err)
 				marketMu.Lock()
@@ -922,6 +922,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			"external_data_warnings": externalDataWarnings,
 			"market_data_warnings":   marketDataWarnings,
 			"signal_preview_error":   errorString(previewErr),
+			"input_audit":            kernel.BuildTradingInputAudit(testContext, &req.Config),
 			"note":                   "Real AI review was not run. Provide ai_model_id and run_real_ai=true to execute the full structured flow.",
 		})
 		return
@@ -946,6 +947,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			"external_data_warnings": externalDataWarnings,
 			"market_data_warnings":   marketDataWarnings,
 			"signal_preview_error":   errorString(previewErr),
+			"input_audit":            kernel.BuildTradingInputAudit(testContext, &req.Config),
 			"ai_error":               err.Error(),
 			"note":                   "AI client setup failed",
 		})
@@ -970,6 +972,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			"external_data_warnings": externalDataWarnings,
 			"market_data_warnings":   marketDataWarnings,
 			"signal_preview_error":   errorString(previewErr),
+			"input_audit":            kernel.BuildTradingInputAudit(testContext, &req.Config),
 			"ai_error":               err.Error(),
 			"note":                   "Structured strategy run failed",
 		})
@@ -994,6 +997,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		"external_data_warnings": externalDataWarnings,
 		"market_data_warnings":   marketDataWarnings,
 		"signal_preview_error":   errorString(previewErr),
+		"input_audit":            decision.InputAudit,
 		"market_context":         decision.MarketContext,
 		"decision":               decision,
 		"note":                   "Structured strategy run completed",

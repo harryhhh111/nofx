@@ -42,6 +42,13 @@ const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
   { key: 'enable_session', label: 'session', desc: 'sessionDesc', color: '#84cc16' },
 ]
 
+const marketDataSources = [
+  { value: 'binance', label: 'Binance Futures' },
+  { value: 'bybit', label: 'Bybit Linear' },
+  { value: 'okx', label: 'OKX Swap' },
+  { value: 'hyperliquid', label: 'Hyperliquid' },
+]
+
 export function IndicatorEditor({
   config,
   onChange,
@@ -478,6 +485,38 @@ export function IndicatorEditor({
               disabled={true}
               className="w-5 h-5 rounded accent-yellow-500 cursor-not-allowed"
             />
+          </div>
+
+          <div className="rounded-lg p-3" style={{ background: 'rgba(30, 35, 41, 0.55)', border: '1px solid #2B3139' }}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium" style={{ color: '#EAECEF' }}>
+                  {language === 'zh' ? 'K 线数据源' : 'K-line data source'}
+                </div>
+                <p className="mt-1 text-[10px]" style={{ color: '#848E9C' }}>
+                  {language === 'zh'
+                    ? '只用于 OHLCV / 指标计算，和下单交易所分开配置。'
+                    : 'Used only for OHLCV and indicator calculations; separate from the execution exchange.'}
+                </p>
+              </div>
+              <select
+                value={config.klines.market_data_source || 'binance'}
+                disabled={disabled}
+                onChange={(e) =>
+                  !disabled &&
+                  onChange({
+                    ...config,
+                    klines: { ...config.klines, market_data_source: e.target.value as 'binance' | 'bybit' | 'okx' | 'hyperliquid' },
+                  })
+                }
+                className="min-w-[150px] px-2 py-1.5 rounded text-xs"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+              >
+                {marketDataSources.map((source) => (
+                  <option key={source.value} value={source.value}>{source.label}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Timeframe Selection */}

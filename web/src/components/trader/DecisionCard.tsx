@@ -651,9 +651,13 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
                 {language === 'zh' ? '输入审计' : 'Input Audit'}
               </div>
               <div className="grid grid-cols-2 gap-2 text-[10px]" style={{ color: '#A7B0BC' }}>
-                <div>
-                  {language === 'zh' ? '请求周期' : 'Timeframes'}:
-                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>
+	                <div>
+	                  {language === 'zh' ? 'K 线源' : 'K-line Source'}:
+	                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{String(inputAudit?.klines?.market_data_source || '-')}</span>
+	                </div>
+	                <div>
+	                  {language === 'zh' ? '请求周期' : 'Timeframes'}:
+	                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>
                     {Array.isArray(inputAudit?.klines?.timeframes) ? inputAudit.klines.timeframes.join(', ') : '-'}
                   </span>
                 </div>

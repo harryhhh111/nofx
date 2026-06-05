@@ -142,6 +142,11 @@ function getResultArray<T = Record<string, unknown>>(result: Record<string, unkn
   return Array.isArray(value) ? value as T[] : []
 }
 
+function getResultObject<T = Record<string, unknown>>(result: Record<string, unknown> | null, key: string): T | null {
+  const value = result?.[key]
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as T : null
+}
+
 function formatPreviewValue(value: unknown) {
   return typeof value === 'number' ? Number(value).toFixed(4) : '-'
 }
@@ -2219,7 +2224,24 @@ export function StrategyStudioPage() {
                             <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '信号' : 'Signals'}</div>
                             <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.signal_count ?? 0)}</div>
                           </div>
-                        </div>
+	                        </div>
+
+	                        {(() => {
+	                          const inputAudit = getResultObject<Record<string, unknown>>(aiTestResult, 'input_audit')
+	                          const klines = inputAudit?.klines && typeof inputAudit.klines === 'object' ? inputAudit.klines as Record<string, unknown> : null
+	                          if (!klines) return null
+	                          return (
+	                            <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3 text-[10px] text-nofx-text-muted">
+	                              <div className="mb-2 text-xs font-medium text-nofx-text">{language === 'zh' ? 'K 线输入审计' : 'K-line Input Audit'}</div>
+	                              <div className="grid grid-cols-2 gap-2">
+	                                <div>{language === 'zh' ? '数据源' : 'Source'} <span className="text-nofx-text">{String(klines.market_data_source || '-')}</span></div>
+	                                <div>{language === 'zh' ? '周期' : 'Timeframes'} <span className="text-nofx-text">{Array.isArray(klines.timeframes) ? klines.timeframes.join(', ') : '-'}</span></div>
+	                                <div>{language === 'zh' ? '计算 K 线' : 'Compute'} <span className="text-nofx-text">{String(klines.compute_lookback || '-')}</span></div>
+	                                <div>{language === 'zh' ? '展示 K 线' : 'Display'} <span className="text-nofx-text">{String(klines.display_count || '-')}</span></div>
+	                              </div>
+	                            </div>
+	                          )
+	                        })()}
 
 	                        {String(aiTestResult.signal_preview_error || '') && (
 	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">

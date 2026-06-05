@@ -364,6 +364,7 @@ export interface IndicatorConfig {
 }
 
 export interface KlineConfig {
+  market_data_source?: 'binance' | 'bybit' | 'okx' | 'hyperliquid';
   primary_timeframe: string;
   primary_count: number;
   compute_lookback?: number;

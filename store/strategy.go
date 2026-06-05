@@ -203,6 +203,7 @@ func (c *StrategyConfig) normalizeCoinSourceFlags() {
 
 func (c *StrategyConfig) normalizeTimeframeRoles() {
 	klines := &c.Indicators.Klines
+	klines.MarketDataSource = normalizeMarketDataSource(klines.MarketDataSource)
 	selected := sanitizeTimeframeList(klines.SelectedTimeframes)
 	if len(selected) == 0 {
 		if klines.PrimaryTimeframe != "" {
@@ -249,6 +250,18 @@ func (c *StrategyConfig) normalizeTimeframeRoles() {
 	klines.SelectedTimeframes = selected
 	klines.ConfirmationTimeframes = filtered
 	klines.EnableMultiTimeframe = len(selected) > 1
+}
+
+func normalizeMarketDataSource(source string) string {
+	normalized := strings.ToLower(strings.TrimSpace(source))
+	switch normalized {
+	case "", "paper":
+		return "binance"
+	case "binance", "bybit", "okx", "hyperliquid":
+		return normalized
+	default:
+		return normalized
+	}
 }
 
 func sanitizeTimeframeList(values []string) []string {
@@ -837,20 +850,20 @@ type IndicatorConfig struct {
 	// raw kline data (OHLCV) - always enabled, required for AI analysis
 	EnableRawKlines bool `json:"enable_raw_klines"`
 	// technical indicator switches
-	EnableEMA         bool `json:"enable_ema"`
-	EnableSMA         bool `json:"enable_sma"` // Simple Moving Average
-	EnableMACD        bool `json:"enable_macd"`
-	EnableRSI         bool `json:"enable_rsi"`
-	EnableATR         bool `json:"enable_atr"`
-	EnableADX         bool `json:"enable_adx"`     // ADX/DMI trend strength
-	EnableSAR         bool `json:"enable_sar"`     // Parabolic SAR
-	EnableBOLL        bool `json:"enable_boll"`    // Bollinger Bands
-	EnableSession     bool `json:"enable_session"` // Previous session OHLCV
+	EnableEMA          bool `json:"enable_ema"`
+	EnableSMA          bool `json:"enable_sma"` // Simple Moving Average
+	EnableMACD         bool `json:"enable_macd"`
+	EnableRSI          bool `json:"enable_rsi"`
+	EnableATR          bool `json:"enable_atr"`
+	EnableADX          bool `json:"enable_adx"`           // ADX/DMI trend strength
+	EnableSAR          bool `json:"enable_sar"`           // Parabolic SAR
+	EnableBOLL         bool `json:"enable_boll"`          // Bollinger Bands
+	EnableSession      bool `json:"enable_session"`       // Previous session OHLCV
 	EnableOpeningRange bool `json:"enable_opening_range"` // Opening Range (first N minutes of session)
 	EnableRBreaker     bool `json:"enable_rbreaker"`      // R-Breaker pivot levels
-	EnableVolume      bool `json:"enable_volume"`
-	EnableOI          bool `json:"enable_oi"`           // open interest
-	EnableFundingRate bool `json:"enable_funding_rate"` // funding rate
+	EnableVolume       bool `json:"enable_volume"`
+	EnableOI           bool `json:"enable_oi"`           // open interest
+	EnableFundingRate  bool `json:"enable_funding_rate"` // funding rate
 	// EMA period configuration
 	EMAPeriods []int `json:"ema_periods,omitempty"` // default [20, 50]
 	// SMA period configuration
@@ -907,6 +920,10 @@ type IndicatorConfig struct {
 
 // KlineConfig K-line configuration
 type KlineConfig struct {
+	// market data source used for OHLCV/K-line calculations. It is intentionally
+	// separate from the execution exchange so unstable K-line providers can be
+	// replaced without changing where orders are sent.
+	MarketDataSource string `json:"market_data_source,omitempty"`
 	// primary timeframe: "1m", "3m", "5m", "15m", "1h", "4h"
 	PrimaryTimeframe string `json:"primary_timeframe"`
 	// primary timeframe K-line count
@@ -1040,6 +1057,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{
 			Klines: KlineConfig{
+				MarketDataSource:   "binance",
 				PrimaryTimeframe:   "15m",
 				PrimaryCount:       20,
 				ComputeLookback:    300,

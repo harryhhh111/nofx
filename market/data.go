@@ -53,10 +53,10 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 			return nil, fmt.Errorf("Failed to get 5-minute K-line from Hyperliquid: %v", err)
 		}
 	} else {
-		// Use CoinAnk for regular crypto assets with exchange-specific data
-		klines3m, err = getKlinesFromCoinAnk(symbol, "3m", exchange, 100)
+		// Use the configured official public K-line source for regular crypto assets.
+		klines3m, err = getKlinesFromOfficialFuturesContext(context.Background(), symbol, "3m", 100, exchange)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to get 3-minute K-line from CoinAnk (%s): %v", exchange, err)
+			return nil, fmt.Errorf("Failed to get 3-minute K-line from official source (%s): %v", exchange, err)
 		}
 	}
 
@@ -73,9 +73,9 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 			return nil, fmt.Errorf("Failed to get 4-hour K-line from Hyperliquid: %v", err)
 		}
 	} else {
-		klines4h, err = getKlinesFromCoinAnk(symbol, "4h", exchange, 100)
+		klines4h, err = getKlinesFromOfficialFuturesContext(context.Background(), symbol, "4h", 100, exchange)
 		if err != nil {
-			return nil, fmt.Errorf("Failed to get 4-hour K-line from CoinAnk (%s): %v", exchange, err)
+			return nil, fmt.Errorf("Failed to get 4-hour K-line from official source (%s): %v", exchange, err)
 		}
 	}
 
@@ -183,9 +183,8 @@ func GetWithTimeframesWindowContextWithOpenBar(ctx context.Context, symbol strin
 }
 
 // GetWithTimeframesWindowContextWithExchange retrieves market data from the
-// same exchange family that the trader is configured to trade on. It does not
-// silently substitute another exchange, because that would make indicator
-// snapshots inconsistent with execution prices.
+// configured K-line source. It does not silently substitute another source,
+// because that would make indicator snapshots inconsistent and hard to audit.
 func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int, includeOpenBar bool, exchange string) (*Data, error) {
 	symbol = Normalize(symbol)
 

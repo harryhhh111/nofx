@@ -302,6 +302,7 @@ type TradingInputAudit struct {
 }
 
 type KlineInputAudit struct {
+	MarketDataSource string   `json:"market_data_source"`
 	Timeframes       []string `json:"timeframes"`
 	PrimaryTimeframe string   `json:"primary_timeframe"`
 	EntryTimeframe   string   `json:"entry_timeframe,omitempty"`

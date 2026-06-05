@@ -213,7 +213,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 	// 1. First fetch data for position coins (must fetch)
 	for _, pos := range ctx.Positions {
-		data, err := market.GetWithTimeframesWindowContextWithExchange(context.Background(), pos.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, ctx.Exchange)
+		data, err := market.GetWithTimeframesWindowContextWithExchange(context.Background(), pos.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, config.Indicators.Klines.MarketDataSource)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for position %s: %v", pos.Symbol, err)
 			continue
@@ -234,7 +234,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		data, err := market.GetWithTimeframesWindowContextWithExchange(context.Background(), coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, ctx.Exchange)
+		data, err := market.GetWithTimeframesWindowContextWithExchange(context.Background(), coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, config.Indicators.Klines.MarketDataSource)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for %s: %v", coin.Symbol, err)
 			ctx.DataFetchErrors = append(ctx.DataFetchErrors, fmt.Sprintf("%s: market data fetch failed", coin.Symbol))
@@ -352,6 +352,7 @@ func buildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *Trading
 		GeneratedAt:    time.Now().UTC(),
 		CandidateCoins: candidates,
 		Klines: KlineInputAudit{
+			MarketDataSource: klines.MarketDataSource,
 			Timeframes:       timeframes,
 			PrimaryTimeframe: klines.PrimaryTimeframe,
 			EntryTimeframe:   klines.EntryTimeframe,
@@ -405,6 +406,10 @@ func buildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *Trading
 		},
 		Symbols: symbols,
 	}
+}
+
+func BuildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *TradingInputAudit {
+	return buildTradingInputAudit(ctx, config)
 }
 
 func unusedScoringTimeframes(timeframes []string, primary string, entry string, confirmations []string) []string {
