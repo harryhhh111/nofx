@@ -179,6 +179,14 @@ func GetWithTimeframesWindowContext(ctx context.Context, symbol string, timefram
 // includes the currently forming bar. Trading calculations should normally use
 // closed bars unless the strategy explicitly enables open-bar calculation.
 func GetWithTimeframesWindowContextWithOpenBar(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int, includeOpenBar bool) (*Data, error) {
+	return GetWithTimeframesWindowContextWithExchange(ctx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, includeOpenBar, "binance")
+}
+
+// GetWithTimeframesWindowContextWithExchange retrieves market data from the
+// same exchange family that the trader is configured to trade on. It does not
+// silently substitute another exchange, because that would make indicator
+// snapshots inconsistent with execution prices.
+func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int, includeOpenBar bool, exchange string) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -234,10 +242,10 @@ func GetWithTimeframesWindowContextWithOpenBar(ctx context.Context, symbol strin
 				continue
 			}
 		} else {
-			// Use CoinAnk for regular crypto assets (default to Binance)
-			klines, err = getKlinesFromCoinAnkContext(ctx, symbol, tf, "binance", computeLookback)
+			// Use official exchange public REST APIs for regular crypto assets.
+			klines, err = getKlinesFromOfficialFuturesContext(ctx, symbol, tf, computeLookback, exchange)
 			if err != nil {
-				logger.Infof("⚠️ Failed to get %s %s K-line from CoinAnk: %v", symbol, tf, err)
+				logger.Infof("⚠️ Failed to get %s %s K-line from official exchange APIs: %v", symbol, tf, err)
 				continue
 			}
 		}

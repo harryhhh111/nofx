@@ -2,7 +2,10 @@ package market
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"nofx/logger"
 	"nofx/provider/coinank/coinank_api"
 	"nofx/provider/coinank/coinank_enum"
@@ -13,6 +16,301 @@ import (
 )
 
 // Note: Kline data now uses free/open API (coinank_api.Kline) which doesn't require authentication
+
+func getKlinesFromOfficialFuturesContext(ctx context.Context, symbol, interval string, limit int, exchange string) ([]Kline, error) {
+	symbol = Normalize(symbol)
+	interval, err := NormalizeTimeframe(interval)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 300
+	}
+	if limit > binanceMaxKlineLimit {
+		limit = binanceMaxKlineLimit
+	}
+
+	switch strings.ToLower(strings.TrimSpace(exchange)) {
+	case "", "paper", "binance":
+		return getKlinesFromBinanceFuturesContext(ctx, symbol, interval, limit)
+	case "bybit":
+		return getKlinesFromBybitLinearContext(ctx, symbol, interval, limit)
+	case "okx":
+		return getKlinesFromOKXSwapContext(ctx, symbol, interval, limit)
+	case "hyperliquid":
+		return getKlinesFromHyperliquidContext(ctx, symbol, interval, limit)
+	default:
+		return nil, fmt.Errorf("official kline source for exchange %q is not implemented", exchange)
+	}
+}
+
+func getKlinesFromBinanceFuturesContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", binanceFuturesKlinesURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("symbol", symbol)
+	q.Set("interval", interval)
+	q.Set("limit", strconv.Itoa(limit))
+	req.URL.RawQuery = q.Encode()
+
+	body, err := getKlineBody(req)
+	if err != nil {
+		return nil, err
+	}
+	return parseBinanceKlinePayload(body)
+}
+
+func getKlinesFromBybitLinearContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
+	bybitInterval, err := bybitKlineInterval(interval)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.bybit.com/v5/market/kline", nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("category", "linear")
+	q.Set("symbol", symbol)
+	q.Set("interval", bybitInterval)
+	q.Set("limit", strconv.Itoa(minInt(limit, 1000)))
+	req.URL.RawQuery = q.Encode()
+
+	body, err := getKlineBody(req)
+	if err != nil {
+		return nil, err
+	}
+	return parseBybitKlinePayload(body)
+}
+
+func getKlinesFromOKXSwapContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
+	okxBar, err := okxKlineBar(interval)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://www.okx.com/api/v5/market/candles", nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("instId", okxSwapInstrument(symbol))
+	q.Set("bar", okxBar)
+	q.Set("limit", strconv.Itoa(minInt(limit, 300)))
+	req.URL.RawQuery = q.Encode()
+
+	body, err := getKlineBody(req)
+	if err != nil {
+		return nil, err
+	}
+	return parseOKXKlinePayload(body)
+}
+
+func getKlineBody(req *http.Request) ([]byte, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+func parseBinanceKlinePayload(body []byte) ([]Kline, error) {
+	var raw []KlineResponse
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, err
+	}
+	klines := make([]Kline, 0, len(raw))
+	for _, item := range raw {
+		kline, err := parseKline(item)
+		if err != nil {
+			return nil, err
+		}
+		klines = append(klines, kline)
+	}
+	return klines, nil
+}
+
+func parseBybitKlinePayload(body []byte) ([]Kline, error) {
+	var resp struct {
+		RetCode int    `json:"retCode"`
+		RetMsg  string `json:"retMsg"`
+		Result  struct {
+			List [][]string `json:"list"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	if resp.RetCode != 0 {
+		return nil, fmt.Errorf("bybit returned %d: %s", resp.RetCode, resp.RetMsg)
+	}
+	klines := make([]Kline, 0, len(resp.Result.List))
+	for _, item := range resp.Result.List {
+		if len(item) < 7 {
+			return nil, fmt.Errorf("invalid bybit kline row")
+		}
+		kline, err := stringKline(item[0], item[1], item[2], item[3], item[4], item[5], "")
+		if err != nil {
+			return nil, err
+		}
+		klines = append(klines, kline)
+	}
+	sortKlines(klines)
+	return klines, nil
+}
+
+func parseOKXKlinePayload(body []byte) ([]Kline, error) {
+	var resp struct {
+		Code string     `json:"code"`
+		Msg  string     `json:"msg"`
+		Data [][]string `json:"data"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Code != "0" {
+		return nil, fmt.Errorf("okx returned %s: %s", resp.Code, resp.Msg)
+	}
+	klines := make([]Kline, 0, len(resp.Data))
+	for _, item := range resp.Data {
+		if len(item) < 9 {
+			return nil, fmt.Errorf("invalid okx kline row")
+		}
+		kline, err := stringKline(item[0], item[1], item[2], item[3], item[4], item[5], "")
+		if err != nil {
+			return nil, err
+		}
+		klines = append(klines, kline)
+	}
+	sortKlines(klines)
+	return klines, nil
+}
+
+func stringKline(openTime, open, high, low, closePrice, volume, closeTime string) (Kline, error) {
+	openTimeMs, err := strconv.ParseInt(openTime, 10, 64)
+	if err != nil {
+		return Kline{}, err
+	}
+	closeTimeMs := int64(0)
+	if closeTime != "" {
+		closeTimeMs, err = strconv.ParseInt(closeTime, 10, 64)
+		if err != nil {
+			return Kline{}, err
+		}
+	}
+	openValue, err := strconv.ParseFloat(open, 64)
+	if err != nil {
+		return Kline{}, err
+	}
+	highValue, err := strconv.ParseFloat(high, 64)
+	if err != nil {
+		return Kline{}, err
+	}
+	lowValue, err := strconv.ParseFloat(low, 64)
+	if err != nil {
+		return Kline{}, err
+	}
+	closeValue, err := strconv.ParseFloat(closePrice, 64)
+	if err != nil {
+		return Kline{}, err
+	}
+	volumeValue, err := strconv.ParseFloat(volume, 64)
+	if err != nil {
+		return Kline{}, err
+	}
+	return Kline{
+		OpenTime:  openTimeMs,
+		Open:      openValue,
+		High:      highValue,
+		Low:       lowValue,
+		Close:     closeValue,
+		Volume:    volumeValue,
+		CloseTime: closeTimeMs,
+	}, nil
+}
+
+func sortKlines(klines []Kline) {
+	for i := 1; i < len(klines); i++ {
+		for j := i; j > 0 && klines[j-1].OpenTime > klines[j].OpenTime; j-- {
+			klines[j-1], klines[j] = klines[j], klines[j-1]
+		}
+	}
+}
+
+func bybitKlineInterval(interval string) (string, error) {
+	switch interval {
+	case "1m":
+		return "1", nil
+	case "3m":
+		return "3", nil
+	case "5m":
+		return "5", nil
+	case "15m":
+		return "15", nil
+	case "30m":
+		return "30", nil
+	case "1h":
+		return "60", nil
+	case "2h":
+		return "120", nil
+	case "4h":
+		return "240", nil
+	case "6h":
+		return "360", nil
+	case "12h":
+		return "720", nil
+	case "1d":
+		return "D", nil
+	default:
+		return "", fmt.Errorf("unsupported bybit interval: %s", interval)
+	}
+}
+
+func okxKlineBar(interval string) (string, error) {
+	switch interval {
+	case "1m", "3m", "5m", "15m", "30m":
+		return interval, nil
+	case "1h":
+		return "1H", nil
+	case "2h":
+		return "2H", nil
+	case "4h":
+		return "4H", nil
+	case "6h":
+		return "6H", nil
+	case "12h":
+		return "12H", nil
+	case "1d":
+		return "1D", nil
+	default:
+		return "", fmt.Errorf("unsupported okx interval: %s", interval)
+	}
+}
+
+func okxSwapInstrument(symbol string) string {
+	symbol = strings.TrimSuffix(Normalize(symbol), "PERP")
+	if strings.HasSuffix(symbol, "USDT") {
+		return strings.TrimSuffix(symbol, "USDT") + "-USDT-SWAP"
+	}
+	return symbol
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
 
 // getKlinesFromCoinAnk fetches kline data from CoinAnk API (replacement for WSMonitorCli)
 func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline, error) {

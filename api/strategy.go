@@ -849,7 +849,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			defer marketWG.Done()
 			marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
 			defer cancelMarketData()
-			data, err := market.GetWithTimeframesWindowContextWithOpenBar(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar)
+			data, err := market.GetWithTimeframesWindowContextWithExchange(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar, "paper")
 			if err != nil {
 				logger.Infof("Failed to get market data for %s: %v", symbol, err)
 				marketMu.Lock()
@@ -885,6 +885,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		CurrentTime:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		RuntimeMinutes: 0,
 		CallCount:      1,
+		Exchange:       "paper",
 		Account: kernel.AccountInfo{
 			TotalEquity:      1000.0,
 			AvailableBalance: 1000.0,
