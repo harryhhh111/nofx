@@ -73,10 +73,7 @@ func assetTrend(snapshot *market.FactorSnapshot) string {
 		return "unavailable"
 	}
 	timeframe := dominantTimeframe(snapshot)
-	price, ok := snapshot.IndicatorValue("price", "", 0)
-	if !ok || price <= 0 {
-		price, ok = snapshot.IndicatorValue("price", timeframe, 0)
-	}
+	price, ok := snapshotPrice(timeframe, snapshot)
 	if !ok || price <= 0 {
 		return "unavailable"
 	}

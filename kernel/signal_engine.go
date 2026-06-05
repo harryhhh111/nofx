@@ -145,7 +145,7 @@ func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 		if !trace.Eligible || trace.Action == "" {
 			continue
 		}
-		entry, ok := snapshot.IndicatorValue("price", "", 0)
+		entry, ok := snapshotPrice(scoringTimeframeRoles(req.Scoring).Entry, snapshot)
 		if !ok || entry <= 0 {
 			return nil, fmt.Errorf("setup signal for %s cannot open position without a positive entry price", symbol)
 		}
@@ -219,7 +219,7 @@ func (e *ScoreSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 		}
 		trace.Action = action
 		trace.Threshold = threshold
-		entry, ok := snapshot.IndicatorValue("price", "", 0)
+		entry, ok := snapshotPrice(req.Scoring.Timeframe, snapshot)
 		if !ok || entry <= 0 {
 			return nil, fmt.Errorf("scoring signal for %s cannot open position without a positive entry price", symbol)
 		}
@@ -278,7 +278,7 @@ func (e *RuleSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]C
 			if !ok {
 				continue
 			}
-			entry, _ := snapshot.IndicatorValue("price", "", 0)
+			entry, _ := snapshotPrice(rule.Timeframe, snapshot)
 			signal, err := buildCandidateSignal(rule, symbol, entry, strings.Join(reasons, "; "), req.Now)
 			if err != nil {
 				return nil, err
@@ -672,7 +672,7 @@ func hasSupportResistanceBounce(side, timeframe string, snapshot *market.FactorS
 	if snapshot == nil {
 		return false
 	}
-	price, ok := snapshot.IndicatorValue("price", "", 0)
+	price, ok := snapshotPrice(timeframe, snapshot)
 	if !ok || price <= 0 {
 		return false
 	}
@@ -1104,8 +1104,22 @@ func scoreComponent(factor, timeframe string, snapshot *market.FactorSnapshot) (
 	}
 }
 
-func trendScore(timeframe string, snapshot *market.FactorSnapshot) (float64, bool) {
+func snapshotPrice(timeframe string, snapshot *market.FactorSnapshot) (float64, bool) {
+	if snapshot == nil {
+		return 0, false
+	}
+	timeframe = strings.TrimSpace(timeframe)
+	if timeframe != "" {
+		if price, ok := snapshot.IndicatorValue("price", timeframe, 0); ok && price > 0 {
+			return price, true
+		}
+	}
 	price, ok := snapshot.IndicatorValue("price", "", 0)
+	return price, ok && price > 0
+}
+
+func trendScore(timeframe string, snapshot *market.FactorSnapshot) (float64, bool) {
+	price, ok := snapshotPrice(timeframe, snapshot)
 	if !ok || price <= 0 {
 		return 0, false
 	}
@@ -1189,7 +1203,7 @@ func momentumScore(timeframe string, snapshot *market.FactorSnapshot) (float64, 
 }
 
 func structureScore(timeframe string, snapshot *market.FactorSnapshot) (float64, bool) {
-	price, ok := snapshot.IndicatorValue("price", "", 0)
+	price, ok := snapshotPrice(timeframe, snapshot)
 	if !ok || price <= 0 || snapshot == nil || snapshot.Structures == nil {
 		return 0, false
 	}

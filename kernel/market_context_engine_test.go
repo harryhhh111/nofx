@@ -61,6 +61,30 @@ func TestRiskGateRejectsLongAgainstBearishDirectionBias(t *testing.T) {
 	}
 }
 
+func TestAssetTrendUsesDominantTimeframePrice(t *testing.T) {
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {
+				{Name: "price", Value: 100},
+				{Name: "price", Timeframe: "15m", Value: 130},
+			},
+			"ema": {
+				{Name: "ema", Timeframe: "15m", Period: 20, Value: 110},
+				{Name: "ema", Timeframe: "15m", Period: 50, Value: 120},
+			},
+			"macd_histogram": {
+				{Name: "macd_histogram", Timeframe: "15m", Value: 1},
+			},
+		},
+	}
+
+	if trend := assetTrend(snapshot); trend != "bullish" {
+		t.Fatalf("expected dominant timeframe price to produce bullish trend, got %s", trend)
+	}
+}
+
 func bearishContextSnapshot(symbol string) *market.FactorSnapshot {
 	return &market.FactorSnapshot{
 		Symbol: symbol,

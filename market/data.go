@@ -172,6 +172,13 @@ func GetWithTimeframesWindow(symbol string, timeframes []string, primaryTimefram
 // GetWithTimeframesWindowContext retrieves market data with separate prompt
 // display count and calculation lookback.
 func GetWithTimeframesWindowContext(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int) (*Data, error) {
+	return GetWithTimeframesWindowContextWithOpenBar(ctx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, true)
+}
+
+// GetWithTimeframesWindowContextWithOpenBar retrieves market data and optionally
+// includes the currently forming bar. Trading calculations should normally use
+// closed bars unless the strategy explicitly enables open-bar calculation.
+func GetWithTimeframesWindowContextWithOpenBar(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int, includeOpenBar bool) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -238,6 +245,13 @@ func GetWithTimeframesWindowContext(ctx context.Context, symbol string, timefram
 		if len(klines) == 0 {
 			logger.Infof("⚠️ %s %s K-line data is empty", symbol, tf)
 			continue
+		}
+		if !includeOpenBar {
+			klines = closedKlinesOnly(klines, tf, time.Now())
+			if len(klines) == 0 {
+				logger.Infof("⚠️ %s %s K-line data has no closed bars", symbol, tf)
+				continue
+			}
 		}
 
 		// Save primary timeframe K-lines for calculating base indicators
@@ -314,6 +328,31 @@ func GetWithTimeframesWindowContext(ctx context.Context, symbol string, timefram
 		FundingAvailable: fundingAvailable,
 		TimeframeData:    timeframeData,
 	}, nil
+}
+
+func closedKlinesOnly(klines []Kline, timeframe string, now time.Time) []Kline {
+	if len(klines) == 0 {
+		return klines
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	nowMs := now.UnixMilli()
+	out := klines
+	for len(out) > 0 {
+		last := out[len(out)-1]
+		closeTime := last.CloseTime
+		if closeTime <= 0 && last.OpenTime > 0 {
+			if duration, err := TFDuration(timeframe); err == nil {
+				closeTime = last.OpenTime + duration.Milliseconds()
+			}
+		}
+		if closeTime <= 0 || closeTime <= nowMs {
+			break
+		}
+		out = out[:len(out)-1]
+	}
+	return out
 }
 
 // getOpenInterestData retrieves OI data

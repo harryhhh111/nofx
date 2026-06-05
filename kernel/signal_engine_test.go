@@ -225,6 +225,61 @@ func TestSetupSignalEngineLabelsBreakout(t *testing.T) {
 	}
 }
 
+func TestTrendScoreUsesTimeframePrice(t *testing.T) {
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {
+				{Name: "price", Value: 100},
+				{Name: "price", Timeframe: "5m", Value: 120},
+			},
+			"ema": {
+				{Name: "ema", Timeframe: "5m", Period: 20, Value: 110},
+				{Name: "ema", Timeframe: "5m", Period: 50, Value: 115},
+			},
+			"macd_histogram": {
+				{Name: "macd_histogram", Timeframe: "5m", Value: 1},
+			},
+		},
+	}
+
+	score, ok := trendScore("5m", snapshot)
+	if !ok {
+		t.Fatalf("expected 5m trend score to be available")
+	}
+	if score <= 0 {
+		t.Fatalf("expected 5m timeframe price to produce bullish trend score, got %.2f", score)
+	}
+}
+
+func TestSupportResistanceBounceUsesTimeframePrice(t *testing.T) {
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {
+				{Name: "price", Value: 100},
+				{Name: "price", Timeframe: "5m", Value: 120},
+			},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {
+				{
+					Name:      "support_resistance",
+					Timeframe: "5m",
+					Valid:     true,
+					KeyLevels: map[string]float64{"support": 119},
+				},
+			},
+		},
+	}
+
+	if !hasSupportResistanceBounce("long", "5m", snapshot) {
+		t.Fatalf("expected 5m support bounce to use 5m price")
+	}
+}
+
 func testScoringStrategy() *ScoringStrategy {
 	return &ScoringStrategy{
 		Enabled: true,

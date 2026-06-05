@@ -12,8 +12,10 @@ import (
 // StructureRequest describes structure indicators that need anchors, not just
 // periods. Specific algorithms can be implemented behind this stable contract.
 type StructureRequest struct {
-	Fibonacci *FibonacciRequest `json:"fibonacci,omitempty"`
-	Support   *SupportRequest   `json:"support,omitempty"`
+	Fibonacci  *FibonacciRequest  `json:"fibonacci,omitempty"`
+	Support    *SupportRequest    `json:"support,omitempty"`
+	Fibonaccis []FibonacciRequest `json:"fibonaccis,omitempty"`
+	Supports   []SupportRequest   `json:"supports,omitempty"`
 }
 
 type FibonacciRequest struct {
@@ -64,8 +66,22 @@ func (e *DefaultStructureEngine) Calculate(ctx context.Context, input MarketInpu
 		}
 		out = append(out, snapshot)
 	}
+	for _, fib := range req.Fibonaccis {
+		snapshot, err := calculateFibonacciStructure(input, fib)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, snapshot)
+	}
 	if req.Support != nil {
 		snapshot, err := calculateSupportResistanceStructure(input, *req.Support)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, snapshot)
+	}
+	for _, support := range req.Supports {
+		snapshot, err := calculateSupportResistanceStructure(input, support)
 		if err != nil {
 			return nil, err
 		}

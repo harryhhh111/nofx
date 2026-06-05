@@ -849,7 +849,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			defer marketWG.Done()
 			marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
 			defer cancelMarketData()
-			data, err := market.GetWithTimeframesWindowContext(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
+			data, err := market.GetWithTimeframesWindowContextWithOpenBar(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar)
 			if err != nil {
 				logger.Infof("Failed to get market data for %s: %v", symbol, err)
 				marketMu.Lock()

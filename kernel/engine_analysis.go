@@ -213,7 +213,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 	// 1. First fetch data for position coins (must fetch)
 	for _, pos := range ctx.Positions {
-		data, err := market.GetWithTimeframesWindow(pos.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
+		data, err := market.GetWithTimeframesWindowContextWithOpenBar(context.Background(), pos.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for position %s: %v", pos.Symbol, err)
 			continue
@@ -234,7 +234,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		data, err := market.GetWithTimeframesWindow(coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
+		data, err := market.GetWithTimeframesWindowContextWithOpenBar(context.Background(), coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for %s: %v", coin.Symbol, err)
 			ctx.DataFetchErrors = append(ctx.DataFetchErrors, fmt.Sprintf("%s: market data fetch failed", coin.Symbol))
@@ -634,11 +634,16 @@ func StructureRequestFromStrategyConfig(config *store.StrategyConfig) market.Str
 	}
 	config.ClampLimits()
 	req := market.StructureRequest{}
+	timeframes := structureRequestTimeframes(config)
 	if config.ResolvedParameters.Structure.Fibonacci != nil {
 		fib := config.ResolvedParameters.Structure.Fibonacci
-		if fib.Timeframe != "" {
-			req.Fibonacci = &market.FibonacciRequest{
-				Timeframe:             fib.Timeframe,
+		fibRequests := make([]market.FibonacciRequest, 0, len(timeframes))
+		for _, timeframe := range timeframes {
+			if timeframe == "" {
+				continue
+			}
+			fibRequests = append(fibRequests, market.FibonacciRequest{
+				Timeframe:             timeframe,
 				Lookback:              fib.Lookback,
 				SwingWindow:           fib.SwingWindow,
 				MinLegBars:            fib.MinLegBars,
@@ -646,23 +651,63 @@ func StructureRequestFromStrategyConfig(config *store.StrategyConfig) market.Str
 				ZigZagThresholdPct:    fib.ZigZagThresholdPct,
 				Levels:                append([]float64(nil), fib.Levels...),
 				InvalidateOnBreakBase: fib.InvalidateOnBreakBase,
-			}
+			})
+		}
+		if len(fibRequests) > 0 {
+			req.Fibonacci = &fibRequests[0]
+			req.Fibonaccis = fibRequests[1:]
 		}
 	}
 	if config.ResolvedParameters.Structure.SupportResistance != nil {
 		support := config.ResolvedParameters.Structure.SupportResistance
-		if support.Timeframe != "" {
-			req.Support = &market.SupportRequest{
-				Timeframe:       support.Timeframe,
+		supportRequests := make([]market.SupportRequest, 0, len(timeframes))
+		for _, timeframe := range timeframes {
+			if timeframe == "" {
+				continue
+			}
+			supportRequests = append(supportRequests, market.SupportRequest{
+				Timeframe:       timeframe,
 				Lookback:        support.Lookback,
 				SwingWindow:     support.SwingWindow,
 				ZoneWidthATR:    support.ZoneWidthATR,
 				MinTouches:      support.MinTouches,
 				MinDistanceBars: support.MinDistanceBars,
-			}
+			})
+		}
+		if len(supportRequests) > 0 {
+			req.Support = &supportRequests[0]
+			req.Supports = supportRequests[1:]
 		}
 	}
 	return req
+}
+
+func structureRequestTimeframes(config *store.StrategyConfig) []string {
+	if config == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			return
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	add(config.Indicators.Klines.PrimaryTimeframe)
+	add(config.Indicators.Klines.EntryTimeframe)
+	for _, timeframe := range config.Indicators.Klines.ConfirmationTimeframes {
+		add(timeframe)
+	}
+	if config.ResolvedParameters.Structure.Fibonacci != nil {
+		add(config.ResolvedParameters.Structure.Fibonacci.Timeframe)
+	}
+	if config.ResolvedParameters.Structure.SupportResistance != nil {
+		add(config.ResolvedParameters.Structure.SupportResistance.Timeframe)
+	}
+	return out
 }
 
 func buildMarketValidationMaps(ctx *Context, riskConfig store.RiskControlConfig) (map[string]float64, map[string]float64) {
