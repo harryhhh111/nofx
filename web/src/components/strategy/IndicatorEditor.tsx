@@ -619,23 +619,16 @@ export function IndicatorEditor({
                     { key: 'rsi', label: 'RSI', color: '#F6465D' },
                   ].map(({ key, label, color }) => {
                     const selected = config.summarized_indicators || []
-                    const isActive = selected.length === 0 || selected.includes(key)
+                    const isActive = selected.includes(key)
                     return (
                       <button
                         key={key}
                         onClick={() => {
                           if (disabled) return
                           const current = [...(config.summarized_indicators || [])]
-                          if (selected.length === 0) {
-                            // All active currently — remove all except this one
-                            const allKeys = ['ema', 'adx', 'boll', 'atr', 'sar', 'sma', 'macd', 'rsi']
-                            onChange({ ...config, summarized_indicators: allKeys.filter((k) => k !== key) })
-                          } else if (isActive) {
-                            // Currently active — deactivate it
-                            const next = current.filter((k) => k !== key)
-                            onChange({ ...config, summarized_indicators: next.length === 0 ? [] : next })
+                          if (isActive) {
+                            onChange({ ...config, summarized_indicators: current.filter((k) => k !== key) })
                           } else {
-                            // Currently inactive — activate it
                             onChange({ ...config, summarized_indicators: [...current, key] })
                           }
                         }}
@@ -648,7 +641,7 @@ export function IndicatorEditor({
                           border: `1px solid ${isActive ? `${color}40` : '#2B3139'}`,
                           color: isActive ? color : '#5E6673',
                         }}
-                        title={isActive ? `∑ ${label}` : `${label} raw`}
+                        title={isActive ? `∑ ${label} (always summary)` : `${label} (summary only in summarized TF)`}
                       >
                         {isActive ? '∑' : '≡'} {label}
                       </button>

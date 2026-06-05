@@ -230,7 +230,7 @@ export const indicator = {
   summarizedTimeframes: { zh: '摘要模式时间框架', en: 'Summary Mode Timeframes', es: 'Resumen' },
   summarizedTimeframesDesc: { zh: '勾选的时间框架不输出原始K线和指标数组，仅显示趋势状态描述', en: 'Selected timeframes show trend state instead of raw K-lines and indicator arrays', es: 'Muestra estado de tendencia en lugar de velas' },
 	  summarizedIndicators: { zh: '摘要指标选择', en: 'Summarized Indicators', es: 'Indicadores Resumidos' },
-	  summarizedIndicatorsDesc: { zh: '勾选的指标显示趋势摘要，未勾选的保留原始数组。留空=全部摘要（默认）', en: 'Checked indicators show trend summary; unchecked keep raw arrays. Empty = all summarized (default)', es: 'Indicadores marcados muestran resumen; no marcados mantienen datos sin procesar' },
+	  summarizedIndicatorsDesc: { zh: '勾选的指标始终输出趋势摘要（无论所在周期是否开启摘要）。未勾选的仅在摘要模式周期下才输出摘要', en: 'Checked indicators always show trend summary (even in raw timeframes). Unchecked only summarize in summary-mode timeframes', es: 'Indicadores marcados siempre muestran resumen; no marcados solo en modo resumen' },
   required: { zh: '必须', en: 'Required', es: 'Requerido' },
   ema: { zh: 'EMA 均线', en: 'EMA', es: 'EMA' },
   emaDesc: { zh: '指数移动平均线', en: 'Exponential Moving Average', es: 'Media Móvil Exponencial' },
