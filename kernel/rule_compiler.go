@@ -40,6 +40,10 @@ func scoringFromStrategyConfig(config *store.StrategyConfig) *ScoringStrategy {
 	if len(config.CompiledRules) > 0 {
 		version = config.CompiledRules[0].Version
 	}
+	timeframe := scoring.Timeframe
+	if config.Indicators.Klines.PrimaryTimeframe != "" {
+		timeframe = config.Indicators.Klines.PrimaryTimeframe
+	}
 	return &ScoringStrategy{
 		Enabled:                 scoring.Enabled,
 		Version:                 version,
@@ -49,7 +53,9 @@ func scoringFromStrategyConfig(config *store.StrategyConfig) *ScoringStrategy {
 		ShortThreshold:          scoring.ShortThreshold,
 		MinAvailableWeightRatio: scoring.MinAvailableWeightRatio,
 		MinConfidence:           scoring.MinConfidence,
-		Timeframe:               scoring.Timeframe,
+		Timeframe:               timeframe,
+		EntryTimeframe:          config.Indicators.Klines.EntryTimeframe,
+		ConfirmationTimeframes:  append([]string(nil), config.Indicators.Klines.ConfirmationTimeframes...),
 		Symbols:                 append([]string(nil), scoring.Symbols...),
 		Execution:               executionFromStore(scoring.Execution),
 	}

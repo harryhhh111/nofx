@@ -2,6 +2,7 @@ import type {
   Strategy,
   StrategyConfig,
   StrategyCompileResponse,
+  StrategyCalibrationReport,
   StrategyEvolutionProposal,
   StrategyMetadata,
   StrategyPreviewFlowResponse,
@@ -88,9 +89,13 @@ export const strategyApi = {
     strategy_version?: string
     persist?: boolean
   }): Promise<StrategyCompileResponse> {
-    const result = await httpClient.post<StrategyCompileResponse>(
+    const result = await httpClient.request<StrategyCompileResponse>(
       `${API_BASE}/strategies/compile`,
-      data
+      {
+        method: 'POST',
+        data,
+        timeout: 120000,
+      }
     )
     if (!result.success) throw new Error(result.message || 'Failed to compile strategy')
     return result.data!
@@ -113,9 +118,13 @@ export const strategyApi = {
     ai_model_id?: string
     run_real_ai?: boolean
   }): Promise<StrategyTestRunResponse> {
-    const result = await httpClient.post<StrategyTestRunResponse>(
+    const result = await httpClient.request<StrategyTestRunResponse>(
       `${API_BASE}/strategies/test-run`,
-      data
+      {
+        method: 'POST',
+        data,
+        timeout: 180000,
+      }
     )
     if (!result.success) throw new Error(result.message || 'Failed to run strategy test')
     return result.data!
@@ -125,7 +134,7 @@ export const strategyApi = {
     strategyId: string,
     data: {
       ai_model_id: string
-      trigger: string
+      trigger: 'manual'
       base_version?: string
       notes?: string
       performance?: Record<string, unknown>
@@ -135,5 +144,16 @@ export const strategyApi = {
     const result = await httpClient.post<{ proposal: StrategyEvolutionProposal }>(`${API_BASE}/strategies/${strategyId}/evolve`, data)
     if (!result.success) throw new Error('Failed to evolve strategy')
     return result.data!.proposal
+  },
+
+  async getStrategyCalibrationReport(
+    strategyId: string,
+    limit = 1000
+  ): Promise<StrategyCalibrationReport> {
+    const result = await httpClient.get<StrategyCalibrationReport>(
+      `${API_BASE}/strategies/${strategyId}/calibration-report?limit=${limit}`
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to fetch calibration report')
+    return result.data!
   },
 }

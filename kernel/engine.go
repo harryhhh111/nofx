@@ -171,6 +171,10 @@ type Decision struct {
 	Confidence        int     `json:"confidence,omitempty"`          // Confidence level (0-100)
 	RiskUSD           float64 `json:"risk_usd,omitempty"`            // Maximum USD risk
 	SignalGeneratedAt int64   `json:"signal_generated_at,omitempty"` // Unix milliseconds
+	SignalID          string  `json:"signal_id,omitempty"`
+	RuleID            string  `json:"rule_id,omitempty"`
+	Setup             string  `json:"setup,omitempty"`
+	StrategyVersion   string  `json:"strategy_version,omitempty"`
 	Reasoning         string  `json:"reasoning"`
 }
 
@@ -189,6 +193,10 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 		Confidence        int             `json:"confidence,omitempty"`
 		RiskUSD           json.RawMessage `json:"risk_usd,omitempty"`
 		SignalGeneratedAt int64           `json:"signal_generated_at,omitempty"`
+		SignalID          string          `json:"signal_id,omitempty"`
+		RuleID            string          `json:"rule_id,omitempty"`
+		Setup             string          `json:"setup,omitempty"`
+		StrategyVersion   string          `json:"strategy_version,omitempty"`
 		Reasoning         string          `json:"reasoning"`
 	}
 
@@ -229,6 +237,10 @@ func (d *Decision) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	d.SignalGeneratedAt = raw.SignalGeneratedAt
+	d.SignalID = raw.SignalID
+	d.RuleID = raw.RuleID
+	d.Setup = raw.Setup
+	d.StrategyVersion = raw.StrategyVersion
 	d.Reasoning = raw.Reasoning
 
 	return nil
@@ -263,15 +275,73 @@ func parseJSONNumber(raw json.RawMessage, field string) (float64, error) {
 
 // FullDecision AI's complete decision (including chain of thought)
 type FullDecision struct {
-	SystemPrompt        string         `json:"system_prompt"`
-	UserPrompt          string         `json:"user_prompt"`
-	CoTTrace            string         `json:"cot_trace"`
-	CoTSummary          string         `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
-	Decisions           []Decision     `json:"decisions"`
-	RawResponse         string         `json:"raw_response"`
-	Timestamp           time.Time      `json:"timestamp"`
-	AIRequestDurationMs int64          `json:"ai_request_duration_ms,omitempty"`
-	MarketContext       *MarketContext `json:"market_context,omitempty"`
+	SystemPrompt        string                    `json:"system_prompt"`
+	UserPrompt          string                    `json:"user_prompt"`
+	CoTTrace            string                    `json:"cot_trace"`
+	CoTSummary          string                    `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
+	Decisions           []Decision                `json:"decisions"`
+	RawResponse         string                    `json:"raw_response"`
+	Timestamp           time.Time                 `json:"timestamp"`
+	AIRequestDurationMs int64                     `json:"ai_request_duration_ms,omitempty"`
+	MarketContext       *MarketContext            `json:"market_context,omitempty"`
+	Signals             []CandidateSignal         `json:"signals,omitempty"`
+	SetupEvaluations    []SetupEvaluationTrace    `json:"setup_evaluations,omitempty"`
+	ScoringEvaluations  []ScoringEvaluationTrace  `json:"scoring_evaluations,omitempty"`
+	InputAudit          *TradingInputAudit        `json:"input_audit,omitempty"`
+	CalibrationSamples  []SignalCalibrationSample `json:"-"`
+}
+
+type TradingInputAudit struct {
+	GeneratedAt    time.Time                   `json:"generated_at"`
+	CandidateCoins []string                    `json:"candidate_coins"`
+	Klines         KlineInputAudit             `json:"klines"`
+	Indicators     map[string]interface{}      `json:"indicators"`
+	ExternalData   ExternalDataAudit           `json:"external_data"`
+	Symbols        map[string]SymbolInputAudit `json:"symbols"`
+}
+
+type KlineInputAudit struct {
+	Timeframes       []string `json:"timeframes"`
+	PrimaryTimeframe string   `json:"primary_timeframe"`
+	EntryTimeframe   string   `json:"entry_timeframe,omitempty"`
+	Confirmations    []string `json:"confirmations,omitempty"`
+	UnusedTimeframes []string `json:"unused_timeframes,omitempty"`
+	DisplayCount     int      `json:"display_count"`
+	ComputeLookback  int      `json:"compute_lookback"`
+	RequiredLookback int      `json:"required_lookback"`
+	WarmupTarget     int      `json:"warmup_target"`
+	IncludeOpenBar   bool     `json:"include_open_bar"`
+}
+
+type SymbolInputAudit struct {
+	Source     []string                       `json:"source,omitempty"`
+	Timeframes map[string]TimeframeInputAudit `json:"timeframes"`
+	Price      float64                        `json:"price,omitempty"`
+	Warnings   []string                       `json:"warnings,omitempty"`
+}
+
+type TimeframeInputAudit struct {
+	DisplayBars        int        `json:"display_bars"`
+	ComputeBars        int        `json:"compute_bars"`
+	RequiredLookback   int        `json:"required_lookback"`
+	WarmupBars         int        `json:"warmup_bars"`
+	CalculationHealthy bool       `json:"calculation_healthy"`
+	HealthReason       string     `json:"health_reason,omitempty"`
+	LatestTime         *time.Time `json:"latest_time,omitempty"`
+	LatestClose        float64    `json:"latest_close,omitempty"`
+}
+
+type ExternalDataAudit struct {
+	QuantEnabled          bool              `json:"quant_enabled"`
+	QuantSymbols          int               `json:"quant_symbols"`
+	OIRankingEnabled      bool              `json:"oi_ranking_enabled"`
+	OIRankingAvailable    bool              `json:"oi_ranking_available"`
+	NetFlowEnabled        bool              `json:"netflow_enabled"`
+	NetFlowAvailable      bool              `json:"netflow_available"`
+	PriceRankingEnabled   bool              `json:"price_ranking_enabled"`
+	PriceRankingAvailable bool              `json:"price_ranking_available"`
+	Statuses              map[string]string `json:"statuses,omitempty"`
+	DataFetchErrors       []string          `json:"data_fetch_errors,omitempty"`
 }
 
 // QuantData quantitative data structure (fund flow, position changes, price changes)
@@ -317,11 +387,9 @@ type StrategyEngine struct {
 }
 
 // NewStrategyEngine creates strategy execution engine.
-// claw402WalletKey is optional — if provided, nofxos data requests are routed through claw402.
+// claw402WalletKey is optional; if provided, NofxOS data requests are routed through claw402.
 func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string) *StrategyEngine {
-	// Create NofxOS client with API key from config
-	apiKey := config.Indicators.NofxOSAPIKey
-	client := nofxos.NewClient(nofxos.DefaultBaseURL, apiKey)
+	client := nofxos.NewClient(nofxos.DefaultBaseURL, "")
 
 	// If claw402 wallet key is provided (from trader's AI config), route through claw402
 	walletKey := ""
@@ -342,7 +410,7 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 			nofxos.SetAI500GlobalClient(client)
 			logger.Infof("🔗 NofxOS data routed through claw402 (%s)", claw402URL)
 		} else {
-			logger.Warnf("⚠️ Failed to init claw402 data client: %v (using direct nofxos.ai)", err)
+			logger.Warnf("Failed to init claw402 data client: %v", err)
 		}
 	}
 
@@ -921,7 +989,7 @@ func (e *StrategyEngine) FetchQuantDataBatchContext(ctx context.Context, symbols
 		}
 		data, err := e.FetchQuantDataContext(ctx, symbol)
 		if err != nil {
-			logger.Infof("⚠️  Failed to fetch quantitative data for %s: %v", symbol, err)
+			logger.Infof("⚠️  Failed to fetch quantitative data for %s: %s", symbol, DescribeExternalDataError(err))
 			continue
 		}
 		if data != nil {
@@ -957,7 +1025,7 @@ func (e *StrategyEngine) FetchOIRankingDataContext(ctx context.Context) *nofxos.
 
 	data, err := e.nofxosClient.GetOIRankingContext(ctx, duration, limit)
 	if err != nil {
-		logger.Warnf("⚠️  Failed to fetch OI ranking data: %v", err)
+		logger.Warnf("⚠️  Failed to fetch OI ranking data: %s", DescribeExternalDataError(err))
 		return nil
 	}
 
@@ -992,7 +1060,7 @@ func (e *StrategyEngine) FetchNetFlowRankingDataContext(ctx context.Context) *no
 
 	data, err := e.nofxosClient.GetNetFlowRankingContext(ctx, duration, limit)
 	if err != nil {
-		logger.Warnf("⚠️  Failed to fetch NetFlow ranking data: %v", err)
+		logger.Warnf("⚠️  Failed to fetch NetFlow ranking data: %s", DescribeExternalDataError(err))
 		return nil
 	}
 
@@ -1028,13 +1096,33 @@ func (e *StrategyEngine) FetchPriceRankingDataContext(ctx context.Context) *nofx
 
 	data, err := e.nofxosClient.GetPriceRankingContext(ctx, durations, limit)
 	if err != nil {
-		logger.Warnf("⚠️  Failed to fetch Price ranking data: %v", err)
+		logger.Warnf("⚠️  Failed to fetch Price ranking data: %s", DescribeExternalDataError(err))
 		return nil
 	}
 
 	logger.Infof("✓ Price ranking data ready for %d durations", len(data.Durations))
 
 	return data
+}
+
+func DescribeExternalDataError(err error) string {
+	if err == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(err.Error())
+	lower := strings.ToLower(raw)
+	switch {
+	case strings.Contains(lower, "context deadline exceeded"), strings.Contains(lower, "timeout"):
+		return fmt.Sprintf("external data request timed out: %s", raw)
+	case strings.Contains(lower, "claw402 wallet private key"), strings.Contains(lower, "wallet private key not set"):
+		return fmt.Sprintf("claw402 wallet is not configured for paid NofxOS data: %s", raw)
+	case strings.Contains(lower, "status 402"), strings.Contains(lower, "payment retry failed"):
+		return fmt.Sprintf("claw402 payment failed for paid NofxOS data; check wallet balance and payment channel: %s", raw)
+	case strings.Contains(lower, "status 404"), strings.Contains(lower, "not found"):
+		return fmt.Sprintf("NofxOS endpoint or symbol is not available through claw402: %s", raw)
+	default:
+		return raw
+	}
 }
 
 // ============================================================================

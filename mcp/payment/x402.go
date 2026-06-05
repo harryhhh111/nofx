@@ -35,6 +35,13 @@ const (
 	X402Timeout = 5 * time.Minute
 )
 
+func x402RetryPolicy(providerTag string) (int, time.Duration) {
+	if strings.Contains(providerTag, "data") {
+		return 2, time.Second
+	}
+	return X402MaxPaymentRetries, X402RetryBaseWait
+}
+
 // ── Shared x402 types ────────────────────────────────────────────────────────
 
 // X402v2PaymentRequired is the structure of the Payment-Required header (x402 v2).
@@ -166,20 +173,22 @@ func DoX402RequestWithContext(
 		// Retry loop for 5xx / expired-402 errors on the payment-signed request.
 		var lastBody []byte
 		var lastStatus int
-		for attempt := 1; attempt <= X402MaxPaymentRetries; attempt++ {
+		maxRetries, retryBaseWait := x402RetryPolicy(providerTag)
+		for attempt := 1; attempt <= maxRetries; attempt++ {
 			req2, err := buildReqFn()
 			if err != nil {
 				return nil, fmt.Errorf("failed to build retry request: %w", err)
 			}
+			req2 = req2.WithContext(ctx)
 			req2.Header.Set("X-Payment", paymentSig)
 			req2.Header.Set("Payment-Signature", paymentSig)
 
 			resp2, err := httpClient.Do(req2)
 			if err != nil {
-				if attempt < X402MaxPaymentRetries {
-					wait := X402RetryBaseWait * time.Duration(attempt)
+				if attempt < maxRetries {
+					wait := retryBaseWait * time.Duration(attempt)
 					logger.Warnf("⚠️  [%s] Payment request failed: %v, retrying in %v (%d/%d)...",
-						providerTag, err, wait, attempt+1, X402MaxPaymentRetries)
+						providerTag, err, wait, attempt+1, maxRetries)
 					if err := sleepWithContext(ctx, wait); err != nil {
 						return nil, err
 					}
@@ -209,8 +218,8 @@ func DoX402RequestWithContext(
 
 			retryable := resp2.StatusCode >= 500 || resp2.StatusCode == http.StatusPaymentRequired
 
-			if retryable && attempt < X402MaxPaymentRetries {
-				wait := X402RetryBaseWait * time.Duration(attempt)
+			if retryable && attempt < maxRetries {
+				wait := retryBaseWait * time.Duration(attempt)
 
 				// If we got 402 again, the payment signature expired — re-sign.
 				if resp2.StatusCode == http.StatusPaymentRequired {
@@ -223,18 +232,18 @@ func DoX402RequestWithContext(
 						if signErr == nil {
 							paymentSig = newSig
 							logger.Warnf("⚠️  [%s] Payment expired (402), re-signed and retrying in %v (%d/%d)...",
-								providerTag, wait, attempt+1, X402MaxPaymentRetries)
+								providerTag, wait, attempt+1, maxRetries)
 						} else {
 							logger.Warnf("⚠️  [%s] Payment expired (402), re-sign failed: %v, retrying in %v (%d/%d)...",
-								providerTag, signErr, wait, attempt+1, X402MaxPaymentRetries)
+								providerTag, signErr, wait, attempt+1, maxRetries)
 						}
 					} else {
 						logger.Warnf("⚠️  [%s] Got 402 but no new Payment-Required header, retrying in %v (%d/%d)...",
-							providerTag, wait, attempt+1, X402MaxPaymentRetries)
+							providerTag, wait, attempt+1, maxRetries)
 					}
 				} else {
 					logger.Warnf("⚠️  [%s] Server error (status %d), retrying in %v (%d/%d)...",
-						providerTag, resp2.StatusCode, wait, attempt+1, X402MaxPaymentRetries)
+						providerTag, resp2.StatusCode, wait, attempt+1, maxRetries)
 				}
 
 				if err := sleepWithContext(ctx, wait); err != nil {

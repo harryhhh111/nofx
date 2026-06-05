@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"nofx/market"
 	"nofx/mcp"
 	"strings"
 	"time"
@@ -89,18 +90,18 @@ Output only JSON inside <reviews> tags:
 
 func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 	payload := struct {
-		GeneratedAt       time.Time         `json:"generated_at"`
-		Signals           []CandidateSignal `json:"signals"`
-		MarketContext     *MarketContext    `json:"market_context,omitempty"`
-		FactorSnapshot    interface{}       `json:"factor_snapshot"`
-		RelevantMemory    []TradeLesson     `json:"relevant_memory,omitempty"`
-		CurrentPositions  []PositionInfo    `json:"current_positions,omitempty"`
-		ReviewInstruction string            `json:"review_instruction"`
+		GeneratedAt       time.Time                        `json:"generated_at"`
+		Signals           []CandidateSignal                `json:"signals"`
+		MarketContext     *MarketContext                   `json:"market_context,omitempty"`
+		FactorSummary     map[string]compactFactorSnapshot `json:"factor_summary"`
+		RelevantMemory    []TradeLesson                    `json:"relevant_memory,omitempty"`
+		CurrentPositions  []PositionInfo                   `json:"current_positions,omitempty"`
+		ReviewInstruction string                           `json:"review_instruction"`
 	}{
 		GeneratedAt:       time.Now().UTC(),
 		Signals:           req.Signals,
 		MarketContext:     req.MarketContext,
-		FactorSnapshot:    req.FactorSnapshot,
+		FactorSummary:     compactReviewFactorSnapshots(req.FactorSnapshot, req.Signals, req.CurrentPositions),
 		RelevantMemory:    req.RelevantMemory,
 		CurrentPositions:  req.CurrentPositions,
 		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades.",
@@ -111,6 +112,152 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 		return "", fmt.Errorf("marshal LLM review payload: %w", err)
 	}
 	return string(data), nil
+}
+
+type compactFactorSnapshot struct {
+	Symbol     string                                           `json:"symbol"`
+	RiskFlags  []string                                         `json:"risk_flags,omitempty"`
+	Notes      []string                                         `json:"notes,omitempty"`
+	Technical  map[string][]compactIndicatorPoint               `json:"technical,omitempty"`
+	Structures map[string][]compactStructureSnapshot            `json:"structures,omitempty"`
+	External   map[string]compactExternalFactor                 `json:"external,omitempty"`
+}
+
+type compactIndicatorPoint struct {
+	Name      string             `json:"name"`
+	Timeframe string             `json:"timeframe"`
+	Period    int                `json:"period,omitempty"`
+	Params    map[string]float64 `json:"params,omitempty"`
+	Value     float64            `json:"value"`
+}
+
+type compactStructureSnapshot struct {
+	Name         string             `json:"name"`
+	Timeframe    string             `json:"timeframe"`
+	Valid        bool               `json:"valid"`
+	Reason       string             `json:"reason,omitempty"`
+	Direction    string             `json:"direction,omitempty"`
+	InvalidPrice float64            `json:"invalid_price,omitempty"`
+	KeyLevels    map[string]float64 `json:"key_levels,omitempty"`
+	Confirmed    bool               `json:"confirmed"`
+}
+
+type compactExternalFactor struct {
+	Name      string  `json:"name"`
+	Source    string  `json:"source"`
+	Timeframe string  `json:"timeframe,omitempty"`
+	Value     float64 `json:"value,omitempty"`
+	State     string  `json:"state,omitempty"`
+	Score     float64 `json:"score,omitempty"`
+	Available bool    `json:"available"`
+	CostClass string  `json:"cost_class,omitempty"`
+}
+
+func compactReviewFactorSnapshots(snapshots map[string]*market.FactorSnapshot, signals []CandidateSignal, positions []PositionInfo) map[string]compactFactorSnapshot {
+	out := map[string]compactFactorSnapshot{}
+	if len(snapshots) == 0 {
+		return out
+	}
+	symbols := reviewPayloadSymbols(signals, positions)
+	if len(symbols) == 0 {
+		for symbol := range snapshots {
+			symbols = append(symbols, symbol)
+		}
+	}
+	for _, symbol := range symbols {
+		snapshot := snapshots[symbol]
+		if snapshot == nil {
+			continue
+		}
+		out[symbol] = compactFactorSnapshot{
+			Symbol:     snapshot.Symbol,
+			RiskFlags:  snapshot.RiskFlags,
+			Notes:      snapshot.Notes,
+			Technical:  compactTechnical(snapshot.Technical),
+			Structures: compactStructures(snapshot.Structures),
+			External:   compactExternal(snapshot.External),
+		}
+	}
+	return out
+}
+
+func reviewPayloadSymbols(signals []CandidateSignal, positions []PositionInfo) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, signal := range signals {
+		if signal.Symbol != "" && !seen[signal.Symbol] {
+			seen[signal.Symbol] = true
+			out = append(out, signal.Symbol)
+		}
+	}
+	for _, position := range positions {
+		if position.Symbol != "" && !seen[position.Symbol] {
+			seen[position.Symbol] = true
+			out = append(out, position.Symbol)
+		}
+	}
+	return out
+}
+
+func compactTechnical(input map[string][]market.IndicatorPoint) map[string][]compactIndicatorPoint {
+	if len(input) == 0 {
+		return nil
+	}
+	out := map[string][]compactIndicatorPoint{}
+	for group, points := range input {
+		for _, point := range points {
+			out[group] = append(out[group], compactIndicatorPoint{
+				Name:      point.Name,
+				Timeframe: point.Timeframe,
+				Period:    point.Period,
+				Params:    point.Params,
+				Value:     point.Value,
+			})
+		}
+	}
+	return out
+}
+
+func compactStructures(input map[string][]market.StructureSnapshot) map[string][]compactStructureSnapshot {
+	if len(input) == 0 {
+		return nil
+	}
+	out := map[string][]compactStructureSnapshot{}
+	for group, snapshots := range input {
+		for _, snapshot := range snapshots {
+			out[group] = append(out[group], compactStructureSnapshot{
+				Name:         snapshot.Name,
+				Timeframe:    snapshot.Timeframe,
+				Valid:        snapshot.Valid,
+				Reason:       snapshot.Reason,
+				Direction:    snapshot.Direction,
+				InvalidPrice: snapshot.InvalidPrice,
+				KeyLevels:    snapshot.KeyLevels,
+				Confirmed:    snapshot.Confirmed,
+			})
+		}
+	}
+	return out
+}
+
+func compactExternal(input map[string]market.ExternalFactor) map[string]compactExternalFactor {
+	if len(input) == 0 {
+		return nil
+	}
+	out := map[string]compactExternalFactor{}
+	for name, factor := range input {
+		out[name] = compactExternalFactor{
+			Name:      factor.Name,
+			Source:    factor.Source,
+			Timeframe: factor.Timeframe,
+			Value:     factor.Value,
+			State:     factor.State,
+			Score:     factor.Score,
+			Available: factor.Available,
+			CostClass: factor.CostClass,
+		}
+	}
+	return out
 }
 
 func parseLLMReviewResponse(text string) ([]AIReviewDecision, error) {

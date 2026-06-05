@@ -72,6 +72,12 @@ func NewScoreSignalEngine() *ScoreSignalEngine {
 	return &ScoreSignalEngine{}
 }
 
+type SetupSignalEngine struct{}
+
+func NewSetupSignalEngine() *SetupSignalEngine {
+	return &SetupSignalEngine{}
+}
+
 type ScoringEvaluationTrace struct {
 	Symbol                  string                 `json:"symbol"`
 	Timeframe               string                 `json:"timeframe,omitempty"`
@@ -80,6 +86,7 @@ type ScoringEvaluationTrace struct {
 	Threshold               float64                `json:"threshold,omitempty"`
 	AvailableFactors        []string               `json:"available_factors"`
 	MissingFactors          []string               `json:"missing_factors"`
+	SelectedFactorCount     int                    `json:"selected_factor_count"`
 	RequiredFactorCount     int                    `json:"required_factor_count"`
 	AvailableFactorCount    int                    `json:"available_factor_count"`
 	TotalWeight             float64                `json:"total_weight"`
@@ -88,7 +95,87 @@ type ScoringEvaluationTrace struct {
 	MinAvailableWeightRatio float64                `json:"min_available_weight_ratio"`
 	Eligible                bool                   `json:"eligible"`
 	Reason                  string                 `json:"reason,omitempty"`
+	FactorWeights           map[string]float64     `json:"factor_weights,omitempty"`
 	Components              map[string]interface{} `json:"components"`
+}
+
+type TimeframeRoleTrace struct {
+	Entry         string   `json:"entry,omitempty"`
+	Primary       string   `json:"primary,omitempty"`
+	Confirmations []string `json:"confirmations,omitempty"`
+}
+
+type SetupEvaluationTrace struct {
+	Symbol        string                   `json:"symbol"`
+	Setup         string                   `json:"setup,omitempty"`
+	Action        string                   `json:"action,omitempty"`
+	Signals       []string                 `json:"signals,omitempty"`
+	Timeframes    TimeframeRoleTrace       `json:"timeframes"`
+	Eligible      bool                     `json:"eligible"`
+	Reason        string                   `json:"reason,omitempty"`
+	Primary       ScoringEvaluationTrace   `json:"primary"`
+	Entry         ScoringEvaluationTrace   `json:"entry"`
+	Confirmations []ScoringEvaluationTrace `json:"confirmations,omitempty"`
+}
+
+func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]CandidateSignal, error) {
+	if req.Scoring == nil || !req.Scoring.Enabled {
+		return nil, nil
+	}
+	if req.Now.IsZero() {
+		req.Now = time.Now().UTC()
+	}
+	if err := validateScoringStrategy(req.Scoring); err != nil {
+		return nil, err
+	}
+
+	symbols := candidateSymbolSet(req.Candidates, req.Positions)
+	out := []CandidateSignal{}
+	for symbol := range symbolsForScoring(req.Scoring, symbols) {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		snapshot := req.FactorSnapshot[symbol]
+		if snapshot == nil {
+			continue
+		}
+		trace := evaluateSetupSnapshot(req.Scoring, symbol, snapshot)
+		if !trace.Eligible || trace.Action == "" {
+			continue
+		}
+		entry, ok := snapshot.IndicatorValue("price", "", 0)
+		if !ok || entry <= 0 {
+			return nil, fmt.Errorf("setup signal for %s cannot open position without a positive entry price", symbol)
+		}
+		confidence := setupConfidence(req.Scoring.MinConfidence, trace)
+		rule := StrategyRule{
+			ID:        trace.Setup,
+			Version:   req.Scoring.Version,
+			Timeframe: trace.Timeframes.Primary,
+			Action:    trace.Action,
+			Execution: RuleExecution{
+				Leverage:        req.Scoring.Execution.Leverage,
+				PositionSizeUSD: req.Scoring.Execution.PositionSizeUSD,
+				StopLossPct:     req.Scoring.Execution.StopLossPct,
+				TakeProfitPct:   req.Scoring.Execution.TakeProfitPct,
+				Confidence:      confidence,
+			},
+			Enabled: true,
+		}
+		signal, err := buildCandidateSignal(rule, symbol, entry, trace.Reason, req.Now)
+		if err != nil {
+			return nil, err
+		}
+		signal.Setup = trace.Setup
+		signal.Evidence["setup"] = trace
+		signal.Evidence["primary_evaluation"] = trace.Primary
+		signal.Evidence["entry_evaluation"] = trace.Entry
+		signal.Evidence["confirmation_evaluations"] = trace.Confirmations
+		out = append(out, signal)
+	}
+	return out, nil
 }
 
 func (e *ScoreSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]CandidateSignal, error) {
@@ -305,6 +392,326 @@ func TraceScoringEvaluations(req SignalRequest) []ScoringEvaluationTrace {
 		traces = append(traces, trace)
 	}
 	return traces
+}
+
+func TraceSetupEvaluations(req SignalRequest) []SetupEvaluationTrace {
+	if req.Scoring == nil || !req.Scoring.Enabled {
+		return nil
+	}
+	symbols := candidateSymbolSet(req.Candidates, req.Positions)
+	traces := []SetupEvaluationTrace{}
+	for symbol := range symbolsForScoring(req.Scoring, symbols) {
+		snapshot := req.FactorSnapshot[symbol]
+		if snapshot == nil {
+			roles := scoringTimeframeRoles(req.Scoring)
+			traces = append(traces, SetupEvaluationTrace{
+				Symbol:     symbol,
+				Setup:      "no_trade_insufficient_evidence",
+				Timeframes: roles,
+				Eligible:   false,
+				Reason:     "factor snapshot missing",
+			})
+			continue
+		}
+		traces = append(traces, evaluateSetupSnapshot(req.Scoring, symbol, snapshot))
+	}
+	return traces
+}
+
+func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *market.FactorSnapshot) SetupEvaluationTrace {
+	roles := scoringTimeframeRoles(scoring)
+	primaryScoring := scoringForTimeframe(scoring, roles.Primary)
+	entryScoring := scoringForTimeframe(scoring, roles.Entry)
+	primary := evaluateScoringSnapshot(primaryScoring, symbol, snapshot)
+	entry := evaluateScoringSnapshot(entryScoring, symbol, snapshot)
+	confirmations := make([]ScoringEvaluationTrace, 0, len(roles.Confirmations))
+	for _, tf := range roles.Confirmations {
+		confirmations = append(confirmations, evaluateScoringSnapshot(scoringForTimeframe(scoring, tf), symbol, snapshot))
+	}
+
+	trace := SetupEvaluationTrace{
+		Symbol:        symbol,
+		Timeframes:    roles,
+		Eligible:      false,
+		Primary:       primary,
+		Entry:         entry,
+		Confirmations: confirmations,
+	}
+	if !primary.Eligible {
+		trace.Setup = "no_trade_insufficient_evidence"
+		trace.Reason = "primary timeframe evidence is incomplete: " + primary.Reason
+		return trace
+	}
+	if !entry.Eligible {
+		trace.Setup = "no_trade_insufficient_evidence"
+		trace.Reason = "entry timeframe evidence is incomplete: " + entry.Reason
+		return trace
+	}
+
+	longConfirmOK, shortConfirmOK, confirmReason := confirmationDirection(confirmations)
+	longSetup, longSignals := classifySetup("long", primary, entry, snapshot, roles)
+	shortSetup, shortSignals := classifySetup("short", primary, entry, snapshot, roles)
+	switch {
+	case primary.Score >= scoring.LongThreshold && entry.Score >= 20 && longConfirmOK:
+		trace.Eligible = true
+		trace.Action = "open_long"
+		trace.Setup = longSetup
+		trace.Signals = longSignals
+		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
+	case primary.Score <= scoring.ShortThreshold && entry.Score <= -20 && shortConfirmOK:
+		trace.Eligible = true
+		trace.Action = "open_short"
+		trace.Setup = shortSetup
+		trace.Signals = shortSignals
+		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
+	case isRangeReversalCandidate("long", primary, entry, snapshot, roles) && longConfirmOK:
+		trace.Eligible = true
+		trace.Action = "open_long"
+		trace.Setup = "range_reversal_long"
+		trace.Signals = append(longSignals, "range-bound primary", "support or momentum exhaustion")
+		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
+	case isRangeReversalCandidate("short", primary, entry, snapshot, roles) && shortConfirmOK:
+		trace.Eligible = true
+		trace.Action = "open_short"
+		trace.Setup = "range_reversal_short"
+		trace.Signals = append(shortSignals, "range-bound primary", "resistance or momentum exhaustion")
+		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
+	default:
+		trace.Setup = classifyNoTradeSetup(primary, entry, confirmReason)
+		trace.Reason = noTradeReason(scoring, primary, entry, longConfirmOK, shortConfirmOK, confirmReason)
+	}
+	return trace
+}
+
+func scoringTimeframeRoles(scoring *ScoringStrategy) TimeframeRoleTrace {
+	primary := strings.TrimSpace(scoring.Timeframe)
+	entry := strings.TrimSpace(scoring.EntryTimeframe)
+	if primary == "" {
+		primary = entry
+	}
+	if entry == "" {
+		entry = primary
+	}
+	confirmations := []string{}
+	seen := map[string]bool{}
+	for _, tf := range scoring.ConfirmationTimeframes {
+		tf = strings.TrimSpace(tf)
+		if tf == "" || tf == primary || tf == entry || seen[tf] {
+			continue
+		}
+		confirmations = append(confirmations, tf)
+		seen[tf] = true
+	}
+	return TimeframeRoleTrace{Entry: entry, Primary: primary, Confirmations: confirmations}
+}
+
+func scoringForTimeframe(scoring *ScoringStrategy, timeframe string) *ScoringStrategy {
+	next := *scoring
+	next.Timeframe = timeframe
+	return &next
+}
+
+func confirmationDirection(confirmations []ScoringEvaluationTrace) (bool, bool, string) {
+	if len(confirmations) == 0 {
+		return true, true, "no confirmation timeframe configured"
+	}
+	longOK := true
+	shortOK := true
+	available := 0
+	for _, trace := range confirmations {
+		if !trace.Eligible {
+			continue
+		}
+		available++
+		if trace.Score <= -35 {
+			longOK = false
+		}
+		if trace.Score >= 35 {
+			shortOK = false
+		}
+	}
+	if available == 0 {
+		return false, false, "confirmation timeframe evidence is unavailable"
+	}
+	return longOK, shortOK, fmt.Sprintf("%d confirmation timeframe(s) available", available)
+}
+
+func classifySetup(side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) (string, []string) {
+	signals := []string{}
+	breakout := hasBreakoutSignal(side, roles.Primary, snapshot)
+	structureBounce := hasSupportResistanceBounce(side, roles.Entry, snapshot) || hasSupportResistanceBounce(side, roles.Primary, snapshot)
+	exhaustion := hasMomentumExhaustion(side, roles.Entry, snapshot)
+
+	if breakout {
+		signals = append(signals, "donchian breakout")
+	}
+	if structureBounce {
+		signals = append(signals, "support/resistance bounce")
+	}
+	if exhaustion {
+		signals = append(signals, "momentum exhaustion")
+	}
+
+	if side == "long" {
+		if breakout && entry.Score < primary.Score {
+			return "breakout_retest_long", signals
+		}
+		if breakout {
+			return "breakout_long", signals
+		}
+		if structureBounce {
+			return "support_resistance_bounce_long", signals
+		}
+		if exhaustion {
+			return "momentum_exhaustion_long", signals
+		}
+		if entry.Score < primary.Score {
+			signals = append(signals, "entry pullback inside bullish primary trend")
+			return "trend_pullback_long", signals
+		}
+		signals = append(signals, "entry aligned with bullish primary trend")
+		return "trend_continuation_long", signals
+	}
+	if breakout && entry.Score > primary.Score {
+		return "breakout_retest_short", signals
+	}
+	if breakout {
+		return "breakout_short", signals
+	}
+	if structureBounce {
+		return "support_resistance_bounce_short", signals
+	}
+	if exhaustion {
+		return "momentum_exhaustion_short", signals
+	}
+	if entry.Score > primary.Score {
+		signals = append(signals, "entry pullback inside bearish primary trend")
+		return "trend_pullback_short", signals
+	}
+	signals = append(signals, "entry aligned with bearish primary trend")
+	return "trend_continuation_short", signals
+}
+
+func classifyNoTradeSetup(primary, entry ScoringEvaluationTrace, confirmReason string) string {
+	if strings.Contains(confirmReason, "unavailable") {
+		return "no_trade_insufficient_evidence"
+	}
+	if absFloat(primary.Score) < 35 && absFloat(entry.Score) < 35 {
+		return "no_trade_chop"
+	}
+	return "no_trade_threshold_not_met"
+}
+
+func noTradeReason(scoring *ScoringStrategy, primary, entry ScoringEvaluationTrace, longConfirmOK, shortConfirmOK bool, confirmReason string) string {
+	reasons := []string{fmt.Sprintf("primary score %.2f, entry score %.2f", primary.Score, entry.Score)}
+	longReady := primary.Score >= scoring.LongThreshold && entry.Score >= 20
+	shortReady := primary.Score <= scoring.ShortThreshold && entry.Score <= -20
+	if !longReady {
+		reasons = append(reasons, fmt.Sprintf("long not ready: primary %.2f < %.2f or entry %.2f < 20", primary.Score, scoring.LongThreshold, entry.Score))
+	}
+	if !shortReady {
+		reasons = append(reasons, fmt.Sprintf("short not ready: primary %.2f > %.2f or entry %.2f > -20", primary.Score, scoring.ShortThreshold, entry.Score))
+	}
+	if longReady && !longConfirmOK {
+		reasons = append(reasons, "long blocked by confirmation timeframe")
+	}
+	if shortReady && !shortConfirmOK {
+		reasons = append(reasons, "short blocked by confirmation timeframe")
+	}
+	if primary.Score < 0 && entry.Score > 20 {
+		reasons = append(reasons, "entry timeframe is rebounding against bearish primary bias")
+	}
+	if primary.Score > 0 && entry.Score < -20 {
+		reasons = append(reasons, "entry timeframe is pulling back against bullish primary bias")
+	}
+	reasons = append(reasons, confirmReason)
+	return "no setup: " + strings.Join(reasons, "; ")
+}
+
+func isRangeReversalCandidate(side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) bool {
+	if absFloat(primary.Score) > 35 {
+		return false
+	}
+	switch side {
+	case "long":
+		return entry.Score >= 20 && (hasSupportResistanceBounce(side, roles.Entry, snapshot) || hasMomentumExhaustion(side, roles.Entry, snapshot))
+	case "short":
+		return entry.Score <= -20 && (hasSupportResistanceBounce(side, roles.Entry, snapshot) || hasMomentumExhaustion(side, roles.Entry, snapshot))
+	default:
+		return false
+	}
+}
+
+func hasBreakoutSignal(side, timeframe string, snapshot *market.FactorSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	name := "break_above_donchian"
+	if side == "short" {
+		name = "break_below_donchian"
+	}
+	value, ok := snapshot.IndicatorValue(name, timeframe, 20)
+	return ok && value >= 0.5
+}
+
+func hasMomentumExhaustion(side, timeframe string, snapshot *market.FactorSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	rsi, ok := snapshot.IndicatorValue("rsi", timeframe, 14)
+	if !ok {
+		return false
+	}
+	if side == "long" {
+		return rsi <= 30
+	}
+	return rsi >= 70
+}
+
+func hasSupportResistanceBounce(side, timeframe string, snapshot *market.FactorSnapshot) bool {
+	if snapshot == nil {
+		return false
+	}
+	price, ok := snapshot.IndicatorValue("price", "", 0)
+	if !ok || price <= 0 {
+		return false
+	}
+	for _, structure := range snapshot.Structures["support_resistance"] {
+		if timeframe != "" && structure.Timeframe != timeframe {
+			continue
+		}
+		if !structure.Valid || structure.KeyLevels == nil {
+			continue
+		}
+		if side == "long" {
+			if support := structure.KeyLevels["support"]; support > 0 {
+				distance := (price - support) / price * 100
+				if distance >= 0 && distance <= 1.5 {
+					return true
+				}
+			}
+			continue
+		}
+		if resistance := structure.KeyLevels["resistance"]; resistance > 0 {
+			distance := (resistance - price) / price * 100
+			if distance >= 0 && distance <= 1.5 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func setupConfidence(minConfidence int, trace SetupEvaluationTrace) int {
+	score := (absFloat(trace.Primary.Score) + absFloat(trace.Entry.Score)) / 2
+	return scoringConfidence(minConfidence, score)
+}
+
+func absFloat(value float64) float64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reason string, now time.Time) (CandidateSignal, error) {
@@ -577,6 +984,7 @@ func evaluateScoringSnapshot(scoring *ScoringStrategy, symbol string, snapshot *
 		Score:                   score,
 		AvailableFactors:        availableFactors,
 		MissingFactors:          missingFactors,
+		SelectedFactorCount:     len(selectedScoringFactors(scoring)),
 		RequiredFactorCount:     requiredCount,
 		AvailableFactorCount:    len(availableFactors),
 		TotalWeight:             totalWeight,
@@ -584,6 +992,7 @@ func evaluateScoringSnapshot(scoring *ScoringStrategy, symbol string, snapshot *
 		AvailableWeightRatio:    ratio,
 		MinAvailableWeightRatio: minRatio,
 		Eligible:                true,
+		FactorWeights:           scoringFactorWeights(scoring),
 		Components:              components,
 	}
 	switch {
@@ -598,6 +1007,21 @@ func evaluateScoringSnapshot(scoring *ScoringStrategy, symbol string, snapshot *
 		trace.Reason = fmt.Sprintf("available scoring weight ratio %.2f below required %.2f", ratio, minRatio)
 	}
 	return trace
+}
+
+func scoringFactorWeights(scoring *ScoringStrategy) map[string]float64 {
+	if scoring == nil {
+		return nil
+	}
+	out := map[string]float64{}
+	for _, factor := range scoring.SelectedFactors {
+		factor = strings.TrimSpace(factor)
+		weight := scoring.FactorWeights[factor]
+		if factor != "" && weight > 0 {
+			out[factor] = weight
+		}
+	}
+	return out
 }
 
 func scoreSnapshot(scoring *ScoringStrategy, snapshot *market.FactorSnapshot) (float64, map[string]interface{}, []string, []string, float64, float64) {
@@ -815,22 +1239,53 @@ func derivativesScore(snapshot *market.FactorSnapshot) (float64, bool) {
 	if snapshot == nil || snapshot.External == nil {
 		return 0, false
 	}
-	funding, ok := snapshot.External["funding_rate"]
-	if !ok || !funding.Available {
+	score := 0.0
+	used := 0
+	if funding, ok := snapshot.External["funding_rate"]; ok && funding.Available {
+		used++
+		switch funding.State {
+		case "overheated_positive":
+			score -= 40
+		case "overheated_negative":
+			score += 40
+		case "positive":
+			score += 10
+		case "negative":
+			score -= 10
+		}
+	}
+	for name, factor := range snapshot.External {
+		if !factor.Available || name == "funding_rate" {
+			continue
+		}
+		switch {
+		case strings.HasPrefix(name, "oi_ranking_top"), strings.HasPrefix(name, "oi_top_candidate"):
+			used++
+			score += clampScore(factor.Score)
+		case strings.HasPrefix(name, "oi_ranking_low"):
+			used++
+			score -= absFloat(clampScore(factor.Score))
+		case strings.HasPrefix(name, "netflow_institution_future_top"):
+			used++
+			score += absFloat(clampScore(factor.Score))
+		case strings.HasPrefix(name, "netflow_institution_future_low"):
+			used++
+			score -= absFloat(clampScore(factor.Score))
+		case strings.HasPrefix(name, "price_ranking_top"):
+			used++
+			score += absFloat(clampScore(factor.Score))
+		case strings.HasPrefix(name, "price_ranking_low"):
+			used++
+			score -= absFloat(clampScore(factor.Score))
+		case strings.HasPrefix(name, "quant_oi_delta_"), strings.HasPrefix(name, "quant_netflow_"):
+			used++
+			score += clampScore(factor.Score)
+		}
+	}
+	if used == 0 {
 		return 0, false
 	}
-	switch funding.State {
-	case "overheated_positive":
-		return -40, true
-	case "overheated_negative":
-		return 40, true
-	case "positive":
-		return 10, true
-	case "negative":
-		return -10, true
-	default:
-		return 0, true
-	}
+	return clampScore(score / float64(used)), true
 }
 
 func scoringConfidence(minConfidence int, score float64) int {

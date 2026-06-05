@@ -217,6 +217,8 @@ func (s *Server) setupRoutes() {
 			s.route(protected, "POST", "/strategies/compile",
 				s.handleCompileStrategyPrompt)
 			s.route(protected, "POST", "/strategies/test-run", s.handleStrategyTestRun)
+			s.route(protected, "GET", "/strategies/:id/calibration-report",
+				s.handleStrategyCalibrationReport)
 			s.route(protected, "POST", "/strategies/:id/evolve",
 				s.handleEvolveStrategy)
 			s.route(protected, "GET", "/strategies/:id", s.handleGetStrategy)

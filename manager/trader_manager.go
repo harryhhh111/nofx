@@ -7,6 +7,7 @@ import (
 	"nofx/store"
 	"nofx/trader"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -634,10 +635,12 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		QwenKey:               "",
 		CustomAPIURL:          aiModelCfg.CustomAPIURL,
 		CustomModelName:       aiModelCfg.CustomModelName,
+		Claw402WalletKey:      loadClaw402WalletKey(st, traderCfg.UserID),
 		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:        traderCfg.InitialBalance,
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		ShowInCompetition:     traderCfg.ShowInCompetition,
+		StrategyID:            traderCfg.StrategyID,
 		StrategyConfig:        strategyConfig,
 	}
 
@@ -721,4 +724,19 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	}
 
 	return nil
+}
+
+func loadClaw402WalletKey(st *store.Store, userID string) string {
+	if st == nil {
+		return ""
+	}
+	model, err := st.AIModel().Get(userID, "claw402")
+	if err != nil || model == nil || !model.Enabled {
+		return ""
+	}
+	walletKey := strings.TrimSpace(string(model.APIKey))
+	if strings.HasPrefix(walletKey, "ENC:") {
+		return ""
+	}
+	return walletKey
 }

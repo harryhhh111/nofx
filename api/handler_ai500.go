@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"nofx/auth"
+	"nofx/kernel"
 	"nofx/logger"
 	"nofx/provider/nofxos"
 )
@@ -24,26 +26,44 @@ func (s *Server) handleAI500Coins(c *gin.Context) {
 		}
 	}
 
-	if s.nofxosClient == nil {
+	client := s.nofxosClient
+	if userID := s.getOptionalAuthenticatedUserID(c); userID != "" {
+		if userWalletKey := s.getClaw402WalletKey(userID); userWalletKey != "" {
+			userClient := nofxos.NewClient(nofxos.DefaultBaseURL, "")
+			if claw402Client := newClaw402DataClient(userWalletKey); claw402Client != nil {
+				userClient.SetClaw402(claw402Client)
+				client = userClient
+			}
+		}
+	}
+
+	if client == nil {
 		SafeInternalError(c, "AI500 data client not initialized", nil)
 		return
 	}
-	if strings.TrimSpace(s.nofxosClient.GetAuthKey()) == "" && s.nofxosClient.GetClaw402() == nil {
+	if client.GetClaw402() == nil {
 		SafeErrorWithDetails(
 			c,
 			http.StatusBadRequest,
-			"NofxOS API key is required. Configure NOFXOS_API_KEY or use a supported data gateway.",
-			"nofxos.api_key_required",
+			"Claw402 wallet is required for AI500 data. Configure a Claw402 wallet in Settings > Model Config or set CLAW402_WALLET_KEY for public data preview.",
+			"nofxos.claw402_wallet_required",
 			nil,
 			nil,
 		)
 		return
 	}
 
-	coins, err := s.nofxosClient.GetAI500List()
+	coins, err := client.GetAI500List()
 	if err != nil {
 		logger.Errorf("[AI500] Failed to fetch coin list: %v", err)
-		SafeInternalError(c, "Failed to fetch AI500 data", err)
+		SafeErrorWithDetails(
+			c,
+			http.StatusBadGateway,
+			kernel.DescribeExternalDataError(err),
+			"nofxos.claw402_data_failed",
+			nil,
+			err,
+		)
 		return
 	}
 
@@ -59,22 +79,50 @@ func (s *Server) handleAI500Coins(c *gin.Context) {
 
 // initNofxosClient creates the nofxos client with claw402 backend payment.
 func initNofxosClient() *nofxos.Client {
-	client := nofxos.NewClient(nofxos.DefaultBaseURL, strings.TrimSpace(os.Getenv("NOFXOS_API_KEY")))
+	client := nofxos.NewClient(nofxos.DefaultBaseURL, "")
 
 	walletKey := os.Getenv("CLAW402_WALLET_KEY")
 	if walletKey != "" {
-		claw402URL := os.Getenv("CLAW402_URL")
-		if claw402URL == "" {
-			claw402URL = "https://claw402.ai"
-		}
-		claw402Client, err := nofxos.NewClaw402DataClient(claw402URL, walletKey, &logger.MCPLogger{})
-		if err == nil {
+		if claw402Client := newClaw402DataClient(walletKey); claw402Client != nil {
 			client.SetClaw402(claw402Client)
-			logger.Infof("🔗 AI500 API routed through claw402 (%s)", claw402URL)
-		} else {
-			logger.Warnf("⚠️ Failed to init claw402 data client: %v (using direct nofxos.ai)", err)
 		}
 	}
 
 	return client
+}
+
+func (s *Server) getOptionalAuthenticatedUserID(c *gin.Context) string {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		return ""
+	}
+	tokenParts := strings.Split(authHeader, " ")
+	if len(tokenParts) != 2 || tokenParts[0] != "Bearer" || auth.IsTokenBlacklisted(tokenParts[1]) {
+		return ""
+	}
+	claims, err := auth.ValidateJWT(tokenParts[1])
+	if err != nil || claims == nil {
+		return ""
+	}
+	if s.store == nil {
+		return claims.UserID
+	}
+	if _, err := s.store.User().GetByID(claims.UserID); err != nil {
+		return ""
+	}
+	return claims.UserID
+}
+
+func newClaw402DataClient(walletKey string) *nofxos.Claw402DataClient {
+	claw402URL := os.Getenv("CLAW402_URL")
+	if claw402URL == "" {
+		claw402URL = "https://claw402.ai"
+	}
+	claw402Client, err := nofxos.NewClaw402DataClient(claw402URL, walletKey, &logger.MCPLogger{})
+	if err != nil {
+		logger.Warnf("Failed to init claw402 data client: %v", err)
+		return nil
+	}
+	logger.Infof("NofxOS data routed through claw402 (%s)", claw402URL)
+	return claw402Client
 }

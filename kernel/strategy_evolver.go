@@ -108,15 +108,19 @@ func (e *LLMStrategyEvolver) Propose(ctx context.Context, req StrategyEvolutionR
 
 func buildStrategyEvolverSystemPrompt() string {
 	return strings.TrimSpace(`
-You propose versioned improvements for a deterministic trading strategy.
+You propose user-requested, versioned improvements for a deterministic trading strategy.
 
 Strict boundaries:
 - Generate a proposal only. Do not claim it is saved, active, or applied.
 - Do not change live strategy parameters silently.
-- Do not remove hard risk controls.
-- Prefer small, auditable parameter changes.
-- If evidence is insufficient, return conservative or empty proposed_config_patch and explain the risk.
-- proposed_config_patch must use valid top-level StrategyConfig field names.
+- Do not suggest that strategy evolution should happen automatically; the user must explicitly request and approve changes.
+	- Do not remove hard risk controls.
+	- Prefer small, auditable parameter changes.
+	- Base optimization on provided performance, calibration setup_stats, recent trades, and market_context. If historical trade evidence is missing or too small, say so and keep proposed_config_patch conservative or empty.
+	- Treat performance.calibration.quality_gate and enough_outcomes as evidence gates. Do not recommend threshold or factor-weight changes from weak sample sizes.
+	- Use setup_stats to identify which executable setup underperforms; avoid broad global changes when only one setup has weak outcomes.
+	- If evidence is insufficient, return conservative or empty proposed_config_patch and explain the risk.
+	- proposed_config_patch must use valid top-level StrategyConfig field names.
 
 Output only JSON inside <strategy_evolution_proposal> tags:
 <strategy_evolution_proposal>
@@ -161,7 +165,7 @@ func buildStrategyEvolverUserPrompt(req StrategyEvolutionRequest) (string, error
 		Performance:   req.Performance,
 		Notes:         req.Notes,
 		RequestedAt:   req.RequestedAt,
-		Instruction:   "Return a proposal only. The caller will review and explicitly apply it in a separate workflow.",
+		Instruction:   "Return a proposal only. The user will review and explicitly apply it in a separate workflow. Prefer calibration setup/outcome evidence over intuition; if the quality gate is still collecting, keep proposed_config_patch empty or very conservative.",
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

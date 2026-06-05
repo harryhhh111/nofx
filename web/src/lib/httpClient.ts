@@ -215,6 +215,7 @@ export class HttpClient {
       params?: any
       headers?: Record<string, string>
       silent?: boolean
+      timeout?: number
     } = {}
   ): Promise<ApiResponse<T>> {
     try {
@@ -224,6 +225,7 @@ export class HttpClient {
         data: options.data,
         params: options.params,
         headers: options.headers,
+        timeout: options.timeout,
         ...(options.silent && { silentError: true }),
       })
 

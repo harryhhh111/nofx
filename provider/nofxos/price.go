@@ -78,7 +78,7 @@ func (c *Client) GetPriceRankingContext(ctx context.Context, durations string, l
 		return data, nil
 	}
 
-	data, err := fetchPriceRankingData(ctx, GetGlobalClient(), durations, limit)
+	data, err := fetchPriceRankingData(ctx, c, durations, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,55 @@ func (c *Client) GetPriceRankingContext(ctx context.Context, durations string, l
 }
 
 func fetchPriceRankingData(ctx context.Context, client *Client, durations string, limit int) (*PriceRankingData, error) {
-	endpoint := fmt.Sprintf("/api/price/ranking?duration=%s&limit=%d", durations, limit)
+	result := &PriceRankingData{
+		Durations: make(map[string]*PriceRankingDuration),
+		FetchedAt: time.Now(),
+	}
+	errs := []string{}
+
+	for _, duration := range splitPriceRankingDurations(durations) {
+		data, err := fetchPriceRankingDuration(ctx, client, duration, limit)
+		if err != nil {
+			log.Printf("⚠️  Failed to fetch Price ranking for %s: %v", duration, err)
+			errs = append(errs, fmt.Sprintf("%s: %v", duration, err))
+			continue
+		}
+		for key, ranking := range data {
+			d := ranking
+			trimPriceRankingDuration(&d, limit)
+			result.Durations[key] = &d
+		}
+	}
+
+	if len(result.Durations) == 0 && len(errs) > 0 {
+		return nil, fmt.Errorf("all Price ranking requests failed: %s", strings.Join(errs, "; "))
+	}
+
+	log.Printf("✓ Fetched Price ranking data for %d durations", len(result.Durations))
+
+	return result, nil
+}
+
+func splitPriceRankingDurations(durations string) []string {
+	parts := strings.Split(durations, ",")
+	result := make([]string, 0, len(parts))
+	seen := map[string]bool{}
+	for _, part := range parts {
+		duration := strings.TrimSpace(part)
+		if duration == "" || seen[duration] {
+			continue
+		}
+		seen[duration] = true
+		result = append(result, duration)
+	}
+	if len(result) == 0 {
+		return []string{"1h"}
+	}
+	return result
+}
+
+func fetchPriceRankingDuration(ctx context.Context, client *Client, duration string, limit int) (map[string]PriceRankingDuration, error) {
+	endpoint := fmt.Sprintf("/api/price/ranking?duration=%s", duration)
 
 	body, err := client.doRequestContext(ctx, endpoint)
 	if err != nil {
@@ -103,19 +151,22 @@ func fetchPriceRankingData(ctx context.Context, client *Client, durations string
 		return nil, fmt.Errorf("API returned failure status")
 	}
 
-	result := &PriceRankingData{
-		Durations: make(map[string]*PriceRankingDuration),
-		FetchedAt: time.Now(),
+	if len(response.Data.Data) == 0 {
+		return nil, fmt.Errorf("API returned empty ranking data")
 	}
+	return response.Data.Data, nil
+}
 
-	for duration, data := range response.Data.Data {
-		d := data
-		result.Durations[duration] = &d
+func trimPriceRankingDuration(data *PriceRankingDuration, limit int) {
+	if data == nil || limit <= 0 {
+		return
 	}
-
-	log.Printf("✓ Fetched Price ranking data for %d durations", len(result.Durations))
-
-	return result, nil
+	if len(data.Top) > limit {
+		data.Top = data.Top[:limit]
+	}
+	if len(data.Low) > limit {
+		data.Low = data.Low[:limit]
+	}
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────

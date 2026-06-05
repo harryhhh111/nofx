@@ -28,7 +28,6 @@ func (at *AutoTrader) runCycle() error {
 		return nil
 	}
 
-
 	// Create decision record
 	record := &store.DecisionRecord{
 		ExecutionLog: []string{},
@@ -64,6 +63,27 @@ func (at *AutoTrader) runCycle() error {
 	// Save equity snapshot independently (decoupled from AI decision, used for drawing profit curve)
 	// NOTE: Must be called BEFORE candidate coins check to ensure equity is always recorded
 	at.saveEquitySnapshot(ctx)
+	record.AccountState = store.AccountSnapshot{
+		TotalBalance:          ctx.Account.TotalEquity,
+		AvailableBalance:      ctx.Account.AvailableBalance,
+		TotalUnrealizedProfit: ctx.Account.UnrealizedPnL,
+		PositionCount:         ctx.Account.PositionCount,
+		MarginUsedPct:         ctx.Account.MarginUsedPct,
+		InitialBalance:        at.initialBalance,
+	}
+	record.Positions = make([]store.PositionSnapshot, 0, len(ctx.Positions))
+	for _, pos := range ctx.Positions {
+		record.Positions = append(record.Positions, store.PositionSnapshot{
+			Symbol:           pos.Symbol,
+			Side:             pos.Side,
+			PositionAmt:      pos.Quantity,
+			EntryPrice:       pos.EntryPrice,
+			MarkPrice:        pos.MarkPrice,
+			UnrealizedProfit: pos.UnrealizedPnL,
+			Leverage:         float64(pos.Leverage),
+			LiquidationPrice: pos.LiquidationPrice,
+		})
+	}
 
 	// If no candidate coins AND no open positions, log but do not error.
 	// If there are open positions, AI still needs to manage them (close/stop-loss/etc.)
@@ -75,13 +95,6 @@ func (at *AutoTrader) runCycle() error {
 		if len(ctx.DataFetchErrors) > 0 {
 			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("Data fetch errors: %v", ctx.DataFetchErrors))
 			record.ErrorMessage = strings.Join(ctx.DataFetchErrors, "; ")
-		}
-		record.AccountState = store.AccountSnapshot{
-			TotalBalance:          ctx.Account.TotalEquity,
-			AvailableBalance:      ctx.Account.AvailableBalance,
-			TotalUnrealizedProfit: ctx.Account.UnrealizedPnL,
-			PositionCount:         ctx.Account.PositionCount,
-			InitialBalance:        at.initialBalance,
 		}
 		at.saveDecision(record)
 		return nil
@@ -114,8 +127,22 @@ func (at *AutoTrader) runCycle() error {
 		record.CoTTrace = aiDecision.CoTTrace
 		record.CotSummary = aiDecision.CoTSummary
 		record.RawResponse = aiDecision.RawResponse // Save raw AI response for debugging
-		if len(aiDecision.Decisions) > 0 {
-			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
+		flowTrace := struct {
+			Decisions          []kernel.Decision               `json:"decisions"`
+			Signals            []kernel.CandidateSignal        `json:"signals"`
+			SetupEvaluations   []kernel.SetupEvaluationTrace   `json:"setup_evaluations"`
+			ScoringEvaluations []kernel.ScoringEvaluationTrace `json:"scoring_evaluations"`
+			MarketContext      *kernel.MarketContext           `json:"market_context,omitempty"`
+			InputAudit         *kernel.TradingInputAudit       `json:"input_audit,omitempty"`
+		}{
+			Decisions:          aiDecision.Decisions,
+			Signals:            aiDecision.Signals,
+			SetupEvaluations:   aiDecision.SetupEvaluations,
+			ScoringEvaluations: aiDecision.ScoringEvaluations,
+			MarketContext:      aiDecision.MarketContext,
+			InputAudit:         aiDecision.InputAudit,
+		}
+		if decisionJSON, jsonErr := json.MarshalIndent(flowTrace, "", "  "); jsonErr == nil {
 			record.DecisionJSON = string(decisionJSON)
 		}
 	}
@@ -265,6 +292,10 @@ func (at *AutoTrader) runCycle() error {
 			TakeProfit: d.TakeProfit,
 			Confidence: d.Confidence,
 			Reasoning:  d.Reasoning,
+			SignalID:   d.SignalID,
+			RuleID:     d.RuleID,
+			Setup:      d.Setup,
+			Version:    d.StrategyVersion,
 			Timestamp:  time.Now().UTC(),
 			Success:    false,
 		}
@@ -325,6 +356,9 @@ func (at *AutoTrader) runCycle() error {
 	// 9. Save decision record
 	if err := at.saveDecision(record); err != nil {
 		logger.Infof("⚠ Failed to save decision record: %v", err)
+	} else {
+		at.saveOpeningSignalMetadata(record)
+		at.saveSignalCalibrationSamples(aiDecision, record)
 	}
 
 	at.syncClosedTradeMemories(3)
@@ -555,6 +589,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 	// 5. Get leverage from strategy config
 	strategyConfig := at.strategyEngine.GetConfig()
+	strategyConfig.ClampLimits()
 	btcEthLeverage := strategyConfig.RiskControl.BTCETHMaxLeverage
 	altcoinLeverage := strategyConfig.RiskControl.AltcoinMaxLeverage
 	logger.Infof("📋 [%s] Strategy leverage config: BTC/ETH=%dx, Altcoin=%dx", at.name, btcEthLeverage, altcoinLeverage)
@@ -580,7 +615,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		CandidateCoins:  candidateCoins,
 		DataFetchErrors: dataFetchErrors,
 	}
-	if at.store != nil {
+	if at.store != nil && strategyConfig.ShouldIncludeHistoricalContext() {
 		ctx.TradeMemory = kernel.NewStoreTradeMemory(at.store, at.id)
 	}
 
@@ -808,4 +843,3 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 
 	return sorted
 }
-

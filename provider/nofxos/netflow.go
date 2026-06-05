@@ -76,7 +76,7 @@ func (c *Client) GetNetFlowRankingContext(ctx context.Context, duration string, 
 		return data, nil
 	}
 
-	data, err := fetchNetFlowData(ctx, GetGlobalClient(), duration, limit)
+	data, err := fetchNetFlowData(ctx, c, duration, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -89,10 +89,12 @@ func fetchNetFlowData(ctx context.Context, client *Client, duration string, limi
 		Duration:  duration,
 		FetchedAt: time.Now(),
 	}
+	errs := []string{}
 
 	positions, timeRange, err := client.fetchNetFlowRanking(ctx, "top", duration, limit, "institution", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch institution future inflow ranking: %v", err)
+		errs = append(errs, fmt.Sprintf("institution_future_top: %v", err))
 	} else {
 		result.InstitutionFutureTop = positions
 		result.TimeRange = timeRange
@@ -101,6 +103,7 @@ func fetchNetFlowData(ctx context.Context, client *Client, duration string, limi
 	positions, _, err = client.fetchNetFlowRanking(ctx, "low", duration, limit, "institution", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch institution future outflow ranking: %v", err)
+		errs = append(errs, fmt.Sprintf("institution_future_low: %v", err))
 	} else {
 		result.InstitutionFutureLow = positions
 	}
@@ -108,6 +111,7 @@ func fetchNetFlowData(ctx context.Context, client *Client, duration string, limi
 	positions, _, err = client.fetchNetFlowRanking(ctx, "top", duration, limit, "personal", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch personal future inflow ranking: %v", err)
+		errs = append(errs, fmt.Sprintf("personal_future_top: %v", err))
 	} else {
 		result.PersonalFutureTop = positions
 	}
@@ -115,8 +119,14 @@ func fetchNetFlowData(ctx context.Context, client *Client, duration string, limi
 	positions, _, err = client.fetchNetFlowRanking(ctx, "low", duration, limit, "personal", "future")
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch personal future outflow ranking: %v", err)
+		errs = append(errs, fmt.Sprintf("personal_future_low: %v", err))
 	} else {
 		result.PersonalFutureLow = positions
+	}
+
+	if len(result.InstitutionFutureTop) == 0 && len(result.InstitutionFutureLow) == 0 &&
+		len(result.PersonalFutureTop) == 0 && len(result.PersonalFutureLow) == 0 && len(errs) > 0 {
+		return nil, fmt.Errorf("all NetFlow ranking requests failed: %s", strings.Join(errs, "; "))
 	}
 
 	log.Printf("✓ Fetched NetFlow ranking data: inst_in=%d, inst_out=%d, retail_in=%d, retail_out=%d (duration: %s)",

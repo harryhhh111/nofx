@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -27,12 +28,6 @@ import (
 func validateStrategyConfig(config *store.StrategyConfig) []string {
 	var warnings []string
 
-	// Validate NofxOS API key if any NofxOS feature is enabled
-	if (config.Indicators.EnableQuantData || config.Indicators.EnableOIRanking ||
-		config.Indicators.EnableNetFlowRanking || config.Indicators.EnablePriceRanking) &&
-		config.Indicators.NofxOSAPIKey == "" {
-		warnings = append(warnings, "NofxOS API key is not configured. NofxOS data sources may not work properly.")
-	}
 	if config.RiskControl.MinCloseConfidence > 0 &&
 		config.RiskControl.MinConfidence > 0 &&
 		config.RiskControl.MinCloseConfidence < config.RiskControl.MinConfidence {
@@ -373,7 +368,15 @@ func (s *Server) handleDeleteStrategy(c *gin.Context) {
 	}
 
 	if err := s.store.Strategy().Delete(userID, strategyID); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": SanitizeError(err, "Failed to delete strategy")})
+		errText := strings.ToLower(err.Error())
+		switch {
+		case strings.Contains(errText, "in use"):
+			SafeErrorWithDetails(c, http.StatusBadRequest, "Strategy is being used by traders", "strategy.delete.in_use", nil, err)
+		case strings.Contains(errText, "system default"):
+			SafeErrorWithDetails(c, http.StatusBadRequest, "System default strategy cannot be deleted", "strategy.delete.default", nil, err)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": SanitizeError(err, "Failed to delete strategy")})
+		}
 		return
 	}
 
@@ -674,8 +677,8 @@ func (s *Server) handleEvolveStrategy(c *gin.Context) {
 		SafeBadRequest(c, "Invalid request parameters")
 		return
 	}
-	if !kernel.IsAllowedStrategyEvolutionTrigger(req.Trigger) {
-		SafeBadRequest(c, "Unsupported strategy evolution trigger")
+	if req.Trigger != "manual" {
+		SafeBadRequest(c, "Strategy evolution must be triggered manually by the user")
 		return
 	}
 
@@ -686,13 +689,14 @@ func (s *Server) handleEvolveStrategy(c *gin.Context) {
 	}
 
 	evolver := kernel.NewLLMStrategyEvolver(aiClient)
+	performance := mergeEvolutionPerformance(req.Performance, s.buildStrategyEvolutionPerformance(userID, strategyID))
 	proposal, err := evolver.Propose(c.Request.Context(), kernel.StrategyEvolutionRequest{
 		StrategyID:    strategyID,
 		BaseVersion:   req.BaseVersion,
 		Trigger:       req.Trigger,
 		CurrentConfig: config,
 		MarketContext: req.MarketContext,
-		Performance:   req.Performance,
+		Performance:   performance,
 		Notes:         req.Notes,
 		RequestedAt:   time.Now().UTC(),
 	})
@@ -732,11 +736,11 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	}
 	req.Config.ClampLimits()
 
-	engine := kernel.NewStrategyEngine(&req.Config)
+	engine := kernel.NewStrategyEngine(&req.Config, s.getClaw402WalletKey(userID))
 	candidates, err := engine.GetCandidateCoins()
 	if err != nil {
 		logger.Errorf("[API Error] Failed to get candidate coins: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get candidate coins"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": kernel.DescribeExternalDataError(err)})
 		return
 	}
 
@@ -745,36 +749,64 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	externalDataTimeout := strategyTestExternalDataTimeout()
 	externalDataCtx, cancelExternalData := context.WithTimeout(c.Request.Context(), externalDataTimeout)
 	defer cancelExternalData()
+	symbols := make([]string, 0, len(candidates))
+	for _, coin := range candidates {
+		symbols = append(symbols, coin.Symbol)
+	}
+	var externalWarningsMu sync.Mutex
+	var externalWG sync.WaitGroup
+	appendExternalWarning := func(message string) {
+		externalWarningsMu.Lock()
+		externalDataWarnings = append(externalDataWarnings, message)
+		externalWarningsMu.Unlock()
+	}
 	if req.Config.Indicators.EnableQuantData {
-		symbols := make([]string, 0, len(candidates))
-		for _, coin := range candidates {
-			symbols = append(symbols, coin.Symbol)
-		}
-		externalContext.QuantDataMap = engine.FetchQuantDataBatchContext(externalDataCtx, symbols)
-		if len(symbols) > 0 && len(externalContext.QuantDataMap) == 0 {
-			externalDataWarnings = append(externalDataWarnings, "Quant data is enabled but no coin-level NofxOS data was available; external factor signals may be missing.")
-		}
+		externalWG.Add(1)
+		go func() {
+			defer externalWG.Done()
+			data := engine.FetchQuantDataBatchContext(externalDataCtx, symbols)
+			externalContext.QuantDataMap = data
+			if len(symbols) > 0 && len(data) == 0 {
+				appendExternalWarning("NofxOS coin-level quant data is enabled but unavailable. Check the configured Claw402 wallet balance/payment channel; derivatives factors may be missing.")
+			}
+		}()
 	}
 	if req.Config.Indicators.EnableOIRanking {
-		externalContext.OIRankingData = engine.FetchOIRankingDataContext(externalDataCtx)
-		if !hasOIRankingData(externalContext.OIRankingData) {
-			externalDataWarnings = append(externalDataWarnings, "OI ranking is enabled but ranking data was not available; derivatives scoring may have less evidence.")
-		}
+		externalWG.Add(1)
+		go func() {
+			defer externalWG.Done()
+			data := engine.FetchOIRankingDataContext(externalDataCtx)
+			externalContext.OIRankingData = data
+			if !hasOIRankingData(data) {
+				appendExternalWarning("NofxOS OI ranking is enabled but unavailable. Check the configured Claw402 wallet balance/payment channel; derivatives scoring may have less evidence.")
+			}
+		}()
 	}
 	if req.Config.Indicators.EnableNetFlowRanking {
-		externalContext.NetFlowRankingData = engine.FetchNetFlowRankingDataContext(externalDataCtx)
-		if !hasNetFlowRankingData(externalContext.NetFlowRankingData) {
-			externalDataWarnings = append(externalDataWarnings, "NetFlow ranking is enabled but ranking data was not available; derivatives scoring may have less evidence.")
-		}
+		externalWG.Add(1)
+		go func() {
+			defer externalWG.Done()
+			data := engine.FetchNetFlowRankingDataContext(externalDataCtx)
+			externalContext.NetFlowRankingData = data
+			if !hasNetFlowRankingData(data) {
+				appendExternalWarning("NofxOS NetFlow ranking is enabled but unavailable. Check the configured Claw402 wallet balance/payment channel; derivatives scoring may have less evidence.")
+			}
+		}()
 	}
 	if req.Config.Indicators.EnablePriceRanking {
-		externalContext.PriceRankingData = engine.FetchPriceRankingDataContext(externalDataCtx)
-		if !hasPriceRankingData(externalContext.PriceRankingData) {
-			externalDataWarnings = append(externalDataWarnings, "Price ranking is enabled but ranking data was not available; price ranking factors may be missing.")
-		}
+		externalWG.Add(1)
+		go func() {
+			defer externalWG.Done()
+			data := engine.FetchPriceRankingDataContext(externalDataCtx)
+			externalContext.PriceRankingData = data
+			if !hasPriceRankingData(data) {
+				appendExternalWarning("NofxOS price ranking is enabled but unavailable. Check the configured Claw402 wallet balance/payment channel; price ranking factors may be missing.")
+			}
+		}()
 	}
+	externalWG.Wait()
 	if externalDataCtx.Err() != nil {
-		externalDataWarnings = append(externalDataWarnings, fmt.Sprintf("External data fetch stopped after %s: %v", externalDataTimeout, externalDataCtx.Err()))
+		externalDataWarnings = append(externalDataWarnings, fmt.Sprintf("External data fetch stopped after %s: %s", externalDataTimeout, kernel.DescribeExternalDataError(externalDataCtx.Err())))
 	}
 
 	timeframes := req.Config.Indicators.Klines.SelectedTimeframes
@@ -805,33 +837,43 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	factorSnapshots := make(map[string]*market.FactorSnapshot)
 	marketDataWarnings := []string{}
 	marketDataTimeout := strategyTestMarketDataTimeout()
-	marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
-	defer cancelMarketData()
 	asOf := time.Now().UTC()
+	indicatorRequest := kernel.IndicatorRequestFromStrategyConfig(&req.Config)
+	structureRequest := kernel.StructureRequestFromStrategyConfig(&req.Config)
+	var marketMu sync.Mutex
+	var marketWG sync.WaitGroup
 	for _, coin := range candidates {
-		if marketDataCtx.Err() != nil {
-			marketDataWarnings = append(marketDataWarnings, fmt.Sprintf("Market data fetch stopped after %s: %v", marketDataTimeout, marketDataCtx.Err()))
-			break
-		}
-		data, err := market.GetWithTimeframesWindowContext(marketDataCtx, coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
-		if err != nil {
-			logger.Infof("Failed to get market data for %s: %v", coin.Symbol, err)
-			marketDataWarnings = append(marketDataWarnings, fmt.Sprintf("%s market data unavailable: %v", coin.Symbol, err))
-			continue
-		}
-		marketDataMap[coin.Symbol] = data
-		snapshot, err := market.BuildFactorSnapshotFromDataWithRequests(
-			data,
-			asOf,
-			kernel.IndicatorRequestFromStrategyConfig(&req.Config),
-			kernel.StructureRequestFromStrategyConfig(&req.Config),
-		)
-		if err != nil {
-			logger.Infof("Failed to build factor snapshot for %s: %v", coin.Symbol, err)
-			continue
-		}
-		factorSnapshots[coin.Symbol] = snapshot
+		symbol := coin.Symbol
+		marketWG.Add(1)
+		go func() {
+			defer marketWG.Done()
+			marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
+			defer cancelMarketData()
+			data, err := market.GetWithTimeframesWindowContext(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback)
+			if err != nil {
+				logger.Infof("Failed to get market data for %s: %v", symbol, err)
+				marketMu.Lock()
+				marketDataWarnings = append(marketDataWarnings, fmt.Sprintf("%s market data unavailable: %v", symbol, err))
+				marketMu.Unlock()
+				return
+			}
+			snapshot, err := market.BuildFactorSnapshotFromDataWithRequests(
+				data,
+				asOf,
+				indicatorRequest,
+				structureRequest,
+			)
+			if err != nil {
+				logger.Infof("Failed to build factor snapshot for %s: %v", symbol, err)
+				return
+			}
+			marketMu.Lock()
+			marketDataMap[symbol] = data
+			factorSnapshots[symbol] = snapshot
+			marketMu.Unlock()
+		}()
 	}
+	marketWG.Wait()
 	kernel.EnrichExternalFactors(externalContext, factorSnapshots, asOf)
 	signalPreview, previewErr := kernel.PreviewStrategySignals(&req.Config, candidates, factorSnapshots, asOf)
 	if previewErr != nil {
@@ -875,6 +917,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			"signals":                signalPreview.Signals,
 			"rule_evaluations":       signalPreview.RuleEvaluations,
 			"scoring_evaluations":    signalPreview.ScoringEvaluations,
+			"setup_evaluations":      signalPreview.SetupEvaluations,
 			"external_data_warnings": externalDataWarnings,
 			"market_data_warnings":   marketDataWarnings,
 			"signal_preview_error":   errorString(previewErr),
@@ -898,6 +941,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			"signals":                signalPreview.Signals,
 			"rule_evaluations":       signalPreview.RuleEvaluations,
 			"scoring_evaluations":    signalPreview.ScoringEvaluations,
+			"setup_evaluations":      signalPreview.SetupEvaluations,
 			"external_data_warnings": externalDataWarnings,
 			"market_data_warnings":   marketDataWarnings,
 			"signal_preview_error":   errorString(previewErr),
@@ -945,6 +989,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		"signals":                signalPreview.Signals,
 		"rule_evaluations":       signalPreview.RuleEvaluations,
 		"scoring_evaluations":    signalPreview.ScoringEvaluations,
+		"setup_evaluations":      signalPreview.SetupEvaluations,
 		"external_data_warnings": externalDataWarnings,
 		"market_data_warnings":   marketDataWarnings,
 		"signal_preview_error":   errorString(previewErr),
@@ -1104,8 +1149,7 @@ func (s *Server) createAIClientForModel(userID, modelID string) (mcp.AIClient, e
 	if apiKey == "" {
 		return nil, fmt.Errorf("AI model %s is missing API Key", model.Name)
 	}
-	if s.cryptoHandler != nil && s.cryptoHandler.cryptoService != nil &&
-		s.cryptoHandler.cryptoService.IsEncryptedStorageValue(apiKey) {
+	if s.isEncryptedStorageValue(apiKey) {
 		return nil, fmt.Errorf("AI model %s API Key cannot be decrypted with the current DATA_ENCRYPTION_KEY; please re-save this model API key in Settings > Model Config", model.Name)
 	}
 

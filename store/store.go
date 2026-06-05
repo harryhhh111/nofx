@@ -32,6 +32,7 @@ type Store struct {
 	aiCharge       *AIChargeStore
 	tradeMemory    *TradeMemoryStore
 	execution      *ExecutionAnalyticsStore
+	calibration    *SignalCalibrationStore
 	telegramConfig TelegramConfigStore
 
 	mu sync.RWMutex
@@ -175,6 +176,9 @@ func (s *Store) initTables() error {
 	}
 	if err := s.ExecutionAnalytics().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize execution analytics tables: %w", err)
+	}
+	if err := s.SignalCalibration().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize signal calibration tables: %w", err)
 	}
 	return nil
 }
@@ -337,6 +341,16 @@ func (s *Store) ExecutionAnalytics() *ExecutionAnalyticsStore {
 		s.execution = NewExecutionAnalyticsStore(s.gdb)
 	}
 	return s.execution
+}
+
+// SignalCalibration gets deterministic signal calibration storage.
+func (s *Store) SignalCalibration() *SignalCalibrationStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.calibration == nil {
+		s.calibration = NewSignalCalibrationStore(s.gdb)
+	}
+	return s.calibration
 }
 
 // TelegramConfig gets Telegram bot configuration storage

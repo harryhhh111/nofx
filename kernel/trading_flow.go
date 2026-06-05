@@ -83,6 +83,8 @@ type ScoringStrategy struct {
 	MinAvailableWeightRatio float64            `json:"min_available_weight_ratio,omitempty"`
 	MinConfidence           int                `json:"min_confidence,omitempty"`
 	Timeframe               string             `json:"timeframe,omitempty"`
+	EntryTimeframe          string             `json:"entry_timeframe,omitempty"`
+	ConfirmationTimeframes  []string           `json:"confirmation_timeframes,omitempty"`
 	Symbols                 []string           `json:"symbols,omitempty"`
 	Execution               RuleExecution      `json:"execution"`
 }
@@ -90,6 +92,7 @@ type ScoringStrategy struct {
 type CandidateSignal struct {
 	ID              string                 `json:"id"`
 	RuleID          string                 `json:"rule_id"`
+	Setup           string                 `json:"setup,omitempty"`
 	StrategyVersion string                 `json:"strategy_version"`
 	Symbol          string                 `json:"symbol"`
 	Action          string                 `json:"action"`
@@ -190,15 +193,17 @@ type TradeMemoryStore interface {
 }
 
 type MarketContext struct {
-	GeneratedAt    time.Time              `json:"generated_at"`
-	MarketRegime   string                 `json:"market_regime"`
-	RiskFlags      []string               `json:"risk_flags,omitempty"`
-	ContextSummary string                 `json:"context_summary,omitempty"`
-	BTCTrend       string                 `json:"btc_trend,omitempty"`
-	ETHTrend       string                 `json:"eth_trend,omitempty"`
-	FundingState   string                 `json:"funding_state,omitempty"`
-	BreadthState   string                 `json:"breadth_state,omitempty"`
-	Metrics        map[string]interface{} `json:"metrics,omitempty"`
+	GeneratedAt      time.Time              `json:"generated_at"`
+	MarketRegime     string                 `json:"market_regime"`
+	DirectionBias    string                 `json:"direction_bias,omitempty"`
+	VolatilityRegime string                 `json:"volatility_regime,omitempty"`
+	RiskFlags        []string               `json:"risk_flags,omitempty"`
+	ContextSummary   string                 `json:"context_summary,omitempty"`
+	BTCTrend         string                 `json:"btc_trend,omitempty"`
+	ETHTrend         string                 `json:"eth_trend,omitempty"`
+	FundingState     string                 `json:"funding_state,omitempty"`
+	BreadthState     string                 `json:"breadth_state,omitempty"`
+	Metrics          map[string]interface{} `json:"metrics,omitempty"`
 }
 
 type MarketContextRequest struct {
@@ -224,11 +229,45 @@ type TradingEngineRequest struct {
 }
 
 type TradingEngineResult struct {
-	Signals       []CandidateSignal  `json:"signals"`
-	MarketContext *MarketContext     `json:"market_context,omitempty"`
-	Reviews       []AIReviewDecision `json:"reviews"`
-	Risk          *RiskGateResult    `json:"risk"`
-	Memory        []TradeLesson      `json:"memory,omitempty"`
+	Signals          []CandidateSignal      `json:"signals"`
+	SetupEvaluations []SetupEvaluationTrace `json:"setup_evaluations,omitempty"`
+	MarketContext    *MarketContext         `json:"market_context,omitempty"`
+	Reviews          []AIReviewDecision     `json:"reviews"`
+	Risk             *RiskGateResult        `json:"risk"`
+	Memory           []TradeLesson          `json:"memory,omitempty"`
+}
+
+// SignalCalibrationSample is an internal, structured record used by the store
+// layer to persist enough evidence for later calibration and paper validation. It records
+// deterministic outputs and review/risk outcomes; it does not affect trading.
+type SignalCalibrationSample struct {
+	SampleKind             string
+	Symbol                 string
+	StrategyVersion        string
+	SignalID               string
+	RuleID                 string
+	Setup                  string
+	Action                 string
+	Eligible               bool
+	Timeframe              string
+	PrimaryTimeframe       string
+	EntryTimeframe         string
+	ConfirmationTimeframes []string
+	EntryPrice             float64
+	Confidence             int
+	Score                  float64
+	PrimaryScore           float64
+	EntryScore             float64
+	ReviewStatus           string
+	ReviewReasons          []string
+	RiskStatus             string
+	RiskReason             string
+	FactorSnapshot         *market.FactorSnapshot
+	SetupTrace             *SetupEvaluationTrace
+	ScoringTrace           *ScoringEvaluationTrace
+	Signal                 *CandidateSignal
+	MarketContext          *MarketContext
+	AsOf                   time.Time
 }
 
 func NewTradingEngine(signalEngine SignalEngine, reviewer AIReviewer, riskGate RiskGate, memory TradeMemoryStore) *TradingEngine {
@@ -261,10 +300,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("generate signals: %w", err)
 	}
-	if len(signals) == 0 {
-		return &TradingEngineResult{Signals: signals, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
-	}
-
+	setupEvaluations := TraceSetupEvaluations(req.SignalRequest)
 	var marketContext *MarketContext
 	if e.MarketContextEngine != nil {
 		marketContext, err = e.MarketContextEngine.Build(ctx, MarketContextRequest{
@@ -275,6 +311,9 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		if err != nil {
 			return nil, fmt.Errorf("build market context: %w", err)
 		}
+	}
+	if len(signals) == 0 {
+		return &TradingEngineResult{Signals: signals, SetupEvaluations: setupEvaluations, MarketContext: marketContext, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
 	}
 
 	var lessons []TradeLesson
@@ -308,11 +347,12 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	}
 
 	return &TradingEngineResult{
-		Signals:       signals,
-		MarketContext: marketContext,
-		Reviews:       reviews,
-		Risk:          risk,
-		Memory:        lessons,
+		Signals:          signals,
+		SetupEvaluations: setupEvaluations,
+		MarketContext:    marketContext,
+		Reviews:          reviews,
+		Risk:             risk,
+		Memory:           lessons,
 	}, nil
 }
 
@@ -327,4 +367,163 @@ func signalSymbols(signals []CandidateSignal) []string {
 		out = append(out, s.Symbol)
 	}
 	return out
+}
+
+func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResult) []SignalCalibrationSample {
+	if result == nil {
+		return nil
+	}
+	reviewBySignal := map[string]AIReviewDecision{}
+	for _, review := range result.Reviews {
+		reviewBySignal[review.SignalID] = review
+	}
+	riskBySignal := map[string]RiskRejectedSignal{}
+	approved := map[string]bool{}
+	if result.Risk != nil {
+		for _, signal := range result.Risk.Approved {
+			approved[signal.ID] = true
+		}
+		for _, rejected := range result.Risk.Rejected {
+			riskBySignal[rejected.SignalID] = rejected
+		}
+	}
+	signalsBySetupKey := map[string]CandidateSignal{}
+	seenSignalIDs := map[string]bool{}
+	for _, signal := range result.Signals {
+		key := calibrationSetupKey(signal.Symbol, signal.Action, signal.Evidence)
+		if key != "" {
+			signalsBySetupKey[key] = signal
+		}
+	}
+
+	samples := make([]SignalCalibrationSample, 0, len(result.SetupEvaluations)+len(result.Signals))
+	for _, trace := range result.SetupEvaluations {
+		traceCopy := trace
+		sample := SignalCalibrationSample{
+			SampleKind:             "setup",
+			Symbol:                 trace.Symbol,
+			Setup:                  trace.Setup,
+			Action:                 trace.Action,
+			Eligible:               trace.Eligible,
+			Timeframe:              trace.Timeframes.Primary,
+			PrimaryTimeframe:       trace.Timeframes.Primary,
+			EntryTimeframe:         trace.Timeframes.Entry,
+			ConfirmationTimeframes: append([]string(nil), trace.Timeframes.Confirmations...),
+			PrimaryScore:           trace.Primary.Score,
+			EntryScore:             trace.Entry.Score,
+			FactorSnapshot:         req.FactorSnapshot[trace.Symbol],
+			SetupTrace:             &traceCopy,
+			MarketContext:          result.MarketContext,
+			AsOf:                   calibrationAsOf(req, trace.Symbol),
+		}
+		if trace.Eligible {
+			sample.RiskStatus = "candidate_pending"
+		} else {
+			sample.RiskStatus = "no_signal"
+		}
+		key := calibrationTraceKey(trace)
+		if signal, ok := signalsBySetupKey[key]; ok {
+			enrichCalibrationSampleFromSignal(&sample, signal, reviewBySignal, approved, riskBySignal)
+			seenSignalIDs[signal.ID] = true
+		}
+		samples = append(samples, sample)
+	}
+	for _, signal := range result.Signals {
+		if seenSignalIDs[signal.ID] {
+			continue
+		}
+		signalCopy := signal
+		sample := SignalCalibrationSample{
+			SampleKind:      "signal",
+			Symbol:          signal.Symbol,
+			Action:          signal.Action,
+			Eligible:        true,
+			Timeframe:       signal.Timeframe,
+			EntryPrice:      signal.EntryPrice,
+			Confidence:      signal.Confidence,
+			SignalID:        signal.ID,
+			RuleID:          signal.RuleID,
+			StrategyVersion: signal.StrategyVersion,
+			FactorSnapshot:  req.FactorSnapshot[signal.Symbol],
+			Signal:          &signalCopy,
+			MarketContext:   result.MarketContext,
+			AsOf:            calibrationAsOf(req, signal.Symbol),
+		}
+		if scoring, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
+			scoringCopy := scoring
+			sample.Score = scoring.Score
+			sample.ScoringTrace = &scoringCopy
+		}
+		enrichCalibrationSampleFromSignal(&sample, signal, reviewBySignal, approved, riskBySignal)
+		samples = append(samples, sample)
+	}
+	return samples
+}
+
+func enrichCalibrationSampleFromSignal(sample *SignalCalibrationSample, signal CandidateSignal, reviews map[string]AIReviewDecision, approved map[string]bool, rejected map[string]RiskRejectedSignal) {
+	if sample == nil {
+		return
+	}
+	signalCopy := signal
+	sample.Signal = &signalCopy
+	sample.SignalID = signal.ID
+	sample.RuleID = signal.RuleID
+	sample.StrategyVersion = signal.StrategyVersion
+	sample.EntryPrice = signal.EntryPrice
+	sample.Confidence = signal.Confidence
+	if sample.Timeframe == "" {
+		sample.Timeframe = signal.Timeframe
+	}
+	if setup, ok := signal.Evidence["setup"].(SetupEvaluationTrace); ok {
+		setupCopy := setup
+		sample.SetupTrace = &setupCopy
+		sample.Setup = setup.Setup
+		sample.PrimaryScore = setup.Primary.Score
+		sample.EntryScore = setup.Entry.Score
+		sample.PrimaryTimeframe = setup.Timeframes.Primary
+		sample.EntryTimeframe = setup.Timeframes.Entry
+		sample.ConfirmationTimeframes = append([]string(nil), setup.Timeframes.Confirmations...)
+	}
+	if scoring, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
+		scoringCopy := scoring
+		sample.ScoringTrace = &scoringCopy
+		sample.Score = scoring.Score
+	}
+	if review, ok := reviews[signal.ID]; ok {
+		sample.ReviewStatus = review.Status
+		sample.ReviewReasons = append([]string(nil), review.Reasons...)
+	}
+	switch {
+	case approved[signal.ID]:
+		sample.RiskStatus = "approved"
+	case rejected[signal.ID].SignalID != "":
+		sample.RiskStatus = "risk_rejected"
+		sample.RiskReason = rejected[signal.ID].Reason
+	case sample.ReviewStatus != "":
+		sample.RiskStatus = "reviewed_not_approved"
+	default:
+		sample.RiskStatus = "candidate_pending"
+	}
+}
+
+func calibrationTraceKey(trace SetupEvaluationTrace) string {
+	return trace.Symbol + "|" + trace.Action + "|" + trace.Setup
+}
+
+func calibrationSetupKey(symbol, action string, evidence map[string]interface{}) string {
+	setup, ok := evidence["setup"].(SetupEvaluationTrace)
+	if !ok {
+		return ""
+	}
+	return symbol + "|" + action + "|" + setup.Setup
+}
+
+func calibrationAsOf(req SignalRequest, symbol string) time.Time {
+	if snapshot := req.FactorSnapshot[symbol]; snapshot != nil && !snapshot.AsOf.IsZero() {
+		return snapshot.AsOf
+	}
+	if !req.Now.IsZero() {
+		return req.Now.UTC()
+	}
+	return time.Now().UTC()
 }

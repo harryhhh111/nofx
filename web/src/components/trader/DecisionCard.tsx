@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { DecisionRecord, DecisionAction } from '../../types'
 import { t, type Language } from '../../i18n/translations'
 
@@ -40,6 +40,280 @@ function getConfidenceColor(confidence: number | undefined): string {
   if (confidence >= 80) return '#0ECB81'
   if (confidence >= 60) return '#F0B90B'
   return '#F6465D'
+}
+
+function parseDecisionJson(raw: string | undefined): Record<string, any> | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function getArrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0
+}
+
+function getSnapshotSymbols(parsed: Record<string, any> | null): string[] {
+  const snapshot = parsed?.factor_snapshot
+  if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) return []
+  return Object.keys(snapshot)
+}
+
+function getArray(value: unknown): any[] {
+  return Array.isArray(value) ? value : []
+}
+
+function formatScore(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-'
+}
+
+function formatWeight(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  return value <= 1 ? value.toFixed(2) : value.toFixed(0)
+}
+
+function formatComponentValue(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : String(value || '-')
+}
+
+function factorLabel(factor: string, language: Language): string {
+  if (language !== 'zh') return factor
+  const labels: Record<string, string> = {
+    trend: '趋势',
+    momentum: '动量',
+    structure: '结构',
+    derivatives: '衍生/资金',
+  }
+  return labels[factor] || factor
+}
+
+function statusText(status: unknown, language: Language): string {
+  const value = String(status || '')
+  if (!value) return ''
+  if (language !== 'zh') return value || '-'
+  const labels: Record<string, string> = {
+    disabled: '未启用',
+    available: '可用',
+    enabled_but_unavailable_this_cycle: '本轮启用但不可用',
+  }
+  return labels[value] || value || '-'
+}
+
+function setupLabel(setup: string | undefined, language: Language): string {
+  if (!setup) return language === 'zh' ? '未分类' : 'Unclassified'
+  const zh: Record<string, string> = {
+    no_trade_threshold_not_met: '未达到阈值',
+    no_trade_insufficient_evidence: '证据不足',
+    no_trade_chop: '震荡过滤',
+    trend_continuation_long: '多头趋势延续',
+    trend_continuation_short: '空头趋势延续',
+    trend_pullback_long: '多头趋势回调',
+    trend_pullback_short: '空头趋势回调',
+    breakout_long: '多头突破',
+    breakout_short: '空头突破',
+    breakout_retest_long: '多头突破回踩',
+    breakout_retest_short: '空头突破回踩',
+    range_reversal_long: '区间多头反转',
+    range_reversal_short: '区间空头反转',
+    support_resistance_bounce_long: '支撑反弹',
+    support_resistance_bounce_short: '阻力回落',
+    momentum_exhaustion_long: '空头动量衰竭',
+    momentum_exhaustion_short: '多头动量衰竭',
+    unclassified: '未分类',
+  }
+  return language === 'zh' ? (zh[setup] || setup) : setup
+}
+
+function getTraceReason(trace: any): string {
+  if (typeof trace?.reason === 'string' && trace.reason) return trace.reason
+  if (typeof trace?.primary?.reason === 'string' && trace.primary.reason) return trace.primary.reason
+  if (typeof trace?.entry?.reason === 'string' && trace.entry.reason) return trace.entry.reason
+  return ''
+}
+
+function boolText(value: unknown, language: Language): string {
+  return value ? (language === 'zh' ? '可用' : 'Available') : (language === 'zh' ? '不可用' : 'Unavailable')
+}
+
+function latestTimeText(value: unknown): string {
+  if (!value) return '-'
+  const time = new Date(String(value))
+  return Number.isNaN(time.getTime()) ? '-' : time.toLocaleString()
+}
+
+function healthText(value: unknown, reason: unknown, language: Language): string {
+  if (value === false) return language === 'zh' ? '不足' : 'Insufficient'
+  const rawReason = String(reason || '')
+  if (rawReason.includes('limited warm-up')) return language === 'zh' ? '最低满足' : 'Minimum OK'
+  if (value === true) return language === 'zh' ? '充足' : 'Healthy'
+  return '-'
+}
+
+function healthColor(value: unknown, reason: unknown): string {
+  if (value === false) return '#F6465D'
+  const rawReason = String(reason || '')
+  if (rawReason.includes('limited warm-up')) return '#F0B90B'
+  if (value === true) return '#0ECB81'
+  return '#A7B0BC'
+}
+
+function marketRegimeLabel(value: unknown, language: Language): string {
+  const raw = String(value || '-')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    risk_on: '风险偏好',
+    risk_off: '风险规避 / 偏空',
+    chop: '震荡',
+    high_volatility: '高波动',
+    overheated: '过热',
+    unavailable: '不可用',
+  }
+  return labels[raw] || raw
+}
+
+function trendLabel(value: unknown, language: Language): string {
+  const raw = String(value || '-')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    bullish: '偏多',
+    bearish: '偏空',
+    mixed: '混合',
+    neutral: '中性',
+    unavailable: '不可用',
+  }
+  return labels[raw] || raw
+}
+
+function directionBiasLabel(value: unknown, language: Language): string {
+  const raw = String(value || '-')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    bullish: '偏多',
+    bearish: '偏空',
+    neutral: '中性',
+    unavailable: '不可用',
+  }
+  return labels[raw] || raw
+}
+
+function volatilityRegimeLabel(value: unknown, language: Language): string {
+  const raw = String(value || '-')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    high_volatility: '高波动',
+    normal: '正常',
+    unavailable: '不可用',
+  }
+  return labels[raw] || raw
+}
+
+function riskFlagLabel(value: unknown, language: Language): string {
+  const raw = String(value || '')
+  if (language !== 'zh') return raw
+  const labels: Record<string, string> = {
+    high_volatility: '高波动',
+    market_regime_risk_off: '市场偏空',
+    market_regime_high_volatility: '高波动市场',
+    large_position: '仓位偏大',
+    low_confidence: '置信度不足',
+  }
+  return labels[raw] || raw
+}
+
+function translateTraceReason(reason: string, language: Language): string {
+  if (!reason || language !== 'zh') return reason
+  return reason
+    .replace(/^no setup:/, '未形成可执行机会：')
+    .replace(/long not ready:/g, '开多未就绪：')
+    .replace(/short not ready:/g, '开空未就绪：')
+    .replace(/primary score/g, '主周期评分')
+    .replace(/entry score/g, '入场周期评分')
+    .replace(/primary /g, '主周期 ')
+    .replace(/entry /g, '入场 ')
+    .replace(/ or /g, ' 或 ')
+    .replace(/confirmation timeframe evidence is unavailable/g, '确认周期证据不可用')
+    .replace(/(\\d+) confirmation timeframe\\(s\\) available/g, '$1 个确认周期可用')
+    .replace(/confirmation conflict for long/g, '确认周期与开多冲突')
+    .replace(/confirmation conflict for short/g, '确认周期与开空冲突')
+}
+
+function FactorBreakdown({ trace, language }: { trace: any; language: Language }) {
+  if (!trace || typeof trace !== 'object') return null
+  const components = trace.components && typeof trace.components === 'object' ? trace.components : {}
+  const factorWeights = trace.factor_weights && typeof trace.factor_weights === 'object' ? trace.factor_weights : {}
+  const factors = Object.keys(factorWeights).length > 0
+    ? Object.keys(factorWeights)
+    : Object.keys(components)
+  if (factors.length === 0) return null
+  const availableFactors = Array.isArray(trace.available_factors) ? trace.available_factors : []
+  const missingFactors = Array.isArray(trace.missing_factors) ? trace.missing_factors : []
+
+  return (
+    <div className="mt-2 rounded-md px-2 py-1.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+      <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px]" style={{ color: '#848E9C' }}>
+        <span>
+          {language === 'zh' ? '可用因子' : 'Available factors'}:
+          <span className="ml-1 font-mono" style={{ color: trace.eligible ? '#0ECB81' : '#F6465D' }}>
+            {availableFactors.length}/{trace.selected_factor_count ?? factors.length}
+          </span>
+        </span>
+        <span>
+          {language === 'zh' ? '最低要求' : 'Required'}:
+          <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>
+            {String(trace.required_factor_count ?? '-')}
+          </span>
+        </span>
+        <span>
+          {language === 'zh' ? '可用权重' : 'Available weight'}:
+          <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>
+            {formatWeight(trace.available_weight)} / {formatWeight(trace.total_weight)}
+          </span>
+        </span>
+        {missingFactors.length > 0 && (
+          <span style={{ color: '#F6465D' }}>
+            {language === 'zh' ? '缺失' : 'Missing'}: {missingFactors.map((f: string) => factorLabel(f, language)).join(', ')}
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-1">
+        {factors.map((factor) => {
+          const raw = components[factor]
+          const available = typeof raw === 'number' && Number.isFinite(raw)
+          return (
+            <div key={`${trace.symbol || ''}-${trace.timeframe || ''}-${factor}`} className="flex items-center justify-between gap-2 text-[10px]">
+              <span style={{ color: available ? '#A7B0BC' : '#F6465D' }}>{factorLabel(factor, language)}</span>
+              <span className="font-mono" style={{ color: available ? '#EAECEF' : '#F6465D' }}>
+                {formatComponentValue(raw)}
+                <span className="ml-1" style={{ color: '#848E9C' }}>w {formatWeight(factorWeights[factor])}</span>
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function getCycleStatus(decision: DecisionRecord, language: Language) {
+  if (!decision.success) {
+    return {
+      label: t('failed', language),
+      style: { background: 'rgba(246, 70, 93, 0.15)', color: '#F6465D', border: '1px solid rgba(246, 70, 93, 0.3)' },
+    }
+  }
+  if (!decision.decisions || decision.decisions.length === 0) {
+    return {
+      label: language === 'zh' ? '无交易' : 'No Trade',
+      style: { background: 'rgba(132, 142, 156, 0.15)', color: '#A7B0BC', border: '1px solid rgba(132, 142, 156, 0.3)' },
+    }
+  }
+  return {
+    label: language === 'zh' ? '已执行' : 'Executed',
+    style: { background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81', border: '1px solid rgba(14, 203, 129, 0.3)' },
+  }
 }
 
 // Single Action Card Component
@@ -221,6 +495,17 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [showInputPrompt, setShowInputPrompt] = useState(false)
   const [showCoT, setShowCoT] = useState(false)
+  const [showRawDecision, setShowRawDecision] = useState(false)
+  const parsedDecision = useMemo(() => parseDecisionJson(decision.decision_json), [decision.decision_json])
+  const snapshotSymbols = useMemo(() => getSnapshotSymbols(parsedDecision), [parsedDecision])
+  const setupEvaluations = useMemo(() => getArray(parsedDecision?.setup_evaluations), [parsedDecision])
+  const scoringEvaluations = useMemo(() => getArray(parsedDecision?.scoring_evaluations), [parsedDecision])
+  const inputAudit = parsedDecision?.input_audit && typeof parsedDecision.input_audit === 'object' ? parsedDecision.input_audit : null
+  const marketContext = parsedDecision?.market_context && typeof parsedDecision.market_context === 'object' ? parsedDecision.market_context : null
+  const signalCount = getArrayLength(parsedDecision?.signals)
+  const candidateCount = decision.candidate_coins?.length || snapshotSymbols.length
+  const actionCount = decision.decisions?.length || 0
+  const status = getCycleStatus(decision, language)
 
   // Copy text to clipboard
   const copyToClipboard = async (text: string, label: string) => {
@@ -274,15 +559,285 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
         </div>
         <div
           className="px-4 py-1.5 rounded-full text-xs font-bold tracking-wider"
-          style={
-            decision.success
-              ? { background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81', border: '1px solid rgba(14, 203, 129, 0.3)' }
-              : { background: 'rgba(246, 70, 93, 0.15)', color: '#F6465D', border: '1px solid rgba(246, 70, 93, 0.3)' }
-          }
+          style={status.style}
         >
-          {t(decision.success ? 'success' : 'failed', language)}
+          {status.label}
         </div>
       </div>
+
+      <div className="grid grid-cols-3 gap-2 mb-4">
+        <div className="rounded-lg p-3" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div className="text-[10px]" style={{ color: '#848E9C' }}>{language === 'zh' ? '候选币' : 'Candidates'}</div>
+          <div className="font-mono font-semibold" style={{ color: '#EAECEF' }}>{candidateCount}</div>
+        </div>
+        <div className="rounded-lg p-3" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div className="text-[10px]" style={{ color: '#848E9C' }}>{language === 'zh' ? '信号' : 'Signals'}</div>
+          <div className="font-mono font-semibold" style={{ color: signalCount > 0 ? '#F0B90B' : '#A7B0BC' }}>{signalCount}</div>
+        </div>
+        <div className="rounded-lg p-3" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div className="text-[10px]" style={{ color: '#848E9C' }}>{language === 'zh' ? '动作' : 'Actions'}</div>
+          <div className="font-mono font-semibold" style={{ color: actionCount > 0 ? '#0ECB81' : '#A7B0BC' }}>{actionCount}</div>
+        </div>
+      </div>
+
+      {decision.success && actionCount === 0 && (
+        <div
+          className="rounded-lg p-3 mb-4 text-xs"
+          style={{ background: 'rgba(132, 142, 156, 0.12)', border: '1px solid rgba(132, 142, 156, 0.25)', color: '#A7B0BC' }}
+        >
+          {language === 'zh'
+            ? '本轮流程已完成，但代码没有产生可执行开/平仓信号，因此没有调用 AI 审核。下面可以查看代码评估过程。'
+            : 'This cycle completed, but the deterministic engine produced no executable signal, so AI review was not called. Inspect the code evaluation below.'}
+        </div>
+      )}
+
+      {(setupEvaluations.length > 0 || scoringEvaluations.length > 0) && (
+        <div
+          className="rounded-lg p-3 mb-4"
+          style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+        >
+          <div className="mb-2 text-xs font-semibold" style={{ color: '#EAECEF' }}>
+            {language === 'zh' ? '代码评估过程' : 'Code Evaluation'}
+          </div>
+          {marketContext && (
+            <div
+              className="mb-3 rounded-md p-2"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+            >
+              <div className="mb-1 text-[11px] font-semibold" style={{ color: '#EAECEF' }}>
+                {language === 'zh' ? '市场状态' : 'Market Context'}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px]" style={{ color: '#A7B0BC' }}>
+                <div>
+                  {language === 'zh' ? '状态' : 'Regime'}:
+                  <span className="ml-1 font-mono" style={{ color: marketContext?.market_regime === 'risk_off' ? '#F6465D' : '#EAECEF' }}>
+                    {marketRegimeLabel(marketContext?.market_regime, language)}
+                  </span>
+                </div>
+                <div>
+                  {language === 'zh' ? '方向' : 'Direction'}:
+                  <span className="ml-1 font-mono" style={{ color: marketContext?.direction_bias === 'bearish' ? '#F6465D' : marketContext?.direction_bias === 'bullish' ? '#0ECB81' : '#EAECEF' }}>
+                    {directionBiasLabel(marketContext?.direction_bias, language)}
+                  </span>
+                  <span className="ml-2">{language === 'zh' ? '波动' : 'Vol'}:</span>
+                  <span className="ml-1 font-mono" style={{ color: marketContext?.volatility_regime === 'high_volatility' ? '#F0B90B' : '#EAECEF' }}>
+                    {volatilityRegimeLabel(marketContext?.volatility_regime, language)}
+                  </span>
+                </div>
+                <div>
+                  BTC:
+                  <span className="ml-1 font-mono" style={{ color: marketContext?.btc_trend === 'bearish' ? '#F6465D' : '#EAECEF' }}>
+                    {trendLabel(marketContext?.btc_trend, language)}
+                  </span>
+                  <span className="ml-2">ETH:</span>
+                  <span className="ml-1 font-mono" style={{ color: marketContext?.eth_trend === 'bearish' ? '#F6465D' : '#EAECEF' }}>
+                    {trendLabel(marketContext?.eth_trend, language)}
+                  </span>
+                </div>
+                {Array.isArray(marketContext?.risk_flags) && marketContext.risk_flags.length > 0 && (
+                  <div className="col-span-2" style={{ color: '#F0B90B' }}>
+                    {language === 'zh' ? '风险标记' : 'Risk flags'}: {marketContext.risk_flags.map((flag: unknown) => riskFlagLabel(flag, language)).join(', ')}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {inputAudit && (
+            <div
+              className="mb-3 rounded-md p-2"
+              style={{ background: 'rgba(240, 185, 11, 0.06)', border: '1px solid rgba(240, 185, 11, 0.16)' }}
+            >
+              <div className="mb-2 text-[11px] font-semibold" style={{ color: '#F0B90B' }}>
+                {language === 'zh' ? '输入审计' : 'Input Audit'}
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-[10px]" style={{ color: '#A7B0BC' }}>
+                <div>
+                  {language === 'zh' ? '请求周期' : 'Timeframes'}:
+                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>
+                    {Array.isArray(inputAudit?.klines?.timeframes) ? inputAudit.klines.timeframes.join(', ') : '-'}
+                  </span>
+                </div>
+                <div>
+                  {language === 'zh' ? '主/入场/确认' : 'Primary/Entry/Confirm'}:
+                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>
+                    {String(inputAudit?.klines?.primary_timeframe || '-')} / {String(inputAudit?.klines?.entry_timeframe || '-')} / {Array.isArray(inputAudit?.klines?.confirmations) ? inputAudit.klines.confirmations.join(', ') || '-' : '-'}
+                  </span>
+                </div>
+                <div>
+                  {language === 'zh' ? '计算 K 线' : 'Compute Bars'}:
+                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{String(inputAudit?.klines?.compute_lookback || '-')}</span>
+                </div>
+                <div>
+                  {language === 'zh' ? '展示 K 线' : 'Display Bars'}:
+                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{String(inputAudit?.klines?.display_count || '-')}</span>
+                </div>
+                <div>
+                  {language === 'zh' ? '最低计算需求' : 'Required Bars'}:
+                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{String(inputAudit?.klines?.required_lookback || '-')}</span>
+                </div>
+                <div>
+                  {language === 'zh' ? '稳定建议' : 'Warm-up Target'}:
+                  <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{String(inputAudit?.klines?.warmup_target || '-')}</span>
+                </div>
+                {Array.isArray(inputAudit?.klines?.unused_timeframes) && inputAudit.klines.unused_timeframes.length > 0 && (
+                  <div className="col-span-2" style={{ color: '#F0B90B' }}>
+                    {language === 'zh' ? '已拉取但未参与当前评分' : 'Fetched but not used by current scoring'}:
+                    <span className="ml-1 font-mono">{inputAudit.klines.unused_timeframes.join(', ')}</span>
+                  </div>
+                )}
+                <div>
+                  OI Ranking:
+                  <span className="ml-1" style={{ color: inputAudit?.external_data?.oi_ranking_available ? '#0ECB81' : '#F6465D' }}>
+                    {statusText(inputAudit?.external_data?.statuses?.oi_ranking, language) || boolText(inputAudit?.external_data?.oi_ranking_available, language)}
+                  </span>
+                </div>
+                <div>
+                  NetFlow:
+                  <span className="ml-1" style={{ color: inputAudit?.external_data?.netflow_available ? '#0ECB81' : '#F6465D' }}>
+                    {statusText(inputAudit?.external_data?.statuses?.netflow, language) || boolText(inputAudit?.external_data?.netflow_available, language)}
+                  </span>
+                </div>
+                <div>
+                  Price Ranking:
+                  <span className="ml-1" style={{ color: inputAudit?.external_data?.price_ranking_available ? '#0ECB81' : '#F6465D' }}>
+                    {statusText(inputAudit?.external_data?.statuses?.price_ranking, language) || boolText(inputAudit?.external_data?.price_ranking_available, language)}
+                  </span>
+                </div>
+                <div>
+                  Quant:
+                  <span className="ml-1 font-mono" style={{ color: (inputAudit?.external_data?.quant_symbols || 0) > 0 ? '#0ECB81' : '#F6465D' }}>
+                    {String(inputAudit?.external_data?.quant_symbols ?? 0)}
+                    <span className="ml-1" style={{ color: '#A7B0BC' }}>
+                      {statusText(inputAudit?.external_data?.statuses?.quant, language)}
+                    </span>
+                  </span>
+                </div>
+              </div>
+              {Array.isArray(inputAudit?.external_data?.data_fetch_errors) && inputAudit.external_data.data_fetch_errors.length > 0 && (
+                <div className="mt-2 rounded px-2 py-1 text-[10px]" style={{ background: 'rgba(246,70,93,0.08)', color: '#F6465D' }}>
+                  {language === 'zh' ? '数据错误' : 'Data errors'}: {inputAudit.external_data.data_fetch_errors.slice(0, 2).join('; ')}
+                </div>
+              )}
+              {inputAudit?.symbols && typeof inputAudit.symbols === 'object' && (
+                <div className="mt-2 space-y-1">
+                  {Object.entries(inputAudit.symbols).slice(0, 6).map(([symbol, audit]: [string, any]) => (
+                    <div key={`${symbol}-input-audit`} className="rounded px-2 py-1" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                      <div className="font-mono text-[10px]" style={{ color: '#EAECEF' }}>{symbol}</div>
+                      <div className="mt-1 grid grid-cols-1 gap-1 text-[10px]" style={{ color: '#848E9C' }}>
+                        {Object.entries(audit?.timeframes || {}).map(([tf, tfAudit]: [string, any]) => (
+                          <div key={`${symbol}-${tf}`}>
+                            <span className="font-mono" style={{ color: '#A7B0BC' }}>{tf}</span>
+                            <span className="ml-2">
+                              {language === 'zh' ? '实际/计算' : 'display/compute'} {String(tfAudit?.display_bars ?? '-')} / {String(tfAudit?.compute_bars ?? '-')}
+                            </span>
+                            <span className="ml-2">
+                              {language === 'zh' ? '需/余量' : 'required/warmup'} {String(tfAudit?.required_lookback ?? '-')} / {String(tfAudit?.warmup_bars ?? '-')}
+                            </span>
+                            <span className="ml-2" style={{ color: healthColor(tfAudit?.calculation_healthy, tfAudit?.health_reason) }}>
+                              {healthText(tfAudit?.calculation_healthy, tfAudit?.health_reason, language)}
+                            </span>
+                            <span className="ml-2">
+                              {language === 'zh' ? '最新' : 'latest'} {latestTimeText(tfAudit?.latest_time)}
+                            </span>
+                            <span className="ml-2">
+                              close {formatPrice(typeof tfAudit?.latest_close === 'number' ? tfAudit.latest_close : undefined)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="space-y-2">
+            {setupEvaluations.slice(0, 6).map((trace, index) => {
+              const primary = trace?.primary || {}
+              const entry = trace?.entry || {}
+              const timeframes = trace?.timeframes || {}
+              const reason = getTraceReason(trace)
+              return (
+                <div
+                  key={`${String(trace?.symbol || index)}-setup-trace`}
+                  className="rounded-md p-2"
+                  style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)' }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-mono text-xs" style={{ color: '#EAECEF' }}>
+                      {String(trace?.symbol || '-')}
+                    </div>
+                    <div
+                      className="rounded px-2 py-0.5 text-[10px]"
+                      style={{
+                        color: trace?.eligible ? '#0ECB81' : '#A7B0BC',
+                        background: trace?.eligible ? 'rgba(14, 203, 129, 0.12)' : 'rgba(132, 142, 156, 0.12)',
+                      }}
+                    >
+                      {setupLabel(String(trace?.setup || ''), language)}
+                    </div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]" style={{ color: '#A7B0BC' }}>
+                    <div>
+                      {language === 'zh' ? '主周期' : 'Primary'} {String(timeframes?.primary || '-')}
+                      <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{formatScore(primary?.score)}</span>
+                    </div>
+                    <div>
+                      {language === 'zh' ? '入场' : 'Entry'} {String(timeframes?.entry || '-')}
+                      <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{formatScore(entry?.score)}</span>
+                    </div>
+                    <div>
+                      {language === 'zh' ? '确认' : 'Confirm'} {Array.isArray(timeframes?.confirmations) && timeframes.confirmations.length > 0 ? timeframes.confirmations.join(', ') : '-'}
+                    </div>
+                  </div>
+                  {reason && (
+                    <div className="mt-1 text-[10px] leading-relaxed" style={{ color: '#848E9C' }}>
+                      {translateTraceReason(reason, language)}
+                    </div>
+                  )}
+                  <div className="mt-2 grid grid-cols-1 gap-2">
+                    <div>
+                      <div className="text-[10px] font-semibold" style={{ color: '#A7B0BC' }}>
+                        {language === 'zh' ? '主周期因子拆分' : 'Primary factor breakdown'}
+                      </div>
+                      <FactorBreakdown trace={primary} language={language} />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-semibold" style={{ color: '#A7B0BC' }}>
+                        {language === 'zh' ? '入场周期因子拆分' : 'Entry factor breakdown'}
+                      </div>
+                      <FactorBreakdown trace={entry} language={language} />
+                    </div>
+                    {Array.isArray(trace?.confirmations) && trace.confirmations.length > 0 && (
+                      <div>
+                        <div className="text-[10px] font-semibold" style={{ color: '#A7B0BC' }}>
+                          {language === 'zh' ? '确认周期因子拆分' : 'Confirmation factor breakdown'}
+                        </div>
+                        <div className="space-y-1">
+                          {trace.confirmations.map((confirm: any, confirmIndex: number) => (
+                            <div key={`${String(trace?.symbol || index)}-confirm-${confirmIndex}`}>
+                              <div className="mt-1 text-[10px]" style={{ color: '#848E9C' }}>
+                                {String(confirm?.timeframe || '-')}
+                                <span className="ml-1 font-mono" style={{ color: '#EAECEF' }}>{formatScore(confirm?.score)}</span>
+                              </div>
+                              <FactorBreakdown trace={confirm} language={language} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {setupEvaluations.length === 0 && scoringEvaluations.length > 0 && (
+            <div className="text-[11px]" style={{ color: '#A7B0BC' }}>
+              {language === 'zh' ? '本轮只有评分评估，没有 setup 评估。' : 'This cycle has scoring evaluations but no setup evaluation.'}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Decision Actions - Beautiful Grid */}
       {decision.decisions && decision.decisions.length > 0 && (
@@ -295,6 +850,45 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
 
       {/* Collapsible Sections */}
       <div className="space-y-2">
+        {parsedDecision && (
+          <div>
+            <button
+              onClick={() => setShowRawDecision(!showRawDecision)}
+              className="flex items-center gap-2 text-sm transition-colors w-full justify-between p-2 rounded hover:bg-white/5"
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base">📊</span>
+                <span className="font-semibold" style={{ color: '#F0B90B' }}>
+                  {language === 'zh' ? '结构化数据' : 'Structured Data'}
+                </span>
+                {snapshotSymbols.length > 0 && (
+                  <span className="text-xs" style={{ color: '#848E9C' }}>
+                    {snapshotSymbols.slice(0, 4).join(', ')}
+                  </span>
+                )}
+              </div>
+              <span
+                className="text-xs px-2 py-0.5 rounded"
+                style={{ background: 'rgba(240, 185, 11, 0.15)', color: '#F0B90B' }}
+              >
+                {showRawDecision ? t('collapse', language) : t('expand', language)}
+              </span>
+            </button>
+            {showRawDecision && (
+              <div
+                className="mt-2 rounded-lg p-4 text-xs font-mono whitespace-pre-wrap max-h-96 overflow-y-auto"
+                style={{
+                  background: '#0B0E11',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              >
+                {JSON.stringify(parsedDecision, null, 2)}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* System Prompt */}
         {decision.system_prompt && (
           <div>

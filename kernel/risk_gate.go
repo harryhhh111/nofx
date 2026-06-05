@@ -98,6 +98,18 @@ func marketContextRiskAssessment(context *MarketContext, signal CandidateSignal)
 	if signal.Action != "open_long" && signal.Action != "open_short" {
 		return risk
 	}
+	switch context.DirectionBias {
+	case "bearish":
+		if signal.Action == "open_long" {
+			risk.HardRejectReason = "direction_bias_bearish"
+			return risk
+		}
+	case "bullish":
+		if signal.Action == "open_short" {
+			risk.HardRejectReason = "direction_bias_bullish"
+			return risk
+		}
+	}
 	switch context.MarketRegime {
 	case "risk_off":
 		if signal.Action == "open_long" {
@@ -137,6 +149,10 @@ func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
 		TakeProfit:        s.TakeProfit,
 		Confidence:        s.Confidence,
 		SignalGeneratedAt: s.GeneratedAt.UnixMilli(),
+		SignalID:          s.ID,
+		RuleID:            s.RuleID,
+		Setup:             s.Setup,
+		StrategyVersion:   s.StrategyVersion,
 		Reasoning:         reasoning,
 	}
 }

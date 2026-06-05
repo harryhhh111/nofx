@@ -91,6 +91,9 @@ type ClosedTradeOutcome struct {
 	TraderID          string  `json:"trader_id"`
 	StrategyID        string  `json:"strategy_id,omitempty"`
 	StrategyVersion   string  `json:"strategy_version,omitempty"`
+	SignalID          string  `json:"signal_id,omitempty"`
+	RuleID            string  `json:"rule_id,omitempty"`
+	Setup             string  `json:"setup,omitempty"`
 	PositionID        int64   `json:"position_id"`
 	Symbol            string  `json:"symbol"`
 	Side              string  `json:"side"`
@@ -241,8 +244,12 @@ func BuildTradeMemoryRecord(outcome ClosedTradeOutcome, summary TradeMemorySumma
 		StrategyVersion: outcome.StrategyVersion,
 		PositionID:      outcome.PositionID,
 		Signal: CandidateSignal{
-			Symbol: outcome.Symbol,
-			Action: action,
+			ID:              outcome.SignalID,
+			RuleID:          outcome.RuleID,
+			Setup:           outcome.Setup,
+			StrategyVersion: outcome.StrategyVersion,
+			Symbol:          outcome.Symbol,
+			Action:          action,
 		},
 		Result:        summary.Result,
 		OutcomePnL:    outcome.RealizedPnL,

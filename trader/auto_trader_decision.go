@@ -57,6 +57,58 @@ func (at *AutoTrader) saveDecision(record *store.DecisionRecord) error {
 	return nil
 }
 
+func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision, record *store.DecisionRecord) {
+	if at.store == nil || decision == nil || record == nil || len(decision.CalibrationSamples) == 0 {
+		return
+	}
+	version := at.currentStrategyVersion()
+	rows := make([]*store.SignalCalibrationSample, 0, len(decision.CalibrationSamples))
+	for _, sample := range decision.CalibrationSamples {
+		strategyVersion := sample.StrategyVersion
+		if strategyVersion == "" {
+			strategyVersion = version
+		}
+		rows = append(rows, &store.SignalCalibrationSample{
+			TraderID:                   at.id,
+			StrategyID:                 at.config.StrategyID,
+			StrategyVersion:            strategyVersion,
+			DecisionID:                 record.ID,
+			CycleNumber:                record.CycleNumber,
+			Symbol:                     sample.Symbol,
+			SampleKind:                 sample.SampleKind,
+			SignalID:                   sample.SignalID,
+			RuleID:                     sample.RuleID,
+			Setup:                      sample.Setup,
+			Action:                     sample.Action,
+			Eligible:                   sample.Eligible,
+			Timeframe:                  sample.Timeframe,
+			PrimaryTimeframe:           sample.PrimaryTimeframe,
+			EntryTimeframe:             sample.EntryTimeframe,
+			ConfirmationTimeframesJSON: store.MarshalCalibrationJSON(sample.ConfirmationTimeframes),
+			EntryPrice:                 sample.EntryPrice,
+			Confidence:                 sample.Confidence,
+			Score:                      sample.Score,
+			PrimaryScore:               sample.PrimaryScore,
+			EntryScore:                 sample.EntryScore,
+			ReviewStatus:               sample.ReviewStatus,
+			ReviewReasonsJSON:          store.MarshalCalibrationJSON(sample.ReviewReasons),
+			RiskStatus:                 sample.RiskStatus,
+			RiskReason:                 sample.RiskReason,
+			FactorSnapshotJSON:         store.MarshalCalibrationJSON(sample.FactorSnapshot),
+			SetupTraceJSON:             store.MarshalCalibrationJSON(sample.SetupTrace),
+			ScoringTraceJSON:           store.MarshalCalibrationJSON(sample.ScoringTrace),
+			SignalJSON:                 store.MarshalCalibrationJSON(sample.Signal),
+			MarketContextJSON:          store.MarshalCalibrationJSON(sample.MarketContext),
+			AsOf:                       sample.AsOf,
+		})
+	}
+	if err := at.store.SignalCalibration().CreateMany(rows); err != nil {
+		logger.Warnf("[%s] failed to save signal calibration samples: %v", at.name, err)
+		return
+	}
+	logger.Infof("[%s] saved %d signal calibration sample(s)", at.name, len(rows))
+}
+
 // saveBBMACDSignals stores BB MACD snapshots for later offline accuracy evaluation.
 // These records are not injected into AI prompts and do not affect trading decisions.
 func (at *AutoTrader) saveBBMACDSignals(ctx *kernel.Context) {
@@ -161,6 +213,56 @@ func (at *AutoTrader) syncClosedTradeMemories(limit int) {
 	}
 }
 
+func (at *AutoTrader) saveOpeningSignalMetadata(record *store.DecisionRecord) {
+	if at.store == nil || record == nil {
+		return
+	}
+	for _, action := range record.Decisions {
+		if !action.Success || (action.Action != "open_long" && action.Action != "open_short") {
+			continue
+		}
+		if action.SignalID == "" && action.RuleID == "" && action.Setup == "" {
+			continue
+		}
+		side := "LONG"
+		if action.Action == "open_short" {
+			side = "SHORT"
+		}
+		symbol := market.Normalize(action.Symbol)
+		meta := store.PositionOpeningSignalMetadata{
+			DecisionID:      record.ID,
+			SignalID:        action.SignalID,
+			RuleID:          action.RuleID,
+			Setup:           action.Setup,
+			StrategyID:      at.config.StrategyID,
+			StrategyVersion: action.Version,
+		}
+		if meta.StrategyVersion == "" {
+			meta.StrategyVersion = at.currentStrategyVersion()
+		}
+		if err := at.store.Position().UpdatePositionOpeningSignalMetadata(at.id, symbol, side, meta); err != nil {
+			logger.Infof("🧭 [%s] Position not yet in DB for signal metadata %s %s, starting background retry", at.name, symbol, side)
+			go at.retryOpeningSignalMetadata(symbol, side, meta)
+		} else {
+			logger.Infof("🧭 [%s] Saved opening signal metadata for %s %s signal=%s setup=%s", at.name, symbol, side, meta.SignalID, meta.Setup)
+		}
+	}
+}
+
+func (at *AutoTrader) retryOpeningSignalMetadata(symbol, side string, meta store.PositionOpeningSignalMetadata) {
+	for i := 0; i < 12; i++ {
+		time.Sleep(5 * time.Second)
+		if at.store == nil {
+			return
+		}
+		if err := at.store.Position().UpdatePositionOpeningSignalMetadata(at.id, symbol, side, meta); err == nil {
+			logger.Infof("🧭 [%s] Background flush: saved opening signal metadata for %s %s (attempt %d)", at.name, symbol, side, i+1)
+			return
+		}
+	}
+	logger.Infof("⚠️ [%s] Background flush failed for opening signal metadata %s %s after 60s", at.name, symbol, side)
+}
+
 func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.ClosedTradeOutcome {
 	if pos == nil {
 		return kernel.ClosedTradeOutcome{}
@@ -174,9 +276,17 @@ func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.Close
 	if notional > 0 {
 		pnlPct = pos.RealizedPnL / notional * 100
 	}
+	strategyVersion := pos.StrategyVersion
+	if strategyVersion == "" {
+		strategyVersion = at.currentStrategyVersion()
+	}
 	return kernel.ClosedTradeOutcome{
 		TraderID:          at.id,
-		StrategyVersion:   at.currentStrategyVersion(),
+		StrategyID:        pos.StrategyID,
+		StrategyVersion:   strategyVersion,
+		SignalID:          pos.OpeningSignalID,
+		RuleID:            pos.OpeningRuleID,
+		Setup:             pos.OpeningSetup,
 		PositionID:        pos.ID,
 		Symbol:            pos.Symbol,
 		Side:              pos.Side,

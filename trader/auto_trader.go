@@ -89,9 +89,10 @@ type AutoTraderConfig struct {
 	QwenKey     string
 
 	// Custom AI API configuration
-	CustomAPIURL    string
-	CustomAPIKey    string
-	CustomModelName string
+	CustomAPIURL     string
+	CustomAPIKey     string
+	CustomModelName  string
+	Claw402WalletKey string
 
 	// Scan configuration
 	ScanInterval time.Duration // Scan interval (recommended 3 minutes)
@@ -111,6 +112,7 @@ type AutoTraderConfig struct {
 	ShowInCompetition bool // Whether to show in competition page
 
 	// Strategy configuration (use complete strategy config)
+	StrategyID     string                // Strategy ID from database
 	StrategyConfig *store.StrategyConfig // Strategy configuration (coin sources, indicators, risk control, compiled rules, etc.)
 }
 
@@ -334,7 +336,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	if config.StrategyConfig == nil {
 		return nil, fmt.Errorf("[%s] strategy not configured", config.Name)
 	}
-	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig)
+	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig, config.Claw402WalletKey)
 	strategyEngine.SetTraderInfo(config.ID, config.Name)
 	logger.Infof("✓ [%s] Using strategy engine (strategy configuration loaded)", config.Name)
 

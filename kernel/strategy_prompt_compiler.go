@@ -4,13 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"nofx/mcp"
 	"strings"
+	"time"
 )
 
 type LLMStrategyCompiler struct {
 	client mcp.AIClient
 }
+
+const strategyCompileMaxTokens = 12000
 
 func NewLLMStrategyCompiler(client mcp.AIClient) *LLMStrategyCompiler {
 	return &LLMStrategyCompiler{client: client}
@@ -30,13 +36,17 @@ func (c *LLMStrategyCompiler) Compile(ctx context.Context, req StrategyCompileRe
 		return nil, err
 	}
 
+	reqBody, err := buildStrategyCompileLLMRequest(ctx, c.client, systemPrompt, userPrompt)
+	if err != nil {
+		return nil, err
+	}
 	type response struct {
 		text string
 		err  error
 	}
 	done := make(chan response, 1)
 	go func() {
-		text, err := c.client.CallWithMessages(systemPrompt, userPrompt)
+		text, err := c.client.CallWithRequest(reqBody)
 		done <- response{text: text, err: err}
 	}()
 
@@ -62,14 +72,112 @@ func (c *LLMStrategyCompiler) Compile(ctx context.Context, req StrategyCompileRe
 	}
 }
 
+func buildStrategyCompileLLMRequest(ctx context.Context, client mcp.AIClient, systemPrompt, userPrompt string) (*mcp.Request, error) {
+	if err := ensureStructuredOutputsSupported(ctx, client); err != nil {
+		return nil, err
+	}
+	reqBody := &mcp.Request{
+		Messages: []mcp.Message{
+			mcp.NewSystemMessage(systemPrompt),
+			mcp.NewUserMessage(userPrompt),
+		},
+		ResponseFormat: strategyCompileResponseFormat(),
+	}
+	maxTokens := strategyCompileMaxTokens
+	temperature := 0.0
+	reqBody.MaxTokens = &maxTokens
+	reqBody.Temperature = &temperature
+	if base, ok := client.(mcp.ClientEmbedder); ok && isOpenRouterBaseURL(base.BaseClient().BaseURL) {
+		reqBody.Provider = map[string]any{"require_parameters": true}
+	}
+	return reqBody, nil
+}
+
+func ensureStructuredOutputsSupported(ctx context.Context, client mcp.AIClient) error {
+	embedder, ok := client.(mcp.ClientEmbedder)
+	if !ok {
+		return nil
+	}
+	base := embedder.BaseClient()
+	if base == nil || !isOpenRouterBaseURL(base.BaseURL) {
+		return nil
+	}
+	supported, err := openRouterModelSupportsStructuredOutputs(ctx, base)
+	if err != nil {
+		return fmt.Errorf("check OpenRouter structured output support for model %s: %w", base.Model, err)
+	}
+	if !supported {
+		return fmt.Errorf("AI model %s on OpenRouter does not advertise structured_outputs support; choose a model that supports JSON Schema structured outputs before compiling a trading strategy", base.Model)
+	}
+	return nil
+}
+
+func isOpenRouterBaseURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return strings.Contains(strings.ToLower(raw), "openrouter.ai")
+	}
+	return strings.Contains(strings.ToLower(u.Host), "openrouter.ai")
+}
+
+func openRouterModelSupportsStructuredOutputs(ctx context.Context, base *mcp.Client) (bool, error) {
+	endpoint := strings.TrimRight(base.BaseURL, "/") + "/models"
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, "GET", endpoint, nil)
+	if err != nil {
+		return false, err
+	}
+	if base.APIKey != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", base.APIKey))
+	}
+	httpClient := base.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return false, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("OpenRouter models API returned status %d: %s", resp.StatusCode, previewText(string(body), 240))
+	}
+	var payload struct {
+		Data []struct {
+			ID                  string   `json:"id"`
+			CanonicalSlug       string   `json:"canonical_slug"`
+			SupportedParameters []string `json:"supported_parameters"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return false, err
+	}
+	for _, model := range payload.Data {
+		if model.ID != base.Model && model.CanonicalSlug != base.Model {
+			continue
+		}
+		for _, param := range model.SupportedParameters {
+			if param == "structured_outputs" {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+	return false, fmt.Errorf("model %s not found in OpenRouter models API", base.Model)
+}
+
 func buildStrategyCompilerSystemPrompt() string {
 	return strings.TrimSpace(fmt.Sprintf(`
-You compile user trading strategy prompts into deterministic executable rules.
+	You compile user trading strategy prompts into deterministic executable rules.
 
-Output only JSON inside <compiled_strategy> tags:
-<compiled_strategy>
-{
-  "strategy_mode": "rule",
+	Output only JSON matching the provided JSON Schema. Do not wrap it in markdown, XML tags, or prose.
+	{
+	  "strategy_mode": "rule",
   "rules": [
     {
       "id": "stable_short_id",
@@ -96,12 +204,11 @@ Output only JSON inside <compiled_strategy> tags:
     }
   ],
   "scoring_config": null,
-  "warnings": [],
-  "errors": []
-}
-</compiled_strategy>
+	  "warnings": [],
+	  "errors": []
+	}
 
-Rules:
+	Rules:
 - Do not calculate indicators.
 - Do not invent unavailable data sources.
 - Convert user intent into indicator/external_factor/structure/literal operands.
@@ -111,13 +218,113 @@ Rules:
 - Open actions must include leverage, position_size_usd, stop_loss_pct, take_profit_pct, confidence.
 - Close and wait actions must include confidence.
 - For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution.
+- factor_weights are proportions from 0 to 1 and should sum to about 1 across selected_factors. If the user gives percentages, convert them to proportions.
 - Scoring scores are signed from -100 to 100. long_threshold must be positive, short_threshold must be negative. Example: long_threshold=70, short_threshold=-70. Never output short_threshold as a positive magnitude.
 - min_available_weight_ratio should normally be 0.5 or higher so scoring does not trade from one missing-heavy factor snapshot.
 - Supported scoring factors: trend, momentum, structure, derivatives.
 - Supported indicator operands: %s.
 - If the prompt lacks required execution parameters, put a clear message in errors instead of guessing.
 - Fibonacci, support, and resistance are supported by the structure engine. Use structure operands or structure scoring; do not ask for manual anchors unless the user explicitly requires custom anchors.
-`, strings.Join(SupportedIndicatorOperands(), ", ")))
+	`, strings.Join(SupportedIndicatorOperands(), ", ")))
+}
+
+func strategyCompileResponseFormat() map[string]any {
+	nullableString := map[string]any{"type": []string{"string", "null"}}
+	nullableInteger := map[string]any{"type": []string{"integer", "null"}}
+	nullableNumber := map[string]any{"type": []string{"number", "null"}}
+	stringArray := map[string]any{
+		"type":  "array",
+		"items": map[string]any{"type": "string"},
+	}
+	executionSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"leverage":          map[string]any{"type": "integer"},
+			"position_size_usd": map[string]any{"type": "number"},
+			"stop_loss_pct":     map[string]any{"type": "number"},
+			"take_profit_pct":   map[string]any{"type": "number"},
+			"confidence":        map[string]any{"type": "integer"},
+		},
+		"required":             []string{"leverage", "position_size_usd", "stop_loss_pct", "take_profit_pct", "confidence"},
+		"additionalProperties": false,
+	}
+	operandSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"kind":      map[string]any{"type": "string", "enum": []string{"indicator", "external_factor", "structure", "literal", "value"}},
+			"name":      nullableString,
+			"timeframe": nullableString,
+			"period":    nullableInteger,
+			"field":     nullableString,
+			"value":     nullableNumber,
+		},
+		"required":             []string{"kind", "name", "timeframe", "period", "field", "value"},
+		"additionalProperties": false,
+	}
+	conditionSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"left":     operandSchema,
+			"operator": map[string]any{"type": "string"},
+			"right":    operandSchema,
+		},
+		"required":             []string{"left", "operator", "right"},
+		"additionalProperties": false,
+	}
+	ruleSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":          map[string]any{"type": "string"},
+			"version":     map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"symbols":     stringArray,
+			"timeframe":   map[string]any{"type": "string"},
+			"conditions":  map[string]any{"type": "array", "items": conditionSchema},
+			"action":      map[string]any{"type": "string", "enum": []string{"open_long", "open_short", "close_long", "close_short", "wait"}},
+			"execution":   executionSchema,
+			"enabled":     map[string]any{"type": "boolean"},
+		},
+		"required":             []string{"id", "version", "description", "symbols", "timeframe", "conditions", "action", "execution", "enabled"},
+		"additionalProperties": false,
+	}
+	scoringSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"enabled":                    map[string]any{"type": "boolean"},
+			"version":                    map[string]any{"type": "string"},
+			"selected_factors":           map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"trend", "momentum", "structure", "derivatives"}}},
+			"factor_weights":             map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "number"}},
+			"long_threshold":             map[string]any{"type": "number"},
+			"short_threshold":            map[string]any{"type": "number"},
+			"min_available_weight_ratio": map[string]any{"type": "number"},
+			"min_confidence":             map[string]any{"type": "integer"},
+			"timeframe":                  map[string]any{"type": "string"},
+			"symbols":                    stringArray,
+			"execution":                  executionSchema,
+		},
+		"required":             []string{"enabled", "version", "selected_factors", "factor_weights", "long_threshold", "short_threshold", "min_available_weight_ratio", "min_confidence", "timeframe", "symbols", "execution"},
+		"additionalProperties": false,
+	}
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"strategy_mode":  map[string]any{"type": "string", "enum": []string{"rule", "scoring", "hybrid"}},
+			"rules":          map[string]any{"type": "array", "items": ruleSchema},
+			"scoring_config": map[string]any{"anyOf": []any{scoringSchema, map[string]any{"type": "null"}}},
+			"warnings":       stringArray,
+			"errors":         stringArray,
+		},
+		"required":             []string{"strategy_mode", "rules", "scoring_config", "warnings", "errors"},
+		"additionalProperties": false,
+	}
+	return map[string]any{
+		"type": "json_schema",
+		"json_schema": map[string]any{
+			"name":   "strategy_compile_result",
+			"strict": true,
+			"schema": schema,
+		},
+	}
 }
 
 func buildStrategyCompilerUserPrompt(req StrategyCompileRequest) (string, error) {
@@ -138,26 +345,60 @@ func buildStrategyCompilerUserPrompt(req StrategyCompileRequest) (string, error)
 }
 
 func parseStrategyCompileResponse(text string) (*StrategyCompileResult, error) {
-	body := strings.TrimSpace(text)
-	if start := strings.Index(body, "<compiled_strategy>"); start >= 0 {
-		body = body[start+len("<compiled_strategy>"):]
-	}
-	if end := strings.Index(body, "</compiled_strategy>"); end >= 0 {
-		body = body[:end]
-	}
-	body = strings.TrimSpace(body)
-	if strings.HasPrefix(body, "```") {
-		body = strings.TrimPrefix(body, "```json")
-		body = strings.TrimPrefix(body, "```")
-		body = strings.TrimSuffix(body, "```")
-		body = strings.TrimSpace(body)
+	body, err := extractStrategyCompileJSON(text)
+	if err != nil {
+		return nil, err
 	}
 
 	var result StrategyCompileResult
 	if err := json.Unmarshal([]byte(body), &result); err != nil {
-		return nil, fmt.Errorf("parse strategy compile response: %w", err)
+		return nil, fmt.Errorf("parse strategy compile response: %w; response preview: %q", err, previewText(text, 240))
 	}
 	return &result, nil
+}
+
+func extractStrategyCompileJSON(text string) (string, error) {
+	body := strings.TrimSpace(strings.TrimPrefix(text, "\ufeff"))
+	if body == "" {
+		return "", fmt.Errorf("parse strategy compile response: empty response")
+	}
+	if json.Valid([]byte(body)) {
+		return body, nil
+	}
+	if unwrapped, ok := unwrapSingleJSONFence(body); ok {
+		if json.Valid([]byte(unwrapped)) {
+			return unwrapped, nil
+		}
+		return "", fmt.Errorf("parse strategy compile response: JSON fenced response was incomplete or invalid; response preview: %q", previewText(text, 240))
+	}
+	return "", fmt.Errorf("parse strategy compile response: structured output was not valid JSON; response preview: %q", previewText(text, 240))
+}
+
+func unwrapSingleJSONFence(body string) (string, bool) {
+	if !strings.HasPrefix(body, "```") {
+		return "", false
+	}
+	firstLineEnd := strings.IndexByte(body, '\n')
+	if firstLineEnd < 0 {
+		return "", true
+	}
+	info := strings.TrimSpace(strings.TrimPrefix(body[:firstLineEnd], "```"))
+	if info != "" && info != "json" && info != "JSON" {
+		return "", false
+	}
+	rest := strings.TrimSpace(body[firstLineEnd+1:])
+	if !strings.HasSuffix(rest, "```") {
+		return "", true
+	}
+	return strings.TrimSpace(strings.TrimSuffix(rest, "```")), true
+}
+
+func previewText(text string, limit int) string {
+	body := strings.TrimSpace(text)
+	if len(body) <= limit {
+		return body
+	}
+	return body[:limit] + "..."
 }
 
 func validateCompiledStrategy(result *StrategyCompileResult) error {
@@ -202,6 +443,38 @@ func normalizeCompiledScoringConfig(result *StrategyCompileResult) {
 	if scoring.LongThreshold < 0 && scoring.LongThreshold >= -100 {
 		scoring.LongThreshold = -scoring.LongThreshold
 		result.Warnings = append(result.Warnings, "Normalized scoring_config.long_threshold from negative value to positive signed score.")
+	}
+	normalizeCompiledFactorWeights(scoring)
+}
+
+func normalizeCompiledFactorWeights(scoring *ScoringStrategy) {
+	if scoring == nil || len(scoring.SelectedFactors) == 0 || len(scoring.FactorWeights) == 0 {
+		return
+	}
+	total := 0.0
+	for _, factor := range scoring.SelectedFactors {
+		weight := scoring.FactorWeights[factor]
+		if weight <= 0 {
+			weight = 0.01
+		}
+		if weight > 1 && weight <= 100 {
+			weight = weight / 100
+		}
+		if weight > 1 {
+			weight = 1
+		}
+		scoring.FactorWeights[factor] = weight
+		total += weight
+	}
+	if total <= 0 {
+		equal := 1 / float64(len(scoring.SelectedFactors))
+		for _, factor := range scoring.SelectedFactors {
+			scoring.FactorWeights[factor] = equal
+		}
+		return
+	}
+	for _, factor := range scoring.SelectedFactors {
+		scoring.FactorWeights[factor] = scoring.FactorWeights[factor] / total
 	}
 }
 

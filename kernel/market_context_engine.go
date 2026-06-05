@@ -28,6 +28,7 @@ func (e *DefaultMarketContextEngine) Build(ctx context.Context, req MarketContex
 	breadthState, bullishRatio := aggregateBreadth(req.FactorSnapshot)
 	volatilityState, avgRealizedVol := aggregateVolatility(req.FactorSnapshot)
 	externalState, externalScore := aggregateExternalSignals(req.FactorSnapshot)
+	directionBias := classifyDirectionBias(btcTrend, ethTrend, bullishRatio)
 
 	riskFlags := []string{}
 	if fundingState == "overheated" {
@@ -48,14 +49,16 @@ func (e *DefaultMarketContextEngine) Build(ctx context.Context, req MarketContex
 		regime = "risk_on"
 	}
 	return &MarketContext{
-		GeneratedAt:    req.Now,
-		MarketRegime:   regime,
-		RiskFlags:      riskFlags,
-		ContextSummary: buildContextSummary(regime, btcTrend, ethTrend, fundingState, breadthState, externalState, riskFlags),
-		BTCTrend:       btcTrend,
-		ETHTrend:       ethTrend,
-		FundingState:   fundingState,
-		BreadthState:   breadthState,
+		GeneratedAt:      req.Now,
+		MarketRegime:     regime,
+		DirectionBias:    directionBias,
+		VolatilityRegime: volatilityState,
+		RiskFlags:        riskFlags,
+		ContextSummary:   buildContextSummary(regime, directionBias, volatilityState, btcTrend, ethTrend, fundingState, breadthState, externalState, riskFlags),
+		BTCTrend:         btcTrend,
+		ETHTrend:         ethTrend,
+		FundingState:     fundingState,
+		BreadthState:     breadthState,
 		Metrics: map[string]interface{}{
 			"funding_hot_ratio":       fundingHotRatio,
 			"bullish_breadth_ratio":   bullishRatio,
@@ -116,6 +119,15 @@ func assetTrend(snapshot *market.FactorSnapshot) string {
 func dominantTimeframe(snapshot *market.FactorSnapshot) string {
 	if snapshot == nil || snapshot.Technical == nil {
 		return ""
+	}
+	for _, preferred := range []string{"15m", "1h", "4h", "5m", "3m", "1m"} {
+		for _, points := range snapshot.Technical {
+			for _, point := range points {
+				if point.Timeframe == preferred {
+					return preferred
+				}
+			}
+		}
 	}
 	for _, points := range snapshot.Technical {
 		for _, point := range points {
@@ -251,6 +263,28 @@ func aggregateExternalSignals(snapshots map[string]*market.FactorSnapshot) (stri
 	}
 }
 
+func classifyDirectionBias(btcTrend, ethTrend string, bullishRatio float64) string {
+	if btcTrend == "bullish" && ethTrend != "bearish" && bullishRatio >= 0.55 {
+		return "bullish"
+	}
+	if btcTrend == "bearish" && ethTrend != "bullish" && bullishRatio <= 0.45 {
+		return "bearish"
+	}
+	if btcTrend == "bullish" && ethTrend == "bullish" {
+		return "bullish"
+	}
+	if btcTrend == "bearish" && ethTrend == "bearish" {
+		return "bearish"
+	}
+	if bullishRatio >= 0.65 {
+		return "bullish"
+	}
+	if bullishRatio <= 0.35 {
+		return "bearish"
+	}
+	return "neutral"
+}
+
 func classifyMarketRegime(btcTrend, ethTrend, fundingState, volatilityState string, bullishRatio float64) string {
 	if volatilityState == "high_volatility" {
 		return "high_volatility"
@@ -267,9 +301,11 @@ func classifyMarketRegime(btcTrend, ethTrend, fundingState, volatilityState stri
 	return "chop"
 }
 
-func buildContextSummary(regime, btcTrend, ethTrend, fundingState, breadthState, externalState string, riskFlags []string) string {
+func buildContextSummary(regime, directionBias, volatilityState, btcTrend, ethTrend, fundingState, breadthState, externalState string, riskFlags []string) string {
 	parts := []string{
 		"regime=" + regime,
+		"direction=" + directionBias,
+		"volatility=" + volatilityState,
 		"btc=" + btcTrend,
 		"eth=" + ethTrend,
 		"funding=" + fundingState,

@@ -126,6 +126,12 @@ type TraderPosition struct {
 	Source              string `gorm:"column:source;default:system" json:"source"`
 	OpeningCycle        int    `gorm:"column:opening_cycle;default:0" json:"opening_cycle"`
 	OpeningReasoning    string `gorm:"column:opening_reasoning;default:''" json:"opening_reasoning"`
+	OpeningDecisionID   int64  `gorm:"column:opening_decision_id;default:0;index" json:"opening_decision_id,omitempty"`
+	OpeningSignalID     string `gorm:"column:opening_signal_id;default:'';index" json:"opening_signal_id,omitempty"`
+	OpeningRuleID       string `gorm:"column:opening_rule_id;default:'';index" json:"opening_rule_id,omitempty"`
+	OpeningSetup        string `gorm:"column:opening_setup;default:'';index" json:"opening_setup,omitempty"`
+	StrategyID          string `gorm:"column:strategy_id;default:'';index" json:"strategy_id,omitempty"`
+	StrategyVersion     string `gorm:"column:strategy_version;default:'';index" json:"strategy_version,omitempty"`
 	LastReviewSummary   string `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
 	LastReviewCycle     int    `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
 	CreatedAt           int64  `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
@@ -182,6 +188,14 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS last_review_cycle INTEGER DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS pending_close_reason TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS pending_close_order_id TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_decision_id BIGINT DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_signal_id TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_rule_id TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_setup TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS strategy_id TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS strategy_version TEXT DEFAULT ''`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_opening_signal_id ON trader_positions(opening_signal_id)`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_strategy_id ON trader_positions(strategy_id)`)
 			return nil
 		}
 	}
@@ -220,6 +234,39 @@ func (s *PositionStore) UpdatePositionOpeningReasoning(traderID, symbol, side st
 	result := s.db.Model(&TraderPosition{}).
 		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
 		Update("opening_reasoning", reasoning)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("no matching OPEN position found for %s %s %s", traderID, symbol, side)
+	}
+	return nil
+}
+
+type PositionOpeningSignalMetadata struct {
+	DecisionID      int64
+	SignalID        string
+	RuleID          string
+	Setup           string
+	StrategyID      string
+	StrategyVersion string
+}
+
+// UpdatePositionOpeningSignalMetadata links an OPEN position to the deterministic
+// candidate signal that created it. This is the stable key used by calibration.
+func (s *PositionStore) UpdatePositionOpeningSignalMetadata(traderID, symbol, side string, meta PositionOpeningSignalMetadata) error {
+	updates := map[string]interface{}{
+		"opening_decision_id": meta.DecisionID,
+		"opening_signal_id":   meta.SignalID,
+		"opening_rule_id":     meta.RuleID,
+		"opening_setup":       meta.Setup,
+		"strategy_id":         meta.StrategyID,
+		"strategy_version":    meta.StrategyVersion,
+		"updated_at":          time.Now().UnixMilli(),
+	}
+	result := s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}

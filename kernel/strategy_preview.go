@@ -11,6 +11,7 @@ type StrategySignalPreview struct {
 	Signals            []CandidateSignal        `json:"signals"`
 	RuleEvaluations    []RuleEvaluationTrace    `json:"rule_evaluations"`
 	ScoringEvaluations []ScoringEvaluationTrace `json:"scoring_evaluations"`
+	SetupEvaluations   []SetupEvaluationTrace   `json:"setup_evaluations"`
 }
 
 func PreviewStrategySignals(config *store.StrategyConfig, candidates []CandidateCoin, factorSnapshots map[string]*market.FactorSnapshot, now time.Time) (*StrategySignalPreview, error) {
@@ -32,5 +33,6 @@ func PreviewStrategySignals(config *store.StrategyConfig, candidates []Candidate
 		Signals:            signals,
 		RuleEvaluations:    TraceRuleEvaluations(req),
 		ScoringEvaluations: TraceScoringEvaluations(req),
+		SetupEvaluations:   TraceSetupEvaluations(req),
 	}, nil
 }

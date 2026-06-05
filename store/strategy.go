@@ -36,6 +36,15 @@ func (c *StrategyConfig) ClampLimits() {
 		c.StrategyMode = "rule"
 	}
 
+	c.normalizeCoinSourceFlags()
+	// Claw402's current official nofx catalog exposes market-wide ranking
+	// endpoints, but not the legacy coin-level quant endpoint. Keep the legacy
+	// fields for saved JSON compatibility while preventing unsupported 404
+	// requests from entering the trading loop.
+	c.Indicators.EnableQuantData = false
+	c.Indicators.EnableQuantOI = false
+	c.Indicators.EnableQuantNetflow = false
+
 	// Clamp coin source limits
 	if c.CoinSource.AI500Limit > MaxCandidateCoins {
 		c.CoinSource.AI500Limit = MaxCandidateCoins
@@ -85,6 +94,7 @@ func (c *StrategyConfig) ClampLimits() {
 	if len(c.Indicators.Klines.SelectedTimeframes) > MaxTimeframes {
 		c.Indicators.Klines.SelectedTimeframes = c.Indicators.Klines.SelectedTimeframes[:MaxTimeframes]
 	}
+	c.normalizeTimeframeRoles()
 	c.clampIndicatorConfig()
 
 	// Clamp max positions
@@ -151,6 +161,141 @@ func (c *StrategyConfig) ClampLimits() {
 	c.clampScoringConfig()
 	c.ensureComputeLookbackForCalculations()
 	c.resolveParameters()
+}
+
+func (c *StrategyConfig) normalizeCoinSourceFlags() {
+	switch c.CoinSource.SourceType {
+	case "mixed":
+		return
+	case "static":
+		c.CoinSource.UseAI500 = false
+		c.CoinSource.UseOITop = false
+		c.CoinSource.UseOILow = false
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+	case "ai500":
+		c.CoinSource.UseAI500 = true
+		c.CoinSource.UseOITop = false
+		c.CoinSource.UseOILow = false
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+	case "oi_top":
+		c.CoinSource.UseAI500 = false
+		c.CoinSource.UseOITop = true
+		c.CoinSource.UseOILow = false
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+	case "oi_low":
+		c.CoinSource.UseAI500 = false
+		c.CoinSource.UseOITop = false
+		c.CoinSource.UseOILow = true
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+	default:
+		c.CoinSource.SourceType = "static"
+		c.CoinSource.UseAI500 = false
+		c.CoinSource.UseOITop = false
+		c.CoinSource.UseOILow = false
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+	}
+}
+
+func (c *StrategyConfig) normalizeTimeframeRoles() {
+	klines := &c.Indicators.Klines
+	selected := sanitizeTimeframeList(klines.SelectedTimeframes)
+	if len(selected) == 0 {
+		if klines.PrimaryTimeframe != "" {
+			selected = append(selected, klines.PrimaryTimeframe)
+		} else {
+			selected = append(selected, "5m")
+		}
+	}
+
+	sort.SliceStable(selected, func(i, j int) bool {
+		return timeframeMinutes(selected[i]) < timeframeMinutes(selected[j])
+	})
+
+	entryWasEmpty := klines.EntryTimeframe == ""
+	if len(selected) >= 2 && klines.PrimaryTimeframe == selected[0] && (entryWasEmpty || klines.EntryTimeframe == selected[0]) {
+		klines.PrimaryTimeframe = selected[1]
+	}
+	if !containsString(selected, klines.PrimaryTimeframe) {
+		if len(selected) >= 2 {
+			klines.PrimaryTimeframe = selected[1]
+		} else {
+			klines.PrimaryTimeframe = selected[0]
+		}
+	}
+	if entryWasEmpty || !containsString(selected, klines.EntryTimeframe) {
+		klines.EntryTimeframe = selected[0]
+	}
+
+	confirmations := sanitizeTimeframeList(klines.ConfirmationTimeframes)
+	if len(confirmations) == 0 {
+		for _, tf := range selected {
+			if tf != klines.EntryTimeframe && tf != klines.PrimaryTimeframe {
+				confirmations = append(confirmations, tf)
+			}
+		}
+	}
+	filtered := make([]string, 0, len(confirmations))
+	for _, tf := range confirmations {
+		if containsString(selected, tf) && tf != klines.EntryTimeframe && tf != klines.PrimaryTimeframe {
+			filtered = append(filtered, tf)
+		}
+	}
+
+	klines.SelectedTimeframes = selected
+	klines.ConfirmationTimeframes = filtered
+	klines.EnableMultiTimeframe = len(selected) > 1
+}
+
+func sanitizeTimeframeList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = true
+	}
+	return out
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func timeframeMinutes(tf string) int {
+	if tf == "" {
+		return 0
+	}
+	unit := tf[len(tf)-1:]
+	number := tf[:len(tf)-1]
+	value := 0
+	if _, err := fmt.Sscanf(number, "%d", &value); err != nil || value <= 0 {
+		return 0
+	}
+	switch unit {
+	case "m":
+		return value
+	case "h":
+		return value * 60
+	case "d":
+		return value * 60 * 24
+	case "w":
+		return value * 60 * 24 * 7
+	default:
+		return value
+	}
 }
 
 func (c *StrategyConfig) clampIndicatorConfig() {
@@ -262,6 +407,11 @@ func (c *StrategyConfig) clampScoringConfig() {
 	if c.ScoringConfig.Timeframe == "" {
 		c.ScoringConfig.Timeframe = c.resolveStructureTimeframe("")
 	}
+	if c.Indicators.Klines.PrimaryTimeframe != "" && c.Indicators.Klines.EntryTimeframe != "" &&
+		c.Indicators.Klines.PrimaryTimeframe != c.Indicators.Klines.EntryTimeframe &&
+		c.ScoringConfig.Timeframe == c.Indicators.Klines.EntryTimeframe {
+		c.ScoringConfig.Timeframe = c.Indicators.Klines.PrimaryTimeframe
+	}
 	if c.ScoringConfig.LongThreshold <= 0 {
 		c.ScoringConfig.LongThreshold = 60
 	}
@@ -288,17 +438,49 @@ func (c *StrategyConfig) clampScoringConfig() {
 	}
 	if len(c.ScoringConfig.FactorWeights) == 0 {
 		c.ScoringConfig.FactorWeights = map[string]float64{
-			"trend":       1,
-			"momentum":    1,
-			"structure":   1,
-			"derivatives": 0.5,
+			"trend":       0.30,
+			"momentum":    0.25,
+			"structure":   0.25,
+			"derivatives": 0.20,
 		}
 	}
+	normalizeScoringFactorWeights(c.ScoringConfig)
 	for _, factor := range c.ScoringConfig.SelectedFactors {
 		if factor == "structure" {
 			c.Structure.EnableFibonacci = true
 			c.Structure.EnableSupportResistance = true
 		}
+	}
+}
+
+func normalizeScoringFactorWeights(scoring *ScoringStrategyConfig) {
+	if scoring == nil || len(scoring.SelectedFactors) == 0 {
+		return
+	}
+	total := 0.0
+	for _, factor := range scoring.SelectedFactors {
+		weight := scoring.FactorWeights[factor]
+		if weight <= 0 {
+			weight = 0.01
+		}
+		if weight > 1 && weight <= 100 {
+			weight = weight / 100
+		}
+		if weight > 1 {
+			weight = 1
+		}
+		scoring.FactorWeights[factor] = weight
+		total += weight
+	}
+	if total <= 0 {
+		equal := 1 / float64(len(scoring.SelectedFactors))
+		for _, factor := range scoring.SelectedFactors {
+			scoring.FactorWeights[factor] = equal
+		}
+		return
+	}
+	for _, factor := range scoring.SelectedFactors {
+		scoring.FactorWeights[factor] = scoring.FactorWeights[factor] / total
 	}
 }
 
@@ -546,15 +728,16 @@ type CompiledRuleOperand struct {
 }
 
 type ScoringStrategyConfig struct {
-	Enabled         bool                  `json:"enabled"`
-	SelectedFactors []string              `json:"selected_factors,omitempty"`
-	FactorWeights   map[string]float64    `json:"factor_weights,omitempty"`
-	LongThreshold   float64               `json:"long_threshold,omitempty"`
-	ShortThreshold  float64               `json:"short_threshold,omitempty"`
-	MinConfidence   int                   `json:"min_confidence,omitempty"`
-	Timeframe       string                `json:"timeframe,omitempty"`
-	Symbols         []string              `json:"symbols,omitempty"`
-	Execution       CompiledRuleExecution `json:"execution"`
+	Enabled                 bool                  `json:"enabled"`
+	SelectedFactors         []string              `json:"selected_factors,omitempty"`
+	FactorWeights           map[string]float64    `json:"factor_weights,omitempty"`
+	LongThreshold           float64               `json:"long_threshold,omitempty"`
+	ShortThreshold          float64               `json:"short_threshold,omitempty"`
+	MinAvailableWeightRatio float64               `json:"min_available_weight_ratio,omitempty"`
+	MinConfidence           int                   `json:"min_confidence,omitempty"`
+	Timeframe               string                `json:"timeframe,omitempty"`
+	Symbols                 []string              `json:"symbols,omitempty"`
+	Execution               CompiledRuleExecution `json:"execution"`
 }
 
 type StructureFactorConfig struct {
@@ -644,7 +827,7 @@ type CoinSourceConfig struct {
 	UseHyperMain bool `json:"use_hyper_main"`
 	// Hyperliquid Main maximum count (default 20)
 	HyperMainLimit int `json:"hyper_main_limit,omitempty"`
-	// Note: API URLs are now built automatically using NofxOSAPIKey from IndicatorConfig
+	// Note: AI500/NofxOS data is billed through the configured Claw402 wallet.
 }
 
 // IndicatorConfig indicator configuration
@@ -693,8 +876,8 @@ type IndicatorConfig struct {
 	// external data sources
 	ExternalDataSources []ExternalDataSource `json:"external_data_sources,omitempty"`
 
-	// ========== NofxOS Unified API Configuration ==========
-	// Unified API Key for all NofxOS data sources
+	// ========== NofxOS Legacy Compatibility ==========
+	// Legacy field retained for saved strategy JSON compatibility; runtime data requests use Claw402 wallet billing.
 	NofxOSAPIKey string `json:"nofxos_api_key,omitempty"`
 
 	// quantitative data sources (capital flow, position changes, price changes)
@@ -738,6 +921,10 @@ type KlineConfig struct {
 	LongerTimeframe string `json:"longer_timeframe,omitempty"`
 	// longer timeframe K-line count
 	LongerCount int `json:"longer_count,omitempty"`
+	// entry timeframe: lower timeframe used for the final trigger.
+	EntryTimeframe string `json:"entry_timeframe,omitempty"`
+	// confirmation timeframes: higher/peer timeframes used as directional filters.
+	ConfirmationTimeframes []string `json:"confirmation_timeframes,omitempty"`
 	// whether to enable multi-timeframe analysis
 	EnableMultiTimeframe bool `json:"enable_multi_timeframe"`
 	// selected timeframe list (new: supports multi-timeframe selection)
@@ -849,23 +1036,27 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{
 			Klines: KlineConfig{
-				PrimaryTimeframe:     "5m",
-				PrimaryCount:         20,
-				ComputeLookback:      300,
-				PromptDisplayCount:   20,
-				IncludeOpenBar:       true,
-				LongerTimeframe:      "4h",
-				LongerCount:          10,
+				PrimaryTimeframe:   "15m",
+				PrimaryCount:       20,
+				ComputeLookback:    300,
+				PromptDisplayCount: 20,
+				IncludeOpenBar:     true,
+				LongerTimeframe:    "4h",
+				LongerCount:        10,
+				EntryTimeframe:     "5m",
+				ConfirmationTimeframes: []string{
+					"1h",
+				},
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
 			EnableRawKlines:        true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:              true,  // Core trend indicator
+			EnableEMA:              true, // Core trend indicator
 			EnableSMA:              false,
 			EnableMACD:             false,
 			EnableRSI:              false,
-			EnableATR:              true,  // Stop-loss sizing
-			EnableADX:              true,  // Trend strength confirmation
+			EnableATR:              true, // Stop-loss sizing
+			EnableADX:              true, // Trend strength confirmation
 			EnableSAR:              false,
 			EnableBOLL:             false,
 			EnableSession:          false,
@@ -886,10 +1077,10 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			DonchianPeriods:        []int{20},
 			RealizedVolPeriods:     []int{20},
 			PriceChangeWindows:     []int{12, 48},
-			NofxOSAPIKey:           "cm_568c67eae410d912c54c",
-			EnableQuantData:        true,
-			EnableQuantOI:          true,
-			EnableQuantNetflow:     true,
+			NofxOSAPIKey:           "",
+			EnableQuantData:        false,
+			EnableQuantOI:          false,
+			EnableQuantNetflow:     false,
 			EnableOIRanking:        true,
 			OIRankingDuration:      "1h",
 			OIRankingLimit:         10,
@@ -911,7 +1102,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinPositionSize:              12,
 			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
-			MinCloseConfidence:           75,  // Lowered from 85 to allow more flexible exits
+			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits
 		},
 	}
 	config.ClampLimits()

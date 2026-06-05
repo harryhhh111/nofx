@@ -124,6 +124,60 @@ export interface StrategyEvolutionProposal {
   created_at: string;
 }
 
+export interface StrategyCalibrationReport {
+  strategy_id: string;
+  strategy_version?: string;
+  sample_count: number;
+  signal_count: number;
+  setup_count: number;
+  eligible_count: number;
+  approved_count: number;
+  risk_rejected_count: number;
+  review_rejected_count: number;
+  no_signal_count: number;
+  closed_trade_count: number;
+  winning_trade_count: number;
+  losing_trade_count: number;
+  win_rate: number;
+  total_pnl: number;
+  average_pnl: number;
+  min_required_samples: number;
+  min_required_outcomes: number;
+  enough_samples: boolean;
+  enough_outcomes: boolean;
+  quality_gate: 'no_data' | 'collecting' | 'blocked' | 'paper_ready' | string;
+  recommendation: string;
+  risk_status_counts: Record<string, number>;
+  review_status_counts: Record<string, number>;
+  setup_stats: StrategyCalibrationSetupStat[];
+  timeframe_stats: StrategyCalibrationTimeframeStat[];
+  latest_sample_at?: string;
+  generated_at: string;
+}
+
+export interface StrategyCalibrationSetupStat {
+  setup: string;
+  samples: number;
+  eligible: number;
+  approved: number;
+  risk_rejected: number;
+  review_rejected: number;
+  no_signal: number;
+  closed_trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  total_pnl: number;
+  average_pnl: number;
+}
+
+export interface StrategyCalibrationTimeframeStat {
+  primary_timeframe: string;
+  entry_timeframe: string;
+  samples: number;
+  approved: number;
+}
+
 export interface StrategyCompileResponse {
   strategy_prompt: string;
   strategy_mode?: 'rule' | 'scoring' | 'hybrid';
@@ -248,7 +302,7 @@ export interface CoinSourceConfig {
   oi_top_limit?: number;
   use_oi_low: boolean;
   oi_low_limit?: number;
-  // Note: API URLs are now built automatically using nofxos_api_key from IndicatorConfig
+  // Note: AI500/NofxOS data is billed through the configured Claw402 wallet.
 }
 
 export interface IndicatorConfig {
@@ -285,7 +339,7 @@ export interface IndicatorConfig {
   external_data_sources?: ExternalDataSource[];
 
   // ========== NofxOS 数据源统一配置 ==========
-  // Unified NofxOS API Key - used for all NofxOS data sources
+  // Legacy compatibility only. AI500/NofxOS requests no longer use this key.
   nofxos_api_key?: string;
 
   // 量化数据源（资金流向、持仓变化、价格变化）
@@ -317,6 +371,8 @@ export interface KlineConfig {
   include_open_bar?: boolean;
   longer_timeframe?: string;
   longer_count?: number;
+  entry_timeframe?: string;
+  confirmation_timeframes?: string[];
   enable_multi_timeframe: boolean;
   // 新增：支持选择多个时间周期
   selected_timeframes?: string[];

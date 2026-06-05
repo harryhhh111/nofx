@@ -81,7 +81,7 @@ func (c *Client) GetOIRankingContext(ctx context.Context, duration string, limit
 		return data, nil
 	}
 
-	data, err := fetchOIRankingData(ctx, GetGlobalClient(), duration, limit)
+	data, err := fetchOIRankingData(ctx, c, duration, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +94,12 @@ func fetchOIRankingData(ctx context.Context, client *Client, duration string, li
 		Duration:  duration,
 		FetchedAt: time.Now(),
 	}
+	errs := []string{}
 
 	topPositions, timeRange, err := client.fetchOIRanking(ctx, "top", duration, limit)
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch OI top ranking: %v", err)
+		errs = append(errs, fmt.Sprintf("top: %v", err))
 	} else {
 		result.TopPositions = topPositions
 		result.TimeRange = timeRange
@@ -106,8 +108,13 @@ func fetchOIRankingData(ctx context.Context, client *Client, duration string, li
 	lowPositions, _, err := client.fetchOIRanking(ctx, "low", duration, limit)
 	if err != nil {
 		log.Printf("⚠️  Failed to fetch OI low ranking: %v", err)
+		errs = append(errs, fmt.Sprintf("low: %v", err))
 	} else {
 		result.LowPositions = lowPositions
+	}
+
+	if len(result.TopPositions) == 0 && len(result.LowPositions) == 0 && len(errs) > 0 {
+		return nil, fmt.Errorf("all OI ranking requests failed: %s", strings.Join(errs, "; "))
 	}
 
 	log.Printf("✓ Fetched OI ranking data: %d top, %d low (duration: %s)",

@@ -28,6 +28,8 @@ type DecisionRecordDB struct {
 	RawResponse         string    `gorm:"column:raw_response;default:''"`
 	CandidateCoins      string    `gorm:"column:candidate_coins;default:''"`
 	ExecutionLog        string    `gorm:"column:execution_log;default:''"`
+	AccountState        string    `gorm:"column:account_state;type:text;default:'{}'"`
+	Positions           string    `gorm:"column:positions;type:text;default:'[]'"`
 	Decisions           string    `gorm:"column:decisions;default:'[]'"`
 	Success             bool      `gorm:"default:false"`
 	ErrorMessage        string    `gorm:"column:error_message;default:''"`
@@ -92,6 +94,10 @@ type DecisionAction struct {
 	TakeProfit float64   `json:"take_profit,omitempty"` // Take profit price
 	Confidence int       `json:"confidence,omitempty"`  // AI confidence (0-100)
 	Reasoning  string    `json:"reasoning,omitempty"`   // Brief reasoning
+	SignalID   string    `json:"signal_id,omitempty"`
+	RuleID     string    `json:"rule_id,omitempty"`
+	Setup      string    `json:"setup,omitempty"`
+	Version    string    `json:"strategy_version,omitempty"`
 	OrderID    int64     `json:"order_id"`
 	Timestamp  time.Time `json:"timestamp"`
 	Success    bool      `json:"success"`
@@ -120,6 +126,8 @@ func (s *DecisionStore) initTables() error {
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'decision_records'`).Scan(&tableExists)
 		if tableExists > 0 {
 			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS cot_summary TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS account_state TEXT DEFAULT '{}'`)
+			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS positions TEXT DEFAULT '[]'`)
 			return nil
 		}
 	}
@@ -145,6 +153,8 @@ func (db *DecisionRecordDB) toRecord() *DecisionRecord {
 	}
 	json.Unmarshal([]byte(db.CandidateCoins), &record.CandidateCoins)
 	json.Unmarshal([]byte(db.ExecutionLog), &record.ExecutionLog)
+	json.Unmarshal([]byte(db.AccountState), &record.AccountState)
+	json.Unmarshal([]byte(db.Positions), &record.Positions)
 	json.Unmarshal([]byte(db.Decisions), &record.Decisions)
 	return record
 }
@@ -160,6 +170,8 @@ func (s *DecisionStore) LogDecision(record *DecisionRecord) error {
 	// Serialize arrays to JSON
 	candidateCoinsJSON, _ := json.Marshal(record.CandidateCoins)
 	executionLogJSON, _ := json.Marshal(record.ExecutionLog)
+	accountStateJSON, _ := json.Marshal(record.AccountState)
+	positionsJSON, _ := json.Marshal(record.Positions)
 	decisionsJSON, _ := json.Marshal(record.Decisions)
 
 	dbRecord := &DecisionRecordDB{
@@ -174,6 +186,8 @@ func (s *DecisionStore) LogDecision(record *DecisionRecord) error {
 		RawResponse:         record.RawResponse,
 		CandidateCoins:      string(candidateCoinsJSON),
 		ExecutionLog:        string(executionLogJSON),
+		AccountState:        string(accountStateJSON),
+		Positions:           string(positionsJSON),
 		Decisions:           string(decisionsJSON),
 		Success:             record.Success,
 		ErrorMessage:        record.ErrorMessage,

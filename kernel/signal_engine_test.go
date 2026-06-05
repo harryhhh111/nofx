@@ -75,6 +75,156 @@ func TestScoreSignalEngineGeneratesWhenEvidenceIsSufficient(t *testing.T) {
 	}
 }
 
+func TestSetupSignalEngineRequiresEntryAndConfirmationRoles(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testMultiTimeframeSetupSnapshot()
+
+	signals, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(1, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("expected one setup signal, got %d", len(signals))
+	}
+	if signals[0].RuleID != "trend_continuation_long" || signals[0].Timeframe != "15m" {
+		t.Fatalf("unexpected setup signal: %+v", signals[0])
+	}
+	setup, ok := signals[0].Evidence["setup"].(SetupEvaluationTrace)
+	if !ok {
+		t.Fatalf("expected setup evidence, got %#v", signals[0].Evidence["setup"])
+	}
+	if !setup.Eligible || setup.Timeframes.Entry != "5m" || setup.Timeframes.Primary != "15m" {
+		t.Fatalf("unexpected setup evidence: %+v", setup)
+	}
+
+	snapshot.Technical["ema"] = append(snapshot.Technical["ema"],
+		market.IndicatorPoint{Name: "ema", Timeframe: "1h", Period: 20, Value: 120},
+		market.IndicatorPoint{Name: "ema", Timeframe: "1h", Period: 50, Value: 130},
+	)
+	snapshot.Technical["macd_histogram"] = append(snapshot.Technical["macd_histogram"],
+		market.IndicatorPoint{Name: "macd_histogram", Timeframe: "1h", Value: -1},
+	)
+	snapshot.Technical["rsi"] = append(snapshot.Technical["rsi"],
+		market.IndicatorPoint{Name: "rsi", Timeframe: "1h", Period: 14, Value: 40},
+	)
+	blocked, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(2, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error after bearish confirmation: %v", err)
+	}
+	if len(blocked) != 0 {
+		t.Fatalf("expected bearish confirmation to block long setup, got %d", len(blocked))
+	}
+}
+
+func TestSetupSignalEngineGeneratesShortWhenTimeframesAlignBearish(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.SelectedFactors = []string{"trend", "momentum"}
+	scoring.FactorWeights = map[string]float64{"trend": 0.5, "momentum": 0.5}
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testBearishMultiTimeframeSetupSnapshot()
+
+	signals, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(4, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("expected one bearish setup signal, got %d", len(signals))
+	}
+	if signals[0].Action != "open_short" {
+		t.Fatalf("expected open_short signal, got %+v", signals[0])
+	}
+	if signals[0].RuleID != "trend_continuation_short" || signals[0].Timeframe != "15m" {
+		t.Fatalf("unexpected short setup signal: %+v", signals[0])
+	}
+	setup, ok := signals[0].Evidence["setup"].(SetupEvaluationTrace)
+	if !ok {
+		t.Fatalf("expected setup evidence, got %#v", signals[0].Evidence["setup"])
+	}
+	if !setup.Eligible || setup.Action != "open_short" || setup.Primary.Score >= 0 || setup.Entry.Score >= 0 {
+		t.Fatalf("unexpected short setup evidence: %+v", setup)
+	}
+}
+
+func TestTraceSetupEvaluationsLabelsNoTradeChop(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testNeutralMultiTimeframeSnapshot()
+
+	traces := TraceSetupEvaluations(SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+	})
+	if len(traces) != 1 {
+		t.Fatalf("expected one setup trace, got %d", len(traces))
+	}
+	if traces[0].Eligible {
+		t.Fatalf("expected neutral trace to be ineligible: %+v", traces[0])
+	}
+	if traces[0].Setup != "no_trade_chop" {
+		t.Fatalf("expected no_trade_chop setup, got %+v", traces[0])
+	}
+}
+
+func TestSetupSignalEngineLabelsBreakout(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testMultiTimeframeSetupSnapshot()
+	snapshot.Technical["break_above_donchian"] = []market.IndicatorPoint{
+		{Name: "break_above_donchian", Timeframe: "15m", Period: 20, Value: 1},
+	}
+
+	signals, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(3, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("expected one breakout setup signal, got %d", len(signals))
+	}
+	if signals[0].RuleID != "breakout_long" {
+		t.Fatalf("expected breakout_long setup, got %+v", signals[0])
+	}
+}
+
 func testScoringStrategy() *ScoringStrategy {
 	return &ScoringStrategy{
 		Enabled: true,
@@ -105,6 +255,26 @@ func testScoringStrategy() *ScoringStrategy {
 	}
 }
 
+func testNeutralMultiTimeframeSnapshot() *market.FactorSnapshot {
+	return &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {{Name: "price", Value: 100}},
+			"macd_histogram": {
+				{Name: "macd_histogram", Timeframe: "5m", Value: 0},
+				{Name: "macd_histogram", Timeframe: "15m", Value: 0},
+				{Name: "macd_histogram", Timeframe: "1h", Value: 0},
+			},
+			"rsi": {
+				{Name: "rsi", Timeframe: "5m", Period: 14, Value: 50},
+				{Name: "rsi", Timeframe: "15m", Period: 14, Value: 50},
+				{Name: "rsi", Timeframe: "1h", Period: 14, Value: 50},
+			},
+		},
+	}
+}
+
 func testScoringSnapshot(includeTrend, includeMomentum bool) *market.FactorSnapshot {
 	technical := map[string][]market.IndicatorPoint{
 		"price": {{Name: "price", Value: 100}},
@@ -127,5 +297,61 @@ func testScoringSnapshot(includeTrend, includeMomentum bool) *market.FactorSnaps
 		Symbol:    "BTCUSDT",
 		AsOf:      time.Unix(1, 0).UTC(),
 		Technical: technical,
+	}
+}
+
+func testMultiTimeframeSetupSnapshot() *market.FactorSnapshot {
+	return &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {{Name: "price", Value: 100}},
+			"ema": {
+				{Name: "ema", Timeframe: "5m", Period: 20, Value: 92},
+				{Name: "ema", Timeframe: "5m", Period: 50, Value: 88},
+				{Name: "ema", Timeframe: "15m", Period: 20, Value: 90},
+				{Name: "ema", Timeframe: "15m", Period: 50, Value: 82},
+				{Name: "ema", Timeframe: "1h", Period: 20, Value: 94},
+				{Name: "ema", Timeframe: "1h", Period: 50, Value: 86},
+			},
+			"macd_histogram": {
+				{Name: "macd_histogram", Timeframe: "5m", Value: 1},
+				{Name: "macd_histogram", Timeframe: "15m", Value: 1},
+				{Name: "macd_histogram", Timeframe: "1h", Value: 1},
+			},
+			"rsi": {
+				{Name: "rsi", Timeframe: "5m", Period: 14, Value: 60},
+				{Name: "rsi", Timeframe: "15m", Period: 14, Value: 60},
+				{Name: "rsi", Timeframe: "1h", Period: 14, Value: 58},
+			},
+		},
+	}
+}
+
+func testBearishMultiTimeframeSetupSnapshot() *market.FactorSnapshot {
+	return &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {{Name: "price", Value: 100}},
+			"ema": {
+				{Name: "ema", Timeframe: "5m", Period: 20, Value: 108},
+				{Name: "ema", Timeframe: "5m", Period: 50, Value: 112},
+				{Name: "ema", Timeframe: "15m", Period: 20, Value: 110},
+				{Name: "ema", Timeframe: "15m", Period: 50, Value: 118},
+				{Name: "ema", Timeframe: "1h", Period: 20, Value: 115},
+				{Name: "ema", Timeframe: "1h", Period: 50, Value: 122},
+			},
+			"macd_histogram": {
+				{Name: "macd_histogram", Timeframe: "5m", Value: -1},
+				{Name: "macd_histogram", Timeframe: "15m", Value: -1},
+				{Name: "macd_histogram", Timeframe: "1h", Value: -1},
+			},
+			"rsi": {
+				{Name: "rsi", Timeframe: "5m", Period: 14, Value: 40},
+				{Name: "rsi", Timeframe: "15m", Period: 14, Value: 40},
+				{Name: "rsi", Timeframe: "1h", Period: 14, Value: 42},
+			},
+		},
 	}
 }

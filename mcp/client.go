@@ -661,6 +661,14 @@ func (client *Client) BuildRequestBodyFromRequest(req *Request) map[string]any {
 		requestBody["tool_choice"] = req.ToolChoice
 	}
 
+	if req.ResponseFormat != nil {
+		requestBody["response_format"] = req.ResponseFormat
+	}
+
+	if req.Provider != nil {
+		requestBody["provider"] = req.Provider
+	}
+
 	if req.Stream {
 		requestBody["stream"] = true
 	}

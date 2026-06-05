@@ -105,6 +105,9 @@ func (c *Client) fetchAI500() ([]CoinData, error) {
 
 func fetchAI500WithRetry(client *Client) ([]CoinData, error) {
 	maxRetries := 3
+	if client != nil && client.GetClaw402() != nil {
+		maxRetries = 1
+	}
 	var lastErr error
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {

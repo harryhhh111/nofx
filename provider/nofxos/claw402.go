@@ -3,6 +3,7 @@ package nofxos
 import (
 	"context"
 	"crypto/ecdsa"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"nofx/mcp"
@@ -48,8 +49,13 @@ func NewClaw402DataClient(claw402URL, privateKeyHex string, logger mcp.Logger) (
 	return &Claw402DataClient{
 		claw402URL: claw402URL,
 		privateKey: pk,
-		httpClient: &http.Client{Timeout: 30 * time.Second},
-		logger:     logger,
+		httpClient: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
+			},
+		},
+		logger: logger,
 	}, nil
 }
 

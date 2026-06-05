@@ -6,6 +6,7 @@ import (
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
+	"nofx/provider/nofxos"
 	"nofx/store"
 	"regexp"
 	"strings"
@@ -80,17 +81,19 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		}
 	}
 
-	// Ensure OITopDataMap is initialized
+	// Ensure OITopDataMap is initialized only when the strategy needs OI ranking.
 	if ctx.OITopDataMap == nil {
 		ctx.OITopDataMap = make(map[string]*OITopData)
-		oiPositions, err := engine.nofxosClient.GetOITopPositions()
-		if err == nil {
-			for _, pos := range oiPositions {
-				ctx.OITopDataMap[pos.Symbol] = &OITopData{
-					Rank:              pos.Rank,
-					OIDeltaPercent:    pos.OIDeltaPercent,
-					OIDeltaValue:      pos.OIDeltaValue,
-					PriceDeltaPercent: pos.PriceDeltaPercent,
+		if engineConfig.Indicators.EnableOIRanking {
+			oiPositions, err := engine.nofxosClient.GetOITopPositions()
+			if err == nil {
+				for _, pos := range oiPositions {
+					ctx.OITopDataMap[pos.Symbol] = &OITopData{
+						Rank:              pos.Rank,
+						OIDeltaPercent:    pos.OIDeltaPercent,
+						OIDeltaValue:      pos.OIDeltaValue,
+						PriceDeltaPercent: pos.PriceDeltaPercent,
+					}
 				}
 			}
 		}
@@ -124,16 +127,17 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	)
 
 	aiCallStart := time.Now()
+	signalRequest := SignalRequest{
+		Account:        ctx.Account,
+		Positions:      ctx.Positions,
+		Candidates:     ctx.CandidateCoins,
+		Rules:          rules,
+		Scoring:        scoring,
+		FactorSnapshot: factorSnapshots,
+		Now:            time.Now().UTC(),
+	}
 	result, err := tradingEngine.Evaluate(context.Background(), TradingEngineRequest{
-		SignalRequest: SignalRequest{
-			Account:        ctx.Account,
-			Positions:      ctx.Positions,
-			Candidates:     ctx.CandidateCoins,
-			Rules:          rules,
-			Scoring:        scoring,
-			FactorSnapshot: factorSnapshots,
-			Now:            time.Now().UTC(),
-		},
+		SignalRequest: signalRequest,
 	})
 	aiCallDuration := time.Since(aiCallStart)
 	if err != nil {
@@ -145,17 +149,24 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		AIRequestDurationMs: aiCallDuration.Milliseconds(),
 		Decisions:           decisionsFromTradingResult(result),
 		CoTSummary:          tradingResultSummary(result, len(rules)),
-		SystemPrompt:        buildLLMReviewSystemPrompt(),
 		MarketContext:       result.MarketContext,
+		Signals:             result.Signals,
+		SetupEvaluations:    result.SetupEvaluations,
+		ScoringEvaluations:  TraceScoringEvaluations(signalRequest),
+		InputAudit:          buildTradingInputAudit(ctx, engineConfig),
+		CalibrationSamples:  BuildSignalCalibrationSamples(signalRequest, result),
 	}
-	if userPrompt, promptErr := buildLLMReviewUserPrompt(AIReviewRequest{
-		Signals:          result.Signals,
-		FactorSnapshot:   factorSnapshots,
-		MarketContext:    result.MarketContext,
-		RelevantMemory:   result.Memory,
-		CurrentPositions: ctx.Positions,
-	}); promptErr == nil {
-		decision.UserPrompt = userPrompt
+	if len(result.Signals) > 0 {
+		decision.SystemPrompt = buildLLMReviewSystemPrompt()
+		if userPrompt, promptErr := buildLLMReviewUserPrompt(AIReviewRequest{
+			Signals:          result.Signals,
+			FactorSnapshot:   factorSnapshots,
+			MarketContext:    result.MarketContext,
+			RelevantMemory:   result.Memory,
+			CurrentPositions: ctx.Positions,
+		}); promptErr == nil {
+			decision.UserPrompt = userPrompt
+		}
 	}
 	return decision, nil
 }
@@ -265,15 +276,253 @@ func buildFactorSnapshots(ctx *Context, config *store.StrategyConfig) (map[strin
 	return snapshots, nil
 }
 
+func buildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *TradingInputAudit {
+	if ctx == nil || config == nil {
+		return nil
+	}
+	klines := config.Indicators.Klines
+	timeframes := append([]string(nil), klines.SelectedTimeframes...)
+	if len(timeframes) == 0 && klines.PrimaryTimeframe != "" {
+		timeframes = append(timeframes, klines.PrimaryTimeframe)
+	}
+	displayCount := klines.PromptDisplayCount
+	if displayCount <= 0 {
+		displayCount = klines.PrimaryCount
+	}
+	if displayCount <= 0 {
+		displayCount = 30
+	}
+	computeLookback := klines.ComputeLookback
+	if computeLookback < displayCount {
+		computeLookback = displayCount
+	}
+	requiredLookback := requiredCalculationLookback(config)
+	warmupTarget := requiredLookback * 2
+	candidates := make([]string, 0, len(ctx.CandidateCoins))
+	sourceBySymbol := map[string][]string{}
+	for _, coin := range ctx.CandidateCoins {
+		candidates = append(candidates, coin.Symbol)
+		sourceBySymbol[coin.Symbol] = append([]string(nil), coin.Sources...)
+	}
+	symbols := map[string]SymbolInputAudit{}
+	for symbol, data := range ctx.MarketDataMap {
+		if data == nil {
+			continue
+		}
+		item := SymbolInputAudit{
+			Source:     sourceBySymbol[symbol],
+			Timeframes: map[string]TimeframeInputAudit{},
+			Price:      data.CurrentPrice,
+		}
+		for tf, tfData := range data.TimeframeData {
+			if tfData == nil {
+				continue
+			}
+			tfAudit := TimeframeInputAudit{
+				DisplayBars:      len(tfData.Klines),
+				ComputeBars:      len(tfData.ComputeBars),
+				RequiredLookback: requiredLookback,
+				WarmupBars:       len(tfData.ComputeBars) - requiredLookback,
+			}
+			switch {
+			case tfAudit.ComputeBars < requiredLookback:
+				tfAudit.CalculationHealthy = false
+				tfAudit.HealthReason = "compute bars below required indicator/structure lookback"
+			case tfAudit.ComputeBars < warmupTarget:
+				tfAudit.CalculationHealthy = true
+				tfAudit.HealthReason = "minimum satisfied; limited warm-up margin"
+			default:
+				tfAudit.CalculationHealthy = true
+				tfAudit.HealthReason = "enough warm-up bars for stable indicator calculation"
+			}
+			if len(tfData.Klines) > 0 {
+				latest := time.UnixMilli(tfData.Klines[len(tfData.Klines)-1].Time).UTC()
+				tfAudit.LatestTime = &latest
+				tfAudit.LatestClose = tfData.Klines[len(tfData.Klines)-1].Close
+			}
+			item.Timeframes[tf] = tfAudit
+		}
+		if len(item.Timeframes) == 0 {
+			item.Warnings = append(item.Warnings, "no timeframe data")
+		}
+		symbols[symbol] = item
+	}
+	return &TradingInputAudit{
+		GeneratedAt:    time.Now().UTC(),
+		CandidateCoins: candidates,
+		Klines: KlineInputAudit{
+			Timeframes:       timeframes,
+			PrimaryTimeframe: klines.PrimaryTimeframe,
+			EntryTimeframe:   klines.EntryTimeframe,
+			Confirmations:    append([]string(nil), klines.ConfirmationTimeframes...),
+			UnusedTimeframes: unusedScoringTimeframes(timeframes, klines.PrimaryTimeframe, klines.EntryTimeframe, klines.ConfirmationTimeframes),
+			DisplayCount:     displayCount,
+			ComputeLookback:  computeLookback,
+			RequiredLookback: requiredLookback,
+			WarmupTarget:     warmupTarget,
+			IncludeOpenBar:   klines.IncludeOpenBar,
+		},
+		Indicators: map[string]interface{}{
+			"ema_periods":            config.Indicators.EMAPeriods,
+			"sma_periods":            config.Indicators.SMAPeriods,
+			"rsi_periods":            config.Indicators.RSIPeriods,
+			"atr_periods":            config.Indicators.ATRPeriods,
+			"adx_period":             config.Indicators.ADXPeriod,
+			"boll_periods":           config.Indicators.BOLLPeriods,
+			"volume_periods":         config.Indicators.VolumePeriods,
+			"enable_ema":             config.Indicators.EnableEMA,
+			"enable_sma":             config.Indicators.EnableSMA,
+			"enable_macd":            config.Indicators.EnableMACD,
+			"enable_rsi":             config.Indicators.EnableRSI,
+			"enable_atr":             config.Indicators.EnableATR,
+			"enable_adx":             config.Indicators.EnableADX,
+			"enable_boll":            config.Indicators.EnableBOLL,
+			"enable_volume":          config.Indicators.EnableVolume,
+			"enable_oi":              config.Indicators.EnableOI,
+			"enable_funding_rate":    config.Indicators.EnableFundingRate,
+			"enable_quant_data":      config.Indicators.EnableQuantData,
+			"enable_oi_ranking":      config.Indicators.EnableOIRanking,
+			"enable_netflow_ranking": config.Indicators.EnableNetFlowRanking,
+			"enable_price_ranking":   config.Indicators.EnablePriceRanking,
+		},
+		ExternalData: ExternalDataAudit{
+			QuantEnabled:          config.Indicators.EnableQuantData,
+			QuantSymbols:          len(ctx.QuantDataMap),
+			OIRankingEnabled:      config.Indicators.EnableOIRanking,
+			OIRankingAvailable:    hasOIRankingData(ctx.OIRankingData),
+			NetFlowEnabled:        config.Indicators.EnableNetFlowRanking,
+			NetFlowAvailable:      hasNetFlowRankingData(ctx.NetFlowRankingData),
+			PriceRankingEnabled:   config.Indicators.EnablePriceRanking,
+			PriceRankingAvailable: hasPriceRankingData(ctx.PriceRankingData),
+			Statuses: map[string]string{
+				"quant":         externalDataStatus(config.Indicators.EnableQuantData, len(ctx.QuantDataMap) > 0),
+				"oi_ranking":    externalDataStatus(config.Indicators.EnableOIRanking, hasOIRankingData(ctx.OIRankingData)),
+				"netflow":       externalDataStatus(config.Indicators.EnableNetFlowRanking, hasNetFlowRankingData(ctx.NetFlowRankingData)),
+				"price_ranking": externalDataStatus(config.Indicators.EnablePriceRanking, hasPriceRankingData(ctx.PriceRankingData)),
+			},
+			DataFetchErrors: append([]string(nil), ctx.DataFetchErrors...),
+		},
+		Symbols: symbols,
+	}
+}
+
+func unusedScoringTimeframes(timeframes []string, primary string, entry string, confirmations []string) []string {
+	used := map[string]bool{}
+	if primary != "" {
+		used[primary] = true
+	}
+	if entry != "" {
+		used[entry] = true
+	}
+	for _, tf := range confirmations {
+		if tf != "" {
+			used[tf] = true
+		}
+	}
+	out := []string{}
+	for _, tf := range timeframes {
+		if tf != "" && !used[tf] {
+			out = append(out, tf)
+		}
+	}
+	return out
+}
+
+func requiredCalculationLookback(config *store.StrategyConfig) int {
+	if config == nil {
+		return 0
+	}
+	indicators := config.Indicators
+	required := 1
+	if indicators.EnableEMA {
+		required = maxInt(required, maxIntSlice(indicators.EMAPeriods))
+	}
+	if indicators.EnableSMA {
+		required = maxInt(required, maxIntSlice(indicators.SMAPeriods))
+	}
+	if indicators.EnableRSI {
+		required = maxInt(required, maxIntSlice(indicators.RSIPeriods)+1)
+	}
+	if indicators.EnableATR {
+		required = maxInt(required, maxIntSlice(indicators.ATRPeriods)+1)
+	}
+	if indicators.EnableADX {
+		required = maxInt(required, indicators.ADXPeriod+1)
+	}
+	if indicators.EnableBOLL {
+		required = maxInt(required, maxIntSlice(indicators.BOLLPeriods))
+	}
+	if indicators.EnableVolume {
+		required = maxInt(required, maxIntSlice(indicators.VolumePeriods))
+	}
+	if indicators.EnableMACD {
+		required = maxInt(required, indicators.MACDSlowPeriod+indicators.MACDSignalPeriod)
+	}
+	required = maxInt(required, maxIntSlice(indicators.VWAPPeriods))
+	required = maxInt(required, maxIntSlice(indicators.DonchianPeriods))
+	required = maxInt(required, maxIntSlice(indicators.RealizedVolPeriods)+1)
+	required = maxInt(required, maxIntSlice(indicators.PriceChangeWindows)+1)
+	if config.Structure.EnableFibonacci {
+		required = maxInt(required, config.Structure.Fibonacci.Lookback)
+	}
+	if config.Structure.EnableSupportResistance {
+		required = maxInt(required, config.Structure.SupportResistance.Lookback)
+	}
+	return required
+}
+
+func maxIntSlice(values []int) int {
+	max := 0
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func externalDataStatus(enabled bool, available bool) string {
+	if !enabled {
+		return "disabled"
+	}
+	if available {
+		return "available"
+	}
+	return "enabled_but_unavailable_this_cycle"
+}
+
+func hasOIRankingData(data *nofxos.OIRankingData) bool {
+	return data != nil && (len(data.TopPositions) > 0 || len(data.LowPositions) > 0)
+}
+
+func hasNetFlowRankingData(data *nofxos.NetFlowRankingData) bool {
+	return data != nil &&
+		(len(data.InstitutionFutureTop) > 0 ||
+			len(data.InstitutionFutureLow) > 0 ||
+			len(data.PersonalFutureTop) > 0 ||
+			len(data.PersonalFutureLow) > 0)
+}
+
+func hasPriceRankingData(data *nofxos.PriceRankingData) bool {
+	return data != nil && len(data.Durations) > 0
+}
+
 func signalEngineFromStrategyConfig(config *store.StrategyConfig) SignalEngine {
 	if config == nil {
 		return NewRuleSignalEngine()
 	}
 	switch config.StrategyMode {
 	case "scoring":
-		return NewScoreSignalEngine()
+		return NewSetupSignalEngine()
 	case "hybrid":
-		return NewCompositeSignalEngine(NewRuleSignalEngine(), NewScoreSignalEngine())
+		return NewCompositeSignalEngine(NewRuleSignalEngine(), NewSetupSignalEngine())
 	default:
 		return NewRuleSignalEngine()
 	}
@@ -453,8 +702,9 @@ func tradingResultSummary(result *TradingEngineResult, ruleCount int) string {
 		rejected = len(result.Risk.Rejected)
 	}
 	return fmt.Sprintf(
-		"structured trading flow: rules=%d signals=%d reviews=%d approved=%d rejected=%d",
+		"structured trading flow: rules=%d setups=%d signals=%d reviews=%d approved=%d rejected=%d",
 		ruleCount,
+		len(result.SetupEvaluations),
 		len(result.Signals),
 		len(result.Reviews),
 		approved,

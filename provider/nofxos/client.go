@@ -116,7 +116,7 @@ func (c *Client) doRequestContext(ctx context.Context, endpoint string) ([]byte,
 		return claw402Client.DoRequestContext(ctx, endpoint)
 	}
 	if strings.TrimSpace(authKey) == "" {
-		return nil, fmt.Errorf("NofxOS API key is required. Configure a valid key or use a supported data gateway")
+		return nil, fmt.Errorf("claw402 wallet private key is required for NofxOS data requests")
 	}
 
 	url := baseURL + endpoint

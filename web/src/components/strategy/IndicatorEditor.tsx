@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
+import { Clock, Activity, TrendingUp, BarChart2, Info, Lock, ExternalLink, Zap, Check } from 'lucide-react'
 import type { IndicatorConfig, StrategyMetadata, StrategyMetadataIndicator, StrategyMetadataTimeframe } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
@@ -68,6 +68,8 @@ export function IndicatorEditor({
 
   // Get currently selected timeframes
   const selectedTimeframes = config.klines.selected_timeframes || [config.klines.primary_timeframe]
+  const entryTimeframe = config.klines.entry_timeframe || selectedTimeframes[0] || config.klines.primary_timeframe
+  const confirmationTimeframes = config.klines.confirmation_timeframes || selectedTimeframes.filter((tf) => tf !== config.klines.primary_timeframe && tf !== entryTimeframe)
 
   // Toggle timeframe selection
   const toggleTimeframe = (tf: string) => {
@@ -79,12 +81,16 @@ export function IndicatorEditor({
       if (current.length > 1) {
         current.splice(index, 1)
         const newPrimary = tf === config.klines.primary_timeframe ? current[0] : config.klines.primary_timeframe
+        const newEntry = tf === entryTimeframe ? current[0] : entryTimeframe
+        const newConfirmations = confirmationTimeframes.filter((item) => item !== tf && item !== newPrimary && item !== newEntry)
         onChange({
           ...config,
           klines: {
             ...config.klines,
             selected_timeframes: current,
             primary_timeframe: newPrimary,
+            entry_timeframe: newEntry,
+            confirmation_timeframes: newConfirmations,
             enable_multi_timeframe: current.length > 1,
           },
         })
@@ -107,6 +113,7 @@ export function IndicatorEditor({
         klines: {
           ...config.klines,
           selected_timeframes: current,
+          entry_timeframe: config.klines.entry_timeframe || current[0],
           enable_multi_timeframe: current.length > 1,
         },
       })
@@ -121,6 +128,33 @@ export function IndicatorEditor({
       klines: {
         ...config.klines,
         primary_timeframe: tf,
+        confirmation_timeframes: confirmationTimeframes.filter((item) => item !== tf && item !== entryTimeframe),
+      },
+    })
+  }
+
+  const setEntryTimeframe = (tf: string) => {
+    if (disabled) return
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        entry_timeframe: tf,
+        confirmation_timeframes: confirmationTimeframes.filter((item) => item !== tf && item !== config.klines.primary_timeframe),
+      },
+    })
+  }
+
+  const toggleConfirmationTimeframe = (tf: string) => {
+    if (disabled || tf === config.klines.primary_timeframe || tf === entryTimeframe) return
+    const next = confirmationTimeframes.includes(tf)
+      ? confirmationTimeframes.filter((item) => item !== tf)
+      : [...confirmationTimeframes, tf]
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        confirmation_timeframes: next,
       },
     })
   }
@@ -145,8 +179,7 @@ export function IndicatorEditor({
   }
 
   // Check if any NofxOS feature is enabled
-  const hasNofxosEnabled = config.enable_quant_data || config.enable_oi_ranking || config.enable_netflow_ranking || config.enable_price_ranking
-  const hasApiKey = !!config.nofxos_api_key
+  const hasNofxosEnabled = config.enable_oi_ranking || config.enable_netflow_ranking || config.enable_price_ranking
 
   return (
     <div className="space-y-5">
@@ -186,19 +219,12 @@ export function IndicatorEditor({
               </div>
             </div>
 
-            {/* Status & API Docs */}
+            {/* Status & Docs */}
             <div className="flex items-center gap-2">
-              {hasApiKey ? (
-                <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full" style={{ background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81' }}>
-                  <Check className="w-3 h-3" />
-                  {ts(indicator.connected, language)}
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full" style={{ background: 'rgba(246, 70, 93, 0.15)', color: '#F6465D' }}>
-                  <AlertCircle className="w-3 h-3" />
-                  {ts(indicator.notConfigured, language)}
-                </span>
-              )}
+              <span className="flex items-center gap-1 text-[10px] px-2 py-1 rounded-full" style={{ background: 'rgba(14, 203, 129, 0.15)', color: '#0ECB81' }}>
+                <Check className="w-3 h-3" />
+                {ts(indicator.walletBilling, language)}
+              </span>
               <a
                 href="https://nofxos.ai/api-docs"
                 target="_blank"
@@ -215,24 +241,15 @@ export function IndicatorEditor({
             </div>
           </div>
 
-          {/* API Key Input */}
-          <div className="flex items-center gap-2">
-            <div className="flex-1 relative">
-              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: '#848E9C' }} />
-              <input
-                type="text"
-                value={config.nofxos_api_key || ''}
-                onChange={(e) => !disabled && onChange({ ...config, nofxos_api_key: e.target.value })}
-                disabled={disabled}
-                placeholder={ts(indicator.apiKeyPlaceholder, language)}
-                className="w-full pl-9 pr-3 py-2 rounded-lg text-sm font-mono"
-                style={{
-                  background: 'rgba(30, 35, 41, 0.8)',
-                  border: hasApiKey ? '1px solid rgba(14, 203, 129, 0.3)' : '1px solid rgba(139, 92, 246, 0.3)',
-                  color: '#EAECEF',
-                }}
-              />
-            </div>
+          <div
+            className="rounded-lg px-3 py-2 text-[11px]"
+            style={{
+              background: 'rgba(30, 35, 41, 0.65)',
+              border: '1px solid rgba(139, 92, 246, 0.25)',
+              color: '#B7BDC6',
+            }}
+          >
+            {ts(indicator.walletBillingDesc, language)}
           </div>
 
           {/* NofxOS Data Sources Grid */}
@@ -241,56 +258,6 @@ export function IndicatorEditor({
               {ts(indicator.nofxosDataSources, language)}
             </div>
             <div className="grid grid-cols-2 gap-2">
-              {/* Quant Data */}
-              <div
-                className="p-2.5 rounded-lg transition-all cursor-pointer"
-                style={{
-                  background: config.enable_quant_data ? 'rgba(96, 165, 250, 0.1)' : 'rgba(30, 35, 41, 0.5)',
-                  border: config.enable_quant_data ? '1px solid rgba(96, 165, 250, 0.3)' : '1px solid rgba(43, 49, 57, 0.5)',
-                  opacity: disabled ? 0.5 : 1,
-                }}
-                onClick={() => !disabled && onChange({ ...config, enable_quant_data: !config.enable_quant_data })}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ background: '#60a5fa' }} />
-                    <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.quantData, language)}</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={config.enable_quant_data || false}
-                    onChange={(e) => { e.stopPropagation(); !disabled && onChange({ ...config, enable_quant_data: e.target.checked }) }}
-                    disabled={disabled}
-                    className="w-3.5 h-3.5 rounded accent-blue-500"
-                  />
-                </div>
-                <p className="text-[10px] mt-1" style={{ color: '#5E6673' }}>{ts(indicator.quantDataDesc, language)}</p>
-                {config.enable_quant_data && (
-                  <div className="flex gap-3 mt-2">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.enable_quant_oi !== false}
-                        onChange={(e) => { e.stopPropagation(); !disabled && onChange({ ...config, enable_quant_oi: e.target.checked }) }}
-                        disabled={disabled}
-                        className="w-3 h-3 rounded accent-blue-500"
-                      />
-                      <span className="text-[10px]" style={{ color: '#EAECEF' }}>OI</span>
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={config.enable_quant_netflow !== false}
-                        onChange={(e) => { e.stopPropagation(); !disabled && onChange({ ...config, enable_quant_netflow: e.target.checked }) }}
-                        disabled={disabled}
-                        className="w-3 h-3 rounded accent-blue-500"
-                      />
-                      <span className="text-[10px]" style={{ color: '#EAECEF' }}>Netflow</span>
-                    </label>
-                  </div>
-                )}
-              </div>
-
               {/* OI Ranking */}
               <div
                 className="p-2.5 rounded-lg transition-all cursor-pointer"
@@ -465,12 +432,11 @@ export function IndicatorEditor({
               </div>
             </div>
 
-            {/* Warning if features enabled but no API key */}
-            {hasNofxosEnabled && !hasApiKey && (
-              <div className="flex items-center gap-2 mt-3 p-2 rounded-lg" style={{ background: 'rgba(246, 70, 93, 0.1)', border: '1px solid rgba(246, 70, 93, 0.2)' }}>
-                <AlertCircle className="w-4 h-4 flex-shrink-0" style={{ color: '#F6465D' }} />
-                <span className="text-[10px]" style={{ color: '#F6465D' }}>
-                  {ts(indicator.configureApiKey, language)}
+            {hasNofxosEnabled && (
+              <div className="flex items-center gap-2 mt-3 p-2 rounded-lg" style={{ background: 'rgba(14, 203, 129, 0.1)', border: '1px solid rgba(14, 203, 129, 0.2)' }}>
+                <Info className="w-4 h-4 flex-shrink-0" style={{ color: '#0ECB81' }} />
+                <span className="text-[10px]" style={{ color: '#B7BDC6' }}>
+                  {ts(indicator.configureWallet, language)}
                 </span>
               </div>
             )}
@@ -582,6 +548,65 @@ export function IndicatorEditor({
                   </div>
                 )
               })}
+            </div>
+
+            <div className="mt-3 rounded-lg p-3" style={{ background: 'rgba(30, 35, 41, 0.55)', border: '1px solid #2B3139' }}>
+              <div className="text-[10px] font-medium mb-2" style={{ color: '#EAECEF' }}>
+                {language === 'zh' ? '周期角色' : 'Timeframe roles'}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <label className="space-y-1">
+                  <span className="text-[10px]" style={{ color: '#848E9C' }}>{language === 'zh' ? '主周期：识别机会' : 'Primary: setup'}</span>
+                  <select
+                    value={config.klines.primary_timeframe}
+                    disabled={disabled}
+                    onChange={(e) => setPrimaryTimeframe(e.target.value)}
+                    className="w-full px-2 py-1.5 rounded text-xs"
+                    style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                  >
+                    {selectedTimeframes.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-[10px]" style={{ color: '#848E9C' }}>{language === 'zh' ? '入场周期：确认触发' : 'Entry: trigger'}</span>
+                  <select
+                    value={entryTimeframe}
+                    disabled={disabled}
+                    onChange={(e) => setEntryTimeframe(e.target.value)}
+                    className="w-full px-2 py-1.5 rounded text-xs"
+                    style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                  >
+                    {selectedTimeframes.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
+                  </select>
+                </label>
+              </div>
+              <div className="mt-2">
+                <div className="text-[10px] mb-1" style={{ color: '#848E9C' }}>
+                  {language === 'zh' ? '确认周期：过滤方向冲突' : 'Confirmations: direction filter'}
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {selectedTimeframes.map((tf) => {
+                    const disabledRole = tf === config.klines.primary_timeframe || tf === entryTimeframe
+                    const active = confirmationTimeframes.includes(tf)
+                    return (
+                      <button
+                        key={`${tf}-confirm`}
+                        type="button"
+                        disabled={disabled || disabledRole}
+                        onClick={() => toggleConfirmationTimeframe(tf)}
+                        className="px-2 py-1 rounded text-[10px] transition-all"
+                        style={{
+                          background: active ? 'rgba(14, 203, 129, 0.16)' : 'transparent',
+                          border: `1px solid ${active ? '#0ECB81' : '#2B3139'}`,
+                          color: disabledRole ? '#5E6673' : active ? '#0ECB81' : '#848E9C',
+                        }}
+                      >
+                        {tf}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             </div>
           </div>
         </div>
