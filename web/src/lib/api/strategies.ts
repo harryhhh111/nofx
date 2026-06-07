@@ -3,7 +3,6 @@ import type {
   StrategyConfig,
   StrategyCompileResponse,
   StrategyCalibrationReport,
-  StrategyEvolutionProposal,
   StrategyMetadata,
   StrategyPreviewFlowResponse,
   StrategyTestRunResponse,
@@ -128,22 +127,6 @@ export const strategyApi = {
     )
     if (!result.success) throw new Error(result.message || 'Failed to run strategy test')
     return result.data!
-  },
-
-  async evolveStrategy(
-    strategyId: string,
-    data: {
-      ai_model_id: string
-      trigger: 'manual'
-      base_version?: string
-      notes?: string
-      performance?: Record<string, unknown>
-      market_context?: Record<string, unknown>
-    }
-  ): Promise<StrategyEvolutionProposal> {
-    const result = await httpClient.post<{ proposal: StrategyEvolutionProposal }>(`${API_BASE}/strategies/${strategyId}/evolve`, data)
-    if (!result.success) throw new Error('Failed to evolve strategy')
-    return result.data!.proposal
   },
 
   async getStrategyCalibrationReport(

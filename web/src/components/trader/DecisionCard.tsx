@@ -524,6 +524,10 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
   const snapshotSymbols = useMemo(() => getSnapshotSymbols(parsedDecision), [parsedDecision])
   const setupEvaluations = useMemo(() => getArray(parsedDecision?.setup_evaluations), [parsedDecision])
   const scoringEvaluations = useMemo(() => getArray(parsedDecision?.scoring_evaluations), [parsedDecision])
+  const ruleEvaluations = useMemo(() => getArray(parsedDecision?.rule_evaluations), [parsedDecision])
+  const reviews = useMemo(() => getArray(parsedDecision?.reviews), [parsedDecision])
+  const riskRejected = useMemo(() => getArray(parsedDecision?.risk?.rejected), [parsedDecision])
+  const riskApproved = useMemo(() => getArray(parsedDecision?.risk?.approved), [parsedDecision])
   const inputAudit = parsedDecision?.input_audit && typeof parsedDecision.input_audit === 'object' ? parsedDecision.input_audit : null
   const marketContext = parsedDecision?.market_context && typeof parsedDecision.market_context === 'object' ? parsedDecision.market_context : null
   const signalCount = getArrayLength(parsedDecision?.signals)
@@ -615,7 +619,7 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
         </div>
       )}
 
-      {(setupEvaluations.length > 0 || scoringEvaluations.length > 0) && (
+      {(setupEvaluations.length > 0 || scoringEvaluations.length > 0 || ruleEvaluations.length > 0 || reviews.length > 0 || riskRejected.length > 0 || marketContext || inputAudit) && (
         <div
           className="rounded-lg p-3 mb-4"
           style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
@@ -786,6 +790,105 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
                   ))}
                 </div>
               )}
+            </div>
+          )}
+          {ruleEvaluations.length > 0 && (
+            <div className="space-y-2 mb-3">
+              <div className="text-[11px] font-semibold" style={{ color: '#EAECEF' }}>
+                {language === 'zh' ? '规则评估（为什么触发 / 未触发）' : 'Rule Evaluation (why fired / not)'}
+              </div>
+              {ruleEvaluations.slice(0, 12).map((trace: any, index: number) => (
+                <div
+                  key={`${String(trace?.rule_id || index)}-${String(trace?.symbol || '')}-rule`}
+                  className="rounded-md p-2"
+                  style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="font-mono text-xs" style={{ color: '#EAECEF' }}>
+                      {String(trace?.symbol || '-')} · {String(trace?.rule_id || '-')}
+                      <span className="ml-1 text-[10px]" style={{ color: '#848E9C' }}>{String(trace?.action || '')}</span>
+                    </div>
+                    <div
+                      className="rounded px-2 py-0.5 text-[10px]"
+                      style={{
+                        color: trace?.matched ? '#0ECB81' : trace?.missing ? '#F0B90B' : '#A7B0BC',
+                        background: trace?.matched ? 'rgba(14,203,129,0.12)' : trace?.missing ? 'rgba(240,185,11,0.12)' : 'rgba(132,142,156,0.12)',
+                      }}
+                    >
+                      {trace?.matched
+                        ? (language === 'zh' ? '已触发' : 'fired')
+                        : trace?.missing
+                          ? (language === 'zh' ? '数据缺失' : 'data missing')
+                          : (language === 'zh' ? '未触发' : 'no trigger')}
+                    </div>
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {Array.isArray(trace?.conditions) && trace.conditions.map((c: any, ci: number) => (
+                      <div
+                        key={ci}
+                        className="flex flex-wrap items-center gap-1 font-mono text-[10px]"
+                        style={{ color: c?.passed ? '#0ECB81' : '#F6465D' }}
+                      >
+                        <span>{c?.passed ? '✓' : '✗'}</span>
+                        <span style={{ color: '#EAECEF' }}>{String(c?.left || '')}</span>
+                        <span style={{ color: '#A7B0BC' }}>
+                          {c?.left_available && typeof c?.left_value === 'number' ? `(${c.left_value.toFixed(2)})` : '(n/a)'}
+                        </span>
+                        <span style={{ color: '#848E9C' }}>{String(c?.operator || '')}</span>
+                        <span style={{ color: '#EAECEF' }}>{String(c?.right || '')}</span>
+                        <span style={{ color: '#A7B0BC' }}>
+                          {c?.right_available && typeof c?.right_value === 'number' ? `(${c.right_value.toFixed(2)})` : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {trace?.reason && (
+                    <div className="mt-1 text-[10px]" style={{ color: '#848E9C' }}>{String(trace.reason)}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {(reviews.length > 0 || riskRejected.length > 0 || riskApproved.length > 0) && (
+            <div className="space-y-2 mb-3">
+              <div className="text-[11px] font-semibold" style={{ color: '#EAECEF' }}>
+                {language === 'zh' ? '信号复核 / 风控门（为什么被拒 / 放行）' : 'Review / Risk Gate (why rejected / approved)'}
+              </div>
+              <div className="flex flex-wrap gap-2 text-[10px]" style={{ color: '#A7B0BC' }}>
+                <span>{language === 'zh' ? '放行' : 'Approved'}: <span className="font-mono" style={{ color: '#0ECB81' }}>{riskApproved.length}</span></span>
+                <span>{language === 'zh' ? '拒绝' : 'Rejected'}: <span className="font-mono" style={{ color: '#F6465D' }}>{riskRejected.length}</span></span>
+                <span>{language === 'zh' ? '复核' : 'Reviews'}: <span className="font-mono" style={{ color: '#EAECEF' }}>{reviews.length}</span></span>
+              </div>
+              {riskRejected.slice(0, 12).map((r: any, index: number) => {
+                const review = reviews.find((rv: any) => rv?.signal_id === r?.signal_id)
+                const rawReason = String(r?.reason || '')
+                const stage = rawReason.startsWith('llm_review_rejected')
+                  ? (language === 'zh' ? 'LLM 复核拒绝' : 'LLM review rejected')
+                  : rawReason.startsWith('market_context_rejected')
+                    ? (language === 'zh' ? '市场上下文硬拒' : 'Market context reject')
+                    : rawReason.startsWith('risk_gate_rejected')
+                      ? (language === 'zh' ? '确定性风控拒绝' : 'Risk gate reject')
+                      : (language === 'zh' ? '被拒' : 'Rejected')
+                return (
+                  <div
+                    key={`${String(r?.signal_id || index)}-rej`}
+                    className="rounded-md p-2"
+                    style={{ background: 'rgba(246,70,93,0.06)', border: '1px solid rgba(246,70,93,0.18)' }}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="font-mono text-[10px]" style={{ color: '#EAECEF' }}>{String(r?.signal_id || '-')}</div>
+                      <div className="rounded px-2 py-0.5 text-[10px]" style={{ color: '#F6465D', background: 'rgba(246,70,93,0.12)' }}>{stage}</div>
+                    </div>
+                    <div className="mt-1 font-mono text-[10px] break-all" style={{ color: '#A7B0BC' }}>{rawReason || '-'}</div>
+                    {review && (review.summary || (Array.isArray(review.reasons) && review.reasons.length > 0)) && (
+                      <div className="mt-1 text-[10px]" style={{ color: '#848E9C' }}>
+                        {language === 'zh' ? 'LLM' : 'LLM'} [{String(review.status || '')}]: {String(review.summary || '')}
+                        {Array.isArray(review.reasons) && review.reasons.length > 0 ? ` (${review.reasons.join('; ')})` : ''}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
           <div className="space-y-2">

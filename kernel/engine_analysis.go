@@ -99,7 +99,10 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		}
 	}
 
-	riskConfig := engine.GetRiskControlConfig()
+	// Use the clamped config (engineConfig) so risk-control defaults — notably
+	// leverage — are applied. The raw engine.GetRiskControlConfig() can carry a
+	// zero leverage limit that would make the risk gate reject every signal.
+	riskConfig := engineConfig.RiskControl
 	factorSnapshots, err := buildFactorSnapshots(ctx, engineConfig)
 	if err != nil {
 		return nil, err
@@ -153,6 +156,9 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		Signals:             result.Signals,
 		SetupEvaluations:    result.SetupEvaluations,
 		ScoringEvaluations:  TraceScoringEvaluations(signalRequest),
+		RuleEvaluations:     result.RuleEvaluations,
+		Reviews:             result.Reviews,
+		Risk:                result.Risk,
 		InputAudit:          buildTradingInputAudit(ctx, engineConfig),
 		CalibrationSamples:  BuildSignalCalibrationSamples(signalRequest, result),
 	}

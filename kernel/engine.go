@@ -288,6 +288,9 @@ type FullDecision struct {
 	Signals             []CandidateSignal         `json:"signals,omitempty"`
 	SetupEvaluations    []SetupEvaluationTrace    `json:"setup_evaluations,omitempty"`
 	ScoringEvaluations  []ScoringEvaluationTrace  `json:"scoring_evaluations,omitempty"`
+	RuleEvaluations     []RuleEvaluationTrace     `json:"rule_evaluations,omitempty"`
+	Reviews             []AIReviewDecision        `json:"reviews,omitempty"`
+	Risk                *RiskGateResult           `json:"risk,omitempty"`
 	InputAudit          *TradingInputAudit        `json:"input_audit,omitempty"`
 	CalibrationSamples  []SignalCalibrationSample `json:"-"`
 }

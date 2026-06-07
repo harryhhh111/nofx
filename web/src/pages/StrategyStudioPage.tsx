@@ -28,7 +28,7 @@ import {
   FileJson,
   AlertTriangle,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel, StrategyCompileResponse, StrategyEvolutionProposal, StrategyCalibrationReport, AI500CoinsResponse, NofxOSStatus } from '../types'
+import type { Strategy, StrategyConfig, AIModel, StrategyCompileResponse, StrategyCalibrationReport, AI500CoinsResponse, NofxOSStatus } from '../types'
 import { api } from '../lib/api'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
@@ -410,8 +410,6 @@ export function StrategyStudioPage() {
   const [compileResult, setCompileResult] = useState<StrategyCompileResponse | null>(null)
   const [compileDraftSavedAt, setCompileDraftSavedAt] = useState<string | null>(null)
   const [isCompilingStrategy, setIsCompilingStrategy] = useState(false)
-  const [evolutionProposal, setEvolutionProposal] = useState<StrategyEvolutionProposal | null>(null)
-  const [isEvolvingStrategy, setIsEvolvingStrategy] = useState(false)
   const [ai500Preview, setAI500Preview] = useState<AI500CoinsResponse | null>(null)
   const [nofxOSStatus, setNofxOSStatus] = useState<NofxOSStatus | null>(null)
   const [dataSourceError, setDataSourceError] = useState<string | null>(null)
@@ -442,7 +440,6 @@ export function StrategyStudioPage() {
     setCalibrationReport(null)
     setCompileResult(draft?.compileResult || null)
     setCompileDraftSavedAt(draft?.savedAt || null)
-    setEvolutionProposal(null)
   }, [])
 
   // Fetch AI Models
@@ -1005,27 +1002,6 @@ export function StrategyStudioPage() {
       }
     } finally {
       setIsLoadingDataStatus(false)
-    }
-  }
-
-  const generateEvolutionProposal = async () => {
-    if (!selectedStrategy || !selectedModelId) return
-    setIsEvolvingStrategy(true)
-    setEvolutionProposal(null)
-    try {
-      const proposal = await api.evolveStrategy(selectedStrategy.id, {
-        ai_model_id: selectedModelId,
-        trigger: 'manual',
-        base_version: buildStrategyVersion(),
-        notes: 'Manual Strategy Studio review',
-      })
-      setEvolutionProposal(proposal)
-      setActiveRightTab('structured')
-    } catch (err) {
-      const message = formatStrategyError(err, language)
-      notify.error(message, { duration: 8000 })
-    } finally {
-      setIsEvolvingStrategy(false)
     }
   }
 
@@ -1751,41 +1727,6 @@ export function StrategyStudioPage() {
                     </ul>
                   </div>
                 )}
-
-                <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? '复盘优化提案' : 'Review Proposal'}
-                      </div>
-                      <div className="text-[11px] text-nofx-text-muted">
-                        {language === 'zh'
-                          ? '用户手动触发的策略复盘工具；只生成建议，不保存、不应用、不改实盘配置。历史不足时应保持保守。'
-                          : 'User-triggered strategy review. It only generates advice; it does not save, apply, or change live config. It should stay conservative when history is limited.'}
-                      </div>
-                    </div>
-                    <button
-                      onClick={generateEvolutionProposal}
-                      disabled={!selectedStrategy || !selectedModelId || isEvolvingStrategy}
-                      className="flex items-center gap-1 rounded bg-nofx-gold px-2 py-1 text-[11px] font-medium text-black disabled:opacity-50"
-                    >
-                      {isEvolvingStrategy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
-                      {language === 'zh' ? '生成提案' : 'Generate'}
-                    </button>
-                  </div>
-                  {evolutionProposal && (
-                    <div className="mt-3 rounded border border-white/10 bg-black/20 p-2 text-[11px]">
-                      <div className="font-medium text-nofx-text">{evolutionProposal.summary}</div>
-                      {evolutionProposal.change_reasons && evolutionProposal.change_reasons.length > 0 && (
-                        <ul className="mt-2 space-y-1 text-nofx-text-muted">
-                          {evolutionProposal.change_reasons.slice(0, 3).map((reason, index) => (
-                            <li key={index}>- {reason}</li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </div>
 
                 {editingConfig?.compiled_rules && editingConfig.compiled_rules.length > 0 && (
                   <div className="space-y-2">

@@ -102,6 +102,16 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.MaxPositions = MaxPositions
 	}
 
+	// Default leverage when not provided (zero means unset). A zero leverage
+	// limit would make the risk gate reject every signal ("Nx > 0x"), silently
+	// rendering the strategy untradeable. Mirror the trader column default (5x).
+	if c.RiskControl.BTCETHMaxLeverage <= 0 {
+		c.RiskControl.BTCETHMaxLeverage = 5
+	}
+	if c.RiskControl.AltcoinMaxLeverage <= 0 {
+		c.RiskControl.AltcoinMaxLeverage = 5
+	}
+
 	// Default position value ratios when not provided (zero means unset)
 	if c.RiskControl.BTCETHMaxPositionValueRatio <= 0 {
 		c.RiskControl.BTCETHMaxPositionValueRatio = 5.0

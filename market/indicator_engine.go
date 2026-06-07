@@ -99,8 +99,20 @@ func (e *DefaultIndicatorEngine) Calculate(ctx context.Context, input MarketInpu
 			if err != nil {
 				return nil, err
 			}
-			key := mod.Name()
 			for _, p := range points {
+				// Key each point by its OWN indicator name so multi-output
+				// modules are individually addressable: ADX -> adx/plus_di/
+				// minus_di, MACD -> macd/macd_signal/macd_histogram. Previously
+				// everything was stored under the module name (e.g. all three
+				// ADX outputs under "adx"), which made plus_di/minus_di/
+				// macd_histogram unreachable by IndicatorValue(name,...) and made
+				// IndicatorValue("adx") return whichever sub-point sorted last.
+				// Fallback to the module name keeps single-output modules
+				// (ema/rsi/atr/...) unchanged.
+				key := p.Name
+				if key == "" {
+					key = mod.Name()
+				}
 				addTechnicalToSnapshot(snapshot, key, p)
 			}
 		}

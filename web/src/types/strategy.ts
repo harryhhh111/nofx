@@ -108,22 +108,6 @@ export interface ScoringStrategyConfig {
   execution: CompiledRuleExecution;
 }
 
-export interface StrategyEvolutionProposal {
-  proposal_id: string;
-  strategy_id: string;
-  base_version?: string;
-  proposed_version: string;
-  trigger: string;
-  summary: string;
-  change_reasons?: string[];
-  parameter_changes?: StrategyParamChange[];
-  expected_impact?: string;
-  risks?: string[];
-  proposed_config_patch?: Record<string, unknown>;
-  requires_approval: boolean;
-  created_at: string;
-}
-
 export interface StrategyCalibrationReport {
   strategy_id: string;
   strategy_version?: string;
@@ -222,13 +206,6 @@ export interface StrategyMetadata {
   external_factors: string[];
   external_factor_prefixes: string[];
   scoring_factors: string[];
-}
-
-export interface StrategyParamChange {
-  path: string;
-  old_value?: unknown;
-  new_value?: unknown;
-  reason?: string;
 }
 
 export interface StructureFactorConfig {

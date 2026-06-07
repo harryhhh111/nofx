@@ -364,6 +364,34 @@ func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64) error {
 	return nil
 }
 
+// enforceLeverage is a defensive re-check that the requested leverage does not
+// exceed the configured exchange leverage limit for the symbol class. The kernel
+// risk gate already validates leverage; this guards against execution-layer drift
+// or any path that bypasses the kernel. Returns an error (rejecting the open) on
+// violation rather than silently capping, since a capped leverage would change
+// the intended margin/sizing geometry.
+func (at *AutoTrader) enforceLeverage(leverage int, symbol string) error {
+	if at.config.StrategyConfig == nil {
+		return nil
+	}
+
+	rc := at.config.StrategyConfig.RiskControl
+	var maxLeverage int
+	if isBTCETH(symbol) {
+		maxLeverage = rc.BTCETHMaxLeverage
+	} else {
+		maxLeverage = rc.AltcoinMaxLeverage
+	}
+	if maxLeverage <= 0 {
+		maxLeverage = 5 // Default matches store.RiskControlConfig defaults
+	}
+
+	if leverage > maxLeverage {
+		return fmt.Errorf("❌ [RISK CONTROL] Leverage %dx exceeds limit (%dx) for %s", leverage, maxLeverage, symbol)
+	}
+	return nil
+}
+
 // enforceMaxPositions checks maximum positions count (CODE ENFORCED)
 func (at *AutoTrader) enforceMaxPositions(currentPositionCount int) error {
 	if at.config.StrategyConfig == nil {

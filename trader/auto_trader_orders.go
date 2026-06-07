@@ -28,6 +28,64 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 	}
 }
 
+// protectiveOrderRetryDelay is the wait between the first failed protective-order
+// attempt and the single retry.
+const protectiveOrderRetryDelay = 500 * time.Millisecond
+
+// placeProtectiveOrders attaches stop-loss and take-profit orders to a freshly
+// opened position.
+//
+// Stop-loss is mandatory: a position without a working stop-loss is a naked,
+// unbounded-risk position. If the stop-loss cannot be placed even after one
+// retry (or the stop price is invalid), the position is rolled back (closed at
+// market) and an error is returned so the caller treats the open as failed.
+//
+// Take-profit is best-effort: a missing take-profit does not endanger capital,
+// so a failure here only logs a warning and keeps the (stop-protected) position.
+//
+// side must be "LONG" or "SHORT".
+func (at *AutoTrader) placeProtectiveOrders(decision *kernel.Decision, side string, quantity float64) error {
+	sideLower := "long"
+	if side == "SHORT" {
+		sideLower = "short"
+	}
+
+	rollback := func(cause error) error {
+		logger.Warnf("  🚨 No stop-loss protection for %s %s; rolling back position to avoid a naked position", decision.Symbol, side)
+		if rbErr := at.emergencyClosePosition(decision.Symbol, sideLower); rbErr != nil {
+			return fmt.Errorf("stop loss failed for %s and rollback failed: stop_loss_err=[%v] rollback_err=%w", decision.Symbol, cause, rbErr)
+		}
+		return fmt.Errorf("stop loss failed for %s, position rolled back: %w", decision.Symbol, cause)
+	}
+
+	if decision.StopLoss <= 0 {
+		return rollback(fmt.Errorf("invalid stop loss price %.8f", decision.StopLoss))
+	}
+
+	slErr := at.trader.SetStopLoss(decision.Symbol, side, quantity, decision.StopLoss)
+	if slErr != nil {
+		logger.Warnf("  ⚠ Failed to set stop loss for %s (%v), retrying once...", decision.Symbol, slErr)
+		time.Sleep(protectiveOrderRetryDelay)
+		slErr = at.trader.SetStopLoss(decision.Symbol, side, quantity, decision.StopLoss)
+	}
+	if slErr != nil {
+		return rollback(slErr)
+	}
+
+	// Take-profit is non-fatal.
+	if decision.TakeProfit > 0 {
+		if tpErr := at.trader.SetTakeProfit(decision.Symbol, side, quantity, decision.TakeProfit); tpErr != nil {
+			logger.Warnf("  ⚠ Failed to set take profit for %s (%v), retrying once...", decision.Symbol, tpErr)
+			time.Sleep(protectiveOrderRetryDelay)
+			if tpErr = at.trader.SetTakeProfit(decision.Symbol, side, quantity, decision.TakeProfit); tpErr != nil {
+				logger.Warnf("  ⚠ Take profit not set for %s after retry (%v); position retains stop-loss protection", decision.Symbol, tpErr)
+			}
+		}
+	}
+
+	return nil
+}
+
 // executeOpenLongWithRecord executes open long position and records detailed information
 func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  📈 Open long: %s", decision.Symbol)
@@ -48,6 +106,11 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 		if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
 			return fmt.Errorf("❌ %s already has long position, close it first", decision.Symbol)
 		}
+	}
+
+	// [CODE ENFORCED] Defensive leverage re-check (kernel risk gate already validates)
+	if err := at.enforceLeverage(decision.Leverage, decision.Symbol); err != nil {
+		return err
 	}
 
 	// Get current price
@@ -136,12 +199,10 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
-	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "LONG", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+	// Set protective orders: stop-loss is mandatory (rollback on failure to avoid
+	// a naked position), take-profit is best-effort.
+	if err := at.placeProtectiveOrders(decision, "LONG", quantity); err != nil {
+		return err
 	}
 
 	return nil
@@ -167,6 +228,11 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 		if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
 			return fmt.Errorf("❌ %s already has short position, close it first", decision.Symbol)
 		}
+	}
+
+	// [CODE ENFORCED] Defensive leverage re-check (kernel risk gate already validates)
+	if err := at.enforceLeverage(decision.Leverage, decision.Symbol); err != nil {
+		return err
 	}
 
 	// Get current price
@@ -255,12 +321,10 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
-	// Set stop loss and take profit
-	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {
-		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
-	}
-	if err := at.trader.SetTakeProfit(decision.Symbol, "SHORT", quantity, decision.TakeProfit); err != nil {
-		logger.Infof("  ⚠ Failed to set take profit: %v", err)
+	// Set protective orders: stop-loss is mandatory (rollback on failure to avoid
+	// a naked position), take-profit is best-effort.
+	if err := at.placeProtectiveOrders(decision, "SHORT", quantity); err != nil {
+		return err
 	}
 
 	return nil

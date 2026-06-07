@@ -231,6 +231,7 @@ type TradingEngineRequest struct {
 type TradingEngineResult struct {
 	Signals          []CandidateSignal      `json:"signals"`
 	SetupEvaluations []SetupEvaluationTrace `json:"setup_evaluations,omitempty"`
+	RuleEvaluations  []RuleEvaluationTrace  `json:"rule_evaluations,omitempty"`
 	MarketContext    *MarketContext         `json:"market_context,omitempty"`
 	Reviews          []AIReviewDecision     `json:"reviews"`
 	Risk             *RiskGateResult        `json:"risk"`
@@ -301,6 +302,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		return nil, fmt.Errorf("generate signals: %w", err)
 	}
 	setupEvaluations := TraceSetupEvaluations(req.SignalRequest)
+	ruleEvaluations := TraceRuleEvaluations(req.SignalRequest)
 	var marketContext *MarketContext
 	if e.MarketContextEngine != nil {
 		marketContext, err = e.MarketContextEngine.Build(ctx, MarketContextRequest{
@@ -313,7 +315,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		}
 	}
 	if len(signals) == 0 {
-		return &TradingEngineResult{Signals: signals, SetupEvaluations: setupEvaluations, MarketContext: marketContext, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
+		return &TradingEngineResult{Signals: signals, SetupEvaluations: setupEvaluations, RuleEvaluations: ruleEvaluations, MarketContext: marketContext, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
 	}
 
 	var lessons []TradeLesson
@@ -349,6 +351,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	return &TradingEngineResult{
 		Signals:          signals,
 		SetupEvaluations: setupEvaluations,
+		RuleEvaluations:  ruleEvaluations,
 		MarketContext:    marketContext,
 		Reviews:          reviews,
 		Risk:             risk,
