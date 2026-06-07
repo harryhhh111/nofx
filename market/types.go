@@ -12,13 +12,13 @@ type Data struct {
 	CurrentSMA        map[int]float64 `json:"current_sma,omitempty"` // SMA current value by period
 	CurrentMACD       float64
 	CurrentRSI7       float64
-	CurrentADX        float64 `json:"current_adx,omitempty"`           // ADX current value
-	CurrentPlusDI     float64 `json:"current_plus_di,omitempty"`       // +DI current value
-	CurrentMinusDI    float64 `json:"current_minus_di,omitempty"`      // -DI current value
-	CurrentSAR        float64 `json:"current_sar,omitempty"`           // Parabolic SAR current value
-	SARIsUptrend      bool    `json:"sar_is_uptrend,omitempty"`        // Parabolic SAR trend direction
-	SARFlipUp         bool    `json:"sar_flip_up,omitempty"`           // Parabolic SAR flipped to uptrend
-	SARFlipDown       bool    `json:"sar_flip_down,omitempty"`         // Parabolic SAR flipped to downtrend
+	CurrentADX        float64 `json:"current_adx,omitempty"`      // ADX current value
+	CurrentPlusDI     float64 `json:"current_plus_di,omitempty"`  // +DI current value
+	CurrentMinusDI    float64 `json:"current_minus_di,omitempty"` // -DI current value
+	CurrentSAR        float64 `json:"current_sar,omitempty"`      // Parabolic SAR current value
+	SARIsUptrend      bool    `json:"sar_is_uptrend,omitempty"`   // Parabolic SAR trend direction
+	SARFlipUp         bool    `json:"sar_flip_up,omitempty"`      // Parabolic SAR flipped to uptrend
+	SARFlipDown       bool    `json:"sar_flip_down,omitempty"`    // Parabolic SAR flipped to downtrend
 	OpenInterest      *OIData
 	FundingRate       float64
 	IntradaySeries    *IntradayData
@@ -39,25 +39,26 @@ type KlineBar struct {
 
 // TimeframeSeriesData series data for a single timeframe
 type TimeframeSeriesData struct {
-	Timeframe   string     `json:"timeframe"`    // Timeframe identifier, e.g. "5m", "15m", "1h"
-	Klines      []KlineBar `json:"klines"`       // Full OHLCV kline data
-	MidPrices   []float64  `json:"mid_prices"`   // Price series (deprecated, kept for compatibility)
-	EMA20Values []float64           `json:"ema20_values"` // EMA20 series
-	EMA50Values []float64           `json:"ema50_values"` // EMA50 series
-	SMAValues   map[int][]float64   `json:"sma_values,omitempty"` // SMA series by period
-	ADXValues   []float64           `json:"adx_values,omitempty"`   // ADX series
-	PlusDIValues []float64          `json:"plus_di_values,omitempty"`  // +DI series
+	Timeframe     string            `json:"timeframe"`                 // Timeframe identifier, e.g. "5m", "15m", "1h"
+	ComputeBars   []Kline           `json:"-"`                         // Full calc window, never serialized to AI prompt
+	Klines        []KlineBar        `json:"klines"`                    // OHLCV kline data for AI prompt display
+	MidPrices     []float64         `json:"mid_prices"`                // Price series (deprecated, kept for compatibility)
+	EMA20Values   []float64         `json:"ema20_values"`              // EMA20 series
+	EMA50Values   []float64         `json:"ema50_values"`              // EMA50 series
+	SMAValues     map[int][]float64 `json:"sma_values,omitempty"`      // SMA series by period
+	ADXValues     []float64         `json:"adx_values,omitempty"`      // ADX series
+	PlusDIValues  []float64         `json:"plus_di_values,omitempty"`  // +DI series
 	MinusDIValues []float64         `json:"minus_di_values,omitempty"` // -DI series
-	SARValues   []float64           `json:"sar_values,omitempty"`   // Parabolic SAR series
-	SARUptrend  []bool              `json:"sar_uptrend,omitempty"`  // Parabolic SAR trend direction series
-	SARFlipUp   []bool              `json:"sar_flip_up,omitempty"`  // Parabolic SAR flip-up series
-	SARFlipDown []bool              `json:"sar_flip_down,omitempty"` // Parabolic SAR flip-down series
-	SARAF       float64             `json:"sar_af,omitempty"`         // Parabolic SAR acceleration factor
-	MACDValues  []float64           `json:"macd_values"`  // MACD series
-	RSI7Values  []float64           `json:"rsi7_values"`  // RSI7 series
-	RSI14Values []float64           `json:"rsi14_values"` // RSI14 series
-	Volume      []float64           `json:"volume"`       // Volume series (deprecated, use Klines)
-	ATR14       float64             `json:"atr14"`        // ATR14
+	SARValues     []float64         `json:"sar_values,omitempty"`      // Parabolic SAR series
+	SARUptrend    []bool            `json:"sar_uptrend,omitempty"`     // Parabolic SAR trend direction series
+	SARFlipUp     []bool            `json:"sar_flip_up,omitempty"`     // Parabolic SAR flip-up series
+	SARFlipDown   []bool            `json:"sar_flip_down,omitempty"`   // Parabolic SAR flip-down series
+	SARAF         float64           `json:"sar_af,omitempty"`          // Parabolic SAR acceleration factor
+	MACDValues    []float64         `json:"macd_values"`               // MACD series
+	RSI7Values    []float64         `json:"rsi7_values"`               // RSI7 series
+	RSI14Values   []float64         `json:"rsi14_values"`              // RSI14 series
+	Volume        []float64         `json:"volume"`                    // Volume series (deprecated, use Klines)
+	ATR14         float64           `json:"atr14"`                     // ATR14
 	// Bollinger Bands (period 20, std dev multiplier 2)
 	BOLLUpper  []float64   `json:"boll_upper"`  // Upper band
 	BOLLMiddle []float64   `json:"boll_middle"` // Middle band (SMA)
@@ -96,32 +97,32 @@ type OIData struct {
 
 // IntradayData intraday data (3-minute interval)
 type IntradayData struct {
-	MidPrices   []float64
-	EMA20Values []float64
-	SMAValues   map[int][]float64 `json:"sma_values,omitempty"` // SMA series by period
-	ADXValues   []float64         `json:"adx_values,omitempty"`   // ADX series
-	PlusDIValues []float64        `json:"plus_di_values,omitempty"`  // +DI series
-	MinusDIValues []float64       `json:"minus_di_values,omitempty"` // -DI series
-	SARValues   []float64         `json:"sar_values,omitempty"`   // Parabolic SAR series
-	SARUptrend  []bool            `json:"sar_uptrend,omitempty"`  // Parabolic SAR trend direction series
-	SARFlipUp   []bool            `json:"sar_flip_up,omitempty"`  // Parabolic SAR flip-up series
-	SARFlipDown []bool            `json:"sar_flip_down,omitempty"` // Parabolic SAR flip-down series
-	MACDValues  []float64
-	RSI7Values  []float64
-	RSI14Values []float64
-	Volume      []float64
-	ATR14       float64
+	MidPrices     []float64
+	EMA20Values   []float64
+	SMAValues     map[int][]float64 `json:"sma_values,omitempty"`      // SMA series by period
+	ADXValues     []float64         `json:"adx_values,omitempty"`      // ADX series
+	PlusDIValues  []float64         `json:"plus_di_values,omitempty"`  // +DI series
+	MinusDIValues []float64         `json:"minus_di_values,omitempty"` // -DI series
+	SARValues     []float64         `json:"sar_values,omitempty"`      // Parabolic SAR series
+	SARUptrend    []bool            `json:"sar_uptrend,omitempty"`     // Parabolic SAR trend direction series
+	SARFlipUp     []bool            `json:"sar_flip_up,omitempty"`     // Parabolic SAR flip-up series
+	SARFlipDown   []bool            `json:"sar_flip_down,omitempty"`   // Parabolic SAR flip-down series
+	MACDValues    []float64
+	RSI7Values    []float64
+	RSI14Values   []float64
+	Volume        []float64
+	ATR14         float64
 }
 
 // LongerTermData longer-term data (4-hour timeframe)
 type LongerTermData struct {
 	EMA20         float64
 	EMA50         float64
-	SMA           map[int]float64 `json:"sma,omitempty"` // SMA current value by period
-	ADX           float64         `json:"adx,omitempty"`     // ADX current value
-	PlusDI        float64         `json:"plus_di,omitempty"` // +DI current value
-	MinusDI       float64         `json:"minus_di,omitempty"` // -DI current value
-	SAR           float64         `json:"sar,omitempty"`     // Parabolic SAR current value
+	SMA           map[int]float64 `json:"sma,omitempty"`            // SMA current value by period
+	ADX           float64         `json:"adx,omitempty"`            // ADX current value
+	PlusDI        float64         `json:"plus_di,omitempty"`        // +DI current value
+	MinusDI       float64         `json:"minus_di,omitempty"`       // -DI current value
+	SAR           float64         `json:"sar,omitempty"`            // Parabolic SAR current value
 	SARIsUptrend  bool            `json:"sar_is_uptrend,omitempty"` // Parabolic SAR trend direction
 	SARFlipUp     bool            `json:"sar_flip_up,omitempty"`    // Parabolic SAR flipped to uptrend
 	SARFlipDown   bool            `json:"sar_flip_down,omitempty"`  // Parabolic SAR flipped to downtrend
@@ -316,4 +317,28 @@ func (d GridDirection) GetBuySellRatio(biasRatio float64) (buyRatio, sellRatio f
 	default:
 		return 0.5, 0.5
 	}
+}
+
+// ── FactorSnapshot Types ──────────────────────────────────────────────────
+
+// IndicatorPoint is a single calculated indicator value with metadata.
+type IndicatorPoint struct {
+	Name      string  `json:"name"`                // "ema", "sar", "adx" etc.
+	Timeframe string  `json:"timeframe,omitempty"` // "5m", "15m", "1h"
+	Period    int     `json:"period,omitempty"`
+	Value     float64 `json:"value"`
+}
+
+// FactorSnapshot is the structured market context for AI prompt rendering.
+// It decouples indicator calculation from prompt formatting.
+type FactorSnapshot struct {
+	Symbol    string                      `json:"symbol"`
+	AsOf      time.Time                   `json:"as_of"`
+	Technical map[string][]IndicatorPoint `json:"technical,omitempty"`
+}
+
+// KlineWindowSpec separates compute lookback from prompt display count.
+type KlineWindowSpec struct {
+	ComputeLookback    int // bars used for indicator calculation
+	PromptDisplayCount int // bars shown to AI in prompt
 }

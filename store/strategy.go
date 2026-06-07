@@ -258,6 +258,8 @@ type IndicatorConfig struct {
 		// Empty = all enabled indicators summarized (current behavior).
 		// e.g. ["ema", "adx", "boll"] = only these summarized, others output raw arrays.
 		SummarizedIndicators []string `json:"summarized_indicators,omitempty"`
+		// TODO(Phase 4): Use FactorSnapshot-based prompt rendering. Do NOT expose in frontend yet.
+		UseFactorSnapshot bool `json:"use_factor_snapshot,omitempty"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
 	EnableSMA         bool `json:"enable_sma"`          // Simple Moving Average
@@ -346,6 +348,10 @@ type KlineConfig struct {
 	EnableMultiTimeframe bool `json:"enable_multi_timeframe"`
 	// selected timeframe list (new: supports multi-timeframe selection)
 	SelectedTimeframes []string `json:"selected_timeframes,omitempty"`
+	// TODO(Phase 2): Compute vs prompt separation. Zero = use PrimaryCount for both (old behavior).
+	ComputeLookback    int `json:"compute_lookback,omitempty"`
+	// Do NOT expose in frontend until Phase 2 rendering is implemented.
+	PromptDisplayCount int `json:"prompt_display_count,omitempty"`
 }
 
 // ExternalDataSource external data source configuration

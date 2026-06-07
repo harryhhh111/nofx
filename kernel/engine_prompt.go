@@ -1192,6 +1192,10 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 	indicators := e.config.Indicators
 	lang := e.GetLanguage()
 
+	// TODO(Phase 4): When UseFactorSnapshot is true, build a FactorSnapshot
+	// and render from structured IndicatorPoints instead of raw arrays.
+	// For now, both paths use the legacy rendering.
+
 	if lang == LangChinese {
 		sb.WriteString(fmt.Sprintf("=== %s 市场数据 ===\n\n", data.Symbol))
 	} else {
