@@ -171,6 +171,118 @@ func TestSetupSignalEngineGeneratesShortWhenTimeframesAlignBearish(t *testing.T)
 	}
 }
 
+func TestCandidateSignalUsesStructureATRAndRiskRewardForLong(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "long_setup",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "5m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 95, "resistance": 180},
+			}},
+		},
+	}
+
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	if err != nil {
+		t.Fatalf("buildCandidateSignal returned error: %v", err)
+	}
+	if signal.StopLoss != 75 {
+		t.Fatalf("expected stop below support with ATR buffer, got %.2f", signal.StopLoss)
+	}
+	if signal.TakeProfit != 180 {
+		t.Fatalf("expected structural resistance target, got %.2f", signal.TakeProfit)
+	}
+	levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace)
+	if !ok {
+		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
+	}
+	if levels.StopSource != "support_resistance.support" || levels.TargetSource != "support_resistance.resistance" || levels.RiskReward < 2.5 {
+		t.Fatalf("unexpected protective trace: %+v", levels)
+	}
+}
+
+func TestCandidateSignalUsesStructureATRAndRiskRewardForShort(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "short_setup",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_short",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "5m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 30, "resistance": 105},
+			}},
+		},
+	}
+
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	if err != nil {
+		t.Fatalf("buildCandidateSignal returned error: %v", err)
+	}
+	if signal.StopLoss != 125 {
+		t.Fatalf("expected stop above resistance with ATR buffer, got %.2f", signal.StopLoss)
+	}
+	if signal.TakeProfit != 30 {
+		t.Fatalf("expected structural support target, got %.2f", signal.TakeProfit)
+	}
+	levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace)
+	if !ok {
+		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
+	}
+	if levels.StopSource != "support_resistance.resistance" || levels.TargetSource != "support_resistance.support" || levels.RiskReward < 2.5 {
+		t.Fatalf("unexpected protective trace: %+v", levels)
+	}
+}
+
+func TestCandidateSignalRequiresATRForMarketBasedProtection(t *testing.T) {
+	execution := RuleExecution{
+		Leverage:        2,
+		PositionSizeUSD: 100,
+		StopLossPct:     2,
+		TakeProfitPct:   5,
+		Confidence:      80,
+	}
+	_, err := calculateProtectiveLevels("open_long", 100, execution, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	if err == nil {
+		t.Fatalf("expected missing ATR to fail market-based protective level calculation")
+	}
+}
+
 func TestTraceSetupEvaluationsLabelsNoTradeChop(t *testing.T) {
 	scoring := testScoringStrategy()
 	scoring.Timeframe = "15m"
@@ -333,6 +445,7 @@ func testNeutralMultiTimeframeSnapshot() *market.FactorSnapshot {
 func testScoringSnapshot(includeTrend, includeMomentum bool) *market.FactorSnapshot {
 	technical := map[string][]market.IndicatorPoint{
 		"price": {{Name: "price", Value: 100}},
+		"atr":   {{Name: "atr", Timeframe: "3m", Period: 14, Value: 2}},
 	}
 	if includeTrend {
 		technical["ema"] = []market.IndicatorPoint{
@@ -379,6 +492,11 @@ func testMultiTimeframeSetupSnapshot() *market.FactorSnapshot {
 				{Name: "rsi", Timeframe: "15m", Period: 14, Value: 60},
 				{Name: "rsi", Timeframe: "1h", Period: 14, Value: 58},
 			},
+			"atr": {
+				{Name: "atr", Timeframe: "5m", Period: 14, Value: 2},
+				{Name: "atr", Timeframe: "15m", Period: 14, Value: 3},
+				{Name: "atr", Timeframe: "1h", Period: 14, Value: 4},
+			},
 		},
 	}
 }
@@ -406,6 +524,11 @@ func testBearishMultiTimeframeSetupSnapshot() *market.FactorSnapshot {
 				{Name: "rsi", Timeframe: "5m", Period: 14, Value: 40},
 				{Name: "rsi", Timeframe: "15m", Period: 14, Value: 40},
 				{Name: "rsi", Timeframe: "1h", Period: 14, Value: 42},
+			},
+			"atr": {
+				{Name: "atr", Timeframe: "5m", Period: 14, Value: 2},
+				{Name: "atr", Timeframe: "15m", Period: 14, Value: 3},
+				{Name: "atr", Timeframe: "1h", Period: 14, Value: 4},
 			},
 		},
 	}

@@ -9,6 +9,7 @@ import (
 	"nofx/market"
 	"nofx/store"
 	"nofx/telemetry"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -562,6 +563,16 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	var actualPrice = price
 	var actualQty = quantity
 	var fee float64
+	submittedStatus, _ := orderResult["status"].(string)
+	if avgPrice, ok := orderResultNumber(orderResult, "avgPrice"); ok && avgPrice > 0 {
+		actualPrice = avgPrice
+	}
+	if execQty, ok := orderResultNumber(orderResult, "executedQty"); ok && execQty > 0 {
+		actualQty = execQty
+	}
+	if commission, ok := orderResultNumber(orderResult, "commission"); ok {
+		fee = commission
+	}
 
 	// Exchanges with OrderSync: Skip immediate order recording, let OrderSync handle it
 	// This ensures accurate data from GetTrades API and avoids duplicate records
@@ -572,7 +583,7 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	}
 
 	// For exchanges without OrderSync (e.g., Binance): record immediately and poll for fill data
-	orderRecord := at.createOrderRecord(orderID, symbol, action, positionSide, quantity, price, leverage)
+	orderRecord := at.createOrderRecord(orderID, symbol, action, positionSide, actualQty, actualPrice, leverage)
 	if err := at.store.Order().CreateOrder(orderRecord); err != nil {
 		logger.Infof("  ⚠️ Failed to record order: %v", err)
 	} else {
@@ -580,6 +591,7 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 	}
 
 	// Wait for order to be filled and get actual fill data
+	fillRecorded := false
 	time.Sleep(500 * time.Millisecond)
 	for i := 0; i < 5; i++ {
 		status, err := at.trader.GetOrderStatus(symbol, orderID)
@@ -609,6 +621,7 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 
 				// Record fill details
 				at.recordOrderFill(orderRecord.ID, orderID, symbol, action, actualPrice, actualQty, fee)
+				fillRecorded = true
 				break
 			} else if statusStr == "CANCELED" || statusStr == "EXPIRED" || statusStr == "REJECTED" {
 				logger.Infof("  ⚠️ Order %s, skipping position record", statusStr)
@@ -622,6 +635,19 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 			}
 		}
 		time.Sleep(500 * time.Millisecond)
+	}
+	if !fillRecorded && strings.EqualFold(submittedStatus, "FILLED") && actualQty > 0 && actualPrice > 0 {
+		logger.Infof("  ✅ Order filled from submit response: avgPrice=%.6f, qty=%.6f, fee=%.6f", actualPrice, actualQty, fee)
+		at.markExecutionFinal(executionAnalyticsID, action, price, quantity, actualPrice, actualQty, "filled")
+		if err := at.store.Order().UpdateOrderStatus(orderRecord.ID, "FILLED", actualQty, actualPrice, fee); err != nil {
+			logger.Infof("  ⚠️ Failed to update order status: %v", err)
+		}
+		at.recordOrderFill(orderRecord.ID, orderID, symbol, action, actualPrice, actualQty, fee)
+		fillRecorded = true
+	}
+	if actualQty <= 0 || actualPrice <= 0 {
+		logger.Infof("  ⚠️ Filled order %s has invalid fill data (price=%.6f qty=%.6f), skipping position update", orderID, actualPrice, actualQty)
+		return
 	}
 
 	// Normalize symbol for position record consistency
@@ -644,6 +670,30 @@ func (at *AutoTrader) recordAndConfirmOrder(orderResult map[string]interface{}, 
 		UserID:    at.userID,
 		TraderID:  at.id,
 	})
+}
+
+func orderResultNumber(orderResult map[string]interface{}, key string) (float64, bool) {
+	if orderResult == nil {
+		return 0, false
+	}
+	switch v := orderResult[key].(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case string:
+		n, err := strconv.ParseFloat(strings.TrimSpace(v), 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	default:
+		return 0, false
+	}
 }
 
 // recordPositionChange records position change (create record on open, update record on close)

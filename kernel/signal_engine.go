@@ -9,6 +9,8 @@ import (
 )
 
 const defaultMinScoringAvailableWeightRatio = 0.5
+const defaultProtectiveATRBuffer = 2.0
+const defaultProtectiveRiskReward = 2.0
 
 // RuleSignalEngine evaluates compiled strategy rules against FactorSnapshot.
 // It is deterministic and does not call LLM.
@@ -105,6 +107,24 @@ type TimeframeRoleTrace struct {
 	Confirmations []string `json:"confirmations,omitempty"`
 }
 
+type ProtectiveLevelTrace struct {
+	Action           string  `json:"action"`
+	Entry            float64 `json:"entry"`
+	StopLoss         float64 `json:"stop_loss"`
+	TakeProfit       float64 `json:"take_profit"`
+	StopSource       string  `json:"stop_source"`
+	StopTimeframe    string  `json:"stop_timeframe,omitempty"`
+	StopAnchor       float64 `json:"stop_anchor,omitempty"`
+	TargetSource     string  `json:"target_source"`
+	TargetTimeframe  string  `json:"target_timeframe,omitempty"`
+	TargetAnchor     float64 `json:"target_anchor,omitempty"`
+	ATR              float64 `json:"atr,omitempty"`
+	ATRTimeframe     string  `json:"atr_timeframe,omitempty"`
+	ATRBuffer        float64 `json:"atr_buffer"`
+	TargetRiskReward float64 `json:"target_risk_reward"`
+	RiskReward       float64 `json:"risk_reward"`
+}
+
 type SetupEvaluationTrace struct {
 	Symbol        string                   `json:"symbol"`
 	Setup         string                   `json:"setup,omitempty"`
@@ -164,7 +184,7 @@ func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 			},
 			Enabled: true,
 		}
-		signal, err := buildCandidateSignal(rule, symbol, entry, trace.Reason, req.Now)
+		signal, err := buildCandidateSignal(rule, symbol, entry, trace.Reason, req.Now, snapshot, trace.Timeframes)
 		if err != nil {
 			return nil, err
 		}
@@ -238,7 +258,8 @@ func (e *ScoreSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 			},
 			Enabled: true,
 		}
-		signal, err := buildCandidateSignal(rule, symbol, entry, fmt.Sprintf("score %.2f reached %s threshold", trace.Score, action), req.Now)
+		roles := TimeframeRoleTrace{Entry: req.Scoring.Timeframe, Primary: req.Scoring.Timeframe}
+		signal, err := buildCandidateSignal(rule, symbol, entry, fmt.Sprintf("score %.2f reached %s threshold", trace.Score, action), req.Now, snapshot, roles)
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +300,8 @@ func (e *RuleSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]C
 				continue
 			}
 			entry, _ := snapshotPrice(rule.Timeframe, snapshot)
-			signal, err := buildCandidateSignal(rule, symbol, entry, strings.Join(reasons, "; "), req.Now)
+			roles := TimeframeRoleTrace{Entry: rule.Timeframe, Primary: rule.Timeframe}
+			signal, err := buildCandidateSignal(rule, symbol, entry, strings.Join(reasons, "; "), req.Now, snapshot, roles)
 			if err != nil {
 				return nil, err
 			}
@@ -714,7 +736,7 @@ func absFloat(value float64) float64 {
 	return value
 }
 
-func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reason string, now time.Time) (CandidateSignal, error) {
+func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reason string, now time.Time, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) (CandidateSignal, error) {
 	confidence := rule.Execution.Confidence
 	if confidence <= 0 {
 		return CandidateSignal{}, fmt.Errorf("rule %s missing execution.confidence", rule.ID)
@@ -743,20 +765,320 @@ func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reaso
 		if err := validateOpenExecution(rule, entry); err != nil {
 			return CandidateSignal{}, err
 		}
-		signal.StopLoss = entry * (1 - rule.Execution.StopLossPct/100)
-		signal.TakeProfit = entry * (1 + rule.Execution.TakeProfitPct/100)
+		levels, err := calculateProtectiveLevels(rule.Action, entry, rule.Execution, snapshot, roles)
+		if err != nil {
+			return CandidateSignal{}, fmt.Errorf("rule %s protective levels: %w", rule.ID, err)
+		}
+		signal.StopLoss = levels.StopLoss
+		signal.TakeProfit = levels.TakeProfit
+		signal.Evidence["protective_levels"] = levels
 	case "open_short":
 		if err := validateOpenExecution(rule, entry); err != nil {
 			return CandidateSignal{}, err
 		}
-		signal.StopLoss = entry * (1 + rule.Execution.StopLossPct/100)
-		signal.TakeProfit = entry * (1 - rule.Execution.TakeProfitPct/100)
+		levels, err := calculateProtectiveLevels(rule.Action, entry, rule.Execution, snapshot, roles)
+		if err != nil {
+			return CandidateSignal{}, fmt.Errorf("rule %s protective levels: %w", rule.ID, err)
+		}
+		signal.StopLoss = levels.StopLoss
+		signal.TakeProfit = levels.TakeProfit
+		signal.Evidence["protective_levels"] = levels
 	case "close_long", "close_short", "wait":
 	default:
 		return CandidateSignal{}, fmt.Errorf("rule %s has unsupported action %q", rule.ID, rule.Action)
 	}
 
 	return signal, nil
+}
+
+func calculateProtectiveLevels(action string, entry float64, execution RuleExecution, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) (ProtectiveLevelTrace, error) {
+	trace := ProtectiveLevelTrace{
+		Action:           action,
+		Entry:            entry,
+		ATRBuffer:        defaultProtectiveATRBuffer,
+		TargetRiskReward: executionRiskReward(execution),
+	}
+	if snapshot == nil {
+		return trace, fmt.Errorf("factor snapshot is required for market-based stop loss and take profit")
+	}
+	atr, atrTF, ok := preferredATR(snapshot, protectiveATRTimeframes(roles))
+	if !ok || atr <= 0 {
+		return trace, fmt.Errorf("ATR14 is required for market-based stop loss and take profit")
+	}
+	trace.ATR = atr
+	trace.ATRTimeframe = atrTF
+
+	switch action {
+	case "open_long":
+		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("long", entry, snapshot, protectiveStopTimeframes(roles))
+		if hasStopAnchor {
+			trace.StopLoss = stopAnchor - atr*trace.ATRBuffer
+			trace.StopAnchor = stopAnchor
+			trace.StopTimeframe = stopTF
+			trace.StopSource = stopSource
+		} else {
+			trace.StopLoss = entry - atr*trace.ATRBuffer
+			trace.StopTimeframe = atrTF
+			trace.StopSource = "atr_volatility"
+		}
+		if trace.StopLoss <= 0 || trace.StopLoss >= entry {
+			return trace, fmt.Errorf("long stop loss %.8f is not below entry %.8f", trace.StopLoss, entry)
+		}
+		risk := entry - trace.StopLoss
+		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("long", entry, snapshot, protectiveTargetTimeframes(roles))
+		if hasTargetAnchor && targetAnchor > entry && (targetAnchor-entry)/risk >= trace.TargetRiskReward {
+			trace.TakeProfit = targetAnchor
+			trace.TargetAnchor = targetAnchor
+			trace.TargetTimeframe = targetTF
+			trace.TargetSource = targetSource
+		} else {
+			trace.TakeProfit = entry + risk*trace.TargetRiskReward
+			trace.TargetTimeframe = trace.StopTimeframe
+			trace.TargetSource = "risk_reward_projection"
+		}
+	case "open_short":
+		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("short", entry, snapshot, protectiveStopTimeframes(roles))
+		if hasStopAnchor {
+			trace.StopLoss = stopAnchor + atr*trace.ATRBuffer
+			trace.StopAnchor = stopAnchor
+			trace.StopTimeframe = stopTF
+			trace.StopSource = stopSource
+		} else {
+			trace.StopLoss = entry + atr*trace.ATRBuffer
+			trace.StopTimeframe = atrTF
+			trace.StopSource = "atr_volatility"
+		}
+		if trace.StopLoss <= entry {
+			return trace, fmt.Errorf("short stop loss %.8f is not above entry %.8f", trace.StopLoss, entry)
+		}
+		risk := trace.StopLoss - entry
+		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("short", entry, snapshot, protectiveTargetTimeframes(roles))
+		if hasTargetAnchor && targetAnchor > 0 && targetAnchor < entry && (entry-targetAnchor)/risk >= trace.TargetRiskReward {
+			trace.TakeProfit = targetAnchor
+			trace.TargetAnchor = targetAnchor
+			trace.TargetTimeframe = targetTF
+			trace.TargetSource = targetSource
+		} else {
+			trace.TakeProfit = entry - risk*trace.TargetRiskReward
+			trace.TargetTimeframe = trace.StopTimeframe
+			trace.TargetSource = "risk_reward_projection"
+		}
+		if trace.TakeProfit <= 0 {
+			return trace, fmt.Errorf("short take profit %.8f is not positive", trace.TakeProfit)
+		}
+	default:
+		return trace, fmt.Errorf("unsupported open action %q", action)
+	}
+	trace.RiskReward = protectiveRiskReward(action, entry, trace.StopLoss, trace.TakeProfit)
+	return trace, nil
+}
+
+func executionRiskReward(execution RuleExecution) float64 {
+	if execution.StopLossPct > 0 && execution.TakeProfitPct > 0 {
+		rr := execution.TakeProfitPct / execution.StopLossPct
+		if rr > 0 {
+			return rr
+		}
+	}
+	return defaultProtectiveRiskReward
+}
+
+func protectiveRiskReward(action string, entry, stopLoss, takeProfit float64) float64 {
+	switch action {
+	case "open_long":
+		if entry <= stopLoss {
+			return 0
+		}
+		return (takeProfit - entry) / (entry - stopLoss)
+	case "open_short":
+		if stopLoss <= entry {
+			return 0
+		}
+		return (entry - takeProfit) / (stopLoss - entry)
+	default:
+		return 0
+	}
+}
+
+func protectiveStopTimeframes(roles TimeframeRoleTrace) []string {
+	return uniqueTimeframes(roles.Entry, roles.Primary)
+}
+
+func protectiveTargetTimeframes(roles TimeframeRoleTrace) []string {
+	values := []string{roles.Primary, roles.Entry}
+	values = append(values, roles.Confirmations...)
+	return uniqueTimeframes(values...)
+}
+
+func protectiveATRTimeframes(roles TimeframeRoleTrace) []string {
+	values := []string{roles.Entry, roles.Primary}
+	values = append(values, roles.Confirmations...)
+	return uniqueTimeframes(values...)
+}
+
+func uniqueTimeframes(values ...string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func preferredATR(snapshot *market.FactorSnapshot, timeframes []string) (float64, string, bool) {
+	for _, timeframe := range timeframes {
+		if value, ok := snapshot.IndicatorValue("atr", timeframe, 14); ok && value > 0 {
+			return value, timeframe, true
+		}
+	}
+	for _, point := range snapshot.Technical["atr"] {
+		if point.Period == 14 && point.Value > 0 {
+			return point.Value, point.Timeframe, true
+		}
+	}
+	return 0, "", false
+}
+
+func protectiveStopAnchor(side string, entry float64, snapshot *market.FactorSnapshot, timeframes []string) (float64, string, string, bool) {
+	if side == "long" {
+		if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "support", timeframes, entry, false); ok {
+			return level, timeframe, "support_resistance.support", true
+		}
+		if level, timeframe, ok := nearestFibonacciStop(snapshot, "long", timeframes, entry); ok {
+			return level, timeframe, "fibonacci.stop_anchor", true
+		}
+		return 0, "", "", false
+	}
+	if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "resistance", timeframes, entry, true); ok {
+		return level, timeframe, "support_resistance.resistance", true
+	}
+	if level, timeframe, ok := nearestFibonacciStop(snapshot, "short", timeframes, entry); ok {
+		return level, timeframe, "fibonacci.stop_anchor", true
+	}
+	return 0, "", "", false
+}
+
+func protectiveTargetAnchor(side string, entry float64, snapshot *market.FactorSnapshot, timeframes []string) (float64, string, string, bool) {
+	if side == "long" {
+		if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "resistance", timeframes, entry, true); ok {
+			return level, timeframe, "support_resistance.resistance", true
+		}
+		if level, timeframe, ok := nearestFibonacciTarget(snapshot, "long", timeframes, entry); ok {
+			return level, timeframe, "fibonacci.target_level", true
+		}
+		return 0, "", "", false
+	}
+	if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "support", timeframes, entry, false); ok {
+		return level, timeframe, "support_resistance.support", true
+	}
+	if level, timeframe, ok := nearestFibonacciTarget(snapshot, "short", timeframes, entry); ok {
+		return level, timeframe, "fibonacci.target_level", true
+	}
+	return 0, "", "", false
+}
+
+func nearestStructureLevel(snapshot *market.FactorSnapshot, name, field string, timeframes []string, entry float64, above bool) (float64, string, bool) {
+	for _, timeframe := range timeframes {
+		best := 0.0
+		for _, structure := range snapshot.Structures[name] {
+			if timeframe != "" && structure.Timeframe != timeframe {
+				continue
+			}
+			if !structure.Valid || structure.KeyLevels == nil {
+				continue
+			}
+			level := structure.KeyLevels[field]
+			if !isCandidateLevel(level, entry, above) {
+				continue
+			}
+			if best == 0 || closerLevel(level, best, above) {
+				best = level
+			}
+		}
+		if best > 0 {
+			return best, timeframe, true
+		}
+	}
+	return 0, "", false
+}
+
+func nearestFibonacciStop(snapshot *market.FactorSnapshot, side string, timeframes []string, entry float64) (float64, string, bool) {
+	above := side == "short"
+	for _, timeframe := range timeframes {
+		best := 0.0
+		for _, structure := range snapshot.Structures["fibonacci"] {
+			if timeframe != "" && structure.Timeframe != timeframe {
+				continue
+			}
+			if !structure.Valid {
+				continue
+			}
+			if isCandidateLevel(structure.InvalidPrice, entry, above) && (best == 0 || closerLevel(structure.InvalidPrice, best, above)) {
+				best = structure.InvalidPrice
+			}
+			for name, level := range structure.KeyLevels {
+				if !strings.HasPrefix(name, "fib_") || !isCandidateLevel(level, entry, above) {
+					continue
+				}
+				if best == 0 || closerLevel(level, best, above) {
+					best = level
+				}
+			}
+		}
+		if best > 0 {
+			return best, timeframe, true
+		}
+	}
+	return 0, "", false
+}
+
+func nearestFibonacciTarget(snapshot *market.FactorSnapshot, side string, timeframes []string, entry float64) (float64, string, bool) {
+	above := side == "long"
+	for _, timeframe := range timeframes {
+		best := 0.0
+		for _, structure := range snapshot.Structures["fibonacci"] {
+			if timeframe != "" && structure.Timeframe != timeframe {
+				continue
+			}
+			if !structure.Valid || structure.KeyLevels == nil {
+				continue
+			}
+			for name, level := range structure.KeyLevels {
+				if !strings.HasPrefix(name, "fib_") || !isCandidateLevel(level, entry, above) {
+					continue
+				}
+				if best == 0 || closerLevel(level, best, above) {
+					best = level
+				}
+			}
+		}
+		if best > 0 {
+			return best, timeframe, true
+		}
+	}
+	return 0, "", false
+}
+
+func isCandidateLevel(level, entry float64, above bool) bool {
+	if level <= 0 || entry <= 0 {
+		return false
+	}
+	if above {
+		return level > entry
+	}
+	return level < entry
+}
+
+func closerLevel(candidate, current float64, above bool) bool {
+	if above {
+		return candidate < current
+	}
+	return candidate > current
 }
 
 func validateOpenExecution(rule StrategyRule, entry float64) error {
