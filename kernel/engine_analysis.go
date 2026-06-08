@@ -112,7 +112,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	if (engineConfig.StrategyMode == "scoring" || engineConfig.StrategyMode == "hybrid") && scoring == nil {
 		return nil, fmt.Errorf("strategy_mode %s requires enabled scoring_config", engineConfig.StrategyMode)
 	}
-	marketPrices, minSLDistances := buildMarketValidationMaps(ctx, riskConfig)
+	marketPrices, minSLDistances := buildMarketValidationMaps(ctx, engineConfig, riskConfig)
 
 	tradingEngine := NewTradingEngine(
 		signalEngineFromStrategyConfig(engineConfig),
@@ -721,7 +721,7 @@ func structureRequestTimeframes(config *store.StrategyConfig) []string {
 	return out
 }
 
-func buildMarketValidationMaps(ctx *Context, riskConfig store.RiskControlConfig) (map[string]float64, map[string]float64) {
+func buildMarketValidationMaps(ctx *Context, config *store.StrategyConfig, riskConfig store.RiskControlConfig) (map[string]float64, map[string]float64) {
 	marketPrices := make(map[string]float64)
 	minSLDistances := make(map[string]float64)
 	for symbol, data := range ctx.MarketDataMap {
@@ -731,13 +731,7 @@ func buildMarketValidationMaps(ctx *Context, riskConfig store.RiskControlConfig)
 		if data.CurrentPrice > 0 {
 			marketPrices[symbol] = data.CurrentPrice
 		}
-		var atr float64
-		for _, tfData := range data.TimeframeData {
-			if tfData != nil && tfData.ATR14 > 0 {
-				atr = tfData.ATR14
-				break
-			}
-		}
+		atr := preferredATR14(data, config)
 		if atr > 0 {
 			atrBuffer := riskConfig.StopLossATRBuffer
 			if atrBuffer <= 0 {
@@ -747,6 +741,43 @@ func buildMarketValidationMaps(ctx *Context, riskConfig store.RiskControlConfig)
 		}
 	}
 	return marketPrices, minSLDistances
+}
+
+func preferredATR14(data *market.Data, config *store.StrategyConfig) float64 {
+	if data == nil || len(data.TimeframeData) == 0 {
+		return 0
+	}
+	preferred := []string{}
+	add := func(tf string) {
+		tf = strings.TrimSpace(tf)
+		if tf != "" {
+			preferred = append(preferred, tf)
+		}
+	}
+	if config != nil {
+		add(config.Indicators.Klines.EntryTimeframe)
+		add(config.Indicators.Klines.PrimaryTimeframe)
+		for _, tf := range config.Indicators.Klines.ConfirmationTimeframes {
+			add(tf)
+		}
+		for _, tf := range config.Indicators.Klines.SelectedTimeframes {
+			add(tf)
+		}
+	}
+	for _, tf := range []string{"5m", "15m", "1h", "4h", "3m", "1m"} {
+		add(tf)
+	}
+	seen := map[string]bool{}
+	for _, tf := range preferred {
+		if seen[tf] {
+			continue
+		}
+		seen[tf] = true
+		if tfData := data.TimeframeData[tf]; tfData != nil && tfData.ATR14 > 0 {
+			return tfData.ATR14
+		}
+	}
+	return 0
 }
 
 func decisionsFromTradingResult(result *TradingEngineResult) []Decision {

@@ -190,6 +190,7 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 				logger.Warnf("SetPendingCloseReason(risk) failed trader=%s symbol=%s side=LONG: %v", at.id, normalizedSymbol, err)
 			}
 		}
+		at.recordAndConfirmOrder(order, symbol, "close_long", 0, 0, 0, 0, 0)
 		// Mark position as recently closed so the next AI cycle ignores stale exchange data
 		at.recentlyClosedByRiskMu.Lock()
 		at.recentlyClosedByRisk[normalizedSymbol+"_long"] = time.Now()
@@ -206,6 +207,7 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 				logger.Warnf("SetPendingCloseReason(risk) failed trader=%s symbol=%s side=SHORT: %v", at.id, normalizedSymbol, err)
 			}
 		}
+		at.recordAndConfirmOrder(order, symbol, "close_short", 0, 0, 0, 0, 0)
 		// Mark position as recently closed so the next AI cycle ignores stale exchange data
 		at.recentlyClosedByRiskMu.Lock()
 		at.recentlyClosedByRisk[normalizedSymbol+"_short"] = time.Now()
