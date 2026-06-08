@@ -421,7 +421,7 @@ func BuildPlaybookConfig(name, tf string, stopPct, takePct float64) (*store.Stra
 	execFor := func(sl, tp float64) store.CompiledRuleExecution {
 		return store.CompiledRuleExecution{
 			Leverage:        3,
-			PositionSizeUSD: 100,
+			PositionSizeUSD: store.DefaultMinPositionSize,
 			StopLossPct:     sl,
 			TakeProfitPct:   tp,
 			Confidence:      70,

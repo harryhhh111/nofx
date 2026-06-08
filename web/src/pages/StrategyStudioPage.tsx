@@ -267,7 +267,8 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
     : 'none'
   const coinSource = config.coin_source.source_type
   const risk = config.risk_control
-  const positionSize = risk.min_position_size || 12
+  const positionSizePlaceholder = risk.min_position_size || 12
+  const riskPerTradePct = risk.risk_per_trade_pct || 1
   const leverage = Math.min(risk.btc_eth_max_leverage || 2, risk.altcoin_max_leverage || risk.btc_eth_max_leverage || 2)
   const minConfidence = risk.min_confidence || 70
   const minRiskReward = risk.min_risk_reward_ratio || 2
@@ -281,7 +282,8 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
       '如果没有明确的数值触发条件，请优先生成 strategy_mode="scoring" 的评分策略，而不是编造精确规则。',
       '评分因子只作为场景模板的结构化证据；程序会按主周期识别机会、按入场周期确认触发、按确认周期过滤方向冲突。',
       '评分因子应只使用已启用指标能够支持的 trend、momentum、structure、derivatives，不要使用未启用或不可用的数据。',
-      `执行约束：最大持仓数 ${risk.max_positions || 1}，开仓杠杆不超过 ${leverage}，position_size_usd 使用 ${positionSize}，min_confidence 不低于 ${minConfidence}，止盈止损至少满足风险收益比 ${minRiskReward}。`,
+      `执行约束：最大持仓数 ${risk.max_positions || 1}，开仓杠杆不超过 ${leverage}，单笔风险比例 ${riskPerTradePct}%，min_confidence 不低于 ${minConfidence}，止盈止损至少满足风险收益比 ${minRiskReward}。`,
+      `position_size_usd 只填最小下单占位值 ${positionSizePlaceholder}；最终开仓名义金额由程序按账户权益、单笔风险比例和止损距离重新计算，AI 不要自行决定仓位金额。`,
       '程序负责计算 K 线和指标；AI 只负责编译策略结构，不要要求 AI 计算原始 K 线或指标值。',
     ].join('\n')
   }
@@ -294,7 +296,8 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
     'If there are no exact numeric trigger conditions, prefer strategy_mode="scoring" instead of inventing precise rules.',
     'Scoring factors are structured evidence for setup templates; the program detects opportunities on the primary timeframe, confirms triggers on the entry timeframe, and filters direction conflicts on confirmation timeframes.',
     'Use only scoring factors supported by enabled data: trend, momentum, structure, derivatives. Do not use unavailable data.',
-    `Execution constraints: max positions ${risk.max_positions || 1}, leverage no more than ${leverage}, position_size_usd ${positionSize}, min_confidence at least ${minConfidence}, risk/reward at least ${minRiskReward}.`,
+    `Execution constraints: max positions ${risk.max_positions || 1}, leverage no more than ${leverage}, risk per trade ${riskPerTradePct}%, min_confidence at least ${minConfidence}, risk/reward at least ${minRiskReward}.`,
+    `Use ${positionSizePlaceholder} as the minimum-order placeholder for position_size_usd; the program recalculates final notional size from account equity, risk per trade, and stop distance. AI must not freely choose position size.`,
     'The program calculates K-lines and indicators; AI only compiles strategy structure and must not calculate raw K-line indicators.',
   ].join('\n')
 }

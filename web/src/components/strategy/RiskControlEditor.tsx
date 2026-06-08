@@ -223,7 +223,7 @@ export function RiskControlEditor({
           </h3>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div
             className="p-4 rounded-lg"
             style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
@@ -253,6 +253,35 @@ export function RiskControlEditor({
                   color: '#EAECEF',
                 }}
               />
+            </div>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #F0B90B' }}
+          >
+            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.riskPerTrade, language)}
+            </label>
+            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
+              {ts(riskControl.riskPerTradeDesc, language)}
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                value={config.risk_per_trade_pct ?? 1}
+                onChange={(e) =>
+                  updateField('risk_per_trade_pct', parseFloat(e.target.value))
+                }
+                disabled={disabled}
+                min={0.1}
+                max={5}
+                step={0.1}
+                className="flex-1 accent-yellow-500"
+              />
+              <span className="w-14 text-center font-mono" style={{ color: '#F0B90B' }}>
+                {(config.risk_per_trade_pct ?? 1).toFixed(1)}%
+              </span>
             </div>
           </div>
 

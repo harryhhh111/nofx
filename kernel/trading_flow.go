@@ -69,8 +69,17 @@ type SignalRequest struct {
 	Candidates     []CandidateCoin                   `json:"candidates"`
 	Rules          []StrategyRule                    `json:"rules"`
 	Scoring        *ScoringStrategy                  `json:"scoring,omitempty"`
+	PositionSizing *PositionSizingConfig             `json:"position_sizing,omitempty"`
 	FactorSnapshot map[string]*market.FactorSnapshot `json:"factor_snapshot"`
 	Now            time.Time                         `json:"now"`
+}
+
+type PositionSizingConfig struct {
+	RiskPerTradePct              float64 `json:"risk_per_trade_pct,omitempty"`
+	MinPositionSizeUSD           float64 `json:"min_position_size_usd,omitempty"`
+	MaxMarginUsage               float64 `json:"max_margin_usage,omitempty"`
+	BTCETHMaxPositionValueRatio  float64 `json:"btc_eth_max_position_value_ratio,omitempty"`
+	AltcoinMaxPositionValueRatio float64 `json:"altcoin_max_position_value_ratio,omitempty"`
 }
 
 type ScoringStrategy struct {
@@ -301,6 +310,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("generate signals: %w", err)
 	}
+	applyRiskBasedPositionSizing(signals, req.SignalRequest.Account, req.SignalRequest.PositionSizing)
 	setupEvaluations := TraceSetupEvaluations(req.SignalRequest)
 	ruleEvaluations := TraceRuleEvaluations(req.SignalRequest)
 	var marketContext *MarketContext

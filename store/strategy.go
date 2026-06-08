@@ -26,6 +26,8 @@ const (
 	MinMinCloseConfidence     = 70
 	MaxMinCloseConfidence     = 95
 	DefaultMinRiskRewardRatio = 2.5
+	DefaultRiskPerTradePct    = 1.0
+	DefaultMinPositionSize    = 12.0
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -124,12 +126,21 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.AltcoinMaxPositionValueRatio = 1.0
 	}
 
-	// Default margin usage and min position size when not provided
+	// Default margin usage, position sizing and min position size when not provided.
 	if c.RiskControl.MaxMarginUsage <= 0 {
 		c.RiskControl.MaxMarginUsage = 0.9
 	}
+	if c.RiskControl.RiskPerTradePct <= 0 {
+		c.RiskControl.RiskPerTradePct = DefaultRiskPerTradePct
+	}
+	if c.RiskControl.RiskPerTradePct < 0.1 {
+		c.RiskControl.RiskPerTradePct = 0.1
+	}
+	if c.RiskControl.RiskPerTradePct > 5 {
+		c.RiskControl.RiskPerTradePct = 5
+	}
 	if c.RiskControl.MinPositionSize <= 0 {
-		c.RiskControl.MinPositionSize = 12.0
+		c.RiskControl.MinPositionSize = DefaultMinPositionSize
 	}
 	if c.RiskControl.MinRiskRewardRatio <= 0 {
 		c.RiskControl.MinRiskRewardRatio = DefaultMinRiskRewardRatio
@@ -1006,6 +1017,10 @@ type RiskControlConfig struct {
 
 	// Max margin utilization (e.g. 0.9 = 90%) (CODE ENFORCED)
 	MaxMarginUsage float64 `json:"max_margin_usage"`
+	// Risk budget for one new position. Effective notional is derived by code:
+	// equity * risk_per_trade_pct / stop-distance-ratio, then capped by max
+	// position value and available margin. AI must not freely choose this size.
+	RiskPerTradePct float64 `json:"risk_per_trade_pct"`
 	// Min position size in USDT (CODE ENFORCED)
 	MinPositionSize float64 `json:"min_position_size"`
 
@@ -1141,7 +1156,8 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			BTCETHMaxPositionValueRatio:  5.0,
 			AltcoinMaxPositionValueRatio: 1.0,
 			MaxMarginUsage:               0.9,
-			MinPositionSize:              12,
+			RiskPerTradePct:              DefaultRiskPerTradePct,
+			MinPositionSize:              DefaultMinPositionSize,
 			MinRiskRewardRatio:           DefaultMinRiskRewardRatio, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits

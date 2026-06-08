@@ -136,6 +136,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		Candidates:     ctx.CandidateCoins,
 		Rules:          rules,
 		Scoring:        scoring,
+		PositionSizing: positionSizingFromRiskControl(riskConfig),
 		FactorSnapshot: factorSnapshots,
 		Now:            time.Now().UTC(),
 	}
@@ -741,6 +742,16 @@ func buildMarketValidationMaps(ctx *Context, config *store.StrategyConfig, riskC
 		}
 	}
 	return marketPrices, minSLDistances
+}
+
+func positionSizingFromRiskControl(riskConfig store.RiskControlConfig) *PositionSizingConfig {
+	return &PositionSizingConfig{
+		RiskPerTradePct:              riskConfig.RiskPerTradePct,
+		MinPositionSizeUSD:           riskConfig.MinPositionSize,
+		MaxMarginUsage:               riskConfig.MaxMarginUsage,
+		BTCETHMaxPositionValueRatio:  riskConfig.BTCETHMaxPositionValueRatio,
+		AltcoinMaxPositionValueRatio: riskConfig.AltcoinMaxPositionValueRatio,
+	}
 }
 
 func preferredATR14(data *market.Data, config *store.StrategyConfig) float64 {

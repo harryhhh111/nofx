@@ -195,7 +195,7 @@ func buildStrategyCompilerSystemPrompt() string {
       "action": "open_long",
       "execution": {
         "leverage": 3,
-        "position_size_usd": 100,
+        "position_size_usd": 12,
         "stop_loss_pct": 2,
         "take_profit_pct": 6,
         "confidence": 70
@@ -216,6 +216,7 @@ func buildStrategyCompilerSystemPrompt() string {
 - If both exact rules and factor scoring are useful, output strategy_mode="hybrid".
 - Supported actions: open_long, open_short, close_long, close_short, wait.
 - Open actions must include leverage, position_size_usd, stop_loss_pct, take_profit_pct, confidence.
+- position_size_usd is a required minimum-order placeholder for schema compatibility. The program recalculates final notional size from account equity, configured risk per trade, and stop distance; do not invent position size.
 - Close and wait actions must include confidence.
 - For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution.
 - factor_weights are proportions from 0 to 1 and should sum to about 1 across selected_factors. If the user gives percentages, convert them to proportions.

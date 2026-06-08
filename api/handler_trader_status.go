@@ -135,6 +135,12 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Parameter error: symbol and side are required"})
 		return
 	}
+	req.Symbol = market.Normalize(req.Symbol)
+	req.Side = strings.ToUpper(strings.TrimSpace(req.Side))
+	if req.Side != "LONG" && req.Side != "SHORT" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "side must be LONG or SHORT"})
+		return
+	}
 
 	logger.Infof("🔻 User %s requested position close: trader=%s, symbol=%s, side=%s", userID, traderID, req.Symbol, req.Side)
 
@@ -152,115 +158,130 @@ func (s *Server) handleClosePosition(c *gin.Context) {
 		return
 	}
 
-	// Create temporary trader to execute close position
+	managedTrader, managedErr := s.traderManager.GetTrader(traderID)
+	if managedErr != nil && exchangeCfg.ExchangeType == "paper" {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "Paper trader is not loaded; cannot close a simulated position from a temporary instance. Reload or start the trader and retry.",
+		})
+		return
+	}
+
+	// For live exchanges, a manual close can still be executed through a
+	// temporary exchange client when the AutoTrader is not loaded. Paper trading
+	// is intentionally excluded above because its position state is local.
 	var tempTrader trader.Trader
 	var createErr error
 
-	// Use ExchangeType (e.g., "binance") instead of ExchangeID (which is now UUID)
-	// Convert EncryptedString fields to string
-	switch exchangeCfg.ExchangeType {
-	case "paper":
-		tempTrader = paper.NewPaperTrader(fullConfig.Trader.InitialBalance, s.store, traderID)
-	case "binance":
-		tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
-	case "hyperliquid":
-		tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
-			string(exchangeCfg.APIKey),
-			exchangeCfg.HyperliquidWalletAddr,
-			exchangeCfg.Testnet,
-			exchangeCfg.HyperliquidUnifiedAcct,
-		)
-	case "aster":
-		tempTrader, createErr = aster.NewAsterTrader(
-			exchangeCfg.AsterUser,
-			exchangeCfg.AsterSigner,
-			string(exchangeCfg.AsterPrivateKey),
-		)
-	case "bybit":
-		tempTrader = bybit.NewBybitTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-		)
-	case "okx":
-		tempTrader = okx.NewOKXTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			string(exchangeCfg.Passphrase),
-		)
-	case "bitget":
-		tempTrader = bitget.NewBitgetTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			string(exchangeCfg.Passphrase),
-		)
-	case "gate":
-		tempTrader = gate.NewGateTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-		)
-	case "kucoin":
-		tempTrader = kucoin.NewKuCoinTrader(
-			string(exchangeCfg.APIKey),
-			string(exchangeCfg.SecretKey),
-			string(exchangeCfg.Passphrase),
-		)
-	case "lighter":
-		if exchangeCfg.LighterWalletAddr != "" && string(exchangeCfg.LighterAPIKeyPrivateKey) != "" {
-			// Lighter only supports mainnet
-			tempTrader, createErr = lighter.NewLighterTraderV2(
-				exchangeCfg.LighterWalletAddr,
-				string(exchangeCfg.LighterAPIKeyPrivateKey),
-				exchangeCfg.LighterAPIKeyIndex,
-				false, // Always use mainnet for Lighter
+	if managedErr != nil {
+		// Use ExchangeType (e.g., "binance") instead of ExchangeID (which is now UUID)
+		// Convert EncryptedString fields to string
+		switch exchangeCfg.ExchangeType {
+		case "paper":
+			tempTrader = paper.NewPaperTrader(fullConfig.Trader.InitialBalance, s.store, traderID)
+		case "binance":
+			tempTrader = binance.NewFuturesTrader(string(exchangeCfg.APIKey), string(exchangeCfg.SecretKey), userID)
+		case "hyperliquid":
+			tempTrader, createErr = hyperliquidtrader.NewHyperliquidTrader(
+				string(exchangeCfg.APIKey),
+				exchangeCfg.HyperliquidWalletAddr,
+				exchangeCfg.Testnet,
+				exchangeCfg.HyperliquidUnifiedAcct,
 			)
-		} else {
-			createErr = fmt.Errorf("Lighter requires wallet address and API Key private key")
+		case "aster":
+			tempTrader, createErr = aster.NewAsterTrader(
+				exchangeCfg.AsterUser,
+				exchangeCfg.AsterSigner,
+				string(exchangeCfg.AsterPrivateKey),
+			)
+		case "bybit":
+			tempTrader = bybit.NewBybitTrader(
+				string(exchangeCfg.APIKey),
+				string(exchangeCfg.SecretKey),
+			)
+		case "okx":
+			tempTrader = okx.NewOKXTrader(
+				string(exchangeCfg.APIKey),
+				string(exchangeCfg.SecretKey),
+				string(exchangeCfg.Passphrase),
+			)
+		case "bitget":
+			tempTrader = bitget.NewBitgetTrader(
+				string(exchangeCfg.APIKey),
+				string(exchangeCfg.SecretKey),
+				string(exchangeCfg.Passphrase),
+			)
+		case "gate":
+			tempTrader = gate.NewGateTrader(
+				string(exchangeCfg.APIKey),
+				string(exchangeCfg.SecretKey),
+			)
+		case "kucoin":
+			tempTrader = kucoin.NewKuCoinTrader(
+				string(exchangeCfg.APIKey),
+				string(exchangeCfg.SecretKey),
+				string(exchangeCfg.Passphrase),
+			)
+		case "lighter":
+			if exchangeCfg.LighterWalletAddr != "" && string(exchangeCfg.LighterAPIKeyPrivateKey) != "" {
+				// Lighter only supports mainnet
+				tempTrader, createErr = lighter.NewLighterTraderV2(
+					exchangeCfg.LighterWalletAddr,
+					string(exchangeCfg.LighterAPIKeyPrivateKey),
+					exchangeCfg.LighterAPIKeyIndex,
+					false, // Always use mainnet for Lighter
+				)
+			} else {
+				createErr = fmt.Errorf("Lighter requires wallet address and API Key private key")
+			}
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported exchange type"})
+			return
 		}
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Unsupported exchange type"})
-		return
-	}
 
-	if createErr != nil {
-		logger.Infof("⚠️ Failed to create temporary trader: %v", createErr)
-		SafeInternalError(c, "Failed to connect to exchange", createErr)
-		return
-	}
-
-	// Get current position info BEFORE closing (to get quantity and price)
-	positions, err := tempTrader.GetPositions()
-	if err != nil {
-		logger.Infof("⚠️ Failed to get positions: %v", err)
+		if createErr != nil {
+			logger.Infof("⚠️ Failed to create temporary trader: %v", createErr)
+			SafeInternalError(c, "Failed to connect to exchange", createErr)
+			return
+		}
 	}
 
 	var posQty float64
 	var entryPrice float64
-	for _, pos := range positions {
-		if pos["symbol"] == req.Symbol && pos["side"] == strings.ToLower(req.Side) {
-			if amt, ok := pos["positionAmt"].(float64); ok {
-				posQty = amt
-				if posQty < 0 {
-					posQty = -posQty // Make positive
-				}
-			}
-			if price, ok := pos["entryPrice"].(float64); ok {
-				entryPrice = price
-			}
-			break
-		}
-	}
-
-	// Execute close position operation
 	var result map[string]interface{}
 	var closeErr error
 
-	if req.Side == "LONG" {
-		result, closeErr = tempTrader.CloseLong(req.Symbol, 0) // 0 means close all
-	} else if req.Side == "SHORT" {
-		result, closeErr = tempTrader.CloseShort(req.Symbol, 0) // 0 means close all
+	if managedErr == nil {
+		result, posQty, entryPrice, closeErr = managedTrader.ClosePositionManually(req.Symbol, req.Side)
 	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "side must be LONG or SHORT"})
-		return
+		// Get current position info BEFORE closing (to get quantity and price)
+		positions, err := tempTrader.GetPositions()
+		if err != nil {
+			logger.Infof("⚠️ Failed to get positions: %v", err)
+		}
+
+		for _, pos := range positions {
+			if pos["symbol"] == req.Symbol && pos["side"] == strings.ToLower(req.Side) {
+				if amt, ok := pos["positionAmt"].(float64); ok {
+					posQty = amt
+					if posQty < 0 {
+						posQty = -posQty // Make positive
+					}
+				}
+				if price, ok := pos["entryPrice"].(float64); ok {
+					entryPrice = price
+				}
+				break
+			}
+		}
+
+		if req.Side == "LONG" {
+			result, closeErr = tempTrader.CloseLong(req.Symbol, 0) // 0 means close all
+		} else if req.Side == "SHORT" {
+			result, closeErr = tempTrader.CloseShort(req.Symbol, 0) // 0 means close all
+		} else {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "side must be LONG or SHORT"})
+			return
+		}
 	}
 
 	if closeErr != nil {

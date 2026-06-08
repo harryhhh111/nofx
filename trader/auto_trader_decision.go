@@ -523,6 +523,58 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 	return result, nil
 }
 
+// ClosePositionManually closes a position through the live trader instance used
+// by this AutoTrader. Paper trading keeps open positions in memory, so manual
+// closes must go through this instance instead of a temporary PaperTrader.
+func (at *AutoTrader) ClosePositionManually(symbol, side string) (map[string]interface{}, float64, float64, error) {
+	if at == nil || at.trader == nil {
+		return nil, 0, 0, fmt.Errorf("trader is not available")
+	}
+
+	normalizedSymbol := market.Normalize(symbol)
+	normalizedSide := strings.ToLower(strings.TrimSpace(side))
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to get positions: %w", err)
+	}
+
+	var posQty float64
+	var entryPrice float64
+	for _, pos := range positions {
+		posSymbol, _ := pos["symbol"].(string)
+		posSide, _ := pos["side"].(string)
+		if market.Normalize(posSymbol) != normalizedSymbol || !strings.EqualFold(posSide, normalizedSide) {
+			continue
+		}
+		if amt, ok := pos["positionAmt"].(float64); ok {
+			posQty = math.Abs(amt)
+		}
+		if price, ok := pos["entryPrice"].(float64); ok {
+			entryPrice = price
+		}
+		break
+	}
+
+	if posQty <= 0 {
+		return nil, 0, 0, fmt.Errorf("no %s position for %s", normalizedSide, normalizedSymbol)
+	}
+
+	var result map[string]interface{}
+	switch normalizedSide {
+	case "long":
+		result, err = at.trader.CloseLong(normalizedSymbol, 0)
+	case "short":
+		result, err = at.trader.CloseShort(normalizedSymbol, 0)
+	default:
+		return nil, 0, 0, fmt.Errorf("side must be LONG or SHORT")
+	}
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	return result, posQty, entryPrice, nil
+}
+
 // recordAndConfirmOrder polls order status for actual fill data and records position
 // action: open_long, open_short, close_long, close_short
 // entryPrice: entry price when closing (0 when opening)
