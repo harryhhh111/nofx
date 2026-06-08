@@ -1,4 +1,4 @@
-import { Clock, Activity, TrendingUp, BarChart2, Info, ExternalLink, Zap, Check, AlertCircle, Key, Filter } from 'lucide-react'
+import { Clock, Activity, TrendingUp, BarChart2, Info, ExternalLink, Zap, Check, AlertCircle, Key } from 'lucide-react'
 import type { IndicatorConfig } from '../../types'
 import { indicator, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
@@ -555,101 +555,167 @@ export function IndicatorEditor({
                 )
               })}
             </div>
-
-            {/* Summarized Timeframes - only show when raw klines is enabled */}
+            {/* Summary Mode — per-timeframe K-line + indicator control */}
             {config.enable_raw_klines !== false && selectedTimeframes.length > 1 && (
-              <div className="mt-4 p-3 rounded-lg" style={{ background: 'rgba(99, 102, 241, 0.06)', border: '1px solid rgba(99, 102, 241, 0.2)' }}>
+              <div className="mt-4 p-3 rounded-lg" style={{ background: 'rgba(99, 102, 241, 0.04)', border: '1px solid rgba(99, 102, 241, 0.15)' }}>
                 <div className="flex items-center gap-2 mb-2">
                   <Zap className="w-3.5 h-3.5" style={{ color: '#6366f1' }} />
-                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.summarizedTimeframes, language)}</span>
+                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.summaryMode, language)}</span>
                 </div>
-                <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.summarizedTimeframesDesc, language)}</p>
-                <div className="flex flex-wrap gap-1.5">
+                <p className="text-[10px] mb-3" style={{ color: '#5E6673' }}>{ts(indicator.summaryModeDesc, language)}</p>
+
+                {/* Timeframe master toggles */}
+                <div className="flex flex-wrap gap-1.5 mb-3">
                   {selectedTimeframes.map((tf: string) => {
-                    const summarized = config.summarized_timeframes || []
-                    const isSummarized = summarized.includes(tf)
+                    const summarizedTFs = config.summarized_timeframes || []
+                    const compactTFs = config.compact_kline_timeframes || []
+                    const isActive = summarizedTFs.includes(tf) || compactTFs.includes(tf)
                     return (
                       <button
                         key={tf}
                         onClick={() => {
-                          const current = [...summarized]
-                          if (isSummarized) {
-                            onChange({ ...config, summarized_timeframes: current.filter((t) => t !== tf) })
+                          if (disabled) return
+                          const sumCurrent = [...summarizedTFs]
+                          const compCurrent = [...compactTFs]
+                          if (isActive) {
+                            onChange({
+                              ...config,
+                              summarized_timeframes: sumCurrent.filter((t) => t !== tf),
+                              compact_kline_timeframes: compCurrent.filter((t) => t !== tf),
+                            })
                           } else {
-                            current.push(tf)
-                            onChange({ ...config, summarized_timeframes: current })
+                            onChange({
+                              ...config,
+                              summarized_timeframes: [...sumCurrent, tf],
+                              compact_kline_timeframes: [...compCurrent, tf],
+                            })
                           }
                         }}
                         disabled={disabled}
-                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                          isSummarized ? '' : 'opacity-50 hover:opacity-80'
+                        className={`px-3 py-1.5 rounded text-xs font-semibold transition-all ${
+                          isActive ? '' : 'opacity-50 hover:opacity-70'
                         }`}
                         style={{
-                          background: isSummarized ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                          border: `1px solid ${isSummarized ? 'rgba(99, 102, 241, 0.5)' : '#2B3139'}`,
-                          color: isSummarized ? '#a5b4fc' : '#848E9C',
+                          background: isActive ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
+                          border: `1px solid ${isActive ? 'rgba(99, 102, 241, 0.5)' : '#2B3139'}`,
+                          color: isActive ? '#a5b4fc' : '#848E9C',
                         }}
-                        title={isSummarized ? `${tf} summary mode` : `${tf} raw klines`}
                       >
-                        {tf} {isSummarized ? '📊' : '📈'}
+                        {tf} {isActive ? '📊' : '📈'}
                       </button>
                     )
                   })}
                 </div>
+
+                {/* Per-timeframe detail cards */}
+                {selectedTimeframes.filter((tf: string) => {
+                  const summarizedTFs = config.summarized_timeframes || []
+                  const compactTFs = config.compact_kline_timeframes || []
+                  return summarizedTFs.includes(tf) || compactTFs.includes(tf)
+                }).map((tf: string) => {
+                  const summarizedTFs = config.summarized_timeframes || []
+                  const compactTFs = config.compact_kline_timeframes || []
+                  const isKlineCompact = compactTFs.includes(tf)
+                  const isIndicatorSummary = summarizedTFs.includes(tf)
+                  return (
+                    <div key={tf} className="mb-3 p-3 rounded-lg" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid #2B3139' }}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs font-semibold" style={{ color: '#a5b4fc' }}>{tf}</span>
+                      </div>
+
+                      {/* Toggles row */}
+                      <div className="flex items-center gap-3 mb-2">
+                        <button
+                          onClick={() => {
+                            if (disabled) return
+                            const current = [...compactTFs]
+                            if (isKlineCompact) {
+                              onChange({ ...config, compact_kline_timeframes: current.filter((t) => t !== tf) })
+                            } else {
+                              onChange({ ...config, compact_kline_timeframes: [...current, tf] })
+                            }
+                          }}
+                          disabled={disabled}
+                          className="px-2.5 py-1 rounded text-xs font-medium transition-all"
+                          style={{
+                            background: isKlineCompact ? 'rgba(240, 185, 11, 0.12)' : 'transparent',
+                            border: `1px solid ${isKlineCompact ? 'rgba(240, 185, 11, 0.4)' : '#2B3139'}`,
+                            color: isKlineCompact ? '#F0B90B' : '#5E6673',
+                          }}
+                        >
+                          {isKlineCompact ? '⊟' : '⊞'} {ts(indicator.klineSection, language)}
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (disabled) return
+                            const current = [...summarizedTFs]
+                            if (isIndicatorSummary) {
+                              onChange({ ...config, summarized_timeframes: current.filter((t) => t !== tf) })
+                            } else {
+                              onChange({ ...config, summarized_timeframes: [...current, tf] })
+                            }
+                          }}
+                          disabled={disabled}
+                          className="px-2.5 py-1 rounded text-xs font-medium transition-all"
+                          style={{
+                            background: isIndicatorSummary ? 'rgba(14, 203, 129, 0.1)' : 'transparent',
+                            border: `1px solid ${isIndicatorSummary ? 'rgba(14, 203, 129, 0.35)' : '#2B3139'}`,
+                            color: isIndicatorSummary ? '#0ECB81' : '#5E6673',
+                          }}
+                        >
+                          {isIndicatorSummary ? '⊟' : '⊞'} {ts(indicator.indicatorSection, language)}
+                        </button>
+                      </div>
+
+                      {/* Individual indicator buttons */}
+                      {isIndicatorSummary && (
+                        <div className="flex flex-wrap gap-1.5 ml-1 pl-2" style={{ borderLeft: '1px solid rgba(14, 203, 129, 0.15)' }}>
+                          {[
+                            { key: 'ema', label: 'EMA', color: '#F0B90B' },
+                            { key: 'adx', label: 'ADX', color: '#f97316' },
+                            { key: 'boll', label: 'BOLL', color: '#ec4899' },
+                            { key: 'atr', label: 'ATR', color: '#60a5fa' },
+                            { key: 'sar', label: 'SAR', color: '#06b6d4' },
+                            { key: 'sma', label: 'SMA', color: '#4ade80' },
+                            { key: 'macd', label: 'MACD', color: '#a855f7' },
+                            { key: 'rsi', label: 'RSI', color: '#F6465D' },
+                          ].map(({ key, label, color }) => {
+                            const selected = config.summarized_indicators || []
+                            const isActive = selected.includes(key)
+                            return (
+                              <button
+                                key={key}
+                                onClick={() => {
+                                  if (disabled) return
+                                  const current = [...(config.summarized_indicators || [])]
+                                  if (isActive) {
+                                    onChange({ ...config, summarized_indicators: current.filter((k) => k !== key) })
+                                  } else {
+                                    onChange({ ...config, summarized_indicators: [...current, key] })
+                                  }
+                                }}
+                                disabled={disabled}
+                                className={`px-2 py-0.5 rounded text-[11px] font-medium transition-all ${
+                                  isActive ? '' : 'opacity-35 hover:opacity-55'
+                                }`}
+                                style={{
+                                  background: isActive ? `${color}15` : 'transparent',
+                                  border: `1px solid ${isActive ? `${color}35` : '#2B3139'}`,
+                                  color: isActive ? color : '#5E6673',
+                                }}
+                              >
+                                {isActive ? '∑' : '≡'} {label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
-            {/* Summarized indicators selection (only visible when timeframes are summarized) */}
-            {config.summarized_timeframes && config.summarized_timeframes.length > 0 && (
-              <div className="mt-4 p-3 rounded-lg" style={{ background: 'rgba(14, 203, 129, 0.04)', border: '1px solid rgba(14, 203, 129, 0.15)' }}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Filter className="w-3.5 h-3.5" style={{ color: '#0ECB81' }} />
-                  <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.summarizedIndicators, language)}</span>
-                </div>
-                <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.summarizedIndicatorsDesc, language)}</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { key: 'ema', label: 'EMA', color: '#F0B90B' },
-                    { key: 'adx', label: 'ADX', color: '#f97316' },
-                    { key: 'boll', label: 'BOLL', color: '#ec4899' },
-                    { key: 'atr', label: 'ATR', color: '#60a5fa' },
-                    { key: 'sar', label: 'SAR', color: '#06b6d4' },
-                    { key: 'sma', label: 'SMA', color: '#4ade80' },
-                    { key: 'macd', label: 'MACD', color: '#a855f7' },
-                    { key: 'rsi', label: 'RSI', color: '#F6465D' },
-                  ].map(({ key, label, color }) => {
-                    const selected = config.summarized_indicators || []
-                    const isActive = selected.includes(key)
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => {
-                          if (disabled) return
-                          const current = [...(config.summarized_indicators || [])]
-                          if (isActive) {
-                            onChange({ ...config, summarized_indicators: current.filter((k) => k !== key) })
-                          } else {
-                            onChange({ ...config, summarized_indicators: [...current, key] })
-                          }
-                        }}
-                        disabled={disabled}
-                        className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                          isActive ? '' : 'opacity-40 hover:opacity-60'
-                        }`}
-                        style={{
-                          background: isActive ? `${color}18` : 'transparent',
-                          border: `1px solid ${isActive ? `${color}40` : '#2B3139'}`,
-                          color: isActive ? color : '#5E6673',
-                        }}
-                        title={isActive ? `∑ ${label} (always summary)` : `${label} (summary only in summarized TF)`}
-                      >
-                        {isActive ? '∑' : '≡'} {label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>

@@ -105,9 +105,11 @@ export interface IndicatorConfig {
   klines: KlineConfig;
   // Raw OHLCV kline data
   enable_raw_klines: boolean;
-  // Timeframes to show as indicator trend summary (no raw OHLCV or indicator arrays)
+  // Timeframes to show compact K-line summary (swing levels + candle context instead of OHLCV table)
+  compact_kline_timeframes?: string[];
+  // Timeframes to summarize indicators for (trend-state text instead of raw indicator arrays)
   summarized_timeframes?: string[];
-  // Indicators to summarize (empty = all summarized). Only relevant when summarized_timeframes is set.
+  // Indicators to always summarize (empty = all summarized in summarized timeframes)
   summarized_indicators?: string[];
   // Technical indicators (optional)
   enable_ema: boolean;
