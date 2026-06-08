@@ -1354,11 +1354,44 @@ func (e *StrategyEngine) formatMarketDataFromSnapshot(data *market.Data, snap *m
 	return sb.String()
 }
 
+// indicatorConfigToRequest maps store.IndicatorConfig to market.IndicatorRequest.
+func indicatorConfigToRequest(cfg store.IndicatorConfig) market.IndicatorRequest {
+	req := market.IndicatorRequest{}
+	if cfg.EnableEMA && len(cfg.EMAPeriods) > 0 {
+		req.EMAPeriods = cfg.EMAPeriods
+	}
+	if cfg.EnableSMA && len(cfg.SMAPeriods) > 0 {
+		req.SMAPeriods = cfg.SMAPeriods
+	}
+	if cfg.EnableRSI && len(cfg.RSIPeriods) > 0 {
+		req.RSIPeriods = cfg.RSIPeriods
+	}
+	if cfg.EnableATR && len(cfg.ATRPeriods) > 0 {
+		req.ATRPeriods = cfg.ATRPeriods
+	}
+	if cfg.EnableADX {
+		p := cfg.ADXPeriod
+		if p <= 0 { p = 14 }
+		req.ADX = &market.ADXSpec{Period: p}
+	}
+	if cfg.EnableSAR {
+		req.SAR = &market.SARSpec{Enabled: true}
+	}
+	if cfg.EnableBOLL {
+		req.BOLLPeriods = []market.BOLLSpec{{Period: 20, Multiplier: 2.0}}
+	}
+	if cfg.EnableMACD {
+		req.MACD = &market.MACDSpec{Fast: 12, Slow: 26, Signal: 9}
+	}
+	return req
+}
+
 func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 	indicators := e.config.Indicators
 
 	if indicators.UseFactorSnapshot {
-		snap := market.BuildFactorSnapshotFromData(data)
+		req := indicatorConfigToRequest(indicators)
+		snap := market.BuildFactorSnapshotWithEngine(data, req)
 		if snap != nil {
 			return e.formatMarketDataFromSnapshot(data, snap)
 		}

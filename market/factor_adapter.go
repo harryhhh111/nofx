@@ -1,6 +1,7 @@
 package market
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -172,4 +173,65 @@ func (s *FactorSnapshot) IndicatorValue(name, timeframe string, period int) (flo
 		}
 	}
 	return 0, false
+}
+
+// ── Engine-based adapter ──────────────────────────────────────────────────
+
+// BuildFactorSnapshotWithEngine uses the modular IndicatorEngine to compute
+// indicators from raw klines instead of extracting last values from arrays.
+func BuildFactorSnapshotWithEngine(data *Data, req IndicatorRequest) *FactorSnapshot {
+	if data == nil {
+		return nil
+	}
+
+	input := MarketInput{
+		Symbol:     data.Symbol,
+		Timeframes: make(map[string][]Kline),
+		AsOf:       time.Now().UTC(),
+	}
+	for tf, ts := range data.TimeframeData {
+		if ts == nil {
+			continue
+		}
+		if len(ts.ComputeBars) > 0 {
+			input.Timeframes[tf] = ts.ComputeBars
+		} else {
+			input.Timeframes[tf] = klineBarsToKlines(ts.Klines)
+		}
+	}
+	if len(input.Timeframes) == 0 {
+		return nil
+	}
+
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, req)
+	if err != nil {
+		return nil
+	}
+
+	// Inject non-OHLCV factors
+	snap.AsOf = time.Now().UTC()
+	if data.CurrentPrice > 0 {
+		addPoint(snap, "price", data.CurrentPrice, "", 0)
+	}
+	if data.OpenInterest != nil {
+		addPoint(snap, "oi_latest", data.OpenInterest.Latest, "", 0)
+	}
+	if data.FundingRate != 0 {
+		addPoint(snap, "funding_rate", data.FundingRate, "", 0)
+	}
+
+	return snap
+}
+
+// klineBarsToKlines converts []KlineBar (prompt-ready) to []Kline (calc-ready).
+func klineBarsToKlines(bars []KlineBar) []Kline {
+	klines := make([]Kline, len(bars))
+	for i, bar := range bars {
+		klines[i] = Kline{
+			OpenTime: bar.Time, Open: bar.Open,
+			High: bar.High, Low: bar.Low,
+			Close: bar.Close, Volume: bar.Volume,
+		}
+	}
+	return klines
 }
