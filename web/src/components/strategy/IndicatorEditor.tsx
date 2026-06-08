@@ -681,16 +681,24 @@ export function IndicatorEditor({
                             { key: 'rsi', label: 'RSI', color: '#F6465D' },
                           ].map(({ key, label, color }) => {
                             const selected = config.summarized_indicators || []
-                            const isActive = selected.includes(key)
+                            // Empty list = all summarized. Non-empty = only listed ones summarized.
+                            const isActive = selected.length === 0 || selected.includes(key)
                             return (
                               <button
                                 key={key}
                                 onClick={() => {
                                   if (disabled) return
                                   const current = [...(config.summarized_indicators || [])]
-                                  if (isActive) {
-                                    onChange({ ...config, summarized_indicators: current.filter((k) => k !== key) })
+                                  if (current.length === 0) {
+                                    // All active → remove all except this one
+                                    const allKeys = ['ema', 'adx', 'boll', 'atr', 'sar', 'sma', 'macd', 'rsi']
+                                    onChange({ ...config, summarized_indicators: allKeys.filter((k) => k !== key) })
+                                  } else if (isActive) {
+                                    // Currently active → deactivate it
+                                    const next = current.filter((k) => k !== key)
+                                    onChange({ ...config, summarized_indicators: next.length === 0 ? [] : next })
                                   } else {
+                                    // Currently inactive → activate it
                                     onChange({ ...config, summarized_indicators: [...current, key] })
                                   }
                                 }}

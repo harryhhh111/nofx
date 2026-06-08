@@ -337,9 +337,13 @@ func (c *IndicatorConfig) IsKlineCompact(tf string) bool {
 	return false
 }
 
-// ShouldSummarizeIndicator checks whether a given indicator should always output summary
-// (even when its timeframe is not in summarized_timeframes).
+// ShouldSummarizeIndicator checks whether a given indicator should be summarized.
+// Empty SummarizedIndicators = all indicators summarized (default).
+// Non-empty = only listed indicators are summarized; others output raw arrays.
 func (c *IndicatorConfig) ShouldSummarizeIndicator(name string) bool {
+	if len(c.SummarizedIndicators) == 0 {
+		return true
+	}
 	for _, s := range c.SummarizedIndicators {
 		if s == name {
 			return true

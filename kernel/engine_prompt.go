@@ -2286,7 +2286,7 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	// --- EMA ---
-	if indicators.EnableEMA && len(data.EMA20Values) >= 2 && len(data.EMA50Values) >= 2 {
+	if indicators.ShouldSummarizeIndicator("ema") && indicators.EnableEMA && len(data.EMA20Values) >= 2 && len(data.EMA50Values) >= 2 {
 		e20Last := data.EMA20Values[len(data.EMA20Values)-1]
 		e20Prev := data.EMA20Values[len(data.EMA20Values)-2]
 		e50Last := data.EMA50Values[len(data.EMA50Values)-1]
@@ -2359,7 +2359,7 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	// --- ADX ---
-	if indicators.EnableADX && len(data.ADXValues) > 0 {
+	if indicators.ShouldSummarizeIndicator("adx") && indicators.EnableADX && len(data.ADXValues) > 0 {
 		adxLast := data.ADXValues[len(data.ADXValues)-1]
 		plusDI := data.PlusDIValues[len(data.PlusDIValues)-1]
 		minusDI := data.MinusDIValues[len(data.MinusDIValues)-1]
@@ -2424,7 +2424,7 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	// --- BOLL ---
-	if indicators.EnableBOLL && len(data.BOLLMiddle) > 0 && lastClose > 0 {
+	if indicators.ShouldSummarizeIndicator("boll") && indicators.EnableBOLL && len(data.BOLLMiddle) > 0 && lastClose > 0 {
 		bollMid := data.BOLLMiddle[len(data.BOLLMiddle)-1]
 		bollUpper := data.BOLLUpper[len(data.BOLLUpper)-1]
 		bollLower := data.BOLLLower[len(data.BOLLLower)-1]
@@ -2494,7 +2494,7 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	// --- ATR ---
-	if indicators.EnableATR && data.ATR14 > 0 {
+	if indicators.ShouldSummarizeIndicator("atr") && indicators.EnableATR && data.ATR14 > 0 {
 		if lang == LangChinese {
 			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
 		} else {
@@ -2503,7 +2503,7 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	// --- SAR ---
-	if indicators.EnableSAR && len(data.SARValues) > 0 {
+	if indicators.ShouldSummarizeIndicator("sar") && indicators.EnableSAR && len(data.SARValues) > 0 {
 		sarLast := data.SARValues[len(data.SARValues)-1]
 		uptrend := len(data.SARUptrend) > 0 && data.SARUptrend[len(data.SARUptrend)-1]
 		flipUp := len(data.SARFlipUp) > 0 && data.SARFlipUp[len(data.SARFlipUp)-1]
