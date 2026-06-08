@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"fmt"
+	"math"
 	"nofx/market"
 	"nofx/provider/nofxos"
 	"nofx/store"
@@ -1987,21 +1988,195 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 		}
 	}
 
-	// --- Key Levels ---
-	if len(data.Klines) > 0 {
-		high, low := data.Klines[0].High, data.Klines[0].Low
-		for _, k := range data.Klines {
-			if k.High > high {
-				high = k.High
-			}
-			if k.Low < low {
-				low = k.Low
+	// --- Price Action ---
+	if len(data.Klines) >= 2 {
+		n := 3
+		if len(data.Klines) < n {
+			n = len(data.Klines)
+		}
+		start := len(data.Klines) - n
+
+		// Direction count
+		upCnt, downCnt := 0, 0
+		for i := start; i < len(data.Klines); i++ {
+			if data.Klines[i].Close > data.Klines[i].Open {
+				upCnt++
+			} else if data.Klines[i].Close < data.Klines[i].Open {
+				downCnt++
 			}
 		}
-		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("关键位: 阻力 %.2f | 支撑 %.2f\n", high, low))
+
+		// Body trend (first vs last)
+		firstBody := math.Abs(data.Klines[start].Close - data.Klines[start].Open)
+		lastBody := math.Abs(data.Klines[len(data.Klines)-1].Close - data.Klines[len(data.Klines)-1].Open)
+		var bodyTrend string
+		if lastBody > firstBody*1.2 {
+			bodyTrend = "increasing"
+		} else if lastBody < firstBody*0.8 {
+			bodyTrend = "decreasing"
 		} else {
-			sb.WriteString(fmt.Sprintf("Key Levels: R %.2f | S %.2f\n", high, low))
+			bodyTrend = "stable"
+		}
+
+		// Volume comparison (recent n vs previous 20)
+		var volPct float64
+		hasVol := false
+		if len(data.Klines) >= n+20 {
+			recentVol := 0.0
+			for i := len(data.Klines) - n; i < len(data.Klines); i++ {
+				recentVol += data.Klines[i].Volume
+			}
+			recentVol /= float64(n)
+			prevVol := 0.0
+			for i := len(data.Klines) - n - 20; i < len(data.Klines)-n; i++ {
+				prevVol += data.Klines[i].Volume
+			}
+			prevVol /= 20.0
+			if prevVol > 0 {
+				volPct = (recentVol - prevVol) / prevVol * 100
+				hasVol = true
+			}
+		}
+
+		// High/Low sequences
+		highs := make([]float64, n)
+		lows := make([]float64, n)
+		for i := 0; i < n; i++ {
+			highs[i] = data.Klines[start+i].High
+			lows[i] = data.Klines[start+i].Low
+		}
+		hhTrend, llTrend := "stable", "stable"
+		if highs[n-1] > highs[0] {
+			hhTrend = "rising"
+		} else if highs[n-1] < highs[0] {
+			hhTrend = "falling"
+		}
+		if lows[n-1] > lows[0] {
+			llTrend = "rising"
+		} else if lows[n-1] < lows[0] {
+			llTrend = "falling"
+		}
+
+		if lang == LangChinese {
+			var dirStr string
+			if downCnt == n {
+				dirStr = "持续收阴"
+			} else if upCnt == n {
+				dirStr = "持续收阳"
+			} else {
+				dirStr = "震荡"
+			}
+			var bodyStr string
+			switch bodyTrend {
+			case "increasing":
+				bodyStr = "实体递增"
+			case "decreasing":
+				bodyStr = "实体递减"
+			default:
+				bodyStr = "实体稳定"
+			}
+			var volStr string
+			if hasVol {
+				if volPct > 20 {
+					volStr = fmt.Sprintf(", 量能+%.0f%%", volPct)
+				} else if volPct < -20 {
+					volStr = fmt.Sprintf(", 量能%.0f%%", volPct)
+				} else {
+					volStr = ", 量能平稳"
+				}
+			}
+			var hlStr string
+			if llTrend == "falling" {
+				hlStr = fmt.Sprintf(", 低点不断下移(%s)", formatFloatSeq(lows))
+			} else if hhTrend == "rising" {
+				hlStr = fmt.Sprintf(", 高点不断上移(%s)", formatFloatSeq(highs))
+			}
+			sb.WriteString(fmt.Sprintf("近%dK: %s(%s)%s%s\n", n, dirStr, bodyStr, volStr, hlStr))
+		} else {
+			var dirStr string
+			if downCnt == n {
+				dirStr = "bearish"
+			} else if upCnt == n {
+				dirStr = "bullish"
+			} else {
+				dirStr = "mixed"
+			}
+			var bodyStr string
+			switch bodyTrend {
+			case "increasing":
+				bodyStr = "↑bodies"
+			case "decreasing":
+				bodyStr = "↓bodies"
+			default:
+				bodyStr = "stable bodies"
+			}
+			var volStr string
+			if hasVol {
+				if volPct > 20 {
+					volStr = fmt.Sprintf(", vol +%.0f%%", volPct)
+				} else if volPct < -20 {
+					volStr = fmt.Sprintf(", vol %.0f%%", volPct)
+				} else {
+					volStr = ", vol normal"
+				}
+			}
+			var hlStr string
+			if llTrend == "falling" {
+				hlStr = fmt.Sprintf(", lower lows(%s)", formatFloatSeq(lows))
+			} else if hhTrend == "rising" {
+				hlStr = fmt.Sprintf(", higher highs(%s)", formatFloatSeq(highs))
+			}
+			sb.WriteString(fmt.Sprintf("Last %d candles: %s(%s)%s%s\n", n, dirStr, bodyStr, volStr, hlStr))
+		}
+	}
+
+	// --- Key Levels ---
+	if len(data.Klines) > 0 && lastClose > 0 {
+		lookback := 10
+		if len(data.Klines) < lookback {
+			lookback = len(data.Klines)
+		}
+		start := len(data.Klines) - lookback
+		recentHigh, recentLow := data.Klines[start].High, data.Klines[start].Low
+		for i := start; i < len(data.Klines); i++ {
+			if data.Klines[i].High > recentHigh {
+				recentHigh = data.Klines[i].High
+			}
+			if data.Klines[i].Low < recentLow {
+				recentLow = data.Klines[i].Low
+			}
+		}
+		distToR := (recentHigh - lastClose) / lastClose * 100
+		distToS := (lastClose - recentLow) / lastClose * 100
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("关键位: 阻力%.2f(近%dK前高) 支撑%.2f(近%dK前低), 距阻力%+.1f%% 距支撑%+.1f%%\n",
+				recentHigh, lookback, recentLow, lookback, distToR, distToS))
+		} else {
+			sb.WriteString(fmt.Sprintf("Key levels: R=%.2f(%d-bar high) S=%.2f(%d-bar low), price %+.1f%% from R %+.1f%% from S\n",
+				recentHigh, lookback, recentLow, lookback, distToR, distToS))
+		}
+	}
+
+	// --- Volatility ---
+	if len(data.Klines) > 0 && data.ATR14 > 0 {
+		lastK := data.Klines[len(data.Klines)-1]
+		barRange := lastK.High - lastK.Low
+		ratio := barRange / data.ATR14 * 100
+		var volLabel string
+		if ratio < 50 {
+			volLabel = "low"
+		} else if ratio <= 100 {
+			volLabel = "normal"
+		} else {
+			volLabel = "high"
+		}
+		if lang == LangChinese {
+			labelMap := map[string]string{"low": "低波动", "normal": "正常", "high": "高波动/扩张"}
+			sb.WriteString(fmt.Sprintf("波动: 当前K振幅%.2f(ATR14=%.2f, %.0f%%), %s范围\n",
+				barRange, data.ATR14, ratio, labelMap[volLabel]))
+		} else {
+			sb.WriteString(fmt.Sprintf("Volatility: bar range %.2f(ATR14=%.2f, %.0f%%), %s\n",
+				barRange, data.ATR14, ratio, volLabel))
 		}
 	}
 
@@ -2009,6 +2184,19 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 
 }
 
+
+// formatFloatSeq formats a float slice as "a→b→c".
+func formatFloatSeq(vals []float64) string {
+	if len(vals) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%.2f", vals[0]))
+	for i := 1; i < len(vals); i++ {
+		b.WriteString(fmt.Sprintf("→%.2f", vals[i]))
+	}
+	return b.String()
+}
 
 // writeEMASummary writes a one-line EMA trend summary.
 func (e *StrategyEngine) writeEMASummary(sb *strings.Builder, data *market.TimeframeSeriesData) {

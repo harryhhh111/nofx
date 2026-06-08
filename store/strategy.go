@@ -452,7 +452,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 		Indicators: IndicatorConfig{
 			Klines: KlineConfig{
 				PrimaryTimeframe:     "5m",
-				PrimaryCount:         20,
+				PrimaryCount:         25,
 				LongerTimeframe:      "4h",
 				LongerCount:          10,
 				EnableMultiTimeframe: true,
