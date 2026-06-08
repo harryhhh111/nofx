@@ -251,7 +251,8 @@ type IndicatorConfig struct {
 	Klines KlineConfig `json:"klines"`
 	// raw kline data (OHLCV) - always enabled, required for AI analysis
 	EnableRawKlines bool `json:"enable_raw_klines"`
-	// Timeframes to summarize (indicator trend state instead of raw OHLCV + indicator arrays).
+	// Timeframes to summarize indicators for (trend-state text instead of raw indicator arrays).
+	// Does NOT affect K-line output — use CompactKlineTimeframes for that.
 	// Empty = all raw. Example: ["5m"] = 5m summarized, others raw.
 	SummarizedTimeframes []string `json:"summarized_timeframes,omitempty"`
 		// Indicators to summarize in summary mode timeframes.
@@ -260,6 +261,10 @@ type IndicatorConfig struct {
 		SummarizedIndicators []string `json:"summarized_indicators,omitempty"`
 		// TODO(Phase 4): Use FactorSnapshot-based prompt rendering. Do NOT expose in frontend yet.
 		UseFactorSnapshot bool `json:"use_factor_snapshot,omitempty"`
+	// Timeframes to emit compact K-line summary (swing levels + candle context + volume profile)
+	// instead of full OHLCV table. Independent of indicator summarization.
+	// Empty = all timeframes use full OHLCV. Example: ["5m"] = 5m compact, others full.
+	CompactKlineTimeframes []string `json:"compact_kline_timeframes,omitempty"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
 	EnableSMA         bool `json:"enable_sma"`          // Simple Moving Average
@@ -315,6 +320,16 @@ type IndicatorConfig struct {
 // IsTimeframeSummarized checks whether a given timeframe should use indicator summary mode.
 func (c *IndicatorConfig) IsTimeframeSummarized(tf string) bool {
 	for _, s := range c.SummarizedTimeframes {
+		if s == tf {
+			return true
+		}
+	}
+	return false
+}
+
+// IsKlineCompact checks whether a given timeframe should use compact K-line mode.
+func (c *IndicatorConfig) IsKlineCompact(tf string) bool {
+	for _, s := range c.CompactKlineTimeframes {
 		if s == tf {
 			return true
 		}
@@ -996,15 +1011,33 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	}
 	charsPerCoinTF += klineCount * indicatorCharsPerLine
 
-	// Adjust for summarized timeframes (indicator summary mode — no raw OHLCV or indicator arrays)
-	numSummarizedTF := len(c.Indicators.SummarizedTimeframes)
-	if numSummarizedTF > numTimeframes {
-		numSummarizedTF = numTimeframes
-	}
-	numRawTF := numTimeframes - numSummarizedTF
+	// Per-block char estimates
+	indicatorSummaryChars := 280 // pure indicator summary (key levels removed)
+	compactKlineChars := 450     // compact K-line summary
 
-	totalMarketChars := numCoins * numRawTF * charsPerCoinTF
-	totalMarketChars += numCoins * numSummarizedTF * 350 // ~350 chars per summary block
+	var allTimeframes []string
+	if len(c.Indicators.Klines.SelectedTimeframes) > 0 {
+		allTimeframes = c.Indicators.Klines.SelectedTimeframes
+	} else {
+		allTimeframes = append(allTimeframes, c.Indicators.Klines.PrimaryTimeframe)
+		if c.Indicators.Klines.LongerTimeframe != "" {
+			allTimeframes = append(allTimeframes, c.Indicators.Klines.LongerTimeframe)
+		}
+	}
+
+	totalMarketChars := 0
+	for _, tf := range allTimeframes {
+		if c.Indicators.IsKlineCompact(tf) {
+			totalMarketChars += numCoins * compactKlineChars
+		} else {
+			totalMarketChars += numCoins * klineCount * 60 // ~60 chars per OHLCV row
+		}
+		if c.Indicators.IsTimeframeSummarized(tf) {
+			totalMarketChars += numCoins * indicatorSummaryChars
+		} else {
+			totalMarketChars += numCoins * klineCount * indicatorCharsPerLine
+		}
+	}
 
 	// OI + Funding per coin
 	if c.Indicators.EnableOI || c.Indicators.EnableFundingRate {

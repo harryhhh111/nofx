@@ -437,15 +437,30 @@ func (e *StrategyEngine) writeAvailableIndicators(sb *strings.Builder) {
 			sb.WriteString(fmt.Sprintf("- %s price series", kline.PrimaryTimeframe))
 		}
 	}
-	// Append summary mode note if any timeframes are summarized
-	if len(indicators.SummarizedTimeframes) > 0 {
-		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("\uff08%s \u4e3a\u6307\u6807\u8d8b\u52bf\u6458\u8981\uff0c\u4e0d\u542b\u539f\u59cbK\u7ebf\uff09", strings.Join(indicators.SummarizedTimeframes, ", ")))
-		} else {
-			sb.WriteString(fmt.Sprintf(" (%s: indicator summary, no raw K-lines)", strings.Join(indicators.SummarizedTimeframes, ", ")))
+	if len(indicators.SummarizedTimeframes) > 0 || len(indicators.CompactKlineTimeframes) > 0 {
+		var notes []string
+		if len(indicators.CompactKlineTimeframes) > 0 {
+			if lang == LangChinese {
+				notes = append(notes, fmt.Sprintf("%s K线摘要", strings.Join(indicators.CompactKlineTimeframes, ", ")))
+			} else {
+				notes = append(notes, fmt.Sprintf("%s compact K-lines", strings.Join(indicators.CompactKlineTimeframes, ", ")))
+			}
 		}
+		if len(indicators.SummarizedTimeframes) > 0 {
+			if lang == LangChinese {
+				notes = append(notes, fmt.Sprintf("%s 指标趋势摘要", strings.Join(indicators.SummarizedTimeframes, ", ")))
+			} else {
+				notes = append(notes, fmt.Sprintf("%s indicator summary", strings.Join(indicators.SummarizedTimeframes, ", ")))
+			}
+		}
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("（%s）\n", strings.Join(notes, "；")))
+		} else {
+			sb.WriteString(fmt.Sprintf(" (%s)\n", strings.Join(notes, "; ")))
+		}
+	} else {
+		sb.WriteString("\n")
 	}
-	sb.WriteString("\n")
 
 	if indicators.EnableEMA {
 		if lang == LangChinese {
@@ -1771,14 +1786,12 @@ func (e *StrategyEngine) formatMarketData(data *market.Data) string {
 }
 
 func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig, timeframe string) {
-	// Check if this timeframe should use indicator summary instead of raw data
-	if indicators.IsTimeframeSummarized(timeframe) {
-		e.formatTimeframeSummary(sb, data, indicators)
-		return
-	}
-
 	lang := e.GetLanguage()
-	if len(data.Klines) > 0 {
+
+	// --- K-line section (independent from indicator section) ---
+	if indicators.IsKlineCompact(timeframe) {
+		e.formatCompactKlines(sb, data, timeframe)
+	} else if len(data.Klines) > 0 {
 		if lang == LangChinese {
 			sb.WriteString("时间(UTC)       开盘      最高      最低      收盘      成交量\n")
 		} else {
@@ -1814,101 +1827,462 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 		}
 	}
 
-	if indicators.EnableEMA {
-		if indicators.ShouldSummarizeIndicator("ema") {
-			e.writeEMASummary(sb, data)
-		} else {
-			if len(data.EMA20Values) > 0 {
-				sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
-			}
-			if len(data.EMA50Values) > 0 {
-				sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
-			}
-		}
-	}
-
-	if indicators.EnableSMA && len(data.SMAValues) > 0 {
-		if indicators.ShouldSummarizeIndicator("sma") {
-			e.writeSMASummary(sb, data)
-		} else {
-			periods := make([]int, 0, len(data.SMAValues))
-			for p := range data.SMAValues {
-				periods = append(periods, p)
-			}
-			sort.Ints(periods)
-			for _, p := range periods {
-				values := data.SMAValues[p]
-				if len(values) > 0 {
-					sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(values)))
+	// --- Indicator section (independent from K-line section) ---
+	if indicators.IsTimeframeSummarized(timeframe) {
+		e.formatTimeframeSummary(sb, data, indicators)
+	} else {
+		if indicators.EnableEMA {
+			if indicators.ShouldSummarizeIndicator("ema") {
+				e.writeEMASummary(sb, data)
+			} else {
+				if len(data.EMA20Values) > 0 {
+					sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
+				}
+				if len(data.EMA50Values) > 0 {
+					sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
 				}
 			}
 		}
-	}
 
-	if indicators.EnableADX && len(data.ADXValues) > 0 {
-		if indicators.ShouldSummarizeIndicator("adx") {
-			e.writeADXSummary(sb, data)
-		} else {
-			sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
-			sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
-			sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
-		}
-	}
-
-	if indicators.EnableSAR && len(data.SARValues) > 0 {
-		if indicators.ShouldSummarizeIndicator("sar") {
-			e.writeSARSummary(sb, data)
-		} else {
-			sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
-		}
-	}
-
-	if indicators.EnableMACD && len(data.MACDValues) > 0 {
-		if indicators.ShouldSummarizeIndicator("macd") {
-			sb.WriteString(fmt.Sprintf("MACD: %.4f\n", data.MACDValues[len(data.MACDValues)-1]))
-		} else {
-			sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
-		}
-	}
-
-	if indicators.EnableRSI {
-		if indicators.ShouldSummarizeIndicator("rsi") {
-			if len(data.RSI7Values) > 0 {
-				sb.WriteString(fmt.Sprintf("RSI7: %.2f\n", data.RSI7Values[len(data.RSI7Values)-1]))
-			}
-			if len(data.RSI14Values) > 0 {
-				sb.WriteString(fmt.Sprintf("RSI14: %.2f\n", data.RSI14Values[len(data.RSI14Values)-1]))
-			}
-		} else {
-			if len(data.RSI7Values) > 0 {
-				sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
-			}
-			if len(data.RSI14Values) > 0 {
-				sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
+		if indicators.EnableSMA && len(data.SMAValues) > 0 {
+			if indicators.ShouldSummarizeIndicator("sma") {
+				e.writeSMASummary(sb, data)
+			} else {
+				periods := make([]int, 0, len(data.SMAValues))
+				for p := range data.SMAValues {
+					periods = append(periods, p)
+				}
+				sort.Ints(periods)
+				for _, p := range periods {
+					values := data.SMAValues[p]
+					if len(values) > 0 {
+						sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(values)))
+					}
+				}
 			}
 		}
-	}
 
-	if indicators.EnableATR && data.ATR14 > 0 {
-		sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
-	}
+		if indicators.EnableADX && len(data.ADXValues) > 0 {
+			if indicators.ShouldSummarizeIndicator("adx") {
+				e.writeADXSummary(sb, data)
+			} else {
+				sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
+				sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
+				sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
+			}
+		}
 
-	if indicators.EnableBOLL && len(data.BOLLUpper) > 0 {
-		if indicators.ShouldSummarizeIndicator("boll") {
-			e.writeBOLLSummary(sb, data)
-		} else {
-			sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
-			sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
-			sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
+		if indicators.EnableSAR && len(data.SARValues) > 0 {
+			if indicators.ShouldSummarizeIndicator("sar") {
+				e.writeSARSummary(sb, data)
+			} else {
+				sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
+			}
+		}
+
+		if indicators.EnableMACD && len(data.MACDValues) > 0 {
+			if indicators.ShouldSummarizeIndicator("macd") {
+				sb.WriteString(fmt.Sprintf("MACD: %.4f\n", data.MACDValues[len(data.MACDValues)-1]))
+			} else {
+				sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
+			}
+		}
+
+		if indicators.EnableRSI {
+			if indicators.ShouldSummarizeIndicator("rsi") {
+				if len(data.RSI7Values) > 0 {
+					sb.WriteString(fmt.Sprintf("RSI7: %.2f\n", data.RSI7Values[len(data.RSI7Values)-1]))
+				}
+				if len(data.RSI14Values) > 0 {
+					sb.WriteString(fmt.Sprintf("RSI14: %.2f\n", data.RSI14Values[len(data.RSI14Values)-1]))
+				}
+			} else {
+				if len(data.RSI7Values) > 0 {
+					sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
+				}
+				if len(data.RSI14Values) > 0 {
+					sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
+				}
+			}
+		}
+
+		if indicators.EnableATR && data.ATR14 > 0 {
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+		}
+
+		if indicators.EnableBOLL && len(data.BOLLUpper) > 0 {
+			if indicators.ShouldSummarizeIndicator("boll") {
+				e.writeBOLLSummary(sb, data)
+			} else {
+				sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
+				sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
+				sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
+			}
 		}
 	}
 
 	sb.WriteString("\n")
 }
 
-// formatTimeframeSummary outputs a concise indicator trend state summary instead of
-// raw OHLCV tables and indicator value arrays. Designed for smaller models (e.g. DeepSeek
-// Flash) that benefit more from pre-digested trend conclusions than raw numeric data.
+// swingWindowForTimeframe returns the left/right bar window used for swing-point detection.
+func swingWindowForTimeframe(tf string) int {
+	switch tf {
+	case "1m", "3m", "5m":
+		return 3
+	case "15m", "30m":
+		return 2
+	default:
+		return 2
+	}
+}
+
+// formatCompactKlines outputs a condensed K-line summary with candle morphology,
+// volume profile, volatility range, swing pivot levels, and range position.
+func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.TimeframeSeriesData, timeframe string) {
+	lang := e.GetLanguage()
+	n := len(data.Klines)
+	if n == 0 {
+		return
+	}
+
+	// Header
+	if lang == LangChinese {
+		sb.WriteString(fmt.Sprintf("K线摘要(%s, 最近%d根):\n", timeframe, n))
+	} else {
+		sb.WriteString(fmt.Sprintf("K-line Summary (%s, last %d bars):\n", timeframe, n))
+	}
+
+	// 1. Current candle detail
+	last := data.Klines[n-1]
+	body := last.Close - last.Open
+	bodySize := math.Abs(body)
+	upperShadow := last.High - math.Max(last.Open, last.Close)
+	lowerShadow := math.Min(last.Open, last.Close) - last.Low
+	isBull := body > 0
+
+	if lang == LangChinese {
+		candleType := "阴线"
+		if isBull {
+			candleType = "阳线"
+		} else if body == 0 {
+			candleType = "十字星"
+		}
+		sb.WriteString(fmt.Sprintf("  当前: O=%.2f H=%.2f L=%.2f C=%.2f, 实体%.0f点(%s), 上影%.0f点, 下影%.0f点\n",
+			last.Open, last.High, last.Low, last.Close, bodySize, candleType, upperShadow, lowerShadow))
+	} else {
+		candleType := "bearish"
+		if isBull {
+			candleType = "bullish"
+		} else if body == 0 {
+			candleType = "doji"
+		}
+		sb.WriteString(fmt.Sprintf("  Current: O=%.2f H=%.2f L=%.2f C=%.2f, body %.0f (%s), upper %.0f, lower %.0f\n",
+			last.Open, last.High, last.Low, last.Close, bodySize, candleType, upperShadow, lowerShadow))
+	}
+
+	// 2. Previous 3 candles sequence
+	seqN := 3
+	if n < seqN {
+		seqN = n
+	}
+	if seqN >= 2 {
+		var seqParts []string
+		for i := n - seqN; i < n; i++ {
+			k := data.Klines[i]
+			b := math.Abs(k.Close - k.Open)
+			isB := k.Close > k.Open
+			if lang == LangChinese {
+				t := "阴"
+				if isB {
+					t = "阳"
+				} else if k.Close == k.Open {
+					t = "十字"
+				}
+				seqParts = append(seqParts, fmt.Sprintf("%s(实体%.0f点)", t, b))
+			} else {
+				t := "B"
+				if isB {
+					t = "bull"
+				} else if k.Close == k.Open {
+					t = "doji"
+				}
+				seqParts = append(seqParts, fmt.Sprintf("%s(body%.0f)", t, b))
+			}
+		}
+
+		hhUp := data.Klines[n-1].High > data.Klines[n-seqN].High
+		llUp := data.Klines[n-1].Low > data.Klines[n-seqN].Low
+		var hlNote string
+		if lang == LangChinese {
+			if hhUp && llUp {
+				hlNote = ", 高低点抬高"
+			} else if !hhUp && !llUp {
+				hlNote = ", 高低点降低"
+			} else {
+				hlNote = ", 高低点分化"
+			}
+			sb.WriteString(fmt.Sprintf("  前%d根: %s%s\n", seqN, strings.Join(seqParts, " → "), hlNote))
+		} else {
+			if hhUp && llUp {
+				hlNote = ", higher highs & lows"
+			} else if !hhUp && !llUp {
+				hlNote = ", lower highs & lows"
+			} else {
+				hlNote = ", mixed highs/lows"
+			}
+			sb.WriteString(fmt.Sprintf("  Last %d: %s%s\n", seqN, strings.Join(seqParts, " → "), hlNote))
+		}
+	}
+
+	// 3. Volume
+	if n >= 1 {
+		curVol := data.Klines[n-1].Volume
+		var avg20 float64
+		count20 := 0
+		for i := n - 20; i < n; i++ {
+			if i >= 0 {
+				avg20 += data.Klines[i].Volume
+				count20++
+			}
+		}
+		if count20 > 0 {
+			avg20 /= float64(count20)
+		}
+		volTrend := "stable"
+		if n >= 10 {
+			recent5, prev5 := 0.0, 0.0
+			for i := n - 5; i < n; i++ {
+				recent5 += data.Klines[i].Volume
+			}
+			recent5 /= 5.0
+			for i := n - 10; i < n-5; i++ {
+				prev5 += data.Klines[i].Volume
+			}
+			prev5 /= 5.0
+			if prev5 > 0 {
+				if recent5 > prev5*1.2 {
+					volTrend = "increasing"
+				} else if recent5 < prev5*0.8 {
+					volTrend = "decreasing"
+				}
+			}
+		}
+		if lang == LangChinese {
+			var volNote string
+			if avg20 > 0 {
+				volPct := (curVol - avg20) / avg20 * 100
+				if volPct > 20 {
+					volNote = fmt.Sprintf("放量+%.0f%%", volPct)
+				} else if volPct < -20 {
+					volNote = fmt.Sprintf("缩量%.0f%%", volPct)
+				} else {
+					volNote = "量能平稳"
+				}
+			}
+			trendNote := ""
+			switch volTrend {
+			case "increasing":
+				trendNote = ", 近5根量能递增"
+			case "decreasing":
+				trendNote = ", 近5根量能递减"
+			}
+			sb.WriteString(fmt.Sprintf("  量: 当前%.1f vs 近%d均%.1f(%s)%s\n", curVol, count20, avg20, volNote, trendNote))
+		} else {
+			var volNote string
+			if avg20 > 0 {
+				volPct := (curVol - avg20) / avg20 * 100
+				if volPct > 20 {
+					volNote = fmt.Sprintf("heavy +%.0f%%", volPct)
+				} else if volPct < -20 {
+					volNote = fmt.Sprintf("light %.0f%%", volPct)
+				} else {
+					volNote = "normal"
+				}
+			}
+			trendNote := ""
+			switch volTrend {
+			case "increasing":
+				trendNote = ", last 5 increasing"
+			case "decreasing":
+				trendNote = ", last 5 decreasing"
+			}
+			sb.WriteString(fmt.Sprintf("  Vol: current %.1f vs %d-avg %.1f (%s)%s\n", curVol, count20, avg20, volNote, trendNote))
+		}
+	}
+
+	// 4. Volatility range
+	if n >= 5 {
+		high5, low5 := data.Klines[n-5].High, data.Klines[n-5].Low
+		for i := n - 5; i < n; i++ {
+			if data.Klines[i].High > high5 {
+				high5 = data.Klines[i].High
+			}
+			if data.Klines[i].Low < low5 {
+				low5 = data.Klines[i].Low
+			}
+		}
+		highAll, lowAll := data.Klines[0].High, data.Klines[0].Low
+		for _, k := range data.Klines {
+			if k.High > highAll {
+				highAll = k.High
+			}
+			if k.Low < lowAll {
+				lowAll = k.Low
+			}
+		}
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("  波动: 近5根区间%.2f-%.2f(%.0f点), 近%d根区间%.2f-%.2f(%.0f点)\n",
+				low5, high5, high5-low5, n, lowAll, highAll, highAll-lowAll))
+		} else {
+			sb.WriteString(fmt.Sprintf("  Range: last 5 %.2f-%.2f (%.0f), last %d %.2f-%.2f (%.0f)\n",
+				low5, high5, high5-low5, n, lowAll, highAll, highAll-lowAll))
+		}
+	}
+
+	// 5. Swing levels
+	window := swingWindowForTimeframe(timeframe)
+	type swingPoint struct {
+		price   float64
+		barsAgo int
+		isHigh  bool
+	}
+	var swings []swingPoint
+	for i := window; i < n-window; i++ {
+		isSwingHigh := true
+		for j := i - window; j <= i+window; j++ {
+			if j != i && data.Klines[j].High >= data.Klines[i].High {
+				isSwingHigh = false
+				break
+			}
+		}
+		if isSwingHigh {
+			swings = append(swings, swingPoint{data.Klines[i].High, n - 1 - i, true})
+		}
+		isSwingLow := true
+		for j := i - window; j <= i+window; j++ {
+			if j != i && data.Klines[j].Low <= data.Klines[i].Low {
+				isSwingLow = false
+				break
+			}
+		}
+		if isSwingLow {
+			swings = append(swings, swingPoint{data.Klines[i].Low, n - 1 - i, false})
+		}
+	}
+	var highs, lows []swingPoint
+	for _, s := range swings {
+		if s.isHigh {
+			highs = append(highs, s)
+		} else {
+			lows = append(lows, s)
+		}
+	}
+	sort.Slice(highs, func(i, j int) bool { return highs[i].barsAgo < highs[j].barsAgo })
+	sort.Slice(lows, func(i, j int) bool { return lows[i].barsAgo < lows[j].barsAgo })
+
+	if len(highs) > 0 || len(lows) > 0 {
+		if lang == LangChinese {
+			sb.WriteString("  关键位(摆动高低点):\n")
+			if len(highs) > 0 {
+				sb.WriteString("    上方阻力: ")
+				for i, h := range highs {
+					if i > 0 {
+						sb.WriteString(", ")
+					}
+					if i >= 2 {
+						break
+					}
+					sb.WriteString(fmt.Sprintf("%.2f(前高, %d根前)", h.price, h.barsAgo))
+				}
+				sb.WriteString("\n")
+			}
+			if len(lows) > 0 {
+				sb.WriteString("    下方支撑: ")
+				for i, l := range lows {
+					if i > 0 {
+						sb.WriteString(", ")
+					}
+					if i >= 2 {
+						break
+					}
+					sb.WriteString(fmt.Sprintf("%.2f(前低, %d根前)", l.price, l.barsAgo))
+				}
+				sb.WriteString("\n")
+			}
+		} else {
+			sb.WriteString("  Key Levels (swing pivots):\n")
+			if len(highs) > 0 {
+				sb.WriteString("    Resistance: ")
+				for i, h := range highs {
+					if i > 0 {
+						sb.WriteString(", ")
+					}
+					if i >= 2 {
+						break
+					}
+					sb.WriteString(fmt.Sprintf("%.2f(prior high, %d bars ago)", h.price, h.barsAgo))
+				}
+				sb.WriteString("\n")
+			}
+			if len(lows) > 0 {
+				sb.WriteString("    Support: ")
+				for i, l := range lows {
+					if i > 0 {
+						sb.WriteString(", ")
+					}
+					if i >= 2 {
+						break
+					}
+					sb.WriteString(fmt.Sprintf("%.2f(prior low, %d bars ago)", l.price, l.barsAgo))
+				}
+				sb.WriteString("\n")
+			}
+		}
+	}
+
+	// 6. Range position
+	highAll, lowAll := data.Klines[0].High, data.Klines[0].Low
+	for _, k := range data.Klines {
+		if k.High > highAll {
+			highAll = k.High
+		}
+		if k.Low < lowAll {
+			lowAll = k.Low
+		}
+	}
+	if highAll > lowAll {
+		pos := (last.Close - lowAll) / (highAll - lowAll) * 100
+		if lang == LangChinese {
+			var posLabel string
+			switch {
+			case pos < 30:
+				posLabel = "低位"
+			case pos > 70:
+				posLabel = "高位"
+			default:
+				posLabel = "中性位"
+			}
+			sb.WriteString(fmt.Sprintf("  区间位置: %.0f%% (当前价在近%d根区间%s)\n", pos, n, posLabel))
+		} else {
+			var posLabel string
+			switch {
+			case pos < 30:
+				posLabel = "lower zone"
+			case pos > 70:
+				posLabel = "upper zone"
+			default:
+				posLabel = "mid zone"
+			}
+			sb.WriteString(fmt.Sprintf("  Position: %.0f%% (price in %s of last %d-bar range)\n", pos, posLabel, n))
+		}
+	}
+
+	sb.WriteString("\n")
+}
+
+// formatTimeframeSummary outputs indicator trend summaries only (EMA, ADX, BOLL, ATR, SAR).
+// It does NOT include price-level context. If swing levels / candle morphology are needed,
+// enable CompactKlineTimeframes in the strategy configuration.
 func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *market.TimeframeSeriesData, indicators store.IndicatorConfig) {
 	lang := e.GetLanguage()
 
@@ -2188,198 +2562,6 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 				sb.WriteString(", flip down")
 			}
 			sb.WriteString("\n")
-		}
-	}
-
-	// --- Price Action ---
-	if len(data.Klines) >= 2 {
-		n := 3
-		if len(data.Klines) < n {
-			n = len(data.Klines)
-		}
-		start := len(data.Klines) - n
-
-		// Direction count
-		upCnt, downCnt := 0, 0
-		for i := start; i < len(data.Klines); i++ {
-			if data.Klines[i].Close > data.Klines[i].Open {
-				upCnt++
-			} else if data.Klines[i].Close < data.Klines[i].Open {
-				downCnt++
-			}
-		}
-
-		// Body trend (first vs last)
-		firstBody := math.Abs(data.Klines[start].Close - data.Klines[start].Open)
-		lastBody := math.Abs(data.Klines[len(data.Klines)-1].Close - data.Klines[len(data.Klines)-1].Open)
-		var bodyTrend string
-		if lastBody > firstBody*1.2 {
-			bodyTrend = "increasing"
-		} else if lastBody < firstBody*0.8 {
-			bodyTrend = "decreasing"
-		} else {
-			bodyTrend = "stable"
-		}
-
-		// Volume comparison (recent n vs previous 20)
-		var volPct float64
-		hasVol := false
-		if len(data.Klines) >= n+20 {
-			recentVol := 0.0
-			for i := len(data.Klines) - n; i < len(data.Klines); i++ {
-				recentVol += data.Klines[i].Volume
-			}
-			recentVol /= float64(n)
-			prevVol := 0.0
-			for i := len(data.Klines) - n - 20; i < len(data.Klines)-n; i++ {
-				prevVol += data.Klines[i].Volume
-			}
-			prevVol /= 20.0
-			if prevVol > 0 {
-				volPct = (recentVol - prevVol) / prevVol * 100
-				hasVol = true
-			}
-		}
-
-		// High/Low sequences
-		highs := make([]float64, n)
-		lows := make([]float64, n)
-		for i := 0; i < n; i++ {
-			highs[i] = data.Klines[start+i].High
-			lows[i] = data.Klines[start+i].Low
-		}
-		hhTrend, llTrend := "stable", "stable"
-		if highs[n-1] > highs[0] {
-			hhTrend = "rising"
-		} else if highs[n-1] < highs[0] {
-			hhTrend = "falling"
-		}
-		if lows[n-1] > lows[0] {
-			llTrend = "rising"
-		} else if lows[n-1] < lows[0] {
-			llTrend = "falling"
-		}
-
-		if lang == LangChinese {
-			var dirStr string
-			if downCnt == n {
-				dirStr = "持续收阴"
-			} else if upCnt == n {
-				dirStr = "持续收阳"
-			} else {
-				dirStr = "震荡"
-			}
-			var bodyStr string
-			switch bodyTrend {
-			case "increasing":
-				bodyStr = "实体递增"
-			case "decreasing":
-				bodyStr = "实体递减"
-			default:
-				bodyStr = "实体稳定"
-			}
-			var volStr string
-			if hasVol {
-				if volPct > 20 {
-					volStr = fmt.Sprintf(", 量能+%.0f%%", volPct)
-				} else if volPct < -20 {
-					volStr = fmt.Sprintf(", 量能%.0f%%", volPct)
-				} else {
-					volStr = ", 量能平稳"
-				}
-			}
-			var hlStr string
-			if llTrend == "falling" {
-				hlStr = fmt.Sprintf(", 低点不断下移(%s)", formatFloatSeq(lows))
-			} else if hhTrend == "rising" {
-				hlStr = fmt.Sprintf(", 高点不断上移(%s)", formatFloatSeq(highs))
-			}
-			sb.WriteString(fmt.Sprintf("近%dK: %s(%s)%s%s\n", n, dirStr, bodyStr, volStr, hlStr))
-		} else {
-			var dirStr string
-			if downCnt == n {
-				dirStr = "bearish"
-			} else if upCnt == n {
-				dirStr = "bullish"
-			} else {
-				dirStr = "mixed"
-			}
-			var bodyStr string
-			switch bodyTrend {
-			case "increasing":
-				bodyStr = "↑bodies"
-			case "decreasing":
-				bodyStr = "↓bodies"
-			default:
-				bodyStr = "stable bodies"
-			}
-			var volStr string
-			if hasVol {
-				if volPct > 20 {
-					volStr = fmt.Sprintf(", vol +%.0f%%", volPct)
-				} else if volPct < -20 {
-					volStr = fmt.Sprintf(", vol %.0f%%", volPct)
-				} else {
-					volStr = ", vol normal"
-				}
-			}
-			var hlStr string
-			if llTrend == "falling" {
-				hlStr = fmt.Sprintf(", lower lows(%s)", formatFloatSeq(lows))
-			} else if hhTrend == "rising" {
-				hlStr = fmt.Sprintf(", higher highs(%s)", formatFloatSeq(highs))
-			}
-			sb.WriteString(fmt.Sprintf("Last %d candles: %s(%s)%s%s\n", n, dirStr, bodyStr, volStr, hlStr))
-		}
-	}
-
-	// --- Key Levels ---
-	if len(data.Klines) > 0 && lastClose > 0 {
-		lookback := 10
-		if len(data.Klines) < lookback {
-			lookback = len(data.Klines)
-		}
-		start := len(data.Klines) - lookback
-		recentHigh, recentLow := data.Klines[start].High, data.Klines[start].Low
-		for i := start; i < len(data.Klines); i++ {
-			if data.Klines[i].High > recentHigh {
-				recentHigh = data.Klines[i].High
-			}
-			if data.Klines[i].Low < recentLow {
-				recentLow = data.Klines[i].Low
-			}
-		}
-		distToR := (recentHigh - lastClose) / lastClose * 100
-		distToS := (lastClose - recentLow) / lastClose * 100
-		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("关键位: 阻力%.2f(近%dK前高) 支撑%.2f(近%dK前低), 距阻力%+.1f%% 距支撑%+.1f%%\n",
-				recentHigh, lookback, recentLow, lookback, distToR, distToS))
-		} else {
-			sb.WriteString(fmt.Sprintf("Key levels: R=%.2f(%d-bar high) S=%.2f(%d-bar low), price %+.1f%% from R %+.1f%% from S\n",
-				recentHigh, lookback, recentLow, lookback, distToR, distToS))
-		}
-	}
-
-	// --- Volatility ---
-	if len(data.Klines) > 0 && data.ATR14 > 0 {
-		lastK := data.Klines[len(data.Klines)-1]
-		barRange := lastK.High - lastK.Low
-		ratio := barRange / data.ATR14 * 100
-		var volLabel string
-		if ratio < 50 {
-			volLabel = "low"
-		} else if ratio <= 100 {
-			volLabel = "normal"
-		} else {
-			volLabel = "high"
-		}
-		if lang == LangChinese {
-			labelMap := map[string]string{"low": "低波动", "normal": "正常", "high": "高波动/扩张"}
-			sb.WriteString(fmt.Sprintf("波动: 当前K振幅%.2f(ATR14=%.2f, %.0f%%), %s范围\n",
-				barRange, data.ATR14, ratio, labelMap[volLabel]))
-		} else {
-			sb.WriteString(fmt.Sprintf("Volatility: bar range %.2f(ATR14=%.2f, %.0f%%), %s\n",
-				barRange, data.ATR14, ratio, volLabel))
 		}
 	}
 
