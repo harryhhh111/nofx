@@ -25,6 +25,7 @@ const (
 	DefaultMinCloseConfidence = 85
 	MinMinCloseConfidence     = 70
 	MaxMinCloseConfidence     = 95
+	DefaultMinRiskRewardRatio = 2.5
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -98,6 +99,9 @@ func (c *StrategyConfig) ClampLimits() {
 	c.clampIndicatorConfig()
 
 	// Clamp max positions
+	if c.RiskControl.MaxPositions <= 0 {
+		c.RiskControl.MaxPositions = MaxPositions
+	}
 	if c.RiskControl.MaxPositions > MaxPositions {
 		c.RiskControl.MaxPositions = MaxPositions
 	}
@@ -126,6 +130,9 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.RiskControl.MinPositionSize <= 0 {
 		c.RiskControl.MinPositionSize = 12.0
+	}
+	if c.RiskControl.MinRiskRewardRatio <= 0 {
+		c.RiskControl.MinRiskRewardRatio = DefaultMinRiskRewardRatio
 	}
 
 	// Clamp AI confidence thresholds to safe product ranges.
@@ -1135,7 +1142,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			AltcoinMaxPositionValueRatio: 1.0,
 			MaxMarginUsage:               0.9,
 			MinPositionSize:              12,
-			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
+			MinRiskRewardRatio:           DefaultMinRiskRewardRatio, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits
 		},

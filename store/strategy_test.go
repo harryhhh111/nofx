@@ -41,3 +41,16 @@ func TestClampLimitsPreservesMixedCoinSourceFlags(t *testing.T) {
 		t.Fatalf("mixed source should preserve selected source flags: %+v", config.CoinSource)
 	}
 }
+
+func TestClampLimitsBackfillsRiskControlDefaults(t *testing.T) {
+	config := StrategyConfig{}
+
+	config.ClampLimits()
+
+	if config.RiskControl.MaxPositions != MaxPositions {
+		t.Fatalf("expected max positions default %d, got %d", MaxPositions, config.RiskControl.MaxPositions)
+	}
+	if config.RiskControl.MinRiskRewardRatio != DefaultMinRiskRewardRatio {
+		t.Fatalf("expected min risk reward default %.2f, got %.2f", DefaultMinRiskRewardRatio, config.RiskControl.MinRiskRewardRatio)
+	}
+}

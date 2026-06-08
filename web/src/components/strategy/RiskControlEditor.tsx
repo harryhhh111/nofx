@@ -15,6 +15,9 @@ export function RiskControlEditor({
   disabled,
   language,
 }: RiskControlEditorProps) {
+  const stopLossATRBuffer = Number(config.stop_loss_atr_buffer ?? 0)
+  const stopLossATRBufferIsAuto = !Number.isFinite(stopLossATRBuffer) || stopLossATRBuffer <= 0
+
   const updateField = <K extends keyof RiskControlConfig>(
     key: K,
     value: RiskControlConfig[K]
@@ -400,7 +403,7 @@ export function RiskControlEditor({
         <div className="flex items-center gap-3">
           <input
             type="number"
-            value={config.stop_loss_atr_buffer ?? 0}
+            value={stopLossATRBufferIsAuto ? 0 : stopLossATRBuffer}
             onChange={(e) => updateField('stop_loss_atr_buffer', parseFloat(e.target.value) || 0)}
             disabled={disabled}
             min={0}
@@ -412,10 +415,10 @@ export function RiskControlEditor({
           <span className="text-sm" style={{ color: '#848E9C' }}>
             × ATR14
           </span>
-          <span className="text-xs ml-2" style={{ color: '#5E6673' }}>
-            {language === 'zh'
-              ? '(0=自动: 保守1.5 / 平衡1.0 / 激进0.5 / 剥头皮0.3)'
-              : '(0=auto: Conservative 1.5 / Balanced 1.0 / Aggressive 0.5 / Scalping 0.3)'}
+          <span className="text-xs ml-2" style={{ color: stopLossATRBufferIsAuto ? '#F0B90B' : '#5E6673' }}>
+            {stopLossATRBufferIsAuto
+              ? (language === 'zh' ? '自动：风险网关按默认 2.0 × ATR14 校验' : 'Auto: risk gate uses default 2.0 × ATR14')
+              : (language === 'zh' ? '自定义 ATR 缓冲' : 'Custom ATR buffer')}
           </span>
         </div>
       </div>
