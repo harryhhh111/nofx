@@ -2110,6 +2110,17 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 		}
 	}
 
+	// Precompute full-window range for volatility and position sections
+	highAll, lowAll := data.Klines[0].High, data.Klines[0].Low
+	for _, k := range data.Klines {
+		if k.High > highAll {
+			highAll = k.High
+		}
+		if k.Low < lowAll {
+			lowAll = k.Low
+		}
+	}
+
 	// 4. Volatility range
 	if n >= 5 {
 		high5, low5 := data.Klines[n-5].High, data.Klines[n-5].Low
@@ -2119,15 +2130,6 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 			}
 			if data.Klines[i].Low < low5 {
 				low5 = data.Klines[i].Low
-			}
-		}
-		highAll, lowAll := data.Klines[0].High, data.Klines[0].Low
-		for _, k := range data.Klines {
-			if k.High > highAll {
-				highAll = k.High
-			}
-			if k.Low < lowAll {
-				lowAll = k.Low
 			}
 		}
 		if lang == LangChinese {
@@ -2241,15 +2243,6 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 	}
 
 	// 6. Range position
-	highAll, lowAll := data.Klines[0].High, data.Klines[0].Low
-	for _, k := range data.Klines {
-		if k.High > highAll {
-			highAll = k.High
-		}
-		if k.Low < lowAll {
-			lowAll = k.Low
-		}
-	}
 	if highAll > lowAll {
 		pos := (last.Close - lowAll) / (highAll - lowAll) * 100
 		if lang == LangChinese {
