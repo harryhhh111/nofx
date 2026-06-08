@@ -2,6 +2,7 @@ package market
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -138,4 +139,37 @@ func indicatorPointKey(name, tf string, period int) string {
 		return fmt.Sprintf("%s_%d", name, period)
 	}
 	return name
+}
+
+// IndicatorValue looks up a single indicator value from the snapshot.
+// timeframe="" matches any timeframe (first found); period=0 matches any period.
+func (s *FactorSnapshot) IndicatorValue(name, timeframe string, period int) (float64, bool) {
+	if s == nil || s.Technical == nil {
+		return 0, false
+	}
+	for key, points := range s.Technical {
+		// Match by name or by key prefix
+		if key != name && !strings.HasPrefix(key, name+"_") && !strings.HasPrefix(key, name) {
+			continue
+		}
+		for _, p := range points {
+			if timeframe != "" && p.Timeframe != timeframe {
+				continue
+			}
+			if period > 0 && p.Period != period && p.Period != 0 {
+				continue
+			}
+			return p.Value, true
+		}
+		// If no timeframe match, return the first empty-timeframe match
+		for _, p := range points {
+			if p.Timeframe == "" {
+				if period > 0 && p.Period != period && p.Period != 0 {
+					continue
+				}
+				return p.Value, true
+			}
+		}
+	}
+	return 0, false
 }

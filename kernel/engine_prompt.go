@@ -1188,14 +1188,184 @@ func (e *StrategyEngine) formatCoinSourceTag(sources []string) string {
 // Market Data Formatting
 // ============================================================================
 
-func (e *StrategyEngine) formatMarketData(data *market.Data) string {
+// formatMarketDataFromSnapshot renders market data from a structured FactorSnapshot
+// instead of raw indicator arrays. Per-timeframe blocks still use the legacy rendering
+// since OHLCV tables require raw kline data.
+func (e *StrategyEngine) formatMarketDataFromSnapshot(data *market.Data, snap *market.FactorSnapshot) string {
 	var sb strings.Builder
 	indicators := e.config.Indicators
 	lang := e.GetLanguage()
 
-	// TODO(Phase 4): When UseFactorSnapshot is true, build a FactorSnapshot
-	// and render from structured IndicatorPoints instead of raw arrays.
-	// For now, both paths use the legacy rendering.
+	// ── Symbol header ──
+	if lang == LangChinese {
+		sb.WriteString(fmt.Sprintf("=== %s 市场数据 ===\n\n", data.Symbol))
+	} else {
+		sb.WriteString(fmt.Sprintf("=== %s Market Data ===\n\n", data.Symbol))
+	}
+
+	// ── Price ──
+	if v, ok := snap.IndicatorValue("price", "", 0); ok {
+		sb.WriteString(fmt.Sprintf("current_price = %.4f", v))
+	}
+
+	// ── EMA ──
+	if indicators.EnableEMA {
+		if v, ok := snap.IndicatorValue("ema20", "", 0); ok {
+			sb.WriteString(fmt.Sprintf(", current_ema20 = %.3f", v))
+		}
+	}
+
+	// ── SMA ──
+	if indicators.EnableSMA {
+		for _, p := range indicators.SMAPeriods {
+			if v, ok := snap.IndicatorValue("sma", "", p); ok {
+				sb.WriteString(fmt.Sprintf(", sma%d = %.3f", p, v))
+			}
+		}
+	}
+
+	// ── ADX + DMI ──
+	if indicators.EnableADX {
+		if v, ok := snap.IndicatorValue("adx", "", 0); ok && v > 0 {
+			period := indicators.ADXPeriod
+			if period <= 0 {
+				period = 14
+			}
+			pdi, _ := snap.IndicatorValue("plus_di", "", 0)
+			mdi, _ := snap.IndicatorValue("minus_di", "", 0)
+			sb.WriteString(fmt.Sprintf(", adx%d = %.2f, +di%d = %.2f, -di%d = %.2f", period, v, period, pdi, period, mdi))
+
+			diDir := "neutral"
+			if pdi > mdi {
+				diDir = "bullish"
+			} else if mdi > pdi {
+				diDir = "bearish"
+			}
+			adxTrending := v >= 20
+			var adxStrength string
+			switch {
+			case v < 20:
+				adxStrength = "weak"
+			case v < 40:
+				adxStrength = "moderate"
+			case v < 60:
+				adxStrength = "strong"
+			default:
+				adxStrength = "very_strong"
+			}
+			sb.WriteString(fmt.Sprintf(", di_direction=%s, adx_trending=%t, adx_strength=%s", diDir, adxTrending, adxStrength))
+		}
+	}
+
+	// ── SAR ──
+	if indicators.EnableSAR {
+		if v, ok := snap.IndicatorValue("sar", "", 0); ok && v > 0 {
+			sb.WriteString(fmt.Sprintf(", sar = %.4f", v))
+			if up, ok := snap.IndicatorValue("sar_uptrend", "", 0); ok {
+				sarDir := "down"
+				if up > 0.5 {
+					sarDir = "up"
+				}
+				priceAbove := data.CurrentPrice > v
+				sb.WriteString(fmt.Sprintf(", sar_direction=%s, price_above_sar=%t", sarDir, priceAbove))
+			}
+			if flipUp, ok := snap.IndicatorValue("sar_flip_up", "", 0); ok && flipUp > 0.5 {
+				sb.WriteString(", sar_flip_up=true")
+			}
+			if flipDown, ok := snap.IndicatorValue("sar_flip_down", "", 0); ok && flipDown > 0.5 {
+				sb.WriteString(", sar_flip_down=true")
+			}
+		}
+	}
+
+	// ── MACD ──
+	if indicators.EnableMACD {
+		if v, ok := snap.IndicatorValue("macd", "", 0); ok {
+			sb.WriteString(fmt.Sprintf(", current_macd = %.3f", v))
+		}
+	}
+
+	// ── RSI ──
+	if indicators.EnableRSI {
+		if v, ok := snap.IndicatorValue("rsi7", "", 0); ok {
+			sb.WriteString(fmt.Sprintf(", current_rsi7 = %.3f", v))
+		}
+	}
+
+	sb.WriteString("\n\n")
+
+	// ── OI + Funding Rate (from raw data) ──
+	if indicators.EnableOI || indicators.EnableFundingRate {
+		if lang == LangChinese {
+			sb.WriteString(fmt.Sprintf("%s 附加数据：\n\n", data.Symbol))
+		} else {
+			sb.WriteString(fmt.Sprintf("Additional data for %s:\n\n", data.Symbol))
+		}
+		if indicators.EnableOI && data.OpenInterest != nil {
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("持仓量：最新 %.2f 平均 %.2f\n\n",
+					data.OpenInterest.Latest, data.OpenInterest.Average))
+			} else {
+				sb.WriteString(fmt.Sprintf("Open Interest: Latest: %.2f Average: %.2f\n\n",
+					data.OpenInterest.Latest, data.OpenInterest.Average))
+			}
+		}
+		if indicators.EnableFundingRate {
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("资金费率：%.2e\n\n", data.FundingRate))
+			} else {
+				sb.WriteString(fmt.Sprintf("Funding Rate: %.2e\n\n", data.FundingRate))
+			}
+		}
+	}
+
+	// ── Per-timeframe blocks (delegate to legacy rendering) ──
+	if len(data.TimeframeData) > 0 {
+		timeframeOrder := []string{"1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w"}
+		for _, tf := range timeframeOrder {
+			if tfData, ok := data.TimeframeData[tf]; ok {
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("=== %s 周期（从旧到新）===\n\n", strings.ToUpper(tf)))
+				} else {
+					sb.WriteString(fmt.Sprintf("=== %s Timeframe (oldest → latest) ===\n\n", strings.ToUpper(tf)))
+				}
+				e.formatTimeframeSeriesData(&sb, tfData, indicators, tf)
+			}
+		}
+	} else {
+		// Legacy intraday / longer-term fallback
+		if data.IntradaySeries != nil {
+			klineConfig := indicators.Klines
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("日内序列（%s 间隔，从旧到新）：\n\n", klineConfig.PrimaryTimeframe))
+			} else {
+				sb.WriteString(fmt.Sprintf("Intraday series (%s intervals, oldest → latest):\n\n", klineConfig.PrimaryTimeframe))
+			}
+			if len(data.IntradaySeries.MidPrices) > 0 {
+				if lang == LangChinese {
+					sb.WriteString(fmt.Sprintf("中间价：%s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+				} else {
+					sb.WriteString(fmt.Sprintf("Mid prices: %s\n\n", formatFloatSlice(data.IntradaySeries.MidPrices)))
+				}
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+func (e *StrategyEngine) formatMarketData(data *market.Data) string {
+	indicators := e.config.Indicators
+
+	if indicators.UseFactorSnapshot {
+		snap := market.BuildFactorSnapshotFromData(data)
+		if snap != nil {
+			return e.formatMarketDataFromSnapshot(data, snap)
+		}
+	}
+
+	var sb strings.Builder
+	lang := e.GetLanguage()
 
 	if lang == LangChinese {
 		sb.WriteString(fmt.Sprintf("=== %s 市场数据 ===\n\n", data.Symbol))
