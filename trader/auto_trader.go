@@ -154,6 +154,10 @@ type AutoTrader struct {
 	consecutiveAIFailures   int                    // Consecutive AI call failures
 	safeMode                bool                   // Safe mode: no new positions, protect existing ones
 	safeModeReason          string                 // Why safe mode was activated
+
+	// Brake system (MVP: hard-coded thresholds)
+	brakeState      BrakeState // Current brake state
+	brakePeakEquity float64    // Peak equity observed for drawdown calculation
 }
 
 // NewAutoTrader creates an automatic trader
@@ -354,6 +358,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		strategyEngine:        strategyEngine,
 		cycleNumber:           cycleNumber,
 		initialBalance:        config.InitialBalance,
+		brakePeakEquity:       config.InitialBalance,
 		lastResetTime:         time.Now(),
 		startTime:             time.Now(),
 		callCount:             0,

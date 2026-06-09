@@ -108,6 +108,11 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	riskConfig := engine.GetRiskControlConfig()
 	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
 
+	// 2a. Inject brake notice if trader layer has activated the brake system
+	if ctx.BrakeNotice != "" {
+		systemPrompt += "\n\n" + ctx.BrakeNotice + "\n"
+	}
+
 	// 3. Build User Prompt using strategy engine
 	userPrompt := engine.BuildUserPrompt(ctx)
 

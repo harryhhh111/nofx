@@ -128,6 +128,7 @@ type Context struct {
 	PositionMemories   []PositionMemory                   `json:"-"` // AI reasoning from when each open position was created
 	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
 	DataFetchErrors    []string                           `json:"-"` // Non-fatal errors from candidate coin / data source fetching
+	BrakeNotice        string                             `json:"-"` // Optional brake state notice injected by the trader layer
 }
 
 // DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
