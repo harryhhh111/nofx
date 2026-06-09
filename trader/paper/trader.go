@@ -453,9 +453,12 @@ func (t *PaperTrader) accountExposureLocked() (unrealized float64, marginUsed fl
 	resCh := make(chan exposureResult, len(allPositions))
 	for _, p := range allPositions {
 		go func(pos *Position) {
-			markPrice, _ := marketPrice(pos.Symbol)
+			markPrice, err := marketPrice(pos.Symbol)
 			if markPrice <= 0 {
-				markPrice = pos.EntryPrice // fallback
+				// No fresh or stale cache available; last resort fallback to entryPrice.
+				// This will make unrealized PnL appear as zero, which is inaccurate.
+				logger.Warnf("paper trader: no market price for %s (err=%v), falling back to entryPrice %.4f", pos.Symbol, err, pos.EntryPrice)
+				markPrice = pos.EntryPrice
 			}
 			lev := pos.Leverage
 			if lev <= 0 {
@@ -507,11 +510,16 @@ func (t *PaperTrader) nextOrderIDLocked() string {
 func marketPrice(symbol string) (float64, error) {
 	symbol = market.Normalize(symbol)
 
-	// Check cache first
+	// Check cache first (fresh)
 	priceCacheMu.RLock()
 	if entry, ok := priceCache[symbol]; ok && time.Since(entry.timestamp) < priceCacheTTL {
 		priceCacheMu.RUnlock()
 		return entry.price, nil
+	}
+	// Capture stale entry for API-failure fallback
+	var staleEntry *priceCacheEntry
+	if entry, ok := priceCache[symbol]; ok {
+		staleEntry = entry
 	}
 	priceCacheMu.RUnlock()
 
@@ -541,6 +549,11 @@ func marketPrice(symbol string) (float64, error) {
 	select {
 	case res := <-resCh:
 		if res.err != nil {
+			// API failed: prefer stale cache over returning 0
+			if staleEntry != nil {
+				return staleEntry.price, fmt.Errorf("%s price API failed, using stale %.4f (%v old): %w",
+					symbol, staleEntry.price, time.Since(staleEntry.timestamp).Round(time.Second), res.err)
+			}
 			return 0, res.err
 		}
 		// Update cache
@@ -549,6 +562,10 @@ func marketPrice(symbol string) (float64, error) {
 		priceCacheMu.Unlock()
 		return res.price, nil
 	case <-ctx.Done():
+		if staleEntry != nil {
+			return staleEntry.price, fmt.Errorf("%s price timeout, using stale %.4f (%v old)",
+				symbol, staleEntry.price, time.Since(staleEntry.timestamp).Round(time.Second))
+		}
 		return 0, fmt.Errorf("market price fetch timeout for %s", symbol)
 	}
 }
