@@ -1831,9 +1831,9 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 	if indicators.IsTimeframeSummarized(timeframe) {
 		e.formatTimeframeSummary(sb, data, indicators)
 		// Raw fallback for indicators excluded from summary whitelist
-		if len(data.EMA20Values) > 0 { sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values))) }
-		if len(data.EMA50Values) > 0 { sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values))) }
-		if len(data.SMAValues) > 0 {
+		if !indicators.ShouldSummarizeIndicator("ema") && len(data.EMA20Values) > 0 { sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values))) }
+		if !indicators.ShouldSummarizeIndicator("ema") && len(data.EMA50Values) > 0 { sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values))) }
+		if !indicators.ShouldSummarizeIndicator("sma") && len(data.SMAValues) > 0 {
 			periods := make([]int, 0, len(data.SMAValues))
 			for p := range data.SMAValues { periods = append(periods, p) }
 			sort.Ints(periods)
@@ -1841,17 +1841,17 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 				if len(data.SMAValues[p]) > 0 { sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(data.SMAValues[p]))) }
 			}
 		}
-		if len(data.ADXValues) > 0 {
+		if !indicators.ShouldSummarizeIndicator("adx") && len(data.ADXValues) > 0 {
 			sb.WriteString(fmt.Sprintf("ADX: %s\n", formatFloatSlice(data.ADXValues)))
 			sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
 			sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
 		}
-		if len(data.SARValues) > 0 { sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues))) }
-		if len(data.MACDValues) > 0 { sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues))) }
-		if len(data.RSI7Values) > 0 { sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values))) }
-		if len(data.RSI14Values) > 0 { sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values))) }
-		if data.ATR14 > 0 { sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14)) }
-		if len(data.BOLLUpper) > 0 {
+		if !indicators.ShouldSummarizeIndicator("sar") && len(data.SARValues) > 0 { sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues))) }
+		if !indicators.ShouldSummarizeIndicator("macd") && len(data.MACDValues) > 0 { sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues))) }
+		if !indicators.ShouldSummarizeIndicator("rsi") && len(data.RSI7Values) > 0 { sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values))) }
+		if !indicators.ShouldSummarizeIndicator("rsi") && len(data.RSI14Values) > 0 { sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values))) }
+		if !indicators.ShouldSummarizeIndicator("atr") && data.ATR14 > 0 { sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14)) }
+		if !indicators.ShouldSummarizeIndicator("boll") && len(data.BOLLUpper) > 0 {
 			sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
 			sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
 			sb.WriteString(fmt.Sprintf("BOLL Lower: %s\n", formatFloatSlice(data.BOLLLower)))
