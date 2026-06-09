@@ -367,12 +367,12 @@ export function RiskControlEditor({
             <div className="flex items-center gap-2">
               <input
                 type="range"
-                value={config.min_close_confidence ?? 85}
+                value={config.min_close_confidence ?? 75}
                 onChange={(e) =>
                   updateField('min_close_confidence', parseInt(e.target.value))
                 }
                 disabled={disabled}
-                min={70}
+                min={60}
                 max={95}
                 className="flex-1 accent-yellow-500"
               />

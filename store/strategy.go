@@ -21,8 +21,8 @@ const (
 	DefaultMinConfidence      = 50
 	MinMinConfidence          = 50
 	MaxMinConfidence          = 90
-	DefaultMinCloseConfidence = 85
-	MinMinCloseConfidence     = 70
+	DefaultMinCloseConfidence = 75
+	MinMinCloseConfidence     = 60
 	MaxMinCloseConfidence     = 95
 )
 
