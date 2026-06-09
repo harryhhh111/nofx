@@ -1977,22 +1977,29 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 			}
 		}
 
-		hhUp := data.Klines[n-1].High > data.Klines[n-seqN].High
-		llUp := data.Klines[n-1].Low > data.Klines[n-seqN].Low
+		// Check monotonic trend across seqN candles
+		hhRising, llRising := true, true
+		hhFalling, llFalling := true, true
+		for i := n - seqN; i < n-1; i++ {
+			if data.Klines[i].High > data.Klines[i+1].High { hhRising = false }
+			if data.Klines[i].High < data.Klines[i+1].High { hhFalling = false }
+			if data.Klines[i].Low > data.Klines[i+1].Low { llRising = false }
+			if data.Klines[i].Low < data.Klines[i+1].Low { llFalling = false }
+		}
 		var hlNote string
 		if lang == LangChinese {
-			if hhUp && llUp {
+			if hhRising && llRising {
 				hlNote = ", 高低点抬高"
-			} else if !hhUp && !llUp {
+			} else if hhFalling && llFalling {
 				hlNote = ", 高低点降低"
 			} else {
 				hlNote = ", 高低点分化"
 			}
 			sb.WriteString(fmt.Sprintf("  前%d根: %s%s\n", seqN, strings.Join(seqParts, " → "), hlNote))
 		} else {
-			if hhUp && llUp {
+			if hhRising && llRising {
 				hlNote = ", higher highs & lows"
-			} else if !hhUp && !llUp {
+			} else if hhFalling && llFalling {
 				hlNote = ", lower highs & lows"
 			} else {
 				hlNote = ", mixed highs/lows"
@@ -2116,9 +2123,13 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 		isHigh  bool
 	}
 	var swings []swingPoint
-	for i := window; i < n-window; i++ {
+	for i := window; i < n; i++ {
 		isSwingHigh := true
-		for j := i - window; j <= i+window; j++ {
+		right := i + window
+		if right >= n {
+			right = n - 1
+		}
+		for j := i - window; j <= right; j++ {
 			if j != i && data.Klines[j].High >= data.Klines[i].High {
 				isSwingHigh = false
 				break
@@ -2128,7 +2139,7 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 			swings = append(swings, swingPoint{data.Klines[i].High, n - 1 - i, true})
 		}
 		isSwingLow := true
-		for j := i - window; j <= i+window; j++ {
+		for j := i - window; j <= right; j++ {
 			if j != i && data.Klines[j].Low <= data.Klines[i].Low {
 				isSwingLow = false
 				break
@@ -2461,11 +2472,21 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 	}
 
 	// --- ATR ---
-	if indicators.ShouldSummarizeIndicator("atr") && indicators.EnableATR && data.ATR14 > 0 {
-		if lang == LangChinese {
-			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+	if indicators.ShouldSummarizeIndicator("atr") && indicators.EnableATR && data.ATR14 > 0 && lastClose > 0 {
+		atrPct := data.ATR14 / lastClose * 100
+		var volLabel string
+		if atrPct < 0.3 {
+			volLabel = "low"
+		} else if atrPct < 1.0 {
+			volLabel = "normal"
 		} else {
-			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+			volLabel = "high"
+		}
+		if lang == LangChinese {
+			labels := map[string]string{"low": "低波动", "normal": "正常", "high": "高波动"}
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f (占价格%.2f%%), %s\n", data.ATR14, atrPct, labels[volLabel]))
+		} else {
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f (%.2f%% of price), %s\n", data.ATR14, atrPct, volLabel))
 		}
 	}
 
@@ -2525,8 +2546,92 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 		}
 	}
 
-	sb.WriteString("\n")
+	// --- RSI ---
+	if indicators.ShouldSummarizeIndicator("rsi") && indicators.EnableRSI &&
+		(len(data.RSI7Values) > 0 || len(data.RSI14Values) > 0) {
+		rsi7, rsi14 := 0.0, 0.0
+		rsi7Trend, rsi14Trend := "→", "→"
+		if len(data.RSI7Values) > 0 {
+			rsi7 = data.RSI7Values[len(data.RSI7Values)-1]
+			if len(data.RSI7Values) >= 2 && rsi7 > data.RSI7Values[len(data.RSI7Values)-2] {
+				rsi7Trend = "↑"
+			} else if len(data.RSI7Values) >= 2 && rsi7 < data.RSI7Values[len(data.RSI7Values)-2] {
+				rsi7Trend = "↓"
+			}
+		}
+		if len(data.RSI14Values) > 0 {
+			rsi14 = data.RSI14Values[len(data.RSI14Values)-1]
+			if len(data.RSI14Values) >= 2 && rsi14 > data.RSI14Values[len(data.RSI14Values)-2] {
+				rsi14Trend = "↑"
+			} else if len(data.RSI14Values) >= 2 && rsi14 < data.RSI14Values[len(data.RSI14Values)-2] {
+				rsi14Trend = "↓"
+			}
+		}
+		var rsiZone string
+		if rsi14 > 0 && rsi14 < 30 {
+			rsiZone = "oversold"
+		} else if rsi14 > 70 {
+			rsiZone = "overbought"
+		} else if rsi14 >= 50 {
+			rsiZone = "strong"
+		} else {
+			rsiZone = "weak"
+		}
+		if lang == LangChinese {
+			zones := map[string]string{"oversold": "超卖", "weak": "偏弱", "strong": "偏强", "overbought": "超买"}
+			sb.WriteString(fmt.Sprintf("RSI: RSI7=%.2f%s RSI14=%.2f%s, %s\n", rsi7, rsi7Trend, rsi14, rsi14Trend, zones[rsiZone]))
+		} else {
+			zones := map[string]string{"oversold": "oversold", "weak": "weak", "strong": "strong", "overbought": "overbought"}
+			sb.WriteString(fmt.Sprintf("RSI: RSI7=%.2f%s RSI14=%.2f%s, %s\n", rsi7, rsi7Trend, rsi14, rsi14Trend, zones[rsiZone]))
+		}
+	}
 
+	// --- MACD ---
+	if indicators.ShouldSummarizeIndicator("macd") && indicators.EnableMACD && len(data.MACDValues) > 0 {
+		macdLast := data.MACDValues[len(data.MACDValues)-1]
+		macdTrend := "→"
+		if len(data.MACDValues) >= 2 && macdLast > data.MACDValues[len(data.MACDValues)-2] {
+			macdTrend = "↑"
+		} else if len(data.MACDValues) >= 2 && macdLast < data.MACDValues[len(data.MACDValues)-2] {
+			macdTrend = "↓"
+		}
+		// DIF acceleration (slope change)
+		accel := ""
+		if len(data.MACDValues) >= 3 {
+			d1 := macdLast - data.MACDValues[len(data.MACDValues)-2]
+			d2 := data.MACDValues[len(data.MACDValues)-2] - data.MACDValues[len(data.MACDValues)-3]
+			if math.Abs(d2) > 1e-9 {
+				if d1 > d2*1.2 {
+					accel = "accelerating"
+				} else if d1 < d2*0.8 {
+					accel = "decelerating"
+				}
+			}
+		}
+		if lang == LangChinese {
+			dir := "多头"
+			if macdLast < 0 { dir = "空头" }
+			accelStr := ""
+			if accel == "accelerating" {
+				accelStr = ", 加速"
+			} else if accel == "decelerating" {
+				accelStr = ", 减速"
+			}
+			sb.WriteString(fmt.Sprintf("MACD: %.4f%s, %s%s\n", macdLast, macdTrend, dir, accelStr))
+		} else {
+			dir := "bullish"
+			if macdLast < 0 { dir = "bearish" }
+			accelStr := ""
+			if accel == "accelerating" {
+				accelStr = ", accelerating"
+			} else if accel == "decelerating" {
+				accelStr = ", decelerating"
+			}
+			sb.WriteString(fmt.Sprintf("MACD: %.4f%s, %s%s\n", macdLast, macdTrend, dir, accelStr))
+		}
+	}
+
+	sb.WriteString("\n")
 }
 
 
