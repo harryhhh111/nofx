@@ -185,6 +185,11 @@ export const riskControl = {
   drawdownCloseModeAI: { zh: 'AI 决策', en: 'AI Decide', es: 'Decisión AI' },
   drawdownCloseModeAutoDesc: { zh: '条件触发后立即平仓', en: 'Close position immediately when triggered', es: 'Cierre inmediato' },
   drawdownCloseModeAIDesc: { zh: '将告警注入下一次 AI 周期，由 AI 结合开仓理由决定是否平仓', en: 'Inject alert into next AI cycle; AI decides based on opening thesis', es: 'AI decide basado en la tesis de apertura' },
+  consecutiveLossBrake: { zh: '连续亏损冷却', en: 'Consecutive Loss Brake', es: 'Freno por Pérdidas' },
+  consecutiveLossBrakeDesc: { zh: '连续亏损后禁止开仓并注入冷静提示，冷却期结束后自动恢复', en: 'Block new entries and inject cooldown prompt after consecutive losses. Auto-resumes after cooling.', es: 'Bloquea nuevas entradas después de pérdidas consecutivas' },
+  consecutiveLossBrakeEnabled: { zh: '启用连续亏损冷却', en: 'Enable Consecutive Loss Brake', es: 'Habilitar Freno' },
+  consecutiveLossBrakeMaxLosses: { zh: '触发连续亏损数', en: 'Trigger After N Losses', es: 'Activar tras N Pérdidas' },
+  consecutiveLossBrakeCooldown: { zh: '冷却轮次数', en: 'Cooldown Cycles', es: 'Ciclos de Enfriamiento' },
 };
 
 // ============================================================================

@@ -244,40 +244,15 @@ func (at *AutoTrader) runCycle() error {
 		}
 	}
 
-	// ── Brake System (Layer 2: mandatory gate) ──────────────────────────────
-	// Update peak equity and compute brake state based on drawdown / decline
-	currentEquity := ctx.Account.TotalEquity
-	if currentEquity > at.brakePeakEquity {
-		at.brakePeakEquity = currentEquity
+	// ── Consecutive Loss Brake ─────────────────────────────────────────────
+	// State machine: N losses → cooling K cycles (block entries) → recover.
+	if cfg := at.strategyEngine.GetConfig().RiskControl.ConsecutiveLossBrake; cfg != nil && cfg.Enabled {
+		recentTrades, _ := at.store.Position().GetRecentTrades(at.id, 20)
+		blocked, msg := UpdateCoolingState(&at.cooling, recentTrades, cfg, string(at.strategyEngine.GetLanguage()))
+		if msg != "" { ctx.BrakeNotice = msg }
+		if blocked { sortedDecisions = ApplyConsecutiveLossGate(sortedDecisions, at.name) }
 	}
 
-	var equityHistory []store.EquitySnapshot
-	if at.store != nil {
-		// Get last N equity snapshots for consecutive-decline detection
-		snaps, _ := at.store.Equity().GetLatest(at.id, DefaultBrakeConfig().HaltConsecutiveDecline+1)
-		if len(snaps) > 0 {
-			equityHistory = make([]store.EquitySnapshot, len(snaps))
-			for i, s := range snaps {
-				if s != nil {
-					equityHistory[i] = *s
-				}
-			}
-		}
-	}
-
-	at.brakeState = ComputeBrakeState(currentEquity, at.brakePeakEquity, equityHistory, DefaultBrakeConfig())
-	if at.brakeState != BrakeNormal {
-		drawdownPct := 0.0
-		if at.brakePeakEquity > 0 {
-			drawdownPct = (at.brakePeakEquity - currentEquity) / at.brakePeakEquity * 100
-		}
-		logger.Warnf("🛑 [%s] Brake state: %s (drawdown %.1f%%)", at.name, at.brakeState, drawdownPct)
-		record.ExecutionLog = append(record.ExecutionLog,
-			fmt.Sprintf("Brake state: %s (drawdown %.1f%%)", at.brakeState, drawdownPct))
-		// Layer 3: inject brake notice into AI prompt so the AI is "aware"
-		ctx.BrakeNotice = BrakePromptLine(at.brakeState, drawdownPct, string(at.strategyEngine.GetLanguage()))
-		sortedDecisions = ApplyBrakeGate(sortedDecisions, at.brakeState, at.name)
-	}
 
 	// Execute decisions and record results
 	for _, d := range sortedDecisions {

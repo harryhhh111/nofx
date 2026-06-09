@@ -555,6 +555,49 @@ export function RiskControlEditor({
             </button>
           </div>
         </div>
+
+        {/* ── Consecutive Loss Brake ──────────────────────── */}
+        <div className="mt-6 p-4 rounded-lg" style={{ background: 'rgba(14, 203, 129, 0.04)', border: '1px solid rgba(14, 203, 129, 0.15)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>{ts(riskControl.consecutiveLossBrake, language)}</span>
+            </div>
+            <button
+              onClick={() => !disabled && updateField('consecutive_loss_brake', (config.consecutive_loss_brake?.enabled ?? true) ? undefined : { enabled: true, max_losses: 3, cool_down_cycles: 3 })}
+              disabled={disabled}
+              className="relative w-11 h-6 rounded-full transition-colors"
+              style={{ background: (config.consecutive_loss_brake?.enabled ?? true) ? '#0ECB81' : '#2B3139' }}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.consecutive_loss_brake?.enabled ?? true) ? 'translate-x-5' : ''}`} />
+            </button>
+          </div>
+          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>{ts(riskControl.consecutiveLossBrakeDesc, language)}</p>
+          <div style={{ opacity: (config.consecutive_loss_brake?.enabled ?? true) ? 1 : 0.4, pointerEvents: (config.consecutive_loss_brake?.enabled ?? true) ? 'auto' : 'none' }}>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+                <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{ts(riskControl.consecutiveLossBrakeMaxLosses, language)}</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" value={config.consecutive_loss_brake?.max_losses ?? 3}
+                    onChange={(e) => updateField('consecutive_loss_brake', { ...(config.consecutive_loss_brake || { enabled: true, max_losses: 3, cool_down_cycles: 3 }), max_losses: parseInt(e.target.value) })}
+                    disabled={disabled} min={2} max={10} step={1}
+                    className="flex-1" style={{ accentColor: '#0ECB81' }} />
+                  <span className="w-8 text-center font-mono text-sm" style={{ color: '#0ECB81' }}>{config.consecutive_loss_brake?.max_losses ?? 3}</span>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+                <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{ts(riskControl.consecutiveLossBrakeCooldown, language)}</label>
+                <div className="flex items-center gap-2">
+                  <input type="range" value={config.consecutive_loss_brake?.cool_down_cycles ?? 3}
+                    onChange={(e) => updateField('consecutive_loss_brake', { ...(config.consecutive_loss_brake || { enabled: true, max_losses: 3, cool_down_cycles: 3 }), cool_down_cycles: parseInt(e.target.value) })}
+                    disabled={disabled} min={1} max={20} step={1}
+                    className="flex-1" style={{ accentColor: '#0ECB81' }} />
+                  <span className="w-8 text-center font-mono text-sm" style={{ color: '#0ECB81' }}>{config.consecutive_loss_brake?.cool_down_cycles ?? 3}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   )

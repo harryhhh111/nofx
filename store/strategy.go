@@ -430,6 +430,17 @@ type RiskControlConfig struct {
 	// When true, instead of closing immediately the system injects a "drawdown alert"
 	// into the next AI cycle so the AI decides whether to close. Default: false (close immediately).
 	DrawdownCloseUseAI bool `json:"drawdown_close_use_ai"`
+
+	// Consecutive loss brake: after N consecutive losing trades, inject a warning
+	// into the prompt before the next entry. nil/disabled = off (default).
+	ConsecutiveLossBrake *ConsecutiveLossBrakeConfig `json:"consecutive_loss_brake,omitempty"`
+}
+
+// ConsecutiveLossBrakeConfig warns AI after consecutive losing closed trades.
+type ConsecutiveLossBrakeConfig struct {
+	Enabled        bool `json:"enabled"`          // Enable this feature
+	MaxLosses      int  `json:"max_losses"`       // Trigger after N consecutive losses (default 3)
+	CoolDownCycles int  `json:"cool_down_cycles"` // Block entries for K cycles (default 5)
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -525,6 +536,11 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           75,  // Lowered from 85 to allow more flexible exits
+			ConsecutiveLossBrake: &ConsecutiveLossBrakeConfig{
+				Enabled:        true,  // Default ON
+				MaxLosses:      3,
+				CoolDownCycles: 3,
+			},
 		},
 	}
 

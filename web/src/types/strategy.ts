@@ -201,4 +201,11 @@ export interface RiskControlConfig {
   drawdown_close_min_profit_pct?: number;   // Min leveraged profit (%) before measuring drawdown (default: 5)
   drawdown_close_trigger_pct?: number;      // Drawdown % from peak that triggers action (default: 40)
   drawdown_close_use_ai?: boolean;          // false=close immediately, true=let AI decide (default: false)
+
+  // Consecutive loss brake: blocks entries + injects prompt warning
+  consecutive_loss_brake?: {
+    enabled: boolean;         // Enable (default: true)
+    max_losses: number;       // Trigger after N consecutive losses (default: 3)
+    cool_down_cycles: number; // Block entries for K cycles (default: 3)
+  };
 }
