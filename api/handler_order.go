@@ -3,9 +3,11 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"nofx/logger"
 	"nofx/market"
+	"nofx/store"
 
 	"github.com/gin-gonic/gin"
 )
@@ -95,12 +97,12 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		"scan_interval_minutes": traderConfig.ScanIntervalMinutes,
 		"btc_eth_leverage":      traderConfig.BTCETHLeverage,
 		"altcoin_leverage":      traderConfig.AltcoinLeverage,
-			"trading_symbols":       traderConfig.TradingSymbols,
-			"is_cross_margin":       traderConfig.IsCrossMargin,
-			"show_in_competition":   traderConfig.ShowInCompetition,
-			"use_ai500":             traderConfig.UseAI500,
-			"use_oi_top":            traderConfig.UseOITop,
-			"is_running":            isRunning,
+		"trading_symbols":       traderConfig.TradingSymbols,
+		"is_cross_margin":       traderConfig.IsCrossMargin,
+		"show_in_competition":   traderConfig.ShowInCompetition,
+		"use_ai500":             traderConfig.UseAI500,
+		"use_oi_top":            traderConfig.UseOITop,
+		"is_running":            isRunning,
 	}
 
 	c.JSON(http.StatusOK, result)
@@ -174,7 +176,111 @@ func (s *Server) handlePositions(c *gin.Context) {
 		return
 	}
 
+	if st := trader.GetStore(); st != nil {
+		positions = enrichOpenPositions(st, trader.GetID(), positions)
+	}
+
 	c.JSON(http.StatusOK, positions)
+}
+
+func enrichOpenPositions(st *store.Store, traderID string, positions []map[string]interface{}) []map[string]interface{} {
+	if st == nil || traderID == "" || len(positions) == 0 {
+		return positions
+	}
+
+	localPositions, err := st.Position().GetOpenPositions(traderID)
+	if err != nil {
+		logger.Warnf("Failed to enrich positions with local position data: %v", err)
+	}
+	protectiveOrders, err := st.Order().GetOpenProtectiveOrders(traderID)
+	if err != nil {
+		logger.Warnf("Failed to enrich positions with protective orders: %v", err)
+	}
+
+	localByKey := make(map[string]*store.TraderPosition, len(localPositions))
+	for _, pos := range localPositions {
+		localByKey[positionInfoKey(pos.Symbol, pos.Side)] = pos
+	}
+
+	type protectiveInfo struct {
+		StopLossPrice   float64
+		TakeProfitPrice float64
+		StopLossOrderID string
+		TakeProfitID    string
+	}
+	protectiveByKey := make(map[string]*protectiveInfo)
+	for _, order := range protectiveOrders {
+		key := positionInfoKey(order.Symbol, order.PositionSide)
+		info := protectiveByKey[key]
+		if info == nil {
+			info = &protectiveInfo{}
+			protectiveByKey[key] = info
+		}
+		orderType := strings.ToUpper(strings.TrimSpace(order.Type))
+		action := strings.ToLower(strings.TrimSpace(order.OrderAction))
+		switch {
+		case strings.Contains(orderType, "TAKE_PROFIT") || action == "take_profit":
+			info.TakeProfitPrice = order.StopPrice
+			info.TakeProfitID = order.ExchangeOrderID
+		case strings.Contains(orderType, "STOP") || action == "stop_loss":
+			info.StopLossPrice = order.StopPrice
+			info.StopLossOrderID = order.ExchangeOrderID
+		}
+	}
+
+	for _, pos := range positions {
+		symbol := stringFromMap(pos, "symbol")
+		side := stringFromMap(pos, "side")
+		key := positionInfoKey(symbol, side)
+		if local := localByKey[key]; local != nil {
+			pos["position_id"] = local.ID
+			pos["entry_order_id"] = local.EntryOrderID
+			pos["entry_time"] = local.EntryTime
+			pos["entry_quantity"] = local.EntryQuantity
+			pos["exit_price"] = local.ExitPrice
+			pos["exit_order_id"] = local.ExitOrderID
+			pos["exit_time"] = local.ExitTime
+			pos["close_reason"] = local.CloseReason
+			pos["opening_reasoning"] = local.OpeningReasoning
+			pos["last_review_summary"] = local.LastReviewSummary
+			pos["last_review_cycle"] = local.LastReviewCycle
+			pos["opening_setup"] = local.OpeningSetup
+			pos["strategy_id"] = local.StrategyID
+		}
+		if protective := protectiveByKey[key]; protective != nil {
+			pos["stop_loss_price"] = protective.StopLossPrice
+			pos["take_profit_price"] = protective.TakeProfitPrice
+			pos["stop_loss_order_id"] = protective.StopLossOrderID
+			pos["take_profit_order_id"] = protective.TakeProfitID
+		}
+	}
+
+	return positions
+}
+
+func positionInfoKey(symbol, side string) string {
+	normalizedSide := strings.ToUpper(strings.TrimSpace(side))
+	switch normalizedSide {
+	case "LONG", "BUY":
+		normalizedSide = "LONG"
+	case "SHORT", "SELL":
+		normalizedSide = "SHORT"
+	default:
+		normalizedSide = strings.ToUpper(strings.TrimSpace(side))
+	}
+	return market.Normalize(symbol) + ":" + normalizedSide
+}
+
+func stringFromMap(values map[string]interface{}, key string) string {
+	if values == nil {
+		return ""
+	}
+	switch v := values[key].(type) {
+	case string:
+		return v
+	default:
+		return ""
+	}
 }
 
 // handlePositionHistory Historical closed positions with statistics

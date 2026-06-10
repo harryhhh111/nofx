@@ -3,7 +3,6 @@ package market
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"nofx/hook"
@@ -37,16 +36,15 @@ func NewAPIClient() *APIClient {
 
 func (c *APIClient) GetExchangeInfo() (*ExchangeInfo, error) {
 	url := fmt.Sprintf("%s/fapi/v1/exchangeInfo", baseURL)
-	resp, err := c.client.Get(url)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	body, err := doMarketRequestBody(c.client, req)
+	if err != nil {
+		return nil, err
+	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
 	var exchangeInfo ExchangeInfo
 	err = json.Unmarshal(body, &exchangeInfo)
 	if err != nil {
@@ -69,13 +67,7 @@ func (c *APIClient) GetKlines(symbol, interval string, limit int) ([]Kline, erro
 	q.Add("limit", strconv.Itoa(limit))
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := doMarketRequestBody(c.client, req)
 	if err != nil {
 		return nil, err
 	}
@@ -134,13 +126,7 @@ func (c *APIClient) GetCurrentPrice(symbol string) (float64, error) {
 	q.Add("symbol", symbol)
 	req.URL.RawQuery = q.Encode()
 
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := doMarketRequestBody(c.client, req)
 	if err != nil {
 		return 0, err
 	}

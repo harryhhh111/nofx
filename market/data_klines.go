@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"nofx/provider/hyperliquid"
 	"strconv"
@@ -35,6 +34,8 @@ func getKlinesFromOfficialFuturesContext(ctx context.Context, symbol, interval s
 		return getKlinesFromBybitLinearContext(ctx, symbol, interval, limit)
 	case "okx":
 		return getKlinesFromOKXSwapContext(ctx, symbol, interval, limit)
+	case "aster":
+		return getKlinesFromAsterFuturesContext(ctx, symbol, interval, limit)
 	case "hyperliquid":
 		return getKlinesFromHyperliquidContext(ctx, symbol, interval, limit)
 	default:
@@ -105,21 +106,26 @@ func getKlinesFromOKXSwapContext(ctx context.Context, symbol, interval string, l
 	return parseOKXKlinePayload(body)
 }
 
+func getKlinesFromAsterFuturesContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://fapi.asterdex.com/fapi/v3/klines", nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	q.Set("symbol", symbol)
+	q.Set("interval", interval)
+	q.Set("limit", strconv.Itoa(minInt(limit, 1500)))
+	req.URL.RawQuery = q.Encode()
+
+	body, err := getKlineBody(req)
+	if err != nil {
+		return nil, err
+	}
+	return parseBinanceKlinePayload(body)
+}
+
 func getKlineBody(req *http.Request) ([]byte, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status %d: %s", resp.StatusCode, string(body))
-	}
-	return body, nil
+	return doMarketRequestBody(&http.Client{Timeout: 10 * time.Second}, req)
 }
 
 func parseBinanceKlinePayload(body []byte) ([]Kline, error) {
@@ -317,7 +323,7 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 
 func getKlinesFromHyperliquidContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
 	// Remove xyz: prefix if present for the API call
-	baseCoin := strings.TrimPrefix(symbol, "xyz:")
+	baseCoin := strings.TrimPrefix(hyperliquidCoin(symbol), "xyz:")
 
 	// Map interval to Hyperliquid format
 	hlInterval := hyperliquid.MapTimeframe(interval)

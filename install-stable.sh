@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-INSTALL_DIR="${1:-$HOME/nofx}"
+INSTALL_DIR="${1:-$HOME/nofx-v2}"
 COMPOSE_FILE="docker-compose.stable.yml"
 GITHUB_RAW="https://raw.githubusercontent.com/NoFxAiOS/nofx/release/stable"
 
@@ -64,8 +64,9 @@ generate_env() {
     DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)
     RSA_PRIVATE_KEY=$(openssl genrsa 2048 2>/dev/null | tr '\n' '\\' | sed 's/\\/\\n/g' | sed 's/\\n$//')
     cat > .env << EOF
-NOFX_BACKEND_PORT=8080
-NOFX_FRONTEND_PORT=3000
+NOFX_BACKEND_PORT=8091
+NOFX_FRONTEND_PORT=3011
+NOFX_PPROF_PORT=6091
 TZ=Asia/Shanghai
 JWT_SECRET=${JWT_SECRET}
 DATA_ENCRYPTION_KEY=${DATA_ENCRYPTION_KEY}
@@ -89,8 +90,8 @@ print_success() {
     local IP=$(get_server_ip)
     echo ""
     echo -e "${GREEN}Installation Complete!${NC}"
-    echo -e "  Web: http://${IP}:3000"
-    echo -e "  API: http://${IP}:8080"
+    echo -e "  Web: http://${IP}:3011"
+    echo -e "  API: http://${IP}:8091"
     echo ""
 }
 

@@ -40,6 +40,7 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 
 	c.normalizeCoinSourceFlags()
+	c.Indicators.EnableRawKlines = true
 	// Claw402's current official nofx catalog exposes market-wide ranking
 	// endpoints, but not the legacy coin-level quant endpoint. Keep the legacy
 	// fields for saved JSON compatibility while preventing unsupported 404
@@ -285,7 +286,7 @@ func normalizeMarketDataSource(source string) string {
 	switch normalized {
 	case "", "paper":
 		return "binance"
-	case "binance", "bybit", "okx", "hyperliquid":
+	case "auto", "binance", "bybit", "okx", "aster", "hyperliquid":
 		return normalized
 	default:
 		return normalized

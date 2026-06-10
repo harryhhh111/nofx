@@ -341,7 +341,7 @@ export interface IndicatorConfig {
 }
 
 export interface KlineConfig {
-  market_data_source?: 'binance' | 'bybit' | 'okx' | 'hyperliquid';
+  market_data_source?: 'auto' | 'binance' | 'bybit' | 'okx' | 'aster' | 'hyperliquid';
   primary_timeframe: string;
   primary_count: number;
   compute_lookback?: number;

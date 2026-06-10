@@ -9,16 +9,16 @@
 # docker compose -f docker-compose.prod.yml up -d
 
 services:
-  nofx:
+  nofx-v2:
     image: ghcr.io/nofxaios/nofx/nofx-backend:latest
-    container_name: nofx-trading
+    container_name: nofx-trading-v2
     restart: unless-stopped
     stop_grace_period: 30s
     ports:
-      - "${NOFX_BACKEND_PORT:-8080}:8080"
+      - "${NOFX_BACKEND_PORT:-8091}:8080"
     volumes:
       # Data directory for database and logs
-      - ./data:/app/data
+      - ./data-v2:/app/data
       - /etc/localtime:/etc/localtime:ro
     env_file:
       - .env
@@ -26,7 +26,9 @@ services:
       - TZ=${TZ:-Asia/Shanghai}
       - AI_MAX_TOKENS=8000
     networks:
-      - nofx-network
+      nofx-v2-network:
+        aliases:
+          - nofx
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
       interval: 30s
@@ -34,16 +36,16 @@ services:
       retries: 3
       start_period: 60s
 
-  nofx-frontend:
+  nofx-frontend-v2:
     image: ghcr.io/nofxaios/nofx/nofx-frontend:latest
-    container_name: nofx-frontend
+    container_name: nofx-frontend-v2
     restart: unless-stopped
     ports:
-      - "${NOFX_FRONTEND_PORT:-3000}:80"
+      - "${NOFX_FRONTEND_PORT:-3011}:80"
     networks:
-      - nofx-network
+      - nofx-v2-network
     depends_on:
-      - nofx
+      - nofx-v2
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
@@ -52,5 +54,5 @@ services:
       start_period: 5s
 
 networks:
-  nofx-network:
+  nofx-v2-network:
     driver: bridge

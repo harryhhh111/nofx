@@ -306,6 +306,21 @@ func (at *AutoTrader) runCycle() error {
 			Success:    false,
 		}
 
+		if skipped, reason, err := at.shouldSkipDuplicateOpenDecision(&d); err != nil {
+			logger.Warnf("⚠️ [%s] Failed to pre-check duplicate open decision for %s %s: %v", at.name, d.Symbol, d.Action, err)
+		} else if skipped {
+			logger.Infof("↩️ [%s] Skipped %s %s: %s", at.name, d.Symbol, d.Action, reason)
+			actionRecord.Success = true
+			if actionRecord.Reasoning != "" {
+				actionRecord.Reasoning = fmt.Sprintf("[SKIPPED] %s | Original: %s", reason, actionRecord.Reasoning)
+			} else {
+				actionRecord.Reasoning = fmt.Sprintf("[SKIPPED] %s", reason)
+			}
+			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("↩️ %s %s skipped: %s", d.Symbol, d.Action, reason))
+			record.Decisions = append(record.Decisions, actionRecord)
+			continue
+		}
+
 		if err := at.executeDecisionWithRecord(&d, &actionRecord); err != nil {
 			logger.Infof("❌ Failed to execute decision (%s %s): %v", d.Symbol, d.Action, err)
 			actionRecord.Error = err.Error()
@@ -849,4 +864,51 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 	}
 
 	return sorted
+}
+
+func (at *AutoTrader) shouldSkipDuplicateOpenDecision(decision *kernel.Decision) (bool, string, error) {
+	if decision == nil {
+		return false, "", nil
+	}
+
+	side := ""
+	switch decision.Action {
+	case "open_long":
+		side = "long"
+	case "open_short":
+		side = "short"
+	default:
+		return false, "", nil
+	}
+
+	positions, err := at.trader.GetPositions()
+	if err != nil {
+		return false, "", err
+	}
+
+	targetSymbol := market.Normalize(decision.Symbol)
+	for _, pos := range positions {
+		if qty, ok := matchingOpenPositionQuantity(pos, targetSymbol, side); ok {
+			return true, fmt.Sprintf("existing %s position is still open (qty=%.8f)", side, qty), nil
+		}
+	}
+
+	return false, "", nil
+}
+
+func matchingOpenPositionQuantity(pos map[string]interface{}, normalizedSymbol, side string) (float64, bool) {
+	posSymbol, _ := pos["symbol"].(string)
+	posSide, _ := pos["side"].(string)
+	if market.Normalize(posSymbol) != normalizedSymbol || !strings.EqualFold(posSide, side) {
+		return 0, false
+	}
+
+	qty, ok := orderResultNumber(pos, "positionAmt")
+	if !ok {
+		qty, _ = orderResultNumber(pos, "size")
+	}
+	if qty < 0 {
+		qty = -qty
+	}
+	return qty, qty > 0
 }

@@ -37,9 +37,9 @@ type TraderOrder struct {
 	PriceProtect      bool    `gorm:"column:price_protect;default:false" json:"price_protect"`
 	OrderAction       string  `gorm:"column:order_action;default:''" json:"order_action"`
 	RelatedPositionID int64   `gorm:"column:related_position_id;default:0" json:"related_position_id"`
-	CreatedAt         int64   `gorm:"column:created_at" json:"created_at"`         // Unix milliseconds UTC
-	UpdatedAt         int64   `gorm:"column:updated_at" json:"updated_at"`         // Unix milliseconds UTC
-	FilledAt          int64   `gorm:"column:filled_at" json:"filled_at"`           // Unix milliseconds UTC
+	CreatedAt         int64   `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
+	UpdatedAt         int64   `gorm:"column:updated_at" json:"updated_at"` // Unix milliseconds UTC
+	FilledAt          int64   `gorm:"column:filled_at" json:"filled_at"`   // Unix milliseconds UTC
 }
 
 // TableName returns the table name for TraderOrder
@@ -222,6 +222,50 @@ func (s *OrderStore) GetOrderByExchangeID(exchangeID, exchangeOrderID string) (*
 		return nil, fmt.Errorf("failed to get order: %w", err)
 	}
 	return &order, nil
+}
+
+// GetOrderByTraderAndExchangeOrderID gets an order by trader and exchange order ID.
+// This is useful for paper-trading restored orders where the exchange account ID
+// is not available inside the paper execution adapter.
+func (s *OrderStore) GetOrderByTraderAndExchangeOrderID(traderID, exchangeOrderID string) (*TraderOrder, error) {
+	var order TraderOrder
+	err := s.db.Where("trader_id = ? AND exchange_order_id = ?", traderID, exchangeOrderID).First(&order).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to get order: %w", err)
+	}
+	return &order, nil
+}
+
+// GetOpenProtectiveOrders gets locally tracked stop-loss/take-profit orders.
+func (s *OrderStore) GetOpenProtectiveOrders(traderID string) ([]*TraderOrder, error) {
+	var orders []*TraderOrder
+	err := s.db.Where("trader_id = ? AND status IN ? AND type IN ?", traderID, []string{"NEW", "PARTIALLY_FILLED"}, []string{"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"}).
+		Order("created_at ASC").
+		Find(&orders).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query protective orders: %w", err)
+	}
+	return orders, nil
+}
+
+// CancelOpenProtectiveOrders marks locally tracked protective orders as canceled.
+func (s *OrderStore) CancelOpenProtectiveOrders(traderID, symbol, positionSide string) error {
+	nowMs := time.Now().UTC().UnixMilli()
+	query := s.db.Model(&TraderOrder{}).
+		Where("trader_id = ? AND status IN ? AND type IN ?", traderID, []string{"NEW", "PARTIALLY_FILLED"}, []string{"STOP_MARKET", "TAKE_PROFIT_MARKET", "STOP", "TAKE_PROFIT"})
+	if symbol != "" {
+		query = query.Where("symbol = ?", symbol)
+	}
+	if positionSide != "" {
+		query = query.Where("position_side = ?", positionSide)
+	}
+	return query.Updates(map[string]interface{}{
+		"status":     "CANCELED",
+		"updated_at": nowMs,
+	}).Error
 }
 
 // GetTraderOrders gets trader's order list

@@ -1,11 +1,14 @@
 package trader
 
 import (
+	"context"
 	"fmt"
+	"math"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/store"
+	"strings"
 	"time"
 )
 
@@ -31,6 +34,64 @@ func (at *AutoTrader) executeDecisionWithRecord(decision *kernel.Decision, actio
 // protectiveOrderRetryDelay is the wait between the first failed protective-order
 // attempt and the single retry.
 const protectiveOrderRetryDelay = 500 * time.Millisecond
+
+func (at *AutoTrader) requiredExecutionPrice(symbol string) (float64, error) {
+	price, err := at.executionMarketPriceWithRetry(symbol)
+	if err == nil && price > 0 {
+		return price, nil
+	}
+	logger.Warnf("  ⚠️  Failed to get pinned ticker price for %s, falling back to pinned kline price: %v", symbol, err)
+
+	klines, _, fallbackErr := market.GetPublicKlines(context.Background(), at.exchange, symbol, "1m", 1, false)
+	if fallbackErr == nil && len(klines) > 0 && klines[len(klines)-1].Close > 0 {
+		return klines[len(klines)-1].Close, nil
+	}
+	return 0, fmt.Errorf("failed to get execution price for %s: ticker=%v; kline=%v", symbol, err, fallbackErr)
+}
+
+func (at *AutoTrader) executionMarketPriceWithRetry(symbol string) (float64, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		price, err := at.pinnedExecutionMarketPrice(symbol)
+		if err == nil && price > 0 {
+			return price, nil
+		}
+		if err != nil {
+			lastErr = err
+		} else {
+			lastErr = fmt.Errorf("non-positive market price %.8f", price)
+		}
+		if attempt < 3 {
+			time.Sleep(time.Duration(attempt) * 300 * time.Millisecond)
+		}
+	}
+	return 0, lastErr
+}
+
+func (at *AutoTrader) pinnedExecutionMarketPrice(symbol string) (float64, error) {
+	price, _, err := market.GetPublicTickerPrice(context.Background(), at.exchange, symbol, false)
+	if err == nil && price > 0 {
+		return price, nil
+	}
+
+	traderPrice, traderErr := at.trader.GetMarketPrice(symbol)
+	if traderErr == nil && traderPrice > 0 {
+		return traderPrice, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("public pinned ticker failed: %v; trader ticker failed: %w", err, traderErr)
+	}
+	return 0, traderErr
+}
+
+func (at *AutoTrader) optionalExecutionPrice(symbol string) float64 {
+	price, err := at.requiredExecutionPrice(symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️  Failed to get reference price for %s; continuing close order without price: %v", symbol, err)
+		return 0
+	}
+	return price
+}
 
 // placeProtectiveOrders attaches stop-loss and take-profit orders to a freshly
 // opened position.
@@ -71,10 +132,12 @@ func (at *AutoTrader) placeProtectiveOrders(decision *kernel.Decision, side stri
 	if slErr != nil {
 		return rollback(slErr)
 	}
+	at.recordProtectiveOrder(decision.Symbol, side, "STOP_MARKET", "stop_loss", quantity, decision.StopLoss)
 
 	// Take-profit is non-fatal.
+	var tpErr error
 	if decision.TakeProfit > 0 {
-		if tpErr := at.trader.SetTakeProfit(decision.Symbol, side, quantity, decision.TakeProfit); tpErr != nil {
+		if tpErr = at.trader.SetTakeProfit(decision.Symbol, side, quantity, decision.TakeProfit); tpErr != nil {
 			logger.Warnf("  ⚠ Failed to set take profit for %s (%v), retrying once...", decision.Symbol, tpErr)
 			time.Sleep(protectiveOrderRetryDelay)
 			if tpErr = at.trader.SetTakeProfit(decision.Symbol, side, quantity, decision.TakeProfit); tpErr != nil {
@@ -83,7 +146,102 @@ func (at *AutoTrader) placeProtectiveOrders(decision *kernel.Decision, side stri
 		}
 	}
 
+	if decision.TakeProfit > 0 && tpErr == nil {
+		at.recordProtectiveOrder(decision.Symbol, side, "TAKE_PROFIT_MARKET", "take_profit", quantity, decision.TakeProfit)
+	}
+
 	return nil
+}
+
+func (at *AutoTrader) recordProtectiveOrder(symbol, positionSide, orderType, orderAction string, quantity, stopPrice float64) {
+	if at.store == nil || stopPrice <= 0 || quantity <= 0 {
+		return
+	}
+	openOrders, err := at.trader.GetOpenOrders(symbol)
+	if err != nil {
+		logger.Warnf("  ⚠️ Failed to query protective order for local backup: %v", err)
+		return
+	}
+
+	normalizedSymbol := market.Normalize(symbol)
+	var matchedID string
+	var matchedSide string
+	for _, order := range openOrders {
+		if market.Normalize(order.Symbol) != normalizedSymbol {
+			continue
+		}
+		if !strings.EqualFold(order.PositionSide, positionSide) {
+			continue
+		}
+		if !strings.EqualFold(order.Type, orderType) {
+			continue
+		}
+		if !closeFloat(order.StopPrice, stopPrice) {
+			continue
+		}
+		if order.Quantity > 0 && !closeFloat(order.Quantity, quantity) {
+			continue
+		}
+		matchedID = strings.TrimSpace(order.OrderID)
+		matchedSide = strings.ToUpper(order.Side)
+		break
+	}
+	if matchedID == "" {
+		logger.Warnf("  ⚠️ Protective order placed but no matching open order found for backup: %s %s %s @ %.8f", normalizedSymbol, positionSide, orderType, stopPrice)
+		return
+	}
+	if existing, err := at.store.Order().GetOrderByTraderAndExchangeOrderID(at.id, matchedID); err == nil && existing != nil {
+		return
+	}
+
+	if matchedSide == "" {
+		matchedSide = "SELL"
+		if strings.EqualFold(positionSide, "SHORT") {
+			matchedSide = "BUY"
+		}
+	}
+
+	var relatedPositionID int64
+	if pos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, strings.ToUpper(positionSide)); err == nil && pos != nil {
+		relatedPositionID = pos.ID
+	}
+
+	nowMs := time.Now().UTC().UnixMilli()
+	orderRecord := &store.TraderOrder{
+		TraderID:          at.id,
+		ExchangeID:        at.exchangeID,
+		ExchangeType:      at.exchange,
+		ExchangeOrderID:   matchedID,
+		Symbol:            normalizedSymbol,
+		Side:              matchedSide,
+		PositionSide:      strings.ToUpper(positionSide),
+		Type:              strings.ToUpper(orderType),
+		TimeInForce:       "GTC",
+		Quantity:          quantity,
+		Price:             0,
+		StopPrice:         stopPrice,
+		Status:            "NEW",
+		CommissionAsset:   "USDT",
+		ReduceOnly:        true,
+		ClosePosition:     true,
+		WorkingType:       "CONTRACT_PRICE",
+		OrderAction:       orderAction,
+		RelatedPositionID: relatedPositionID,
+		CreatedAt:         nowMs,
+		UpdatedAt:         nowMs,
+	}
+	if err := at.store.Order().CreateOrder(orderRecord); err != nil {
+		logger.Warnf("  ⚠️ Failed to record protective order backup: %v", err)
+		return
+	}
+	logger.Infof("  🛡️ Protective order recorded: %s %s %s @ %.8f", normalizedSymbol, positionSide, orderAction, stopPrice)
+}
+
+func closeFloat(a, b float64) bool {
+	if a == 0 || b == 0 {
+		return a == b
+	}
+	return math.Abs(a-b) <= math.Max(math.Abs(a), math.Abs(b))*1e-8
 }
 
 // executeOpenLongWithRecord executes open long position and records detailed information
@@ -103,7 +261,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 
 	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
-		if pos["symbol"] == decision.Symbol && pos["side"] == "long" {
+		if _, ok := matchingOpenPositionQuantity(pos, market.Normalize(decision.Symbol), "long"); ok {
 			return fmt.Errorf("❌ %s already has long position, close it first", decision.Symbol)
 		}
 	}
@@ -113,8 +271,8 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 		return err
 	}
 
-	// Get current price
-	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
+	// Get execution price from the exchange ticker/mark price. Klines are only a fallback.
+	currentPrice, err := at.requiredExecutionPrice(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -167,9 +325,9 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// Calculate quantity with adjusted position size
-	quantity := actualPositionSize / marketData.CurrentPrice
+	quantity := actualPositionSize / currentPrice
 	actionRecord.Quantity = quantity
-	actionRecord.Price = marketData.CurrentPrice
+	actionRecord.Price = currentPrice
 
 	// Set margin mode
 	if err := at.trader.SetMarginMode(decision.Symbol, at.config.IsCrossMargin); err != nil {
@@ -178,7 +336,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// Open position
-	executionAnalyticsID := at.startExecutionAnalytics(decision, "open_long", marketData.CurrentPrice, quantity)
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "open_long", currentPrice, quantity)
 	order, err := at.trader.OpenLong(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
 		at.markExecutionFailed(executionAnalyticsID, err)
@@ -193,7 +351,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	logger.Infof("  ✓ Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "open_long", quantity, marketData.CurrentPrice, decision.Leverage, 0, executionAnalyticsID)
+	at.recordAndConfirmOrder(order, decision.Symbol, "open_long", quantity, currentPrice, decision.Leverage, 0, executionAnalyticsID)
 
 	// Record position opening time
 	posKey := decision.Symbol + "_long"
@@ -225,7 +383,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 
 	// Check if there's already a position in the same symbol and direction
 	for _, pos := range positions {
-		if pos["symbol"] == decision.Symbol && pos["side"] == "short" {
+		if _, ok := matchingOpenPositionQuantity(pos, market.Normalize(decision.Symbol), "short"); ok {
 			return fmt.Errorf("❌ %s already has short position, close it first", decision.Symbol)
 		}
 	}
@@ -235,8 +393,8 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 		return err
 	}
 
-	// Get current price
-	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
+	// Get execution price from the exchange ticker/mark price. Klines are only a fallback.
+	currentPrice, err := at.requiredExecutionPrice(decision.Symbol)
 	if err != nil {
 		return err
 	}
@@ -289,9 +447,9 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Calculate quantity with adjusted position size
-	quantity := actualPositionSize / marketData.CurrentPrice
+	quantity := actualPositionSize / currentPrice
 	actionRecord.Quantity = quantity
-	actionRecord.Price = marketData.CurrentPrice
+	actionRecord.Price = currentPrice
 
 	// Set margin mode
 	if err := at.trader.SetMarginMode(decision.Symbol, at.config.IsCrossMargin); err != nil {
@@ -300,7 +458,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Open position
-	executionAnalyticsID := at.startExecutionAnalytics(decision, "open_short", marketData.CurrentPrice, quantity)
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "open_short", currentPrice, quantity)
 	order, err := at.trader.OpenShort(decision.Symbol, quantity, decision.Leverage)
 	if err != nil {
 		at.markExecutionFailed(executionAnalyticsID, err)
@@ -315,7 +473,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	logger.Infof("  ✓ Position opened successfully, order ID: %v, quantity: %.4f", order["orderId"], quantity)
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "open_short", quantity, marketData.CurrentPrice, decision.Leverage, 0, executionAnalyticsID)
+	at.recordAndConfirmOrder(order, decision.Symbol, "open_short", quantity, currentPrice, decision.Leverage, 0, executionAnalyticsID)
 
 	// Record position opening time
 	posKey := decision.Symbol + "_short"
@@ -334,12 +492,9 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Close long: %s", decision.Symbol)
 
-	// Get current price
-	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
-	if err != nil {
-		return err
-	}
-	actionRecord.Price = marketData.CurrentPrice
+	// Reference price is only for records/analytics. It must not block a market close.
+	currentPrice := at.optionalExecutionPrice(decision.Symbol)
+	actionRecord.Price = currentPrice
 
 	// Normalize symbol for database lookup
 	normalizedSymbol := market.Normalize(decision.Symbol)
@@ -377,7 +532,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Close position
-	executionAnalyticsID := at.startExecutionAnalytics(decision, "close_long", marketData.CurrentPrice, quantity)
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "close_long", currentPrice, quantity)
 	order, err := at.trader.CloseLong(decision.Symbol, 0) // 0 = close all
 	if err != nil {
 		at.markExecutionFailed(executionAnalyticsID, err)
@@ -397,7 +552,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	}
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, marketData.CurrentPrice, 0, entryPrice, executionAnalyticsID)
+	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, currentPrice, 0, entryPrice, executionAnalyticsID)
 
 	logger.Infof("  ✓ Position closed successfully")
 	return nil
@@ -407,12 +562,9 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, actionRecord *store.DecisionAction) error {
 	logger.Infof("  🔄 Close short: %s", decision.Symbol)
 
-	// Get current price
-	marketData, err := market.GetWithExchange(decision.Symbol, at.exchange)
-	if err != nil {
-		return err
-	}
-	actionRecord.Price = marketData.CurrentPrice
+	// Reference price is only for records/analytics. It must not block a market close.
+	currentPrice := at.optionalExecutionPrice(decision.Symbol)
+	actionRecord.Price = currentPrice
 
 	// Normalize symbol for database lookup
 	normalizedSymbol := market.Normalize(decision.Symbol)
@@ -450,7 +602,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	}
 
 	// Close position
-	executionAnalyticsID := at.startExecutionAnalytics(decision, "close_short", marketData.CurrentPrice, quantity)
+	executionAnalyticsID := at.startExecutionAnalytics(decision, "close_short", currentPrice, quantity)
 	order, err := at.trader.CloseShort(decision.Symbol, 0) // 0 = close all
 	if err != nil {
 		at.markExecutionFailed(executionAnalyticsID, err)
@@ -470,7 +622,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	}
 
 	// Record order to database and poll for confirmation
-	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice, executionAnalyticsID)
+	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, currentPrice, 0, entryPrice, executionAnalyticsID)
 
 	logger.Infof("  ✓ Position closed successfully")
 	return nil

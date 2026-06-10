@@ -20,7 +20,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Default installation directory
-INSTALL_DIR="${1:-$HOME/nofx}"
+INSTALL_DIR="${1:-$HOME/nofx-v2}"
 COMPOSE_FILE="docker-compose.prod.yml"
 GITHUB_RAW="https://raw.githubusercontent.com/NoFxAiOS/nofx/main"
 
@@ -102,8 +102,9 @@ generate_env() {
 # Generated at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 # Server ports
-NOFX_BACKEND_PORT=8080
-NOFX_FRONTEND_PORT=3000
+NOFX_BACKEND_PORT=8091
+NOFX_FRONTEND_PORT=3011
+NOFX_PPROF_PORT=6091
 
 # Timezone
 TZ=Asia/Shanghai
@@ -130,7 +131,7 @@ pull_images() {
 
 # Ask user if they want to clear trading data
 ask_clear_trading_data() {
-    local db_file="data/data.db"
+    local db_file="data-v2/data.db"
 
     # Only ask if database file exists
     if [ ! -f "$db_file" ]; then
@@ -173,7 +174,7 @@ clear_trading_data() {
         return 0
     fi
 
-    local db_file="data/data.db"
+    local db_file="data-v2/data.db"
 
     if [ ! -f "$db_file" ]; then
         echo -e "${YELLOW}Database file not found, skipping...${NC}"
@@ -191,7 +192,7 @@ clear_trading_data() {
         fi
     else
         echo -e "${RED}sqlite3 not found. Please install sqlite3 and run manually:${NC}"
-        echo -e "${BLUE}  sqlite3 data/data.db 'DELETE FROM trader_fills; DELETE FROM trader_orders; DELETE FROM trader_positions;'${NC}"
+        echo -e "${BLUE}  sqlite3 data-v2/data.db 'DELETE FROM trader_fills; DELETE FROM trader_orders; DELETE FROM trader_positions;'${NC}"
     fi
 }
 
@@ -203,7 +204,7 @@ wait_for_services() {
     local attempt=1
 
     while [ $attempt -le $max_attempts ]; do
-        if curl -s http://localhost:8080/api/health > /dev/null 2>&1; then
+        if curl -s http://localhost:8091/api/health > /dev/null 2>&1; then
             echo -e "${GREEN}✓ Backend is ready${NC}"
             break
         fi
@@ -243,8 +244,8 @@ print_success() {
     echo -e "║              🎉 Installation Complete! 🎉                   ║"
     echo -e "╚════════════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${BLUE}Web Interface:${NC}  http://${SERVER_IP}:3000"
-    echo -e "  ${BLUE}API Endpoint:${NC}   http://${SERVER_IP}:8080"
+    echo -e "  ${BLUE}Web Interface:${NC}  http://${SERVER_IP}:3011"
+    echo -e "  ${BLUE}API Endpoint:${NC}   http://${SERVER_IP}:8091"
     echo -e "  ${BLUE}Install Dir:${NC}    $INSTALL_DIR"
     echo ""
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗"
@@ -264,13 +265,13 @@ print_success() {
     echo "  $COMPOSE_CMD pull && $COMPOSE_CMD up -d  # Update to latest"
     echo ""
     echo -e "${YELLOW}Next Steps:${NC}"
-    echo "  1. Open http://${SERVER_IP}:3000 in your browser"
+    echo "  1. Open http://${SERVER_IP}:3011 in your browser"
     echo "  2. Configure AI Models (DeepSeek, OpenAI, etc.)"
     echo "  3. Configure Exchanges (Binance, Hyperliquid, etc.)"
     echo "  4. Create a Strategy in Strategy Studio"
     echo "  5. Create a Trader and start trading!"
     echo ""
-    echo -e "${YELLOW}Note:${NC} If accessing from local machine, use http://127.0.0.1:3000"
+    echo -e "${YELLOW}Note:${NC} If accessing from local machine, use http://127.0.0.1:3011"
     echo ""
     echo -e "${RED}⚠️  Risk Warning: AI trading carries significant risks.${NC}"
     echo -e "${RED}   Only use funds you can afford to lose!${NC}"

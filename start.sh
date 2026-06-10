@@ -175,28 +175,28 @@ check_encryption() {
 # ------------------------------------------------------------------------
 read_env_vars() {
     if [ -f ".env" ]; then
-        NOFX_FRONTEND_PORT=$(grep "^NOFX_FRONTEND_PORT=" .env 2>/dev/null | cut -d'=' -f2 || echo "3000")
-        NOFX_BACKEND_PORT=$(grep "^NOFX_BACKEND_PORT=" .env 2>/dev/null | cut -d'=' -f2 || echo "8080")
+        NOFX_FRONTEND_PORT=$(grep "^NOFX_FRONTEND_PORT=" .env 2>/dev/null | cut -d'=' -f2 || echo "3011")
+        NOFX_BACKEND_PORT=$(grep "^NOFX_BACKEND_PORT=" .env 2>/dev/null | cut -d'=' -f2 || echo "8091")
 
         NOFX_FRONTEND_PORT=$(echo "$NOFX_FRONTEND_PORT" | tr -d '"'"'" | tr -d ' ')
         NOFX_BACKEND_PORT=$(echo "$NOFX_BACKEND_PORT" | tr -d '"'"'" | tr -d ' ')
 
-        NOFX_FRONTEND_PORT=${NOFX_FRONTEND_PORT:-3000}
-        NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8080}
+        NOFX_FRONTEND_PORT=${NOFX_FRONTEND_PORT:-3011}
+        NOFX_BACKEND_PORT=${NOFX_BACKEND_PORT:-8091}
     else
-        NOFX_FRONTEND_PORT=3000
-        NOFX_BACKEND_PORT=8080
+        NOFX_FRONTEND_PORT=3011
+        NOFX_BACKEND_PORT=8091
     fi
 }
 
 # ------------------------------------------------------------------------
-# Validation: Database Directory (data/)
+# Validation: Database Directory (data-v2/)
 # ------------------------------------------------------------------------
 check_database() {
-    if [ ! -d "data" ]; then
-        print_warning "Data directory missing, creating data/..."
-        install -m 700 -d data
-        print_success "data/ directory created"
+    if [ ! -d "data-v2" ]; then
+        print_warning "Data directory missing, creating data-v2/..."
+        install -m 700 -d data-v2
+        print_success "data-v2/ directory created"
     else
         print_success "Data directory exists"
     fi
@@ -214,8 +214,8 @@ start() {
 
     read_env_vars
 
-    if [ ! -d "data" ]; then
-        install -m 700 -d data
+    if [ ! -d "data-v2" ]; then
+        install -m 700 -d data-v2
     fi
 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

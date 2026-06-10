@@ -53,8 +53,9 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 			return nil, fmt.Errorf("Failed to get 5-minute K-line from Hyperliquid: %v", err)
 		}
 	} else {
-		// Use the configured official public K-line source for regular crypto assets.
-		klines3m, err = getKlinesFromOfficialFuturesContext(context.Background(), symbol, "3m", 100, exchange)
+		// Use the configured official public K-line source for regular crypto assets,
+		// falling back to other public sources when the preferred one is unavailable.
+		klines3m, _, err = GetPublicKlines(context.Background(), exchange, symbol, "3m", 100, true)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to get 3-minute K-line from official source (%s): %v", exchange, err)
 		}
@@ -73,7 +74,7 @@ func GetWithExchange(symbol, exchange string) (*Data, error) {
 			return nil, fmt.Errorf("Failed to get 4-hour K-line from Hyperliquid: %v", err)
 		}
 	} else {
-		klines4h, err = getKlinesFromOfficialFuturesContext(context.Background(), symbol, "4h", 100, exchange)
+		klines4h, _, err = GetPublicKlines(context.Background(), exchange, symbol, "4h", 100, true)
 		if err != nil {
 			return nil, fmt.Errorf("Failed to get 4-hour K-line from official source (%s): %v", exchange, err)
 		}
@@ -242,10 +243,15 @@ func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol stri
 			}
 		} else {
 			// Use official exchange public REST APIs for regular crypto assets.
-			klines, err = getKlinesFromOfficialFuturesContext(ctx, symbol, tf, computeLookback, exchange)
+			// The configured source is preferred; public fallbacks keep analysis available.
+			var usedSource string
+			klines, usedSource, err = GetPublicKlines(ctx, exchange, symbol, tf, computeLookback, true)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from official exchange APIs: %v", symbol, tf, err)
 				continue
+			}
+			if usedSource != "" && normalizePublicMarketSource(exchange) != "" && usedSource != normalizePublicMarketSource(exchange) {
+				logger.Infof("⚠️ %s %s K-line source fallback: %s -> %s", symbol, tf, exchange, usedSource)
 			}
 		}
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, useRef, type ReactNode } from 'react'
 import useSWR, { mutate } from 'swr'
 import { api } from '../lib/api'
 import { ChartTabs } from '../components/charts/ChartTabs'
@@ -783,6 +783,8 @@ export function TraderDashboardPage({
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center">{t('traderDashboard.action', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('entryPrice', language)}>{t('traderDashboard.entry', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('markPrice', language)}>{t('traderDashboard.mark', language)}</th>
+                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden xl:table-cell" title="Stop loss">SL</th>
+                                                    <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden xl:table-cell" title="Take profit">TP</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right" title={t('quantity', language)}>{t('traderDashboard.qty', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-right hidden md:table-cell" title={t('positionValue', language)}>{t('traderDashboard.value', language)}</th>
                                                     <th className="px-1 pb-3 font-semibold text-nofx-text-muted whitespace-nowrap text-center hidden md:table-cell" title={t('leverage', language)}>{t('traderDashboard.lev', language)}</th>
@@ -792,8 +794,8 @@ export function TraderDashboardPage({
                                             </thead>
                                             <tbody>
                                                 {paginatedPositions.map((pos, i) => (
+                                                    <Fragment key={`${pos.symbol}-${pos.side}-${i}`}>
                                                     <tr
-                                                        key={i}
                                                         className="border-b border-white/5 last:border-0 transition-all hover:bg-white/5 cursor-pointer group/row"
                                                         onClick={() => {
                                                             setSelectedChartSymbol(pos.symbol)
@@ -837,6 +839,20 @@ export function TraderDashboardPage({
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.entry_price)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.mark_price)}</td>
+                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right hidden xl:table-cell">
+                                                            {pos.stop_loss_price && pos.stop_loss_price > 0 ? (
+                                                                <span className="text-nofx-red">{formatPrice(pos.stop_loss_price)}</span>
+                                                            ) : (
+                                                                <span className="text-nofx-text-muted">-</span>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-1 py-3 font-mono whitespace-nowrap text-right hidden xl:table-cell">
+                                                            {pos.take_profit_price && pos.take_profit_price > 0 ? (
+                                                                <span className="text-nofx-green">{formatPrice(pos.take_profit_price)}</span>
+                                                            ) : (
+                                                                <span className="text-nofx-text-muted">-</span>
+                                                            )}
+                                                        </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main">{formatQuantity(pos.quantity)}</td>
                                                         <td className="px-1 py-3 font-mono font-bold whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{(pos.quantity * pos.mark_price).toFixed(2)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-center text-nofx-gold hidden md:table-cell">{pos.leverage}x</td>
@@ -851,6 +867,29 @@ export function TraderDashboardPage({
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-muted hidden md:table-cell">{formatPrice(pos.liquidation_price)}</td>
                                                     </tr>
+                                                    <tr className="border-b border-white/5 xl:hidden">
+                                                        <td colSpan={10} className="px-1 pb-3">
+                                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-[10px] text-nofx-text-muted">
+                                                                <div>
+                                                                    <span className="block uppercase tracking-wide">Entry</span>
+                                                                    <span className="font-mono text-nofx-text-main">{formatPrice(pos.entry_price)}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block uppercase tracking-wide">Mark</span>
+                                                                    <span className="font-mono text-nofx-text-main">{formatPrice(pos.mark_price)}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block uppercase tracking-wide">SL</span>
+                                                                    <span className="font-mono text-nofx-red">{pos.stop_loss_price && pos.stop_loss_price > 0 ? formatPrice(pos.stop_loss_price) : '-'}</span>
+                                                                </div>
+                                                                <div>
+                                                                    <span className="block uppercase tracking-wide">TP</span>
+                                                                    <span className="font-mono text-nofx-green">{pos.take_profit_price && pos.take_profit_price > 0 ? formatPrice(pos.take_profit_price) : '-'}</span>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                    </Fragment>
                                                 ))}
                                             </tbody>
                                         </table>

@@ -43,9 +43,11 @@ const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
 ]
 
 const marketDataSources = [
+  { value: 'auto', label: 'Auto fallback' },
   { value: 'binance', label: 'Binance Futures' },
   { value: 'bybit', label: 'Bybit Linear' },
   { value: 'okx', label: 'OKX Swap' },
+  { value: 'aster', label: 'Aster Futures' },
   { value: 'hyperliquid', label: 'Hyperliquid' },
 ]
 
@@ -173,17 +175,11 @@ export function IndicatorEditor({
     position: '#60a5fa',
   }
 
-  // Ensure enable_raw_klines is always true
-  const ensureRawKlines = () => {
+  useEffect(() => {
     if (!config.enable_raw_klines) {
       onChange({ ...config, enable_raw_klines: true })
     }
-  }
-
-  // Call on mount if needed
-  if (config.enable_raw_klines === undefined || config.enable_raw_klines === false) {
-    ensureRawKlines()
-  }
+  }, [config, onChange])
 
   // Check if any NofxOS feature is enabled
   const hasNofxosEnabled = config.enable_oi_ranking || config.enable_netflow_ranking || config.enable_price_ranking
@@ -506,7 +502,7 @@ export function IndicatorEditor({
                   !disabled &&
                   onChange({
                     ...config,
-                    klines: { ...config.klines, market_data_source: e.target.value as 'binance' | 'bybit' | 'okx' | 'hyperliquid' },
+                    klines: { ...config.klines, market_data_source: e.target.value as 'auto' | 'binance' | 'bybit' | 'okx' | 'aster' | 'hyperliquid' },
                   })
                 }
                 className="min-w-[150px] px-2 py-1.5 rounded text-xs"
