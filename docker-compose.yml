@@ -7,10 +7,10 @@ services:
     image: nofx-backend-v2:local
     container_name: nofx-trading-v2
     restart: unless-stopped
-    stop_grace_period: 30s  # 允许应用有 30 秒时间优雅关闭
+    stop_grace_period: 30s
     ports:
       - "${NOFX_BACKEND_PORT:-8091}:8080"
-      - "${NOFX_PPROF_PORT:-6091}:6060"  # pprof profiling (host port configurable via .env)
+      - "${NOFX_PPROF_PORT:-6091}:6060"
     volumes:
       - ./data-v2:/app/data
       - /etc/localtime:/etc/localtime:ro
