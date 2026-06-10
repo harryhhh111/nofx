@@ -212,6 +212,8 @@ type PromptSectionsConfig struct {
 	TradingFrequency string `json:"trading_frequency,omitempty"`
 	// entry standards
 	EntryStandards string `json:"entry_standards,omitempty"`
+	// exit standards (decision checklist for closing positions)
+	ExitStandards string `json:"exit_standards,omitempty"`
 	// decision process
 	DecisionProcess string `json:"decision_process,omitempty"`
 }
@@ -979,6 +981,7 @@ func (c *StrategyConfig) EstimateTokens() TokenEstimate {
 	baseChars += len(c.PromptSections.RoleDefinition)
 	baseChars += len(c.PromptSections.TradingFrequency)
 	baseChars += len(c.PromptSections.EntryStandards)
+	baseChars += len(c.PromptSections.ExitStandards)
 	baseChars += len(c.PromptSections.DecisionProcess)
 	baseChars += len(c.CustomPrompt)
 

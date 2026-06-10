@@ -34,6 +34,11 @@ const defaultSections: PromptSectionsConfig = {
 
 避免：单一指标、信号矛盾、横盘震荡、刚平仓即重启。`,
 
+  // exit_standards intentionally has NO default. The build server skips
+  // the entire section when empty, so users must author a checklist
+  // before the prompt includes it. See docs/plans/2026-05-09 §3.3.
+  exit_standards: ``,
+
   decision_process: `# 📋 决策流程
 
 1. 检查持仓 → 是否该止盈/止损
@@ -52,6 +57,7 @@ export function PromptSectionsEditor({
     role_definition: false,
     trading_frequency: false,
     entry_standards: false,
+    exit_standards: false,
     decision_process: false,
   })
 
@@ -59,6 +65,7 @@ export function PromptSectionsEditor({
     { key: 'role_definition', label: ts(promptSectionsI18n.roleDefinition, language), desc: ts(promptSectionsI18n.roleDefinitionDesc, language) },
     { key: 'trading_frequency', label: ts(promptSectionsI18n.tradingFrequency, language), desc: ts(promptSectionsI18n.tradingFrequencyDesc, language) },
     { key: 'entry_standards', label: ts(promptSectionsI18n.entryStandards, language), desc: ts(promptSectionsI18n.entryStandardsDesc, language) },
+    { key: 'exit_standards', label: ts(promptSectionsI18n.exitStandards, language), desc: ts(promptSectionsI18n.exitStandardsDesc, language) },
     { key: 'decision_process', label: ts(promptSectionsI18n.decisionProcess, language), desc: ts(promptSectionsI18n.decisionProcessDesc, language) },
   ]
 

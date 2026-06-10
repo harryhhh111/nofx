@@ -204,6 +204,8 @@ export const promptSections = {
   tradingFrequencyDesc: { zh: '设定交易频率预期和过度交易警告', en: 'Set trading frequency expectations and overtrading warnings', es: 'Establecer frecuencia' },
   entryStandards: { zh: '开仓标准', en: 'Entry Standards', es: 'Estándares de Entrada' },
   entryStandardsDesc: { zh: '定义开仓信号条件和避免事项', en: 'Define entry signal conditions and avoidances', es: 'Definir señales de entrada' },
+  exitStandards: { zh: '出场标准', en: 'Exit Standards', es: 'Estándares de Salida' },
+  exitStandardsDesc: { zh: '平仓前的判断 checklist（趋势破坏、利润保护、早止盈禁令）', en: 'Close-position decision checklist (trend broken, profit protection, early profit-taking ban)', es: 'Checklist de decisión de cierre' },
   decisionProcess: { zh: '决策流程', en: 'Decision Process', es: 'Proceso de Decisión' },
   decisionProcessDesc: { zh: '设定决策步骤和思考流程', en: 'Set decision steps and thinking process', es: 'Establecer proceso' },
   resetToDefault: { zh: '重置为默认', en: 'Reset to Default', es: 'Restablecer' },

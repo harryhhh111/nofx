@@ -294,6 +294,14 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		}
 	}
 
+	// 6.6. Exit standards (editable, opt-in)
+	// Empty ExitStandards = entire section skipped, no placeholder, no fallback.
+	// Users must opt in via PromptSectionsEditor. See docs/plans/2026-05-09 §3.3.
+	if promptSections.ExitStandards != "" {
+		sb.WriteString(promptSections.ExitStandards)
+		sb.WriteString("\n\n")
+	}
+
 	// 6.5. Thesis-driven position management + close checklist (always included, not editable)
 	if lang == LangChinese {
 		sb.WriteString("# ⚠️ 基于论点的持仓管理（硬性规则）\n\n")
