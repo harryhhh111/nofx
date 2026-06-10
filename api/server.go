@@ -181,6 +181,8 @@ func (s *Server) setupRoutes() {
 				s.handleGetModelConfigs)
 			s.route(protected, "PUT", "/models",
 				s.handleUpdateModelConfigs)
+			s.route(protected, "POST", "/models/test",
+				s.handleTestModelConnectivity)
 
 			// Exchange configuration
 			s.route(protected, "GET", "/exchanges",
