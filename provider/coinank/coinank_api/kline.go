@@ -11,13 +11,24 @@ import (
 	"nofx/provider/coinank/coinank_enum"
 	"strconv"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 const MainApiUrl = "https://api.coinank.com"
 
+// klineRateLimiter controls the free API call rate to avoid silent rate-limiting
+// where CoinAnk returns {"success":true, "data":[]} instead of an error.
+// 2 req/s (500ms spacing) is conservative for the free tier.
+var klineRateLimiter = rate.NewLimiter(rate.Every(500*time.Millisecond), 1)
+
 // Kline open free kline from coinank
 func Kline(ctx context.Context, symbol string, exchange coinank_enum.Exchange, ts int64, side coinank_enum.Side, size int,
 	interval coinank_enum.Interval) ([]coinank.KlineResult, error) {
+	// Respect rate limit to avoid silent throttling (empty data disguised as success)
+	if err := klineRateLimiter.Wait(ctx); err != nil {
+		return nil, fmt.Errorf("rate limiter: %w", err)
+	}
 	paramsMap := make(map[string]string, 6)
 	paramsMap["symbol"] = symbol
 	paramsMap["exchange"] = string(exchange)

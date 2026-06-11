@@ -10,6 +10,7 @@ import (
 	"nofx/provider/coinank/coinank_enum"
 	"nofx/store"
 	"nofx/trader/types"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -147,61 +148,52 @@ func (t *PaperTrader) GetBalance() (map[string]interface{}, error) {
 }
 
 func (t *PaperTrader) GetPositions() ([]map[string]interface{}, error) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-
-	// Concurrently fetch prices for all positions to avoid serial delays
-	type priceResult struct {
-		symbol string
-		price  float64
-		err    error
+	// Snapshot position metadata under read lock, then release before
+	// making API calls that may take seconds due to rate limiting.
+	type posSnapshot struct {
+		symbol, side    string
+		entryPrice      float64
+		quantity        float64
+		leverage        int
 	}
-
-	// Collect unique symbols for concurrent price fetch
+	t.mu.RLock()
 	symbolSet := make(map[string]struct{})
+	snapshots := make([]posSnapshot, 0)
 	for _, group := range t.positions {
 		for _, p := range group {
 			symbolSet[p.Symbol] = struct{}{}
-		}
-	}
-
-	priceMap := make(map[string]float64)
-	if len(symbolSet) > 0 {
-		resCh := make(chan priceResult, len(symbolSet))
-		for sym := range symbolSet {
-			go func(s string) {
-				price, err := marketPrice(s)
-				resCh <- priceResult{symbol: s, price: price, err: err}
-			}(sym)
-		}
-		for i := 0; i < len(symbolSet); i++ {
-			res := <-resCh
-			if res.err != nil {
-				logger.Infof("⚠️ [PaperTrader] Failed to get price for %s: %v", res.symbol, res.err)
-			}
-			priceMap[res.symbol] = res.price
-		}
-	}
-
-	result := make([]map[string]interface{}, 0)
-	for _, group := range t.positions {
-		for _, p := range group {
-			markPrice := priceMap[p.Symbol]
-			if markPrice <= 0 {
-				markPrice = p.EntryPrice // fallback so position is still visible
-			}
-			unrealized := pnl(p.Side, p.EntryPrice, markPrice, p.Quantity)
-			result = append(result, map[string]interface{}{
-				"symbol":           p.Symbol,
-				"side":             p.Side,
-				"entryPrice":       p.EntryPrice,
-				"markPrice":        markPrice,
-				"positionAmt":      p.Quantity,
-				"unRealizedProfit": unrealized,
-				"liquidationPrice": 0.0,
-				"leverage":         float64(p.Leverage),
+			snapshots = append(snapshots, posSnapshot{
+				symbol:     p.Symbol,
+				side:       p.Side,
+				entryPrice: p.EntryPrice,
+				quantity:   p.Quantity,
+				leverage:   p.Leverage,
 			})
 		}
+	}
+	t.mu.RUnlock()
+
+	// Fetch prices outside the lock — may block on rate limiter.
+	priceMap := fetchPricesByPriority(symbolSet)
+
+	// Build result from snapshot + price map (no lock needed).
+	result := make([]map[string]interface{}, 0, len(snapshots))
+	for _, snap := range snapshots {
+		markPrice := priceMap[snap.symbol]
+		if markPrice <= 0 {
+			markPrice = snap.entryPrice // fallback so position is still visible
+		}
+		unrealized := pnl(snap.side, snap.entryPrice, markPrice, snap.quantity)
+		result = append(result, map[string]interface{}{
+			"symbol":           snap.symbol,
+			"side":             snap.side,
+			"entryPrice":       snap.entryPrice,
+			"markPrice":        markPrice,
+			"positionAmt":      snap.quantity,
+			"unRealizedProfit": unrealized,
+			"liquidationPrice": 0.0,
+			"leverage":         float64(snap.leverage),
+		})
 	}
 	return result, nil
 }
@@ -507,6 +499,53 @@ func (t *PaperTrader) nextOrderIDLocked() string {
 	return fmt.Sprintf("paper-%d", t.nextOrderID)
 }
 
+// fetchPricesByPriority returns a price map for the given symbols.
+// Freshly cached symbols are returned immediately; expired ones are
+// fetched in priority order (most stale first) to ensure long-starved
+// symbols get first dibs on the rate-limited API.
+func fetchPricesByPriority(symbolSet map[string]struct{}) map[string]float64 {
+	priceMap := make(map[string]float64)
+	if len(symbolSet) == 0 {
+		return priceMap
+	}
+
+	// Separate fresh (cache hit) from expired/never-cached symbols.
+	var expired []string
+	for sym := range symbolSet {
+		priceCacheMu.RLock()
+		entry, ok := priceCache[sym]
+		priceCacheMu.RUnlock()
+		if ok && time.Since(entry.timestamp) < priceCacheTTL {
+			priceMap[sym] = entry.price
+		} else {
+			expired = append(expired, sym)
+		}
+	}
+
+	if len(expired) > 0 {
+		// Sort by staleness: oldest cache = highest priority.
+		// Never-cached symbols get top priority.
+		sort.Slice(expired, func(i, j int) bool {
+			return cacheAge(expired[i]) > cacheAge(expired[j])
+		})
+
+		// Fetch sequentially; the rate limiter in coinank_api.Kline
+		// automatically spaces requests to avoid silent throttling.
+		for _, sym := range expired {
+			price, err := marketPrice(sym)
+			if err != nil {
+				logger.Infof("⚠️ [PaperTrader] Failed to get price for %s: %v", sym, err)
+			}
+			// Only write on success; 0 is only possible when there's no
+			// stale cache, and downstream uses entryPrice as fallback.
+			if err == nil || price > 0 {
+				priceMap[sym] = price
+			}
+		}
+	}
+	return priceMap
+}
+
 func marketPrice(symbol string) (float64, error) {
 	symbol = market.Normalize(symbol)
 
@@ -523,51 +562,59 @@ func marketPrice(symbol string) (float64, error) {
 	}
 	priceCacheMu.RUnlock()
 
-	// Fetch price via lightweight CoinAnk API (1 kline vs 200 klines in GetWithExchange)
+	// Fetch price via lightweight CoinAnk API (1 kline vs 200 klines in GetWithExchange).
+	// Rate limiting is enforced inside coinank_api.Kline — no goroutine needed.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	type result struct {
-		price float64
-		err   error
-	}
-	resCh := make(chan result, 1)
-	go func() {
-		ts := time.Now().UnixMilli()
-		klines, err := coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, 1, coinank_enum.Minute3)
-		if err != nil {
-			resCh <- result{err: err}
-			return
-		}
-		if len(klines) == 0 {
-			resCh <- result{err: fmt.Errorf("no kline data for %s", symbol)}
-			return
-		}
-		resCh <- result{price: klines[len(klines)-1].Close}
-	}()
-
-	select {
-	case res := <-resCh:
-		if res.err != nil {
-			// API failed: prefer stale cache over returning 0
-			if staleEntry != nil {
-				return staleEntry.price, fmt.Errorf("%s price API failed, using stale %.4f (%v old): %w",
-					symbol, staleEntry.price, time.Since(staleEntry.timestamp).Round(time.Second), res.err)
-			}
-			return 0, res.err
-		}
-		// Update cache
-		priceCacheMu.Lock()
-		priceCache[symbol] = &priceCacheEntry{price: res.price, timestamp: time.Now()}
-		priceCacheMu.Unlock()
-		return res.price, nil
-	case <-ctx.Done():
+	ts := time.Now().UnixMilli()
+	klines, err := coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, 1, coinank_enum.Minute3)
+	if err != nil {
 		if staleEntry != nil {
-			return staleEntry.price, fmt.Errorf("%s price timeout, using stale %.4f (%v old)",
+			return staleEntry.price, fmt.Errorf("%s price API failed, using stale %.4f (%v old): %w",
+				symbol, staleEntry.price, time.Since(staleEntry.timestamp).Round(time.Second), err)
+		}
+		return 0, err
+	}
+	if len(klines) == 0 {
+		// Likely rate-limited: bump the timestamp so this symbol gets a TTL
+		// cooling-off period instead of retrying every cycle with stale data.
+		touchStaleTimestamp(symbol)
+		if staleEntry != nil {
+			return staleEntry.price, fmt.Errorf("%s price API returned empty (likely rate-limited), using stale %.4f (%v old)",
 				symbol, staleEntry.price, time.Since(staleEntry.timestamp).Round(time.Second))
 		}
-		return 0, fmt.Errorf("market price fetch timeout for %s", symbol)
+		return 0, fmt.Errorf("no kline data for %s (likely rate-limited)", symbol)
 	}
+
+	newPrice := klines[len(klines)-1].Close
+	priceCacheMu.Lock()
+	priceCache[symbol] = &priceCacheEntry{price: newPrice, timestamp: time.Now()}
+	priceCacheMu.Unlock()
+	return newPrice, nil
+}
+
+// touchStaleTimestamp resets the TTL for a stale cache entry so the symbol
+// gets a cooling-off period before the next retry. Prevents continuous
+// retry storms when the API is rate-limiting.
+func touchStaleTimestamp(symbol string) {
+	priceCacheMu.Lock()
+	if entry, ok := priceCache[symbol]; ok {
+		entry.timestamp = time.Now()
+	}
+	priceCacheMu.Unlock()
+}
+
+// cacheAge returns how long the cached price has been since last update.
+// Returns a large sentinel for symbols that were never cached (so they get top priority).
+func cacheAge(symbol string) time.Duration {
+	priceCacheMu.RLock()
+	entry, ok := priceCache[symbol]
+	priceCacheMu.RUnlock()
+	if ok {
+		return time.Since(entry.timestamp)
+	}
+	return 999 * time.Hour // never cached → highest fetch priority
 }
 
 func pnl(side string, entryPrice, markPrice, quantity float64) float64 {

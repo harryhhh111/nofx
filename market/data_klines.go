@@ -92,6 +92,12 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 			}
 		} else if err != nil {
 			return nil, fmt.Errorf("CoinAnk API error: %w", err)
+		} else {
+			// Binance + no error + empty data: likely silent rate-limiting.
+			// CoinAnk free API returns {"success":true, "data":[]} when throttled,
+			// which is indistinguishable from genuine "no data".
+			logger.Warnf("⚠️ CoinAnk Binance %s %s returned empty data (possible rate limiting)", symbol, interval)
+			return nil, fmt.Errorf("CoinAnk Binance %s %s returned empty kline data (possible rate limiting)", symbol, interval)
 		}
 	}
 
