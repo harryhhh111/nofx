@@ -157,6 +157,10 @@ type AutoTrader struct {
 
 	// Consecutive loss cooling state (nil = not cooling)
 	cooling *CoolingState
+
+	// Breakeven protection: progressive SL promotion state (posKey -> steps promoted, 0 = not yet promoted)
+	breakevenSteps      map[string]int
+	breakevenStepsMutex sync.RWMutex
 }
 
 // NewAutoTrader creates an automatic trader
@@ -368,6 +372,8 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		peakPnLCacheMutex:     sync.RWMutex{},
 		pendingOpenReasoning:  make(map[string]string),
 		recentlyClosedByRisk:  make(map[string]time.Time),
+		breakevenSteps:        make(map[string]int),
+		breakevenStepsMutex:   sync.RWMutex{},
 		lastBalanceSyncTime:   time.Now(),
 		userID:                userID,
 	}, nil

@@ -329,6 +329,7 @@ func (at *AutoTrader) executeCloseLongWithRecord(decision *kernel.Decision, acti
 	// Record order to database and poll for confirmation
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_long", quantity, marketData.CurrentPrice, 0, entryPrice)
 
+	at.ClearBreakevenSteps(decision.Symbol, "long")
 	logger.Infof("  ✓ Position closed successfully")
 	return nil
 }
@@ -400,6 +401,7 @@ func (at *AutoTrader) executeCloseShortWithRecord(decision *kernel.Decision, act
 	// Record order to database and poll for confirmation
 	at.recordAndConfirmOrder(order, decision.Symbol, "close_short", quantity, marketData.CurrentPrice, 0, entryPrice)
 
+	at.ClearBreakevenSteps(decision.Symbol, "short")
 	logger.Infof("  ✓ Position closed successfully")
 	return nil
 }

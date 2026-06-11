@@ -67,6 +67,10 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		return
 	}
 
+	// Breakeven protection runs first so SL reflects "this minute's latest profit"
+	// before drawdown check uses peak-cache math.
+	at.checkBreakevenPromotion(positions)
+
 	for _, pos := range positions {
 		symbol := pos["symbol"].(string)
 		side := pos["side"].(string)
@@ -164,6 +168,7 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				} else {
 					logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
 					at.ClearPeakPnLCache(symbol, side)
+					at.ClearBreakevenSteps(symbol, side)
 					at.saveRiskCloseDecision(symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 				}
 			}
@@ -255,6 +260,16 @@ func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 
 	posKey := symbol + "_" + side
 	delete(at.peakPnLCache, posKey)
+}
+
+// ClearBreakevenSteps clears breakeven promotion state for a position.
+// Called from every position close path (risk-triggered, AI-decide, grid).
+func (at *AutoTrader) ClearBreakevenSteps(symbol, side string) {
+	at.breakevenStepsMutex.Lock()
+	defer at.breakevenStepsMutex.Unlock()
+
+	posKey := symbol + "_" + side
+	delete(at.breakevenSteps, posKey)
 }
 
 // saveRiskCloseDecision saves a decision record for a risk-monitor-triggered position close.
@@ -390,5 +405,165 @@ func getSideFromAction(action string) string {
 		return "SELL"
 	default:
 		return "BUY"
+	}
+}
+
+// checkBreakevenPromotion progressively promotes the stop-loss in the
+// favorable direction as float profit grows. One step per trigger_pct
+// (leveraged PnL%), never retreats. See docs/plans/2026-06-10 §2.
+func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}) {
+	if at.strategyEngine == nil || at.trader == nil {
+		return
+	}
+	rc := at.strategyEngine.GetConfig().RiskControl
+	bp := rc.BreakevenProtection
+	if bp == nil || !bp.Enabled {
+		return
+	}
+	if len(positions) == 0 {
+		return
+	}
+
+	// Hyperliquid cannot distinguish SL/TP; skip BE to avoid wiping TP.
+	if at.exchange == "hyperliquid" {
+		return
+	}
+
+	// Phase 1: detect hedged same-symbol positions (long+short) and skip.
+	// CancelStopLossOrders(symbol) is symbol-level; cancelling could
+	// misfire on the other side.
+	sidesBySymbol := make(map[string]map[string]bool, len(positions))
+	for _, pos := range positions {
+		sym, _ := pos["symbol"].(string)
+		side, _ := pos["side"].(string)
+		if sym == "" {
+			continue
+		}
+		if sidesBySymbol[sym] == nil {
+			sidesBySymbol[sym] = make(map[string]bool)
+		}
+		sidesBySymbol[sym][side] = true
+	}
+	hedgeSkip := make(map[string]bool, len(sidesBySymbol))
+	for sym, sides := range sidesBySymbol {
+		if sides["long"] && sides["short"] {
+			hedgeSkip[sym] = true
+		}
+	}
+
+	for _, pos := range positions {
+		symbol, _ := pos["symbol"].(string)
+		side, _ := pos["side"].(string)
+		if symbol == "" {
+			continue
+		}
+		if hedgeSkip[symbol] {
+			logger.Infof("🛡️ [%s] BE skip: hedged same-symbol position %s (long+short)", at.name, symbol)
+			continue
+		}
+
+		entryPrice, _ := pos["entryPrice"].(float64)
+		markPrice, _ := pos["markPrice"].(float64)
+		if entryPrice <= 0 || markPrice <= 0 {
+			continue
+		}
+
+		leverage := 10.0
+		if lev, ok := pos["leverage"].(float64); ok && lev > 0 {
+			leverage = lev
+		}
+
+		// currentPnLPct in leveraged PnL% (matches DrawdownClose metric).
+		var currentPnLPct float64
+		if side == "long" {
+			currentPnLPct = ((markPrice - entryPrice) / entryPrice) * leverage * 100
+		} else {
+			currentPnLPct = ((entryPrice - markPrice) / entryPrice) * leverage * 100
+		}
+		if currentPnLPct <= 0 {
+			continue
+		}
+
+		posKey := symbol + "_" + side
+
+		// Compute target steps and price step.
+		triggerPct := bp.TriggerPct
+		if triggerPct <= 0 {
+			triggerPct = 1.0
+		}
+		priceStep := entryPrice * (triggerPct / 100) / leverage
+		if priceStep <= 0 {
+			continue
+		}
+		targetSteps := int(currentPnLPct / triggerPct)
+		if targetSteps <= 0 {
+			continue
+		}
+
+		// Read current step from memory.
+		at.breakevenStepsMutex.RLock()
+		memorySteps := at.breakevenSteps[posKey]
+		at.breakevenStepsMutex.RUnlock()
+
+		// Phase 1: trust memory only. Restart-recovery (inferring from
+		// active SL) is deferred — without side-aware cancel, reading
+		// SL is unreliable on hedged symbols, and the conservative
+		// oldSL <= newSLPrice guard in the cancel/set loop will block
+		// any backward move.
+		currentSteps := memorySteps
+		if targetSteps <= currentSteps {
+			continue
+		}
+
+		// Half-step safety buffer so new SL never lands on or past mark.
+		minTick := priceStep * 0.5
+
+		// Loop, one step at a time, for clean logs and per-step retry.
+		for currentSteps < targetSteps {
+			nextStep := currentSteps + 1
+			var newSLPrice float64
+			if side == "long" {
+				newSLPrice = entryPrice + float64(nextStep-1)*priceStep
+			} else {
+				newSLPrice = entryPrice - float64(nextStep-1)*priceStep
+			}
+
+			// Skip if new SL would cross mark (would trigger immediately).
+			if side == "long" && newSLPrice >= markPrice-minTick {
+				logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≥ mark-minTick %.4f for %s %s",
+					at.name, nextStep, newSLPrice, markPrice-minTick, symbol, side)
+				break
+			}
+			if side == "short" && newSLPrice <= markPrice+minTick {
+				logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≤ mark+minTick %.4f for %s %s",
+					at.name, nextStep, newSLPrice, markPrice+minTick, symbol, side)
+				break
+			}
+
+			// Cancel existing SL (best effort) then set new one.
+			if err := at.trader.CancelStopLossOrders(symbol); err != nil {
+				logger.Warnf("⚠️ [%s] BE step %d cancel SL failed for %s %s: %v (continuing to SetStopLoss)",
+					at.name, nextStep, symbol, side, err)
+			}
+
+			quantity, _ := pos["positionAmt"].(float64)
+			if quantity < 0 {
+				quantity = -quantity
+			}
+			if err := at.trader.SetStopLoss(symbol, side, quantity, newSLPrice); err != nil {
+				logger.Warnf("⚠️ [%s] BE step %d SetStopLoss failed for %s %s: %v",
+					at.name, nextStep, symbol, side, err)
+				// Do NOT advance memory step on failure; next ticker retries.
+				break
+			}
+
+			logger.Infof("🛡️ [%s] BE promotion step %d: %s %s 浮盈 %.2f%% (≥ %.2f%%), SL → %.4f",
+				at.name, nextStep, symbol, side, currentPnLPct, float64(nextStep)*triggerPct, newSLPrice)
+
+			at.breakevenStepsMutex.Lock()
+			at.breakevenSteps[posKey] = nextStep
+			at.breakevenStepsMutex.Unlock()
+			currentSteps = nextStep
+		}
 	}
 }

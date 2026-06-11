@@ -120,6 +120,17 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.DrawdownCloseTriggerPct = 90.0
 	}
 
+	// BreakevenProtection: clamp trigger_pct; nil means off (backward compat).
+	if c.RiskControl.BreakevenProtection != nil {
+		bp := c.RiskControl.BreakevenProtection
+		if bp.TriggerPct < 0.1 {
+			bp.TriggerPct = 0.1
+		}
+		if bp.TriggerPct > 20.0 {
+			bp.TriggerPct = 20.0
+		}
+	}
+
 }
 
 // StrategyStore strategy storage
@@ -436,6 +447,12 @@ type RiskControlConfig struct {
 	// Consecutive loss brake: after N consecutive losing trades, inject a warning
 	// into the prompt before the next entry. nil/disabled = off (default).
 	ConsecutiveLossBrake *ConsecutiveLossBrakeConfig `json:"consecutive_loss_brake,omitempty"`
+
+	// BreakevenProtection: progressive SL promotion as float profit increases.
+	// Each trigger_pct of float profit (leveraged PnL%) pushes the SL forward
+	// by one step in the price-favorable direction. SL never retreats.
+	// nil = off; default strategy templates set Enabled=true.
+	BreakevenProtection *BreakevenProtectionConfig `json:"breakeven_protection,omitempty"`
 }
 
 // ConsecutiveLossBrakeConfig warns AI after consecutive losing closed trades.
@@ -443,6 +460,14 @@ type ConsecutiveLossBrakeConfig struct {
 	Enabled        bool `json:"enabled"`          // Enable this feature
 	MaxLosses      int  `json:"max_losses"`       // Trigger after N consecutive losses (default 3)
 	CoolDownCycles int  `json:"cool_down_cycles"` // Block entries for K cycles (default 5)
+}
+
+// BreakevenProtectionConfig promotes SL in the favorable direction as float
+// profit grows. trigger_pct is leveraged PnL% (priceMovePct * leverage),
+// matching DrawdownClose / currentPnLPct semantics.
+type BreakevenProtectionConfig struct {
+	Enabled    bool    `json:"enabled"`     // Enable (default: true)
+	TriggerPct float64 `json:"trigger_pct"` // Step size in leveraged PnL% (default: 1.0)
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -542,6 +567,10 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				Enabled:        true,  // Default ON
 				MaxLosses:      3,
 				CoolDownCycles: 3,
+			},
+			BreakevenProtection: &BreakevenProtectionConfig{
+				Enabled:    true, // Default ON: progressive SL promotion
+				TriggerPct: 1.0,
 			},
 		},
 	}
