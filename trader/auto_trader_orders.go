@@ -134,6 +134,12 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	posKey := decision.Symbol + "_long"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
 
+	// Reset breakeven state in case this symbol was reopened after a
+	// previous close whose cleanup path didn't fire (external fill,
+	// grid partial close, etc.). Without this, a fresh position could
+	// inherit stale steps and skip a needed first promotion.
+	at.ClearBreakevenSteps(decision.Symbol, "long")
+
 	// Set stop loss and take profit
 	if err := at.trader.SetStopLoss(decision.Symbol, "LONG", quantity, decision.StopLoss); err != nil {
 		logger.Infof("  ⚠ Failed to set stop loss: %v", err)
@@ -250,6 +256,12 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	// Record position opening time
 	posKey := decision.Symbol + "_short"
 	at.positionFirstSeenTime[posKey] = time.Now().UnixMilli()
+
+	// Reset breakeven state in case this symbol was reopened after a
+	// previous close whose cleanup path didn't fire (external fill,
+	// grid partial close, etc.). Without this, a fresh position could
+	// inherit stale steps and skip a needed first promotion.
+	at.ClearBreakevenSteps(decision.Symbol, "short")
 
 	// Set stop loss and take profit
 	if err := at.trader.SetStopLoss(decision.Symbol, "SHORT", quantity, decision.StopLoss); err != nil {

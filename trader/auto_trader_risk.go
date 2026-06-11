@@ -409,8 +409,8 @@ func getSideFromAction(action string) string {
 }
 
 // checkBreakevenPromotion progressively promotes the stop-loss in the
-// favorable direction as float profit grows. One step per trigger_pct
-// (leveraged PnL%), never retreats. See docs/plans/2026-06-10 §2.
+// favorable direction as float profit grows. At most one step per
+// ticker, never retreats. See docs/plans/2026-06-10 §2.
 func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}) {
 	if at.strategyEngine == nil || at.trader == nil {
 		return
@@ -424,14 +424,17 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		return
 	}
 
-	// Hyperliquid cannot distinguish SL/TP; skip BE to avoid wiping TP.
-	if at.exchange == "hyperliquid" {
+	// Exchanges where CancelStopLossOrders is unsafe for BE:
+	// - hyperliquid: cannot distinguish SL/TP (would wipe TP)
+	// - lighter: same limitation
+	exch := strings.ToLower(at.exchange)
+	if exch == "hyperliquid" || exch == "lighter" {
 		return
 	}
 
 	// Phase 1: detect hedged same-symbol positions (long+short) and skip.
-	// CancelStopLossOrders(symbol) is symbol-level; cancelling could
-	// misfire on the other side.
+	// CancelStopLossOrders is symbol-level on the exchanges we support
+	// (binance, aster), so cancelling could misfire on the other side.
 	sidesBySymbol := make(map[string]map[string]bool, len(positions))
 	for _, pos := range positions {
 		sym, _ := pos["symbol"].(string)
@@ -451,10 +454,16 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		}
 	}
 
+	// Epsilon keeps floating-point boundary values from missing a step
+	// (e.g. currentPnLPct == exactly trigger_pct due to float rounding).
+	// 5% of trigger_pct is small enough not to trigger false positives
+	// but large enough to absorb IEEE-754 noise.
+	const epsilonPctOfTrigger = 0.05
+
 	for _, pos := range positions {
 		symbol, _ := pos["symbol"].(string)
 		side, _ := pos["side"].(string)
-		if symbol == "" {
+		if symbol == "" || side == "" {
 			continue
 		}
 		if hedgeSkip[symbol] {
@@ -486,7 +495,7 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 
 		posKey := symbol + "_" + side
 
-		// Compute target steps and price step.
+		// Compute step parameters.
 		triggerPct := bp.TriggerPct
 		if triggerPct <= 0 {
 			triggerPct = 1.0
@@ -495,75 +504,87 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		if priceStep <= 0 {
 			continue
 		}
-		targetSteps := int(currentPnLPct / triggerPct)
+		// Apply epsilon so float-pct == trigger_pct exactly still triggers.
+		targetSteps := int((currentPnLPct + triggerPct*epsilonPctOfTrigger) / triggerPct)
 		if targetSteps <= 0 {
 			continue
 		}
 
-		// Read current step from memory.
+		// Read memory step.
 		at.breakevenStepsMutex.RLock()
 		memorySteps := at.breakevenSteps[posKey]
 		at.breakevenStepsMutex.RUnlock()
 
-		// Phase 1: trust memory only. Restart-recovery (inferring from
-		// active SL) is deferred — without side-aware cancel, reading
-		// SL is unreliable on hedged symbols, and the conservative
-		// oldSL <= newSLPrice guard in the cancel/set loop will block
-		// any backward move.
+		// Without a side-aware read of active SL, inferring restart
+		// state is unreliable on hedged symbols. Trust memory; the
+		// `oldSL <= newSLPrice` semantic is enforced by the
+		// never-retreat `currentSteps` monotonicity + the priceStep
+		// math (no extra guards needed for same-ticker catch-up).
 		currentSteps := memorySteps
 		if targetSteps <= currentSteps {
 			continue
 		}
 
+		// P1.2: at most one step per ticker, per symbol/side. Catch-up
+		// to targetSteps is deferred to subsequent ticks.
+		nextStep := currentSteps + 1
+		var newSLPrice float64
+		if side == "long" {
+			newSLPrice = entryPrice + float64(nextStep-1)*priceStep
+		} else {
+			newSLPrice = entryPrice - float64(nextStep-1)*priceStep
+		}
+
 		// Half-step safety buffer so new SL never lands on or past mark.
 		minTick := priceStep * 0.5
 
-		// Loop, one step at a time, for clean logs and per-step retry.
-		for currentSteps < targetSteps {
-			nextStep := currentSteps + 1
-			var newSLPrice float64
-			if side == "long" {
-				newSLPrice = entryPrice + float64(nextStep-1)*priceStep
-			} else {
-				newSLPrice = entryPrice - float64(nextStep-1)*priceStep
-			}
-
-			// Skip if new SL would cross mark (would trigger immediately).
-			if side == "long" && newSLPrice >= markPrice-minTick {
-				logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≥ mark-minTick %.4f for %s %s",
-					at.name, nextStep, newSLPrice, markPrice-minTick, symbol, side)
-				break
-			}
-			if side == "short" && newSLPrice <= markPrice+minTick {
-				logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≤ mark+minTick %.4f for %s %s",
-					at.name, nextStep, newSLPrice, markPrice+minTick, symbol, side)
-				break
-			}
-
-			// Cancel existing SL (best effort) then set new one.
-			if err := at.trader.CancelStopLossOrders(symbol); err != nil {
-				logger.Warnf("⚠️ [%s] BE step %d cancel SL failed for %s %s: %v (continuing to SetStopLoss)",
-					at.name, nextStep, symbol, side, err)
-			}
-
-			quantity, _ := pos["positionAmt"].(float64)
-			if quantity < 0 {
-				quantity = -quantity
-			}
-			if err := at.trader.SetStopLoss(symbol, side, quantity, newSLPrice); err != nil {
-				logger.Warnf("⚠️ [%s] BE step %d SetStopLoss failed for %s %s: %v",
-					at.name, nextStep, symbol, side, err)
-				// Do NOT advance memory step on failure; next ticker retries.
-				break
-			}
-
-			logger.Infof("🛡️ [%s] BE promotion step %d: %s %s 浮盈 %.2f%% (≥ %.2f%%), SL → %.4f",
-				at.name, nextStep, symbol, side, currentPnLPct, float64(nextStep)*triggerPct, newSLPrice)
-
-			at.breakevenStepsMutex.Lock()
-			at.breakevenSteps[posKey] = nextStep
-			at.breakevenStepsMutex.Unlock()
-			currentSteps = nextStep
+		// Skip if new SL would cross mark (would trigger immediately).
+		if side == "long" && newSLPrice >= markPrice-minTick {
+			logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≥ mark-minTick %.4f for %s %s",
+				at.name, nextStep, newSLPrice, markPrice-minTick, symbol, side)
+			continue
 		}
+		if side == "short" && newSLPrice <= markPrice+minTick {
+			logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≤ mark+minTick %.4f for %s %s",
+				at.name, nextStep, newSLPrice, markPrice+minTick, symbol, side)
+			continue
+		}
+
+		quantity, _ := pos["positionAmt"].(float64)
+		if quantity < 0 {
+			quantity = -quantity
+		}
+
+		// P1.1: SetStopLoss takes LONG/SHORT (uppercase). All supported
+		// adapters derive the order direction from this string and treat
+		// anything-but-"LONG" as the short branch (Binance, Hyperliquid)
+		// or treat the comparison as "SHORT" (Aster). Lowercase will
+		// yield the wrong order side and place the SL in the wrong
+		// direction.
+		adapterSide := strings.ToUpper(side)
+
+		// P2.1: cancel must succeed before setting a new one. If cancel
+		// fails, the existing SL stays in place; setting another SL on
+		// top can leave duplicate protective orders on the book (some
+		// exchanges would treat them as separate orders, exposing
+		// double-quantity risk on trigger). Skip this tick; retry next.
+		if err := at.trader.CancelStopLossOrders(symbol); err != nil {
+			logger.Warnf("⚠️ [%s] BE step %d cancel SL failed for %s %s: %v (skipping this tick; will retry)",
+				at.name, nextStep, symbol, side, err)
+			continue
+		}
+
+		if err := at.trader.SetStopLoss(symbol, adapterSide, quantity, newSLPrice); err != nil {
+			logger.Warnf("⚠️ [%s] BE step %d SetStopLoss failed for %s %s: %v (memory step NOT advanced; will retry)",
+				at.name, nextStep, symbol, side, err)
+			continue
+		}
+
+		logger.Infof("🛡️ [%s] BE promotion step %d: %s %s 浮盈 %.2f%% (≥ %.2f%%), SL → %.4f",
+			at.name, nextStep, symbol, side, currentPnLPct, float64(nextStep)*triggerPct, newSLPrice)
+
+		at.breakevenStepsMutex.Lock()
+		at.breakevenSteps[posKey] = nextStep
+		at.breakevenStepsMutex.Unlock()
 	}
 }

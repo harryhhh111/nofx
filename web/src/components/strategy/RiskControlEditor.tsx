@@ -563,16 +563,16 @@ export function RiskControlEditor({
               <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>{ts(riskControl.breakevenProtection, language)}</span>
             </div>
             <button
-              onClick={() => !disabled && updateField('breakeven_protection', (config.breakeven_protection?.enabled ?? true) ? undefined : { enabled: true, trigger_pct: 1 })}
+              onClick={() => !disabled && updateField('breakeven_protection', (config.breakeven_protection?.enabled ?? false) ? undefined : { enabled: true, trigger_pct: 1 })}
               disabled={disabled}
               className="relative w-11 h-6 rounded-full transition-colors"
-              style={{ background: (config.breakeven_protection?.enabled ?? true) ? '#0ECB81' : '#2B3139' }}
+              style={{ background: (config.breakeven_protection?.enabled ?? false) ? '#0ECB81' : '#2B3139' }}
             >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.breakeven_protection?.enabled ?? true) ? 'translate-x-5' : ''}`} />
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.breakeven_protection?.enabled ?? false) ? 'translate-x-5' : ''}`} />
             </button>
           </div>
           <p className="text-xs mb-3" style={{ color: '#848E9C' }}>{ts(riskControl.breakevenProtectionDesc, language)}</p>
-          <div style={{ opacity: (config.breakeven_protection?.enabled ?? true) ? 1 : 0.4, pointerEvents: (config.breakeven_protection?.enabled ?? true) ? 'auto' : 'none' }}>
+          <div style={{ opacity: (config.breakeven_protection?.enabled ?? false) ? 1 : 0.4, pointerEvents: (config.breakeven_protection?.enabled ?? false) ? 'auto' : 'none' }}>
             <div className="grid grid-cols-2 gap-3">
               <div className="p-3 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
                 <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{ts(riskControl.breakevenProtectionTriggerPct, language)}</label>
