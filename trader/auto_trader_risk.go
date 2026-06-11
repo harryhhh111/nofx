@@ -2,6 +2,7 @@ package trader
 
 import (
 	"fmt"
+	"math"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
@@ -455,10 +456,12 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 	}
 
 	// Epsilon keeps floating-point boundary values from missing a step
-	// (e.g. currentPnLPct == exactly trigger_pct due to float rounding).
-	// 5% of trigger_pct is small enough not to trigger false positives
-	// but large enough to absorb IEEE-754 noise.
-	const epsilonPctOfTrigger = 0.05
+	// (e.g. currentPnLPct == exactly trigger_pct due to IEEE-754 noise)
+	// without materially moving the trigger threshold earlier.
+	const epsilonPctOfTrigger = 1e-6
+
+	openOrdersBySymbol := make(map[string][]OpenOrder, len(positions))
+	openOrdersErrBySymbol := make(map[string]error, len(positions))
 
 	for _, pos := range positions {
 		symbol, _ := pos["symbol"].(string)
@@ -493,6 +496,22 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 			continue
 		}
 
+		orders, ok := openOrdersBySymbol[symbol]
+		if !ok {
+			var err error
+			orders, err = at.trader.GetOpenOrders(symbol)
+			if err != nil {
+				openOrdersErrBySymbol[symbol] = err
+				openOrdersBySymbol[symbol] = nil
+			} else {
+				openOrdersBySymbol[symbol] = orders
+			}
+		}
+		if err := openOrdersErrBySymbol[symbol]; err != nil {
+			logger.Warnf("🛡️ [%s] BE skip: failed to read active SL for %s %s: %v", at.name, symbol, side, err)
+			continue
+		}
+
 		posKey := symbol + "_" + side
 
 		// Compute step parameters.
@@ -515,12 +534,19 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		memorySteps := at.breakevenSteps[posKey]
 		at.breakevenStepsMutex.RUnlock()
 
-		// Without a side-aware read of active SL, inferring restart
-		// state is unreliable on hedged symbols. Trust memory; the
-		// `oldSL <= newSLPrice` semantic is enforced by the
-		// never-retreat `currentSteps` monotonicity + the priceStep
-		// math (no extra guards needed for same-ticker catch-up).
+		activeSL, hasActiveSL := findActiveStopLossPrice(orders, side)
 		currentSteps := memorySteps
+		if hasActiveSL {
+			inferredSteps := inferBreakevenStepsFromSL(side, entryPrice, priceStep, activeSL)
+			if inferredSteps > currentSteps {
+				currentSteps = inferredSteps
+				at.breakevenStepsMutex.Lock()
+				if at.breakevenSteps[posKey] < inferredSteps {
+					at.breakevenSteps[posKey] = inferredSteps
+				}
+				at.breakevenStepsMutex.Unlock()
+			}
+		}
 		if targetSteps <= currentSteps {
 			continue
 		}
@@ -547,6 +573,11 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		if side == "short" && newSLPrice <= markPrice+minTick {
 			logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f ≤ mark+minTick %.4f for %s %s",
 				at.name, nextStep, newSLPrice, markPrice+minTick, symbol, side)
+			continue
+		}
+		if hasActiveSL && !isStopLossImprovement(side, activeSL, newSLPrice) {
+			logger.Warnf("🛡️ [%s] BE skip step %d: new SL %.4f would not improve active SL %.4f for %s %s",
+				at.name, nextStep, newSLPrice, activeSL, symbol, side)
 			continue
 		}
 
@@ -587,4 +618,73 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		at.breakevenSteps[posKey] = nextStep
 		at.breakevenStepsMutex.Unlock()
 	}
+}
+
+func findActiveStopLossPrice(orders []OpenOrder, side string) (float64, bool) {
+	positionSide := strings.ToUpper(side)
+	expectedOrderSide := "SELL"
+	if positionSide == "SHORT" {
+		expectedOrderSide = "BUY"
+	}
+
+	var bestPrice float64
+	found := false
+	for _, order := range orders {
+		orderType := strings.ToUpper(order.Type)
+		if !strings.Contains(orderType, "STOP") || strings.Contains(orderType, "TAKE_PROFIT") {
+			continue
+		}
+		if order.StopPrice <= 0 {
+			continue
+		}
+
+		orderSide := strings.ToUpper(order.Side)
+		if orderSide != "" {
+			if orderSide != expectedOrderSide {
+				continue
+			}
+		} else {
+			orderPositionSide := strings.ToUpper(order.PositionSide)
+			if orderPositionSide != "" && orderPositionSide != "BOTH" && orderPositionSide != positionSide {
+				continue
+			}
+		}
+
+		if !found {
+			bestPrice = order.StopPrice
+			found = true
+			continue
+		}
+		if positionSide == "LONG" && order.StopPrice > bestPrice {
+			bestPrice = order.StopPrice
+		}
+		if positionSide == "SHORT" && order.StopPrice < bestPrice {
+			bestPrice = order.StopPrice
+		}
+	}
+
+	return bestPrice, found
+}
+
+func inferBreakevenStepsFromSL(side string, entryPrice, priceStep, stopLossPrice float64) int {
+	if priceStep <= 0 {
+		return 0
+	}
+	if side == "long" {
+		if stopLossPrice < entryPrice {
+			return 0
+		}
+		return int(math.Floor((stopLossPrice-entryPrice)/priceStep+1e-9)) + 1
+	}
+	if stopLossPrice > entryPrice {
+		return 0
+	}
+	return int(math.Floor((entryPrice-stopLossPrice)/priceStep+1e-9)) + 1
+}
+
+func isStopLossImprovement(side string, oldStopLossPrice, newStopLossPrice float64) bool {
+	if side == "long" {
+		return newStopLossPrice > oldStopLossPrice
+	}
+	return newStopLossPrice < oldStopLossPrice
 }
