@@ -1,7 +1,7 @@
 # Breakeven Protection 设计文档
 
 **日期**: 2026-06-10（修订 2026-06-11）
-**状态**: 草案,已根据审核修订
+**状态**: 已修订,待实施
 
 ---
 
@@ -54,12 +54,14 @@ marginValue        = positionValue / leverage         // 近似保证金
 unrealizedPnLPct   = unrealizedPnL / marginValue * 100
                   = priceMovePct * leverage           // 与现有 DrawdownClose 口径一致
 
-targetSteps   = floor(unrealizedPnLPct / triggerPct)   // 应该已推进到第几步
-currentSteps  = at.breakevenSteps[posKey]              // 已推进到第几步(0 = 未触发)
+targetSteps   = floor(unrealizedPnLPct / triggerPct + epsilon)   // 应该已推进到第几步
+currentSteps  = at.breakevenSteps[posKey]                       // 已推进到第几步(0 = 未触发)
+
+其中 `epsilon = triggerPct * 1e-6`,用于防止浮点运算导致 `unrealizedPnLPct` 在数学上恰为 1.0 但被计算为 0.999999 时被 `floor` 错误地截断为 0。
 ```
 
 **当 `targetSteps > currentSteps` 时,执行推进**:
-- 同一个检查周期内允许 catch-up 到 `targetSteps`,但循环内每次只推进 1 步,便于日志与失败重试
+- **Phase 1 限制每周期最多推进 1 步**,避免重启或跳空行情下瞬间产生数十次 API 调用触碰交易所 rate limit。若 `targetSteps - currentSteps >= 2`,本次只推进 1 步,剩余步数由后续 ticker 逐分钟追赶
 - 每次推进:`nextStep = currentSteps + 1`
 - 推进的目标 SL 价:
   - long:  `entryPrice + (nextStep - 1) * priceStep`
@@ -100,16 +102,20 @@ priceStep                = entryPrice × (trigger_pct / 100) / leverage
 
 每次推进:
 
-1. 读取当前交易所 active SL(如可用),得到 `oldSL`
+1. 读取当前交易所 active SL(通过 `trader.GetOpenOrders(symbol)` 取回,按 `Type` + side 过滤,见下文),得到 `oldSL`。若当前无 active SL(long: 用 `0`;short: 用 `math.MaxFloat64`)作为 fallback,使安全校验自然通过
 2. 计算 `newSLPrice`
 3. 安全校验:
-   - long: `oldSL <= newSLPrice < markPrice - minTick`
-   - short: `oldSL >= newSLPrice > markPrice + minTick`
+   - long: `oldSL <= newSLPrice < markPrice - safetyBuffer`
+   - short: `oldSL >= newSLPrice > markPrice + safetyBuffer`
    - 若 `newSLPrice` 已越过当前价或会让 SL 后退 → 跳过并记录日志
 
-`minTick` 暂定义为"`priceStep × 0.5`"(半个步长),**而非**从交易所拉取的价格精度。原因:BE 的语义是"价格朝有利方向移动一个 step 时推进",minTick 与 step 同一量级能确保新 SL 既不越过当前价、也不比 oldSL 更差。Phase 1 简单且自洽;Phase 2 若需要更精确的边界,可从 `trader.GetSymbolInfo(symbol)` 拉取 tickSize 后用 `min(newTickSize, priceStep × 0.5)`。
-4. 撤销现有 SL conditional order
-5. 调用 `trader.SetStopLoss(symbol, side, qty, newSLPrice)` 在交易所下新的 SL
+`safetyBuffer` 暂定义为"`priceStep × 0.5`"(半个步长),**不是交易所 tickSize**。原因:BE 的语义是"价格朝有利方向移动一个 step 时推进",buffer 与 step 同一量级能确保新 SL 既不越过当前价、也不比 oldSL 更差。Phase 1 简单且自洽;Phase 2 若需要更精确的边界,可从交易所 symbol info 拉取 tickSize 后用 `max(tickSize, priceStep × 0.5)`。
+4. 修改交易所 SL:
+   - Phase 1 使用当前接口可确定支持的路径:`CancelStopLossOrders(symbol)` → `SetStopLoss(...)`
+   - 该路径在 cancel 和 set 之间有短暂无保护窗口(通常 < 200ms),若闪崩落在此窗口内则无 SL 保护;这是 Phase 1 接受的实现风险
+   - 因 `CancelStopLossOrders` 是 symbol 级别,Phase 1 已要求 hedge 同币双向持仓跳过 BE(见 §2.2.1)
+   - Phase 2 若要消除保护窗口,应新增 side/order-id aware replace/cancel 能力,或使用交易所原生 amend/replace API
+5. 调用 `trader.SetStopLoss(symbol, strings.ToUpper(side), qty, newSLPrice)` 在交易所下新的 SL(接口要求 `positionSide` 为大写 `"LONG"`/`"SHORT"`)
 6. `currentSteps = nextStep` 写回内存(仅在下单成功后写回;失败则下个 ticker 重试)
 7. 写一条 `decision_actions` 记录,`action=update_stop_loss`,`reasoning` 中包含 `reason=breakeven_protection, from=oldSL, to=newSLPrice, step=N`
 8. 日志:`🛡️ [trader] BE promotion step 3: BTCUSDT LONG 浮盈 3.20% (≥ 3.00%),SL 60100.00 → 60200.00`
@@ -129,11 +135,28 @@ CancelStopLossOrders(symbol string) error
 - 对大多数单向持仓场景,按 symbol 撤 SL 后立刻重挂是可接受的
 - 若同一 symbol 同时存在 long/short 两侧仓位,按 symbol 撤单可能误撤另一侧 SL
 - Phase 1 要求:
-  - 若检测到同一 symbol 同时有 long/short 仓位 → **跳过 BE promotion**,避免误撤保护单
+  - **BE 循环开始前**,先扫描所有 open position 构建 `map[symbol]int` 计数。若某 symbol 的 count ≥ 2(即同时存在 long 和 short 仓位)→ **跳过该 symbol 所有 position 的 BE promotion**,避免 symbol 级撤单误伤另一侧 SL
   - 日志提示:需要 side-aware cancel 才能支持 hedge 同币双向持仓
 - Phase 2 可选升级:
   - 新增 `CancelStopLossOrdersForSide(symbol, positionSide string)` 或扩展现有接口
   - 各 adapter 按交易所能力筛选 side/order id 后撤单
+
+### 2.2.2 Active SL 识别规则
+
+`trader.GetOpenOrders(symbol)` 的 `OpenOrder.PositionSide` 并非所有交易所都会填充(例如 Bybit/Gate 可能为空),因此不能强依赖 `PositionSide`。Phase 1 使用以下规则识别当前 position 对应的 SL:
+
+1. 先按 `Type` 过滤:
+   - SL 白名单:`STOP_MARKET`、`STOP`、`STOP_LIMIT`、`STOPLOSS`
+   - 显式排除:`TAKE_PROFIT`、`TAKE_PROFIT_MARKET`、`TAKE_PROFIT_LIMIT` 以及任何 `Type` 包含 `TAKE_PROFIT` 的订单
+2. 再按 side 过滤:
+   - 若 `PositionSide` 非空:必须等于当前持仓方向(`LONG`/`SHORT`)
+   - 若 `PositionSide` 为空:使用 `Side` 推断
+     - long position 的 SL 通常是 `SELL`
+     - short position 的 SL 通常是 `BUY`
+3. 若仍匹配到多条 SL:
+   - long:取 `StopPrice` 最接近且不高于当前 `markPrice` 的订单
+   - short:取 `StopPrice` 最接近且不低于当前 `markPrice` 的订单
+   - 若无法判断,跳过该 position 的 BE promotion 并记录日志
 
 ### 2.3 状态机
 
@@ -275,7 +298,10 @@ if c.RiskControl.BreakevenProtection != nil {
 
 - 内存 map `at.breakevenSteps` 仅在 trader 进程内存中
 - trader 重启后,该 map 清空
-- 重启后第一次检查时,必须先读取 active SL(`trader.GetOpenStopOrders(symbol, side)` 或类似接口),反推 `inferredSteps`:
+- 重启后第一次检查时,必须读取 active SL,反推 `inferredSteps`:
+  - 通过 `trader.GetOpenOrders(symbol)` 获取所有挂单
+  - **必须按 §2.2.2 的 active SL 识别规则过滤**:优先使用 `PositionSide`,为空时用 `Side` 推断;同时严格排除 `TAKE_PROFIT*`,避免将 TP 价格误读为 SL 后把 SL 推得过高
+  - 若有多条 SL 订单(罕见),取最接近 entryPrice 的那条作为 `oldSL`
   - long:  `inferredSteps = max(0, floor((oldSL - entryPrice) / priceStep) + 1)`
     - 旧 SL 在 entryPrice → inferredSteps=1
     - 旧 SL 高于 entryPrice 2 个 step → inferredSteps=3
@@ -313,16 +339,20 @@ if c.RiskControl.BreakevenProtection != nil {
 - [ ] 新增 `checkBreakevenPromotion(positions []map[string]interface{})` 函数
 - [ ] 在 `checkPositionDrawdown` 同一 ticker 循环开头调用 BE 检查
 - [ ] 函数内:
-  1. 对每笔 position 读 `memorySteps := at.breakevenSteps[posKey]`(`0` if missing)
-  2. 读取 active SL 并推断 `inferredSteps`,取 `currentSteps := max(memorySteps, inferredSteps)`
-  3. 计算 `targetSteps := floor(unrealizedPnLPct / triggerPct)`
-  4. 若 `targetSteps > currentSteps`:在 `for currentSteps < targetSteps` 循环中一次只 +1,每次单独执行安全校验 + cancel + set
-  5. 同步清理:`emergencyClosePosition` / `ClearPeakPnLCache` / AI 主动 CLOSE 路径,都需 `delete(at.breakevenSteps, posKey)`
+  1. **hedge 检测**:扫描所有 position,构建 `map[symbol]int`——若任一 symbol 的 count ≥ 2 → 该 symbol **所有** position 跳过 BE(避免 symbol 级撤单误伤)
+  2. **exchange guard**:`if at.exchange == "hyperliquid" || at.exchange == "lighter" { return }`(因 `CancelStopLossOrders` 会误撤 TP)
+  3. 对每笔 position 读 `memorySteps := at.breakevenSteps[posKey]`(`0` if missing)
+  4. 通过 `trader.GetOpenOrders(symbol)` 读取 active SL,按 §2.2.2 过滤并选择目标 SL,推断 `inferredSteps`;取 `currentSteps := max(memorySteps, inferredSteps)`
+  5. 计算 `targetSteps := floor(unrealizedPnLPct / triggerPct + epsilon)`(其中 `epsilon = triggerPct * 1e-6`)
+  6. 若 `targetSteps > currentSteps`:**Phase 1 限制每 ticker 最多 1 步**,执行一次安全校验 + `CancelStopLossOrders(symbol)` + `SetStopLoss`,成功后 `currentSteps++` 写回内存;剩余步数后续 ticker 追赶
+  7. 同步清理:`emergencyClosePosition` / `ClearPeakPnLCache` / AI 主动 CLOSE 路径,都需 `delete(at.breakevenSteps, posKey)`
+- [ ] `qty` 取值:使用 `pos["positionAmt"].(float64)` 并用 `math.Abs()` 取正(与现有 DrawdownClose 代码一致)
 - [ ] `priceStep` 计算:`priceStep = entryPrice * (triggerPct / 100) / leverage`
 - [ ] `newSLPrice` 计算:
   - long: `entryPrice + (nextStep - 1) * priceStep`
   - short:`entryPrice - (nextStep - 1) * priceStep`
-- [ ] 下单前校验 `newSLPrice` 不后退、且不会因越过当前价格而立即触发
+- [ ] 下单前校验 `newSLPrice` 不后退(`oldSL <= newSLPrice`/`oldSL >= newSLPrice`),且不会因越过当前价格而立即触发(`newSL < markPrice - safetyBuffer`/`newSL > markPrice + safetyBuffer`)
+- [ ] 无 active SL 时的 `oldSL` fallback:long 用 `0`,short 用 `math.MaxFloat64`
 
 ### 6.4 `trader/types/interface.go` / 各交易所 adapter
 
@@ -331,8 +361,8 @@ if c.RiskControl.BreakevenProtection != nil {
 `CancelStopLossOrders` 当前是 symbol 级别,不是 side 级别。Phase 1 不改接口,但需要在 BE 中检测 hedge 同币双向仓位并跳过。Phase 2 若要完整支持双向持仓,需要新增 side-aware cancel 接口。
 
 特别注意:
-- Hyperliquid 当前无法区分 SL/TP,`CancelStopLossOrders` 会撤掉该 symbol 的所有 stop orders,包括 TP。BE 对 Hyperliquid 默认应跳过,或在 adapter 支持精确撤单后再开启。
-- Indodax(spot-only)无 SetStopLoss;spot 模式不参与 AI 合约自动交易,跳过即可。
+- Hyperliquid/Lighter 当前无法区分 SL/TP,`CancelStopLossOrders` 会撤掉该 symbol 的所有 stop orders,包括 TP。BE 对这两个交易所默认应跳过。实现方式:在 `checkBreakevenPromotion` 入口处检查 `at.exchange == "hyperliquid" || at.exchange == "lighter"`,若匹配则直接 return,打日志提示。后续 adapter 支持精确撤单后再移除该 guard。
+- Indodax(spot-only)无 SetStopLoss;spot 模式不参与 AI 合约自动交易,跳过即可(通过检查 trader 是否实现 `SetStopLoss` 接口或 provider 白名单)。
 
 ### 6.5 `web/src/types/strategy.ts`
 
@@ -359,19 +389,24 @@ if c.RiskControl.BreakevenProtection != nil {
 - [ ] `BreakevenProtectionConfig.ClampLimits()` 边界值测试
 - [ ] `checkBreakevenPromotion` 状态转换测试(用 mock trader):
   - 浮盈 0.5% → steps 不变
-  - 浮盈 1.0% → steps=1
-  - 浮盈 2.5% → ticker 内循环 2 次:steps 经 1→2,SL 经 cost→cost+1×priceStep(每次推进独立 cancel+set)
+  - 浮盈 1.0% → steps=1(SL 移到 entryPrice)
+  - 浮盈 0.999%(浮点边界) → steps 不变(epsilon 防止误判)
+  - 浮盈 2.5%(已有 steps=1)→ **每 ticker 只推 1 步**,本 ticker:steps 1→2,剩余步数需后续 ticker
   - 浮盈从 3% 跌回 1.5% → steps 仍为 2(SL 不退)
-  - 浮盈从 2.5% 涨到 5% → ticker 内循环 3 次:steps 经 2→3→4→5
-  - 浮盈从 0.9% 跳到 4.1% → ticker 内循环 4 次:steps 经 0→1→2→3→4
+  - 浮盈从 2.5% 涨到 5% → 逐 ticker 追赶:第一分钟 steps 2→3,第二分钟 steps 3→4,第三分钟 steps 4→5
+  - 浮盈从 0.9% 跳到 4.1% → 第一分钟 steps 0→1,后续逐分钟追到 step 4(共需 4 分钟)
   - active SL 已在 step3、内存 steps=0(重启场景) → inferredSteps=3,不得把 SL 降回 entry
-  - long 新 SL ≥ `markPrice - minTick` / short 新 SL ≤ `markPrice + minTick` → 跳过,避免立即触发
+  - `GetOpenOrders` 同时返回 TP 和 SL → 只取 SL 白名单类型,不误读 TP 价格
+  - `PositionSide` 为空但 `Side=SELL/BUY` 可推断当前持仓 SL → 正确识别 active SL
+  - long 新 SL ≥ `markPrice - safetyBuffer` / short 新 SL ≤ `markPrice + safetyBuffer` → 跳过,避免立即触发
   - 同一 symbol 同时 long+short → Phase 1 跳过,避免 symbol 级撤单误伤
+  - exchange 为 Hyperliquid/Lighter → Phase 1 跳过,避免撤掉 TP
+  - 无 active SL 时 oldSL fallback:long=0,short=MaxFloat64 → 安全校验自然通过
 
 ### 7.2 集成测试
 
 - [ ] Paper trader:开仓 → 浮盈涨到 1% → 验证 SL order 出现在 entryPrice
-- [ ] Paper trader:开仓 → 浮盈涨到 3% → 验证 SL order 推进 2 步
+- [ ] Paper trader:开仓 → 浮盈涨到 3% → 逐分钟验证:第一分钟 SL 推进到 step1,第二分钟推进到 step2(每 ticker 限 1 步)
 - [ ] Paper trader:开仓 → 价格下跌 → BE 不触发,SL 保留在原位
 - [ ] Paper trader:BE 推进 2 步后 → 验证 active SL 价格正确;当前 Paper trader 只记录 stop order,不自动模拟触发关闭
 - [ ] 若要测试"价格回落触发 SL → 仓位关闭",需先扩展 Paper trader 的 stop order matching/simulation
@@ -391,12 +426,13 @@ if c.RiskControl.BreakevenProtection != nil {
 | 风险 | 缓解 / 观察指标 |
 |---|---|
 | BE 推进后被滑点甩出,小幅亏损被 ConsecutiveLossBrake 计数,导致震荡市频繁冷却 | 观察上线后 2-4 周的"BE 触发的平仓 PnL 分布";若 -1% 以上亏损占比 > 30% 触发冷却,改走 B 路径(特判 BE 平仓不算) |
-| 多次推进导致 SL 下单 API 调用频率增加 | 1 分钟 ticker × N 笔仓位 × 平均推进 1-2 步/分钟 = 数十次/分钟,在交易所 rate limit 范围内;若 N 很大,后续可加"每 ticker 最多推进 1 步"限流 |
+| 多次推进导致 SL 下单 API 调用频率增加 | Phase 1 已内置"每 ticker 最多推进 1 步"硬限制:1 分钟 ticker × N 笔仓位 × 最多 1 次/仓位 = 最多 N 次 `SetStopLoss`/分钟,在交易所 rate limit 范围内 |
 | 多交易所 SL 下单失败时,代码静默吞错 | 日志记录 + 监控(下一阶段可加 metric);BE 状态在内存,下次 ticker 仍会重试 |
-| `CancelStopLossOrders` 与 `SetStopLoss` 之间有 race(交易所已部分成交) | 下单前重新读取仓位,失败不更新 steps;下个 ticker 重试 |
+| `CancelStopLossOrders` 与 `SetStopLoss` 之间有 race(交易所已部分成交) | Phase 1 使用 cancel→set,存在短暂无保护窗口;下单前重新读取仓位,失败不更新 steps。Phase 2 用 side/order-id aware amend/replace 消除窗口 |
 | 当前撤 SL 接口是 symbol 级别,可能误撤同币另一侧仓位 SL | Phase 1 检测同 symbol long+short 时跳过 BE;Phase 2 增加 side-aware cancel |
-| Hyperliquid `CancelStopLossOrders` 会撤 TP | Hyperliquid 默认跳过 BE,直到 adapter 支持精确撤 SL |
-| 新 SL 已越过当前价导致立即触发 | 下单前校验 long: `newSL < markPrice - minTick`,short: `newSL > markPrice + minTick` |
+| Hyperliquid/Lighter `CancelStopLossOrders` 会撤 TP | Hyperliquid/Lighter 默认跳过 BE,直到 adapter 支持精确撤 SL |
+| 新 SL 已越过当前价导致立即触发 | 下单前校验 long: `newSL < markPrice - safetyBuffer`,short: `newSL > markPrice + safetyBuffer` |
+| `GetOpenOrders` 返回的止盈单(TP)被误读为 SL,导致 `inferredSteps` 虚高 → SL 推得过远 | 按 `Type` 严格过滤:只取 `STOP_MARKET`/`STOP`/`STOP_LIMIT`/`STOPLOSS`,排除 `TAKE_PROFIT*`;`PositionSide` 为空时用 `Side` 推断 |
 | 重启后内存 steps=0 导致 SL 后退 | 每轮从 active SL 推断 `inferredSteps`,并校验新 SL 不得比 oldSL 更差 |
 | `breakevenSteps` map 内存增长(有 position 进出但 key 漏清) | 在 `emergencyClosePosition`、`clearPosition`、`ai-decide close` 三个路径都加清理;若仍泄漏,1 分钟 ticker 内 map 不会超过 100 个 key(单 trader 持仓上限) |
 | 浮盈达 1% 推进后,价格又回落 0.X% 触发 SL,变成小幅亏损(-0.1% 量级),反复发生 3 次 → ConsecutiveLossBrake 触发冷却 | 这是 A 路径(最简)已知风险;观察期后再决定是否走 B 路径 |
@@ -422,8 +458,8 @@ if c.RiskControl.BreakevenProtection != nil {
 ### 9.3 日志
 
 - 触发时:`🛡️ [trader] BE promotion step 2: BTCUSDT LONG 浮盈 2.20% (≥ 2.00%), SL 60100.00 → 60200.00`
-- 失败时:`⚠️ [trader] BE promotion step 2 failed: BTCUSDT LONG cancel SL: <err>`(但仍 try SetStopLoss)
-- 跳步场景:`🛡️ [trader] BE promotion catch-up: BTCUSDT LONG 浮盈 4.50% (target steps=4, current=0), 推进 4 步`
+- 失败时:`⚠️ [trader] BE promotion step 2 failed: BTCUSDT LONG set SL: <err>`
+- 跳步场景:`🛡️ [trader] BE promotion catch-up pending: BTCUSDT LONG 浮盈 4.50% (target steps=4, current=0), 本轮推进 1 步,剩余后续 ticker 追赶`
 
 ---
 
