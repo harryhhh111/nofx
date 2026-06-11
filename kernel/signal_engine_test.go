@@ -2,6 +2,8 @@ package kernel
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -171,6 +173,39 @@ func TestSetupSignalEngineGeneratesShortWhenTimeframesAlignBearish(t *testing.T)
 	}
 }
 
+func TestTraceSetupEvaluationsExplainsProtectiveFilter(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testMultiTimeframeSetupSnapshot()
+	snapshot.Structures = map[string][]market.StructureSnapshot{
+		"support_resistance": {{
+			Name:      "support_resistance",
+			Timeframe: "5m",
+			Valid:     true,
+			KeyLevels: map[string]float64{"support": 99, "resistance": 105},
+		}},
+	}
+
+	traces := TraceSetupEvaluations(SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+	})
+	if len(traces) != 1 {
+		t.Fatalf("expected one setup trace, got %d", len(traces))
+	}
+	if traces[0].Eligible {
+		t.Fatalf("expected protective filter to mark setup ineligible: %+v", traces[0])
+	}
+	if !strings.Contains(traces[0].Reason, "protective filter") || !strings.Contains(traces[0].Reason, "risk/reward") {
+		t.Fatalf("expected protective filter reason, got %+v", traces[0])
+	}
+}
+
 func TestCandidateSignalUsesStructureATRAndRiskRewardForLong(t *testing.T) {
 	rule := StrategyRule{
 		ID:        "long_setup",
@@ -277,9 +312,108 @@ func TestCandidateSignalRequiresATRForMarketBasedProtection(t *testing.T) {
 		TakeProfitPct:   5,
 		Confidence:      80,
 	}
-	_, err := calculateProtectiveLevels("open_long", 100, execution, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	_, err := calculateProtectiveLevels("trend_continuation_long", "open_long", 100, execution, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
 	if err == nil {
 		t.Fatalf("expected missing ATR to fail market-based protective level calculation")
+	}
+}
+
+func TestCandidateSignalRejectsProjectionForNonTrendSetup(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "range_reversal_long",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+	}
+
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	if !errors.Is(err, errSignalRejected) {
+		t.Fatalf("expected non-trend setup without structure target to be rejected, got %v", err)
+	}
+}
+
+func TestCandidateSignalAllowsProjectionForTrendSetup(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "trend_continuation_long",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+	}
+
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	if err != nil {
+		t.Fatalf("buildCandidateSignal returned error: %v", err)
+	}
+	levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace)
+	if !ok {
+		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
+	}
+	if levels.TargetSource != "risk_reward_projection" || signal.TakeProfit != 150 {
+		t.Fatalf("expected trend setup to use risk/reward projection, got signal=%+v levels=%+v", signal, levels)
+	}
+}
+
+func TestCandidateSignalRejectsInsufficientStructuralTarget(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "trend_continuation_long",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "5m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 95, "resistance": 120},
+			}},
+		},
+	}
+
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"})
+	if !errors.Is(err, errSignalRejected) {
+		t.Fatalf("expected insufficient structural risk/reward to be rejected, got %v", err)
 	}
 }
 
@@ -461,11 +595,22 @@ func testScoringSnapshot(includeTrend, includeMomentum bool) *market.FactorSnaps
 			{Name: "rsi", Timeframe: "3m", Period: 14, Value: 60},
 		}
 	}
-	return &market.FactorSnapshot{
+	snapshot := &market.FactorSnapshot{
 		Symbol:    "BTCUSDT",
 		AsOf:      time.Unix(1, 0).UTC(),
 		Technical: technical,
 	}
+	if includeMomentum {
+		snapshot.Structures = map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "3m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 99, "resistance": 130},
+			}},
+		}
+	}
+	return snapshot
 }
 
 func testMultiTimeframeSetupSnapshot() *market.FactorSnapshot {

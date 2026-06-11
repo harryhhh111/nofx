@@ -48,6 +48,16 @@ export interface Position {
   take_profit_price?: number
   stop_loss_order_id?: string
   take_profit_order_id?: string
+  stop_loss_source?: string
+  stop_loss_timeframe?: string
+  stop_loss_anchor?: number
+  take_profit_source?: string
+  take_profit_timeframe?: string
+  take_profit_anchor?: number
+  protective_atr?: number
+  protective_atr_timeframe?: string
+  protective_atr_buffer?: number
+  protective_risk_reward?: number
   exit_price?: number
   exit_order_id?: string
   exit_time?: number

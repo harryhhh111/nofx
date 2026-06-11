@@ -122,20 +122,30 @@ type TraderPosition struct {
 	// PendingCloseReason tags the next full close (ai / manual / risk) before exchange sync applies.
 	PendingCloseReason string `gorm:"column:pending_close_reason;default:''" json:"pending_close_reason,omitempty"`
 	// PendingCloseOrderID is the exchange order id for that close (same id across partial fills).
-	PendingCloseOrderID string `gorm:"column:pending_close_order_id;default:''" json:"pending_close_order_id,omitempty"`
-	Source              string `gorm:"column:source;default:system" json:"source"`
-	OpeningCycle        int    `gorm:"column:opening_cycle;default:0" json:"opening_cycle"`
-	OpeningReasoning    string `gorm:"column:opening_reasoning;default:''" json:"opening_reasoning"`
-	OpeningDecisionID   int64  `gorm:"column:opening_decision_id;default:0;index" json:"opening_decision_id,omitempty"`
-	OpeningSignalID     string `gorm:"column:opening_signal_id;default:'';index" json:"opening_signal_id,omitempty"`
-	OpeningRuleID       string `gorm:"column:opening_rule_id;default:'';index" json:"opening_rule_id,omitempty"`
-	OpeningSetup        string `gorm:"column:opening_setup;default:'';index" json:"opening_setup,omitempty"`
-	StrategyID          string `gorm:"column:strategy_id;default:'';index" json:"strategy_id,omitempty"`
-	StrategyVersion     string `gorm:"column:strategy_version;default:'';index" json:"strategy_version,omitempty"`
-	LastReviewSummary   string `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
-	LastReviewCycle     int    `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
-	CreatedAt           int64  `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
-	UpdatedAt           int64  `gorm:"column:updated_at" json:"updated_at"` // Unix milliseconds UTC
+	PendingCloseOrderID    string  `gorm:"column:pending_close_order_id;default:''" json:"pending_close_order_id,omitempty"`
+	Source                 string  `gorm:"column:source;default:system" json:"source"`
+	OpeningCycle           int     `gorm:"column:opening_cycle;default:0" json:"opening_cycle"`
+	OpeningReasoning       string  `gorm:"column:opening_reasoning;default:''" json:"opening_reasoning"`
+	OpeningDecisionID      int64   `gorm:"column:opening_decision_id;default:0;index" json:"opening_decision_id,omitempty"`
+	OpeningSignalID        string  `gorm:"column:opening_signal_id;default:'';index" json:"opening_signal_id,omitempty"`
+	OpeningRuleID          string  `gorm:"column:opening_rule_id;default:'';index" json:"opening_rule_id,omitempty"`
+	OpeningSetup           string  `gorm:"column:opening_setup;default:'';index" json:"opening_setup,omitempty"`
+	StrategyID             string  `gorm:"column:strategy_id;default:'';index" json:"strategy_id,omitempty"`
+	StrategyVersion        string  `gorm:"column:strategy_version;default:'';index" json:"strategy_version,omitempty"`
+	StopLossSource         string  `gorm:"column:stop_loss_source;default:''" json:"stop_loss_source,omitempty"`
+	StopLossTimeframe      string  `gorm:"column:stop_loss_timeframe;default:''" json:"stop_loss_timeframe,omitempty"`
+	StopLossAnchor         float64 `gorm:"column:stop_loss_anchor;default:0" json:"stop_loss_anchor,omitempty"`
+	TakeProfitSource       string  `gorm:"column:take_profit_source;default:''" json:"take_profit_source,omitempty"`
+	TakeProfitTimeframe    string  `gorm:"column:take_profit_timeframe;default:''" json:"take_profit_timeframe,omitempty"`
+	TakeProfitAnchor       float64 `gorm:"column:take_profit_anchor;default:0" json:"take_profit_anchor,omitempty"`
+	ProtectiveATR          float64 `gorm:"column:protective_atr;default:0" json:"protective_atr,omitempty"`
+	ProtectiveATRTimeframe string  `gorm:"column:protective_atr_timeframe;default:''" json:"protective_atr_timeframe,omitempty"`
+	ProtectiveATRBuffer    float64 `gorm:"column:protective_atr_buffer;default:0" json:"protective_atr_buffer,omitempty"`
+	ProtectiveRiskReward   float64 `gorm:"column:protective_risk_reward;default:0" json:"protective_risk_reward,omitempty"`
+	LastReviewSummary      string  `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
+	LastReviewCycle        int     `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
+	CreatedAt              int64   `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
+	UpdatedAt              int64   `gorm:"column:updated_at" json:"updated_at"` // Unix milliseconds UTC
 }
 
 // TableName returns the table name
@@ -194,6 +204,16 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_setup TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS strategy_id TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS strategy_version TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_source TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_timeframe TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_anchor DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_source TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_timeframe TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_anchor DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr_timeframe TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr_buffer DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_risk_reward DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_opening_signal_id ON trader_positions(opening_signal_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_strategy_id ON trader_positions(strategy_id)`)
 			return nil
@@ -252,6 +272,19 @@ type PositionOpeningSignalMetadata struct {
 	StrategyVersion string
 }
 
+type PositionProtectiveLevelMetadata struct {
+	StopLossSource         string
+	StopLossTimeframe      string
+	StopLossAnchor         float64
+	TakeProfitSource       string
+	TakeProfitTimeframe    string
+	TakeProfitAnchor       float64
+	ProtectiveATR          float64
+	ProtectiveATRTimeframe string
+	ProtectiveATRBuffer    float64
+	ProtectiveRiskReward   float64
+}
+
 // UpdatePositionOpeningSignalMetadata links an OPEN position to the deterministic
 // candidate signal that created it. This is the stable key used by calibration.
 func (s *PositionStore) UpdatePositionOpeningSignalMetadata(traderID, symbol, side string, meta PositionOpeningSignalMetadata) error {
@@ -263,6 +296,33 @@ func (s *PositionStore) UpdatePositionOpeningSignalMetadata(traderID, symbol, si
 		"strategy_id":         meta.StrategyID,
 		"strategy_version":    meta.StrategyVersion,
 		"updated_at":          time.Now().UnixMilli(),
+	}
+	result := s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Updates(updates)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("no matching OPEN position found for %s %s %s", traderID, symbol, side)
+	}
+	return nil
+}
+
+// UpdatePositionProtectiveLevelMetadata stores how the initial SL/TP levels were derived.
+func (s *PositionStore) UpdatePositionProtectiveLevelMetadata(traderID, symbol, side string, meta PositionProtectiveLevelMetadata) error {
+	updates := map[string]interface{}{
+		"stop_loss_source":         meta.StopLossSource,
+		"stop_loss_timeframe":      meta.StopLossTimeframe,
+		"stop_loss_anchor":         meta.StopLossAnchor,
+		"take_profit_source":       meta.TakeProfitSource,
+		"take_profit_timeframe":    meta.TakeProfitTimeframe,
+		"take_profit_anchor":       meta.TakeProfitAnchor,
+		"protective_atr":           meta.ProtectiveATR,
+		"protective_atr_timeframe": meta.ProtectiveATRTimeframe,
+		"protective_atr_buffer":    meta.ProtectiveATRBuffer,
+		"protective_risk_reward":   meta.ProtectiveRiskReward,
+		"updated_at":               time.Now().UnixMilli(),
 	}
 	result := s.db.Model(&TraderPosition{}).
 		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").

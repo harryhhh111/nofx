@@ -306,6 +306,21 @@ func (at *AutoTrader) runCycle() error {
 			Success:    false,
 		}
 
+		if skipped, reason, err := at.shouldSkipStopLossCooldownDecision(&d); err != nil {
+			logger.Warnf("⚠️ [%s] Failed to pre-check stop-loss cooldown for %s %s: %v", at.name, d.Symbol, d.Action, err)
+		} else if skipped {
+			logger.Warnf("🛑 [%s] Risk cooldown: skipped %s %s: %s", at.name, d.Symbol, d.Action, reason)
+			actionRecord.Success = true
+			if actionRecord.Reasoning != "" {
+				actionRecord.Reasoning = fmt.Sprintf("[SKIPPED_RISK_COOLDOWN] %s | Original: %s", reason, actionRecord.Reasoning)
+			} else {
+				actionRecord.Reasoning = fmt.Sprintf("[SKIPPED_RISK_COOLDOWN] %s", reason)
+			}
+			record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("🛑 %s %s skipped by risk cooldown: %s", d.Symbol, d.Action, reason))
+			record.Decisions = append(record.Decisions, actionRecord)
+			continue
+		}
+
 		if skipped, reason, err := at.shouldSkipDuplicateOpenDecision(&d); err != nil {
 			logger.Warnf("⚠️ [%s] Failed to pre-check duplicate open decision for %s %s: %v", at.name, d.Symbol, d.Action, err)
 		} else if skipped {
@@ -365,6 +380,9 @@ func (at *AutoTrader) runCycle() error {
 				} else {
 					logger.Infof("📝 [%s] Saved opening reasoning for %s %s to DB", at.name, d.Symbol, side)
 				}
+			}
+			if (d.Action == "open_long" || d.Action == "open_short") && at.store != nil {
+				at.saveOpeningProtectiveMetadata(&d)
 			}
 
 			// Brief delay after successful execution
@@ -866,6 +884,75 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 	return sorted
 }
 
+const (
+	stopLossSymbolCooldown      = 2 * time.Hour
+	stopLossTraderCooldown      = 6 * time.Hour
+	stopLossTraderCooldownCount = 3
+)
+
+func (at *AutoTrader) shouldSkipStopLossCooldownDecision(decision *kernel.Decision) (bool, string, error) {
+	if decision == nil || at.store == nil {
+		return false, "", nil
+	}
+	if decision.Action != "open_long" && decision.Action != "open_short" {
+		return false, "", nil
+	}
+
+	closed, err := at.store.Position().GetClosedPositions(at.id, 50)
+	if err != nil {
+		return false, "", err
+	}
+	if len(closed) == 0 {
+		return false, "", nil
+	}
+
+	nowMs := time.Now().UTC().UnixMilli()
+	targetSymbol := market.Normalize(decision.Symbol)
+	symbolCooldownMs := int64(stopLossSymbolCooldown / time.Millisecond)
+	traderCooldownMs := int64(stopLossTraderCooldown / time.Millisecond)
+
+	recentStopLosses := 0
+	var latestSymbolStop *store.TraderPosition
+	for _, pos := range closed {
+		if pos == nil || !strings.EqualFold(pos.CloseReason, "stop_loss") || pos.ExitTime <= 0 {
+			continue
+		}
+		ageMs := nowMs - pos.ExitTime
+		if ageMs < 0 {
+			ageMs = 0
+		}
+		if ageMs <= traderCooldownMs {
+			recentStopLosses++
+		}
+		if market.Normalize(pos.Symbol) == targetSymbol && ageMs <= symbolCooldownMs {
+			if latestSymbolStop == nil || pos.ExitTime > latestSymbolStop.ExitTime {
+				latestSymbolStop = pos
+			}
+		}
+	}
+
+	if latestSymbolStop != nil {
+		remaining := time.Duration(symbolCooldownMs-(nowMs-latestSymbolStop.ExitTime)) * time.Millisecond
+		if remaining < 0 {
+			remaining = 0
+		}
+		return true, fmt.Sprintf("%s hit stop-loss %.0fm ago; symbol cooldown remaining %.0fm",
+			targetSymbol,
+			time.Duration(nowMs-latestSymbolStop.ExitTime).Minutes(),
+			remaining.Minutes(),
+		), nil
+	}
+
+	if recentStopLosses >= stopLossTraderCooldownCount {
+		return true, fmt.Sprintf("%d stop-losses within %.0fh; trader cooldown active",
+			recentStopLosses,
+			stopLossTraderCooldown.Hours(),
+		), nil
+	}
+
+	return false, "", nil
+}
+
 func (at *AutoTrader) shouldSkipDuplicateOpenDecision(decision *kernel.Decision) (bool, string, error) {
 	if decision == nil {
 		return false, "", nil
@@ -911,4 +998,48 @@ func matchingOpenPositionQuantity(pos map[string]interface{}, normalizedSymbol, 
 		qty = -qty
 	}
 	return qty, qty > 0
+}
+
+func (at *AutoTrader) saveOpeningProtectiveMetadata(decision *kernel.Decision) {
+	if at.store == nil || decision == nil {
+		return
+	}
+	if decision.StopLossSource == "" && decision.TakeProfitSource == "" && decision.ProtectiveATR <= 0 {
+		return
+	}
+
+	side := "LONG"
+	if decision.Action == "open_short" {
+		side = "SHORT"
+	}
+	symbol := market.Normalize(decision.Symbol)
+	meta := store.PositionProtectiveLevelMetadata{
+		StopLossSource:         decision.StopLossSource,
+		StopLossTimeframe:      decision.StopLossTF,
+		StopLossAnchor:         decision.StopLossAnchor,
+		TakeProfitSource:       decision.TakeProfitSource,
+		TakeProfitTimeframe:    decision.TakeProfitTF,
+		TakeProfitAnchor:       decision.TakeProfitAnchor,
+		ProtectiveATR:          decision.ProtectiveATR,
+		ProtectiveATRTimeframe: decision.ProtectiveATRTF,
+		ProtectiveATRBuffer:    decision.ProtectiveATRBuffer,
+		ProtectiveRiskReward:   decision.ProtectiveRiskReward,
+	}
+
+	if err := at.store.Position().UpdatePositionProtectiveLevelMetadata(at.id, symbol, side, meta); err != nil {
+		logger.Infof("📌 [%s] Position not yet in DB for protective metadata %s %s, starting background retry", at.name, symbol, side)
+		go func() {
+			for i := 0; i < 12; i++ {
+				time.Sleep(5 * time.Second)
+				if err := at.store.Position().UpdatePositionProtectiveLevelMetadata(at.id, symbol, side, meta); err == nil {
+					logger.Infof("📌 [%s] Background flush: saved protective metadata for %s %s (attempt %d)", at.name, symbol, side, i+1)
+					return
+				}
+			}
+			logger.Infof("⚠️ [%s] Background flush failed for protective metadata %s %s after 60s", at.name, symbol, side)
+		}()
+		return
+	}
+	logger.Infof("📌 [%s] Saved protective metadata for %s %s: SL=%s TP=%s RR=%.2f",
+		at.name, symbol, side, meta.StopLossSource, meta.TakeProfitSource, meta.ProtectiveRiskReward)
 }

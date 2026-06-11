@@ -246,6 +246,16 @@ func enrichOpenPositions(st *store.Store, traderID string, positions []map[strin
 			pos["last_review_cycle"] = local.LastReviewCycle
 			pos["opening_setup"] = local.OpeningSetup
 			pos["strategy_id"] = local.StrategyID
+			pos["stop_loss_source"] = local.StopLossSource
+			pos["stop_loss_timeframe"] = local.StopLossTimeframe
+			pos["stop_loss_anchor"] = local.StopLossAnchor
+			pos["take_profit_source"] = local.TakeProfitSource
+			pos["take_profit_timeframe"] = local.TakeProfitTimeframe
+			pos["take_profit_anchor"] = local.TakeProfitAnchor
+			pos["protective_atr"] = local.ProtectiveATR
+			pos["protective_atr_timeframe"] = local.ProtectiveATRTimeframe
+			pos["protective_atr_buffer"] = local.ProtectiveATRBuffer
+			pos["protective_risk_reward"] = local.ProtectiveRiskReward
 		}
 		if protective := protectiveByKey[key]; protective != nil {
 			pos["stop_loss_price"] = protective.StopLossPrice

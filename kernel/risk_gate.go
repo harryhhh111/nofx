@@ -140,7 +140,7 @@ func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
 		}
 		reasoning += review.Summary
 	}
-	return Decision{
+	decision := Decision{
 		Symbol:            s.Symbol,
 		Action:            s.Action,
 		PositionSizeUSD:   s.PositionSizeUSD,
@@ -155,4 +155,17 @@ func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
 		StrategyVersion:   s.StrategyVersion,
 		Reasoning:         reasoning,
 	}
+	if levels, ok := s.Evidence["protective_levels"].(ProtectiveLevelTrace); ok {
+		decision.StopLossSource = levels.StopSource
+		decision.StopLossTF = levels.StopTimeframe
+		decision.StopLossAnchor = levels.StopAnchor
+		decision.TakeProfitSource = levels.TargetSource
+		decision.TakeProfitTF = levels.TargetTimeframe
+		decision.TakeProfitAnchor = levels.TargetAnchor
+		decision.ProtectiveATR = levels.ATR
+		decision.ProtectiveATRTF = levels.ATRTimeframe
+		decision.ProtectiveATRBuffer = levels.ATRBuffer
+		decision.ProtectiveRiskReward = levels.RiskReward
+	}
+	return decision
 }

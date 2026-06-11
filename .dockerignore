@@ -33,17 +33,30 @@ test_*
 docs/
 
 # Runtime data
+data/
+data-v2/
 decision_logs/
 *.log
+*.db
+*.db-*
 
 # Config files (should be mounted)
 config.json
+.env
+.env.*
+!.env.example
 
 # Web build artifacts (but include source for multi-stage build)
 web/node_modules/
 web/dist/
 
+# Local caches and auxiliary services
+.gocache/
+kronos_service/venv/
+kronos_service/.venv/
+
 # Temporary files
 tmp/
 temp/
 *.tmp
+__debug_bin*

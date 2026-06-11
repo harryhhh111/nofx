@@ -251,6 +251,31 @@ export function TraderDashboardPage({
         positionsCurrentPage * positionsPageSize
     ) || []
 
+    const protectiveSourceLabel = (source?: string) => {
+        if (!source) return ''
+        if (source.includes('support_resistance.support')) return 'Support'
+        if (source.includes('support_resistance.resistance')) return 'Resistance'
+        if (source.includes('fibonacci')) return 'Fibonacci'
+        if (source.includes('atr_volatility')) return 'ATR'
+        if (source.includes('risk_reward_projection')) return 'R:R'
+        return source.replace(/_/g, ' ')
+    }
+
+    const protectiveDetailTitle = (pos: Position, type: 'sl' | 'tp') => {
+        const source = type === 'sl' ? pos.stop_loss_source : pos.take_profit_source
+        const timeframe = type === 'sl' ? pos.stop_loss_timeframe : pos.take_profit_timeframe
+        const anchor = type === 'sl' ? pos.stop_loss_anchor : pos.take_profit_anchor
+        const parts = [
+            source ? `Source: ${source}` : '',
+            timeframe ? `TF: ${timeframe}` : '',
+            anchor && anchor > 0 ? `Anchor: ${formatPrice(anchor)}` : '',
+            pos.protective_atr && pos.protective_atr > 0 ? `ATR: ${formatPrice(pos.protective_atr)}${pos.protective_atr_timeframe ? ` (${pos.protective_atr_timeframe})` : ''}` : '',
+            pos.protective_atr_buffer && pos.protective_atr_buffer > 0 ? `ATR buffer: ${pos.protective_atr_buffer}x` : '',
+            pos.protective_risk_reward && pos.protective_risk_reward > 0 ? `R:R: ${pos.protective_risk_reward.toFixed(2)}` : '',
+        ].filter(Boolean)
+        return parts.join('\n')
+    }
+
     // Reset page when positions change
     useEffect(() => {
         setPositionsCurrentPage(1)
@@ -841,14 +866,24 @@ export function TraderDashboardPage({
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right text-nofx-text-main hidden md:table-cell">{formatPrice(pos.mark_price)}</td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right hidden xl:table-cell">
                                                             {pos.stop_loss_price && pos.stop_loss_price > 0 ? (
-                                                                <span className="text-nofx-red">{formatPrice(pos.stop_loss_price)}</span>
+                                                                <div title={protectiveDetailTitle(pos, 'sl')}>
+                                                                    <div className="text-nofx-red">{formatPrice(pos.stop_loss_price)}</div>
+                                                                    <div className="text-[9px] text-nofx-text-muted font-sans">
+                                                                        {protectiveSourceLabel(pos.stop_loss_source) || '-'}
+                                                                    </div>
+                                                                </div>
                                                             ) : (
                                                                 <span className="text-nofx-text-muted">-</span>
                                                             )}
                                                         </td>
                                                         <td className="px-1 py-3 font-mono whitespace-nowrap text-right hidden xl:table-cell">
                                                             {pos.take_profit_price && pos.take_profit_price > 0 ? (
-                                                                <span className="text-nofx-green">{formatPrice(pos.take_profit_price)}</span>
+                                                                <div title={protectiveDetailTitle(pos, 'tp')}>
+                                                                    <div className="text-nofx-green">{formatPrice(pos.take_profit_price)}</div>
+                                                                    <div className="text-[9px] text-nofx-text-muted font-sans">
+                                                                        {protectiveSourceLabel(pos.take_profit_source) || '-'}
+                                                                    </div>
+                                                                </div>
                                                             ) : (
                                                                 <span className="text-nofx-text-muted">-</span>
                                                             )}
@@ -881,10 +916,12 @@ export function TraderDashboardPage({
                                                                 <div>
                                                                     <span className="block uppercase tracking-wide">SL</span>
                                                                     <span className="font-mono text-nofx-red">{pos.stop_loss_price && pos.stop_loss_price > 0 ? formatPrice(pos.stop_loss_price) : '-'}</span>
+                                                                    <span className="block text-nofx-text-muted">{protectiveSourceLabel(pos.stop_loss_source) || '-'}</span>
                                                                 </div>
                                                                 <div>
                                                                     <span className="block uppercase tracking-wide">TP</span>
                                                                     <span className="font-mono text-nofx-green">{pos.take_profit_price && pos.take_profit_price > 0 ? formatPrice(pos.take_profit_price) : '-'}</span>
+                                                                    <span className="block text-nofx-text-muted">{protectiveSourceLabel(pos.take_profit_source) || '-'}</span>
                                                                 </div>
                                                             </div>
                                                         </td>
