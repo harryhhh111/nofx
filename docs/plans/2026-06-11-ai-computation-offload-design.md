@@ -165,11 +165,19 @@ SAR: 62350.00 上行, 价格距SAR +0.6%(393点), 趋势持续8周期 [无翻转
 计算公式：
 ```go
 atr14 := data.TimeframeData["15m"].ATR14
-maxPos := accountEquity * posRatio  // posRatio: btc/eth=5.0, alt=1.0
 
-highConf := maxPos * 0.8    // 高信心(≥85): 80%
-medConf  := maxPos * 0.5    // 中信心(70-84): 50%
-lowConf  := maxPos * 0.3    // 低信心(60-69): 30%
+// 从 RiskControl 读取，不是硬编码 5.0/1.0
+// （参考 trader/auto_trader_risk.go:310-350 enforcePositionValueRatio）
+maxPos := accountEquity * posRatio
+// posRatio = isBTCETH(symbol) ? riskControl.BTCETHMaxPositionValueRatio
+//                             : riskControl.AltcoinMaxPositionValueRatio
+
+// 高信心档：建议区间 80-100%，硬上限 = maxPos
+// 中信心档：建议区间 50-80%
+// 低信心档：建议区间 30-50%
+highConf := maxPos * 0.8    // 高信心(≥85): 最多 maxPos
+medConf  := maxPos * 0.5    // 中信心(70-84): 最多 50%
+lowConf  := maxPos * 0.3    // 低信心(60-69): 最多 30%
 ```
 
 ---
@@ -188,12 +196,12 @@ lowConf  := maxPos * 0.3    // 低信心(60-69): 30%
 - **OI减少 + 价格上涨**: 空头平仓...
 - **OI减少 + 价格下跌**: 多头平仓...
 
-改为（~80 字符）:
+暂改为（~120 字符）:
 ## 💹 OI解读
-每个币种数据中已包含 OI 资金流向预判，直接引用即可。
+OI+价↑→多头主导 | OI+价↓→空头主导 | OI↓+价↑→空头平仓 | OI↓+价↓→多头平仓
 ```
 
-因为每个币种的数据块已经预计算了"多头主导/空头主导/空头平仓/多头平仓"。
+> **注意**：目前暂时**缩短**而不是删除 OI 解读表。§1.2-F 的 OI 预判功能因数据源不可靠（`OIData.Average = Latest × 0.999`，无法判断 OI 方向）已降为第三批，需先修复数据源。届时数据块中会包含预判，prompt 改为"直接引用即可"。
 
 #### 当前 prompt 第 63-74 行：止损与入场质量
 
@@ -391,7 +399,9 @@ if indicators.IsTimeframeSummarized(timeframe) {
 
 1. `go build -o nofx .` 确保编译通过
 2. 用 t5-2 的配置跑一个决策周期，对比：
-   - prompt 长度变化（预期减少 40-50%）
+   - prompt 长度变化：
+     - 第一批（raw 数组删除 + 市场状态 + RSI 护栏 + OI 解读表精简）：**预期减少 15-20%**
+     - 全量（含第二批 + 第三批）：**预期减少 40-50%**
    - AI 思维链是否还包含手工数值计算
    - 决策质量是否受影响
 3. 检查 enhance 后的摘要是否有计算错误（边界情况：数据不足时 fallback 是否优雅）
