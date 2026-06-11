@@ -46,17 +46,20 @@ ADX > 25  → "趋势市(趋势跟踪策略)"
 
 #### B. RSI 极端值护栏
 
-根据 RSI7/RSI14 判定极端区域，直接给出做多/做空是否安全：
+根据 RSI7/RSI14 判定极端区域，直接给出做多/做空是否安全。
+
+**注意**：`calculateRSI` 在数据不足时返回 0（见 `market/data_indicators.go:55`），而 0 ≤ 20/30 会错误触发"做空禁止"。必须加 `> 0` 守卫过滤未计算的 RSI。
 
 ```go
-// 做多禁止条件：RSI7 >= 80 OR RSI14 >= 70
-// 做空禁止条件：RSI7 <= 20 OR RSI14 <= 30
-longBlocked := rsi7 >= 80 || rsi14 >= 70
-shortBlocked := rsi7 <= 20 || rsi14 <= 30
+// 做多禁止条件（RSI 已计算且达到极端值）
+// 做空禁止条件（RSI 已计算且达到极端值）
+longBlocked := (rsi7 > 0 && rsi7 >= 80) || (rsi14 > 0 && rsi14 >= 70)
+shortBlocked := (rsi7 > 0 && rsi7 <= 20) || (rsi14 > 0 && rsi14 <= 30)
 ```
 
 输出示例：`RSI: 7=67.76↑ 14=59.99↑, 偏强, 做多安全, 做空允许`
 或：`RSI: 7=82.50↑ 14=72.30↑, 超买, 做多禁止(超买), 做空允许`
+数据不足时：`RSI: 数据不足, 护栏不可用`（不加禁止标记，由 AI 自行判断）
 
 **实现位置**：`formatTimeframeSummary` RSI 部分。
 
@@ -102,12 +105,15 @@ shortBlocked := rsi7 <= 20 || rsi14 <= 30
 
 #### F. OI 资金流向解读（币种级）
 
-根据 OI 变化 + 价格变化，自动输出解读：
+根据 OI 变化 + 价格变化，自动输出解读。
+
+**注意**：当前 `OIData.Average` 是 `Latest * 0.999`（见 `market/data.go:315`），这会导致 `Latest > Average` 恒成立，无法用于判断 OI 方向。实现此功能前需要**先修复数据源**——从 CoinAnk 或其他 API 获取真实的 OI 历史均值或上一周期的 OI 值，或用 `GetOpenInterestData` 对比前后两次 fetch 的 Latest 差值。
 
 ```go
-oiUp := oi.Latest > oi.Average
-priceUp := data.CurrentPrice > data.PrevPrice  // 需要 1h 前价格
-
+// 实现依赖修复后的数据源（以下为伪代码，实际实现需等数据源就绪）
+// oiUp := latestOI > previousOI  // 需要存储上一周期的 OI 值
+// priceUp := currentPrice > price1hAgo  // 已有 priceChange1h，符号即方向
+//
 // 对照表：
 // OI↑+价↑ → 多头主导(资金流入做多)
 // OI↑+价↓ → 空头主导(资金流入做空)
@@ -118,6 +124,8 @@ priceUp := data.CurrentPrice > data.PrevPrice  // 需要 1h 前价格
 输出示例：`OI: 100332(↑+0.1%) + 价格↑ → 多头主导(资金流入)`
 
 **实现位置**：`formatMarketDataFromSnapshot` OI 部分。
+
+**优先级降为第三批**，因为当前数据源不支持可靠的 OI 变化判断。作为替代，第一/二批可以先在摘要中标注 `priceChange1h` 的方向符号，至少让 AI 知道价格短期走势。
 
 ### 1.3 增强后的摘要示例（15m 完整输出）
 
@@ -148,7 +156,7 @@ SAR: 62350.00 上行, 价格距SAR +0.6%(393点), 趋势持续8周期 [无翻转
 
 ```
 ---
-快速参考: ATR14(15m)=198.51, SL缓冲需求≥198.51点 | 
+快速参考: ATR14(15m)=198.51, SL缓冲需求≥198.51点 |
   仓位上限(权益=10198): 高信心≤8158, 中信心≤5099, 低信心≤3059 USDT
 ```
 
@@ -207,26 +215,38 @@ lowConf  := maxPos * 0.3    // 低信心(60-69): 30%
 
 #### 当前 prompt 第 76-95 行：开仓决策流程
 
+**重要限制**：R:R 公式**不能在 prompt 之前由代码预计算**。entry（入场价）是 AI 在 CoT 中分析图表结构后才确定的，SL/TP 也是 AI 综合技术位和 ATR 缓冲后输出的——这些值在生成 prompt 时不存在。
+
+当前（~1000 字符）：
+
 ```
-当前（~1000 字符）包含完整的 R:R 手工计算步骤:
 第一步：先确定技术位...
   设 止损 = 支撑 - ATR 缓冲...
   设 止盈 = 图表结构中的目标位
   计算 R:R 比率 = |止盈 - 入场| / |入场 - 止损|
   若 R:R < 1.5 → 跳过该交易
+```
 
-改为（~350 字符）:
+**R:R 公式应保留在 prompt 中**——AI 需要这个逻辑来评估自己的交易质量。可做的优化：
+
+1. 精简公式说明（去掉重复的"不要缩小止损凑比率"警告，prompt 中后面已有）
+2. 后续可新增**后端校验/拒单**：AI 输出决策后，Go 代码计算实际 R:R，若不满足则拒绝下单。这是"事后校验"而非"事前替代"
+3. ATR 缓冲值可以引用快速参考而不是重新描述计算过程
+
+精简后（~350 字符）：
+
+```
 第一步：确定技术位
-  - 在你的分析时间框架上找到支撑/阻力
+  - 在分析时间框架上找到支撑/阻力
   - SL = 支撑 - ATR缓冲（做多）或 阻力 + ATR缓冲（做空）
   - TP = 图表结构中的真实目标位
-  - R:R ≥ 1.5，不要缩小止损来凑比率
+  - R:R ≥ 1.5（|TP - entry| / |entry - SL|）
 
 第二步：根据信心确定仓位大小
   - 高信心(≥85): ≤快速参考值 / 中信心(70-84): ≤快速参考值 / 低信心(60-69): ≤快速参考值
 ```
 
-删除"计算 R:R 比率"的公式说明，删除"禁止缩小止损来减少潜在亏损"的重复警告（后面已有）。
+**实现优先级降为第三批**。第一批先不碰 R:R 公式；先做摘要增强和后端校验。
 
 #### 当前 prompt 第 104-138 行：入场标准
 
@@ -266,17 +286,29 @@ lowConf  := maxPos * 0.3    // 低信心(60-69): 30%
 
 ## 四、原始数组移除
 
-### 4.1 当前行为 vs 目标行为
+### 4.1 重要：摘要模式的两个独立开关
 
-```
-当前（formatTimeframeSeriesData）:
-  摘要模式: 摘要 + 原始数组（如果指标不在摘要白名单）
-  非摘要模式: 完整 OHLCV 表 + 全部原始数组
+`formatTimeframeSeriesData` 中 K 线和指标摘要是**两个独立开关**：
 
-目标:
-  摘要模式: 仅摘要（无原始数组，无原始 OHLCV 表）
-  非摘要模式: 保持原有行为（供需要原始数据的场景使用）
+```go
+// K-line section (independent)
+if indicators.IsKlineCompact(timeframe) {
+    e.formatCompactKlines(sb, data, timeframe)      // compact 摘要
+} else if len(data.Klines) > 0 {
+    // 完整 OHLCV 表（每根 K 线一行）            // ← 不受 IsTimeframeSummarized 控制
+}
+
+// Indicator section (independent)
+if indicators.IsTimeframeSummarized(timeframe) {
+    e.formatTimeframeSummary(sb, data, indicators)   // 指标摘要
+    // Raw array fallback for excluded indicators     // ← 这是本次要删除的
+}
 ```
+
+因此：
+- **删除 raw fallback 不会移除非 compact 的 OHLCV 表**——那是由 `IsKlineCompact` 控制的
+- 要同时去掉 OHLCV 表，需要额外开启 `IsKlineCompact`（或同时删除 else 分支）
+- 当前文档 §4.3 的 token 节省估算中，"完整 OHLCV 表"的节省量**仅在 also 开启 KlineCompact 时才成立**
 
 ### 4.2 代码改动
 
@@ -287,7 +319,8 @@ lowConf  := maxPos * 0.3    // 低信心(60-69): 30%
 if indicators.IsTimeframeSummarized(timeframe) {
     e.formatTimeframeSummary(sb, data, indicators)
     // 删除：不再输出未摘要指标的原始数组 fallback
-    // （1834-1858 行全部删除）
+    // （1842-1858 行全部删除）
+    // 注意：这不影响 IsKlineCompact 控制的 OHLCV 表
 } else {
     // 非摘要模式保持不变
     ...
@@ -312,9 +345,10 @@ if indicators.IsTimeframeSummarized(timeframe) {
 | **单币种单周期** | | | **~3680 字符** |
 | **3 币种** | | | **~11000 字符** |
 
-加上完整 OHLCV 表（20 行 × 60 字符 = 1200/币种），每个币种约 5000 字符。
+若同时开启 `IsKlineCompact`（去除完整 OHLCV 表），每个币种额外节省约 1200 字符。
 
-**3 币种总计节省 ~15000 字符**（约 4000-5000 tokens）。
+**仅 raw fallback 删除：3 币种总计节省 ~11000 字符**（约 3000-3500 tokens）。
+**raw fallback + KlineCompact 同时开启：总计节省 ~15000 字符**（约 4000-5000 tokens）。
 
 ---
 
@@ -325,7 +359,7 @@ if indicators.IsTimeframeSummarized(timeframe) {
 1. **原始数组移除** — 删掉 1834-1858 行的 raw fallback
 2. **市场状态标签** — 在 ADX 摘要前插入 regime 行
 3. **RSI 极端值护栏** — 在 RSI 摘要中加 `做多安全/禁止` `做空安全/禁止`
-4. **系统 prompt OI 解读表删除** — 改为引用数据中的预判
+4. **系统 prompt OI 解读表精简** — 缩减 OI 解读表长度，但暂不删除（当前 OI 数据源不支持可靠的 OI 方向判断，待 §三修复后再改为引用预判）
 
 ### 第二批（增强质量）
 
@@ -334,10 +368,10 @@ if indicators.IsTimeframeSummarized(timeframe) {
 7. **成交量极端标注** — compact kline 中标注极端量能
 8. **用户 prompt 快速参考** — ATR 缓冲值 + 仓位档位
 
-### 第三批（锦上添花）
+### 第三批（锦上添花 / 需前置条件）
 
-9. **OI 资金流向预判** — 币种级 OI+价格解读
-10. **系统 prompt 开仓决策流程精简** — 删除 R:R 手工计算公式
+9. **OI 资金流向预判** — 需先修复 `OIData.Average` 数据源（当前为 `Latest*0.999`，无实际参考价值）
+10. **系统 prompt 开仓决策流程精简** — 保留 R:R 公式（AI 需要），可精简表述；附带新增**后端 R:R 校验/拒单**
 
 ---
 
