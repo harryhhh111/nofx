@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"nofx/config"
 	"nofx/crypto"
@@ -211,50 +210,4 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, supportedModels)
-}
-
-// handleTestModelConnectivity tests AI model connectivity using the stored API key.
-// It does NOT expose the key; it only returns whether the provider is reachable.
-func (s *Server) handleTestModelConnectivity(c *gin.Context) {
-	userID := c.GetString("user_id")
-	if userID == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	var req struct {
-		ModelID string `json:"model_id" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "model_id is required")
-		return
-	}
-
-	aiClient, err := s.createAIClientForModel(userID, req.ModelID)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"model_id": req.ModelID,
-			"valid":    false,
-			"error":    err.Error(),
-		})
-		return
-	}
-
-	// Short timeout for connectivity test — we only need a simple response.
-	aiClient.SetTimeout(10 * time.Second)
-
-	_, err = aiClient.CallWithMessages("", "Respond with exactly: OK")
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"model_id": req.ModelID,
-			"valid":    false,
-			"error":    fmt.Sprintf("connectivity test failed: %v", err),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"model_id": req.ModelID,
-		"valid":    true,
-	})
 }
