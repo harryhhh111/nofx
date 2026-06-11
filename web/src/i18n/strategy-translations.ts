@@ -190,6 +190,9 @@ export const riskControl = {
   consecutiveLossBrakeEnabled: { zh: '启用连续亏损冷却', en: 'Enable Consecutive Loss Brake', es: 'Habilitar Freno' },
   consecutiveLossBrakeMaxLosses: { zh: '触发连续亏损数', en: 'Trigger After N Losses', es: 'Activar tras N Pérdidas' },
   consecutiveLossBrakeCooldown: { zh: '冷却轮次数', en: 'Cooldown Cycles', es: 'Ciclos de Enfriamiento' },
+  breakevenProtection: { zh: '保本止损', en: 'Breakeven Protection', es: 'Protección BE' },
+  breakevenProtectionDesc: { zh: '每达阈值浮盈推进一格 SL，永不后退', en: 'Push SL forward by one step per trigger threshold. Never retreats.', es: 'Avanza SL por umbral. Nunca retrocede.' },
+  breakevenProtectionTriggerPct: { zh: '每步触发浮盈（杠杆收益率 %）', en: 'Step trigger (leveraged PnL %)', es: 'Umbral por paso (PnL apalancado %)' },
 };
 
 // ============================================================================

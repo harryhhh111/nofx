@@ -209,4 +209,12 @@ export interface RiskControlConfig {
     max_losses: number;       // Trigger after N consecutive losses (default: 3)
     cool_down_cycles: number; // Block entries for K cycles (default: 3)
   };
+
+  // Breakeven protection: progressive SL promotion as float profit grows.
+  // Each trigger_pct (leveraged PnL%) pushes SL forward by one step.
+  // Never retreats.
+  breakeven_protection?: {
+    enabled: boolean;       // Enable (default: true)
+    trigger_pct: number;    // Step size in leveraged PnL% (default: 1.0)
+  };
 }
