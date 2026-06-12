@@ -50,7 +50,7 @@ func mapCoinAnkInterval(interval string) (coinank_enum.Interval, error) {
 	case "1w":
 		return coinank_enum.Week1, nil
 	default:
-		return coinank_enum.Minute1, fmt.Errorf("unsupported interval: %s", interval)
+		return "", fmt.Errorf("unsupported interval: %s", interval)
 	}
 }
 
@@ -72,6 +72,9 @@ func mapCoinAnkExchange(exchange string) coinank_enum.Exchange {
 	case "aster":
 		return coinank_enum.Aster
 	default:
+		// Note: unknown exchanges silently fall back to Binance. This means
+		// Binance data will be cached under the original exchange key, which
+		// is a pre-existing trade-off carried over from the legacy fetcher.
 		return coinank_enum.Binance
 	}
 }
@@ -363,9 +366,10 @@ func getKlinesCached(ctx context.Context, symbol, exchange, interval string, lim
 	return sliceTail(v.([]Kline), limit), nil
 }
 
-// cleanExpiredCacheLoop periodically drops entries whose fetchedAt + base TTL
-// is already in the past. Prevents stale residue from symbols that have been
-// removed from the candidate set.
+// cleanExpiredCacheLoop periodically drops entries whose fetchedAt + TTL is
+// already in the past. Prevents stale residue from symbols that have been
+// removed from the candidate set. The TTL is computed per-entry by extracting
+// the interval from the cache key (format: symbol:exchange:interval).
 func cleanExpiredCacheLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -373,9 +377,14 @@ func cleanExpiredCacheLoop(interval time.Duration) {
 		now := time.Now()
 		klineCacheMu.Lock()
 		for key, entry := range klineCache {
-			// Re-use the most generous TTL when judging expiry, so we don't
-			// drop an entry whose interval is unknown.
+			// Extract interval from the last colon-separated segment.
+			// Fall back to 5 minutes for keys that don't match the expected format.
 			ttl := 5 * time.Minute
+			if idx := strings.LastIndex(key, ":"); idx >= 0 && idx+1 < len(key) {
+				if entryTTL := baseTTL(key[idx+1:]); entryTTL > 0 {
+					ttl = entryTTL + 30*time.Second // small grace period
+				}
+			}
 			if now.Sub(entry.fetchedAt) >= ttl {
 				delete(klineCache, key)
 			}

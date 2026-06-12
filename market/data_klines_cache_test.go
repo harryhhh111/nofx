@@ -267,13 +267,17 @@ func TestKlineCache_DifferentLimitsDoNotInterfere(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// Two distinct singleflight keys -> exactly 2 fetches.
-	if cf.Calls() != 2 {
-		t.Fatalf("calls=%d, want 2", cf.Calls())
+	// Two distinct singleflight keys. Depending on scheduling, either:
+	// - 100 runs first -> fetches 100, 500 then gets cache miss -> 2 calls, OR
+	// - 500 runs first -> fetches 500, 100 double-checks and finds 500≥100 -> 1 call.
+	// Both are correct; the cache invariants are what matter.
+	if cf.Calls() != 1 && cf.Calls() != 2 {
+		t.Fatalf("calls=%d, want 1 or 2", cf.Calls())
 	}
 
 	// Both must be served from cache on re-request, including the bigger
 	// one (i.e. the 100-fetch did NOT shrink the 500 entry).
+	callsBefore := cf.Calls()
 	got, err := getKlinesCached(ctx, "BTCUSDT", "binance", "1m", 500, cf.Fetcher())
 	if err != nil {
 		t.Fatalf("re-500: %v", err)
@@ -281,8 +285,8 @@ func TestKlineCache_DifferentLimitsDoNotInterfere(t *testing.T) {
 	if len(got) != 500 {
 		t.Fatalf("re-500 len=%d, want 500 (cacheSet guard failed)", len(got))
 	}
-	if cf.Calls() != 2 {
-		t.Fatalf("calls=%d, want 2 (re-500 should hit cache)", cf.Calls())
+	if cf.Calls() != callsBefore {
+		t.Fatalf("calls=%d, want %d (re-500 should hit cache, no additional fetch)", cf.Calls(), callsBefore)
 	}
 }
 
