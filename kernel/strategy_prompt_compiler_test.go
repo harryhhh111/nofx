@@ -1,8 +1,12 @@
 package kernel
 
 import (
+	"context"
 	"strings"
 	"testing"
+	"time"
+
+	"nofx/mcp"
 )
 
 func TestValidateCompiledStrategyNormalizesPositiveShortThreshold(t *testing.T) {
@@ -42,6 +46,63 @@ func TestValidateCompiledStrategyNormalizesPositiveShortThreshold(t *testing.T) 
 	if len(result.Warnings) == 0 {
 		t.Fatal("expected normalization warning")
 	}
+}
+
+func TestBuildStrategyCompileLLMRequestSkipsResponseFormatForDeepSeek(t *testing.T) {
+	client := &testCompileClient{
+		base: &mcp.Client{
+			Provider: mcp.ProviderDeepSeek,
+			BaseURL:  mcp.DefaultDeepSeekBaseURL,
+			Model:    mcp.DefaultDeepSeekModel,
+		},
+	}
+
+	req, err := buildStrategyCompileLLMRequest(context.Background(), client, "system", "user")
+	if err != nil {
+		t.Fatalf("buildStrategyCompileLLMRequest returned error: %v", err)
+	}
+	if req.ResponseFormat != nil {
+		t.Fatalf("expected DeepSeek native request to omit response_format, got %#v", req.ResponseFormat)
+	}
+}
+
+func TestBuildStrategyCompileLLMRequestKeepsResponseFormatForOpenAI(t *testing.T) {
+	client := &testCompileClient{
+		base: &mcp.Client{
+			Provider: mcp.ProviderOpenAI,
+			BaseURL:  "https://api.openai.com/v1",
+			Model:    "gpt-4o-mini",
+		},
+	}
+
+	req, err := buildStrategyCompileLLMRequest(context.Background(), client, "system", "user")
+	if err != nil {
+		t.Fatalf("buildStrategyCompileLLMRequest returned error: %v", err)
+	}
+	if req.ResponseFormat == nil {
+		t.Fatal("expected OpenAI request to include response_format")
+	}
+}
+
+type testCompileClient struct {
+	base *mcp.Client
+}
+
+func (c *testCompileClient) BaseClient() *mcp.Client { return c.base }
+func (c *testCompileClient) SetAPIKey(apiKey string, customURL string, customModel string) {
+}
+func (c *testCompileClient) SetTimeout(timeout time.Duration) {}
+func (c *testCompileClient) CallWithMessages(systemPrompt, userPrompt string) (string, error) {
+	return "", nil
+}
+func (c *testCompileClient) CallWithRequest(req *mcp.Request) (string, error) {
+	return "", nil
+}
+func (c *testCompileClient) CallWithRequestStream(req *mcp.Request, onChunk func(string)) (string, error) {
+	return "", nil
+}
+func (c *testCompileClient) CallWithRequestFull(req *mcp.Request) (*mcp.LLMResponse, error) {
+	return nil, nil
 }
 
 func TestParseStrategyCompileResponseRequiresStrictJSON(t *testing.T) {

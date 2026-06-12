@@ -560,6 +560,7 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 		StrategyID      string `json:"strategy_id"`
 		StrategyVersion string `json:"strategy_version"`
 		Prompt          string `json:"prompt" binding:"required"`
+		Context         string `json:"context"`
 		AIModelID       string `json:"ai_model_id" binding:"required"`
 		Persist         bool   `json:"persist"`
 	}
@@ -586,6 +587,7 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 		StrategyID:      req.StrategyID,
 		StrategyVersion: req.StrategyVersion,
 		Prompt:          req.Prompt,
+		Context:         req.Context,
 	})
 	if err != nil {
 		response := gin.H{"error": err.Error()}

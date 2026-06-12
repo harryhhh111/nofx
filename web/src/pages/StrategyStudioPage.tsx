@@ -839,6 +839,7 @@ export function StrategyStudioPage() {
       manualPrompt === indicatorPrompt.trim() ||
       (storedIndicatorPrompt.trim() !== '' && manualPrompt === storedIndicatorPrompt.trim())
     const prompt = shouldUseIndicatorPrompt ? indicatorPrompt : manualPrompt
+    const compileContext = shouldUseIndicatorPrompt ? '' : indicatorPrompt
     if (!prompt) {
       notify.warning(language === 'zh' ? '请先填写策略 Prompt，或至少勾选一个指标/因子' : 'Enter a strategy prompt or select at least one indicator/factor')
       return
@@ -856,6 +857,7 @@ export function StrategyStudioPage() {
         strategy_id: selectedStrategy?.id,
         strategy_version: buildStrategyVersion(),
         prompt,
+        context: compileContext || undefined,
         ai_model_id: selectedModelId,
         persist: shouldPersistFirstCompile,
       })

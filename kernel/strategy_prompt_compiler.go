@@ -81,7 +81,9 @@ func buildStrategyCompileLLMRequest(ctx context.Context, client mcp.AIClient, sy
 			mcp.NewSystemMessage(systemPrompt),
 			mcp.NewUserMessage(userPrompt),
 		},
-		ResponseFormat: strategyCompileResponseFormat(),
+	}
+	if strategyCompileUsesResponseFormat(client) {
+		reqBody.ResponseFormat = strategyCompileResponseFormat()
 	}
 	maxTokens := strategyCompileMaxTokens
 	temperature := 0.0
@@ -93,12 +95,27 @@ func buildStrategyCompileLLMRequest(ctx context.Context, client mcp.AIClient, sy
 	return reqBody, nil
 }
 
-func ensureStructuredOutputsSupported(ctx context.Context, client mcp.AIClient) error {
+func strategyCompileUsesResponseFormat(client mcp.AIClient) bool {
+	base := strategyCompileBaseClient(client)
+	if base == nil {
+		return true
+	}
+	if base.Provider == mcp.ProviderDeepSeek && !isOpenRouterBaseURL(base.BaseURL) {
+		return false
+	}
+	return true
+}
+
+func strategyCompileBaseClient(client mcp.AIClient) *mcp.Client {
 	embedder, ok := client.(mcp.ClientEmbedder)
 	if !ok {
 		return nil
 	}
-	base := embedder.BaseClient()
+	return embedder.BaseClient()
+}
+
+func ensureStructuredOutputsSupported(ctx context.Context, client mcp.AIClient) error {
+	base := strategyCompileBaseClient(client)
 	if base == nil || !isOpenRouterBaseURL(base.BaseURL) {
 		return nil
 	}
@@ -333,10 +350,12 @@ func buildStrategyCompilerUserPrompt(req StrategyCompileRequest) (string, error)
 		StrategyID      string `json:"strategy_id,omitempty"`
 		StrategyVersion string `json:"strategy_version,omitempty"`
 		Prompt          string `json:"prompt"`
+		Context         string `json:"context,omitempty"`
 	}{
 		StrategyID:      req.StrategyID,
 		StrategyVersion: req.StrategyVersion,
 		Prompt:          req.Prompt,
+		Context:         req.Context,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {

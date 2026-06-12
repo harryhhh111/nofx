@@ -48,6 +48,7 @@ type StrategyCompileRequest struct {
 	StrategyID      string `json:"strategy_id"`
 	StrategyVersion string `json:"strategy_version"`
 	Prompt          string `json:"prompt,omitempty"`
+	Context         string `json:"context,omitempty"`
 }
 
 type StrategyCompileResult struct {

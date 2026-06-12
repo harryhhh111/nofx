@@ -83,6 +83,7 @@ export const strategyApi = {
 
   async compileStrategyPrompt(data: {
     prompt: string
+    context?: string
     ai_model_id: string
     strategy_id?: string
     strategy_version?: string
