@@ -21,7 +21,7 @@ Trader C (paper):  BTCUSDT 5m → HTTP → CoinAnk API  ← 又一枪
 
 ```
 GetFullDecisionWithStrategy()
-  → market.GetWithTimeframesWindowContextWithExchange()
+  → market.GetWithTimeframes()
     → for each timeframe:
         getKlinesFromCoinAnk()  // HTTP 请求（CoinAnk API）
 ```
@@ -40,23 +40,37 @@ GetFullDecisionWithStrategy()
 
 ## 二、设计
 
-### 2.1 核心原则：缓存层不修改现有函数签名
+### 2.1 核心原则：拆出无 fallback 的 raw fetcher
 
-现有函数 `getKlinesFromCoinAnk` 和 `getKlinesFromHyperliquid` **保持不变**（作为 "raw fetcher"）。新增一个带缓存的 wrapper，调用方改为调用 wrapper，wrapper 内部在 cache miss 时调用 raw fetcher。**无递归风险**。
+当前 `getKlinesFromCoinAnk` 内置了 fallback 逻辑：Bybit 失败/空 → 自动切到 Binance。缓存层如果直接包这个函数，会把 fallback 后的 Binance 数据缓存到 `bybit` key 下，长期伪装成 Bybit 数据。
+
+**解决方案**：把 `getKlinesFromCoinAnk` 拆为两层：
 
 ```
-调用方
-  → getKlinesCached(ctx, symbol, exchange, interval, limit, fetchFn)
+fetchKlinesCoinAnkRaw       ← 单次 exchange 请求，无 fallback（供缓存层用）
+        ↑
+getKlinesFromCoinAnkContext ← fallback wrapper（供非缓存调用方用，或缓存层 fallback 时用）
+```
+
+**无递归**：缓存 wrapper → `fetchKlinesCoinAnkRaw`（raw fetcher，不碰缓存）→ CoinAnk API。
+
+```
+调用方（缓存路径）
+  → getKlinesCached(ctx, symbol, exchange, interval, limit, fetchKlinesCoinAnkRaw)
       → [cache hit] 直接返回
-      → [cache miss] singleflight.Do() → fetchFn() → 写缓存 → 返回
-                                        ↑
-                                  getKlinesFromCoinAnk (不改)
-                                  getKlinesFromHyperliquid (不改)
+      → [cache miss] singleflight.Do() → fetchKlinesCoinAnkRaw → 写缓存 → 返回
+
+调用方（非缓存路径，保留 fallback 行为）
+  → getKlinesFromCoinAnkContext(ctx, symbol, interval, limit, exchange)
+      → fetchKlinesCoinAnkRaw(exchange)
+          → 失败/空 && exchange != "binance" → fetchKlinesCoinAnkRaw("binance")
 ```
+
+**缓存只存原始 exchange 的成功结果**。fallback 路径不走缓存。
 
 ### 2.2 可注入 fetcher（便于单测）
 
-`getKlinesCached` 的最后一个参数是 fetcher 函数，生产代码传入 raw fetcher，单测传入 mock：
+`getKlinesCached` 的最后一个参数是 fetcher 函数，生产代码传入 `fetchKlinesCoinAnkRaw`，单测传入 mock：
 
 ```go
 type klineFetcher func(ctx context.Context, symbol, interval string, limit int, exchange string) ([]Kline, error)
@@ -70,7 +84,9 @@ func getKlinesCached(ctx context.Context, symbol, exchange, interval string, lim
 生产调用：
 
 ```go
-klines, err := getKlinesCached(ctx, symbol, "binance", "5m", 200, getKlinesFromCoinAnkContext)
+// 缓存路径（无 fallback）
+klines, err := getKlinesCached(ctx, symbol, "bybit", "5m", 200, fetchKlinesCoinAnkRaw)
+// 如果 fetchKlinesCoinAnkRaw 失败 → 上游自行调 getKlinesFromCoinAnkContext 走 fallback（不缓存）
 ```
 
 ### 2.3 缓存 Key
@@ -117,26 +133,33 @@ K 线一旦收盘就不可变，唯一变化的是当前未收盘的 Bar。TTL �
 
 **Bar 边界检测**（覆盖基础 TTL 的盲区）：
 
-即使基础 TTL 未过期，如果最后一根缓存 K 线的 `CloseTime < now - interval`（即至少有一根新 Bar 已收盘），缓存也视为过期。这解决了"12:00:59 抓 1m，12:01:20 基础 TTL 仍有效但已漏掉 12:01 的新 Bar"的问题：
+即使基础 TTL 未过期，如果最后一根缓存 K 线已经"过时超过一个 Bar 周期"（即至少有一根完整的 Bar 已收盘并被漏掉），缓存也视为过期。判断条件：`now - newestBar.CloseTime > barDuration`。
+
+**示例**（1m K 线，基础 TTL=30s）：
+
+- 12:00:59 抓取，最新 Bar: OpenTime=12:00:00, CloseTime=12:01:00, barDuration=60s
+- 12:01:20 检查：`now - CloseTime = 20s`，`20s > 60s`？否 → 缓存有效（当前未收盘 Bar 是 12:01-12:02，数据仍够新）
+- 12:02:01 检查：`now - CloseTime = 61s`，`61s > 60s`？是 → 缓存失效（12:01-12:02 已收盘，漏掉了一整根 Bar）
 
 ```go
 func cacheValid(entry *klineCacheEntry, interval string) bool {
     if time.Since(entry.fetchedAt) >= baseTTL(interval) {
         return false
     }
-    // Bar-boundary check: a new bar should have closed since we fetched
+    // Bar-boundary check: at least one complete bar has closed since the
+    // newest cached bar, meaning we missed it entirely.
     if len(entry.klines) > 0 {
         newestBar := entry.klines[len(entry.klines)-1]
         barDuration := intervalDuration(interval)
-        if newestBar.CloseTime > 0 && time.UnixMilli(newestBar.CloseTime).Add(barDuration).Before(time.Now()) {
-            return false // at least one new bar has closed
+        if time.Since(time.UnixMilli(newestBar.CloseTime)) > barDuration {
+            return false
         }
     }
     return true
 }
 ```
 
-> **注意**：`CloseTime` 在部分数据源中可能为 0（如 CoinAnk 不返回 CloseTime）。此时退化为仅依赖基础 TTL。
+> **注意**：CoinAnk 返回的 K 线中 `CloseTime` 由 `EndTime` 映射（见 `market/data_klines.go:108`），始终有值，不会有 0 的情况。
 
 ### 2.6 并发合并（singleflight）
 
@@ -175,7 +198,9 @@ func getKlinesCached(ctx context.Context, symbol, exchange, interval string, lim
             return nil, err
         }
 
-        // 写缓存
+        // 写缓存：仅当新 limit ≥ 已有 limit 时才覆盖，防止大缓存被小缓存缩水
+        // （并发场景：limit=500 和 limit=100 各走各的 singleflight，
+        //   500 先写完 → 100 后到达 cacheSet → 100 < 500 → 不覆盖）
         cacheSet(cKey, klines, fetchLimit)
         return klines, nil
     })
@@ -185,23 +210,30 @@ func getKlinesCached(ctx context.Context, symbol, exchange, interval string, lim
     }
     return sliceTail(result.([]Kline), limit), nil
 }
+
+// cacheSet 仅在 newLimit >= existing.limit 时覆盖
+func cacheSet(key string, klines []Kline, limit int) {
+    klineCacheMu.Lock()
+    defer klineCacheMu.Unlock()
+    existing, ok := klineCache[key]
+    if ok && existing.limit > limit {
+        return // 保留更大的缓存
+    }
+    klineCache[key] = &klineCacheEntry{
+        klines:    klines,
+        fetchedAt: time.Now(),
+        limit:     limit,
+    }
+}
 ```
 
-> **为什么 singleflight key 包含 limit？** 并发场景中，goroutine A 请求 limit=100、goroutine B 请求 limit=500。如果不区分，B 可能共享到 A 的 100 根结果 → 根数不足。区分后各自走自己的 singleflight，虽然少了一次合并机会，但保证了正确性。作为补偿，后续请求如果 limit ≤ 缓存的 limit（100 ≤ 500），直接走 fast path 命中。
+> **为什么 singleflight key 包含 limit + cacheSet 有守卫？** 两层防护确保并发安全：
+> 1. 不同 limit 走各自的 singleflight，避免小 limit 的结果被大 limit 请求误用（根数不足）
+> 2. `cacheSet` 只在 `newLimit >= existing.limit` 时覆盖，防止 limit=100 的 singleflight 完成后覆盖掉 limit=500 刚写入的大缓存
 
 ### 2.7 不缓存 Fallback 结果
 
-`getKlinesFromCoinAnk` 当前在非 Binance exchange 请求失败或返回空数据时会 **fallback 到 Binance**（见 `market/data_klines.go:81-96`）。这个 fallback 结果**不能**缓存到原始 exchange 的 key 下，否则会长期用 Binance 数据伪装成 Bybit/OKX 数据。
-
-**规则**：只缓存原始请求 exchange 成功返回的结果。Fallback 路径不走缓存：
-
-```go
-// 在 getKlinesFromCoinAnk 中：
-// 原始 exchange 请求成功 → 结果被缓存（在 getKlinesCached 层）
-// 原始 exchange 失败/空 → fallback 到 Binance → 不缓存（直接 return，绕过 cacheSet）
-```
-
-实现方式：`getKlinesFromCoinAnk` 的 fallback 分支不走 `getKlinesCached`，直接调 raw Binance API。
+已在 §2.1 的拆分设计中解决：缓存层只调用 `fetchKlinesCoinAnkRaw`（单次 exchange，无 fallback），fallback 逻辑由上游调用方自行处理。上游 fallback 时走独立的 `getKlinesCached(..., "binance", ..., fetchKlinesCoinAnkRaw)`，数据正常缓存到 `{symbol}:binance:{interval}` key，不会污染原始 exchange 的 key。
 
 ### 2.8 Context 支持
 
@@ -258,15 +290,15 @@ Hyperliquid 的 K 线走 `getKlinesFromHyperliquid`，同一缓存模式，excha
 - [ ] 新增 `klineCache` map + `sync.RWMutex`
 - [ ] 新增 `klineSF` singleflight.Group
 - [ ] 新增 `klineFetcher` type：`func(ctx, symbol, interval, limit, exchange) ([]Kline, error)`
-- [ ] 新增 `getKlinesCached(ctx, symbol, exchange, interval, limit, fetch)` — 缓存 wrapper
-- [ ] 新增 `cacheKey()`、`baseTTL()`、`cacheValid()`（含 Bar 边界检测）、`cacheGet()`、`cacheSet()` helper
+- [ ] 新增 `getKlinesCached(ctx, symbol, exchange, interval, limit, fetch)` — 缓存 wrapper（可注入 fetcher）
+- [ ] 新增 `cacheKey()`、`baseTTL()`、`cacheValid()`（含 Bar 边界检测）、`cacheGet()`、`cacheSet()`(含 limit 守卫，仅 `newLimit >= existing.limit` 时覆盖) helper
 - [ ] 新增 `cleanExpiredCache()` + `time.NewTicker(5*time.Minute)` goroutine
-- [ ] 新增 `getKlinesFromCoinAnkContext(ctx, symbol, interval, limit, exchange)` — 带 ctx 的 raw fetcher
-- [ ] 现有 `getKlinesFromCoinAnk` → 改为委托 `getKlinesFromCoinAnkContext(context.Background(), ...)`
-- [ ] 新增 `getKlinesFromHyperliquidContext` — 同理
+- [ ] 新增 `fetchKlinesCoinAnkRaw(ctx, symbol, interval, limit, exchange)` — 单次 exchange 请求，**无 fallback**（供缓存层用）
+- [ ] 新增 `getKlinesFromCoinAnkContext(ctx, symbol, interval, limit, exchange)` — fallback wrapper：调 `fetchKlinesCoinAnkRaw`，失败且非 Binance 时 fallback 到 Binance
+- [ ] 现有 `getKlinesFromCoinAnk(symbol, interval, exchange, limit)` → 改为委托 `getKlinesFromCoinAnkContext(context.Background(), ...)`
+- [ ] 新增 `fetchKlinesHyperliquidRaw` / `getKlinesFromHyperliquidContext` — 同理
 - [ ] 现有 `getKlinesFromHyperliquid` → 委托 context 版本
-- [ ] `getKlinesFromCoinAnk` 的 fallback 分支 → 不经过缓存，直接调 Binance raw API
-- [ ] 调用方（`GetWithExchange`、`GetWithTimeframes`、`GetBoxData`）→ 调用 `getKlinesCached(..., getKlinesFromCoinAnkContext)` 代替直接调 raw fetcher
+- [ ] 调用方（`GetWithExchange`、`GetWithTimeframes`、`GetBoxData`）→ 调用 `getKlinesCached(..., fetchKlinesCoinAnkRaw)` 代替直接调 raw fetcher；fallback 逻辑保留在缓存层外
 
 ### 4.2 `go.mod`
 
@@ -318,7 +350,8 @@ Hyperliquid 的 K 线走 `getKlinesFromHyperliquid`，同一缓存模式，excha
 | 请求 limit 混用（100/200/500）导致缓存命中率下降 | 小 limit 可复用大 limit 缓存；大 limit 穿透时用更大值重抓，后续小请求命中 |
 | singleflight key 含 limit 导致同 symbol 不同 limit 不合并 | 取舍：正确性优先。实际场景中同一时刻相同 symbol 的请求 limit 通常一致（同一决策周期），命中率影响小 |
 | singleflight 中一个请求失败 → 所有等待者一起失败 | 不缓存 error；每个等待者各自收到 error，上层已有重试/跳过逻辑 |
-| CoinAnk fallback 结果被缓存到错误 exchange key | 只缓存原始 exchange 的成功结果；fallback 路径绕过缓存 |
+| CoinAnk fallback 结果被缓存到错误 exchange key | 缓存层只调 `fetchKlinesCoinAnkRaw`（无 fallback）；fallback 由上游自行处理，走独立缓存 key |
+| 并发不同 limit 的 singleflight 完成后，小 limit 覆盖大 limit 缓存 | `cacheSet` 仅在 `newLimit >= existing.limit` 时覆盖，保留更大的缓存 |
 | 不同 exchange 的同 symbol 数据不同 | key 已包含 exchange，不会混淆 |
 | 内存泄漏（退市 symbol 缓存残留） | 5 分钟清理 goroutine |
 
@@ -326,12 +359,13 @@ Hyperliquid 的 K 线走 `getKlinesFromHyperliquid`，同一缓存模式，excha
 
 ## 七、实施顺序
 
-1. 新增 `getKlinesFromCoinAnkContext` / `getKlinesFromHyperliquidContext`（带 ctx 的 raw fetcher）
-2. 现有函数委托到 context 版本（保持向后兼容）
-3. 新增缓存层 `getKlinesCached` + helper
-4. 调用方从 raw fetcher 切换到 `getKlinesCached`
-5. `go mod tidy`
-6. 单元测试 + 集成测试
-7. 观察日志中的缓存命中率
+1. 新增 `fetchKlinesCoinAnkRaw` / `fetchKlinesHyperliquidRaw`（单次 exchange，无 fallback，带 ctx）
+2. 新增 `getKlinesFromCoinAnkContext` / `getKlinesFromHyperliquidContext`（fallback wrapper）
+3. 现有 `getKlinesFromCoinAnk` / `getKlinesFromHyperliquid` 委托到 context 版本（保持向后兼容）
+4. 新增缓存层 `getKlinesCached` + helper（`cacheKey`、`baseTTL`、`cacheValid`、`cacheGet`、`cacheSet`）
+5. 调用方从 raw fetcher 切换到 `getKlinesCached(..., fetchKlinesCoinAnkRaw)`
+6. `go mod tidy`
+7. 单元测试 + 集成测试
+8. 观察日志中的缓存命中率
 
-预计改动量：~130 行 Go（含 ctx 变体 ~30 行 + 缓存层 ~80 行 + 调用方切换 ~20 行）。
+预计改动量：~150 行 Go（含 raw fetcher 拆分 ~40 行 + ctx 变体 ~30 行 + 缓存层 ~80 行）。

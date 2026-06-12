@@ -4,104 +4,80 @@ import (
 	"context"
 	"fmt"
 	"nofx/logger"
+	"nofx/provider/coinank"
 	"nofx/provider/coinank/coinank_api"
 	"nofx/provider/coinank/coinank_enum"
 	"nofx/provider/hyperliquid"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // Note: Kline data now uses free/open API (coinank_api.Kline) which doesn't require authentication
 
-// getKlinesFromCoinAnk fetches kline data from CoinAnk API (replacement for WSMonitorCli)
-func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline, error) {
-	// Map interval string to coinank enum
-	var coinankInterval coinank_enum.Interval
+// mapCoinAnkInterval maps an interval string to the CoinAnk enum.
+func mapCoinAnkInterval(interval string) (coinank_enum.Interval, error) {
 	switch interval {
 	case "1m":
-		coinankInterval = coinank_enum.Minute1
+		return coinank_enum.Minute1, nil
 	case "3m":
-		coinankInterval = coinank_enum.Minute3
+		return coinank_enum.Minute3, nil
 	case "5m":
-		coinankInterval = coinank_enum.Minute5
+		return coinank_enum.Minute5, nil
 	case "15m":
-		coinankInterval = coinank_enum.Minute15
+		return coinank_enum.Minute15, nil
 	case "30m":
-		coinankInterval = coinank_enum.Minute30
+		return coinank_enum.Minute30, nil
 	case "1h":
-		coinankInterval = coinank_enum.Hour1
+		return coinank_enum.Hour1, nil
 	case "2h":
-		coinankInterval = coinank_enum.Hour2
+		return coinank_enum.Hour2, nil
 	case "4h":
-		coinankInterval = coinank_enum.Hour4
+		return coinank_enum.Hour4, nil
 	case "6h":
-		coinankInterval = coinank_enum.Hour6
+		return coinank_enum.Hour6, nil
 	case "8h":
-		coinankInterval = coinank_enum.Hour8
+		return coinank_enum.Hour8, nil
 	case "12h":
-		coinankInterval = coinank_enum.Hour12
+		return coinank_enum.Hour12, nil
 	case "1d":
-		coinankInterval = coinank_enum.Day1
+		return coinank_enum.Day1, nil
 	case "3d":
-		coinankInterval = coinank_enum.Day3
+		return coinank_enum.Day3, nil
 	case "1w":
-		coinankInterval = coinank_enum.Week1
+		return coinank_enum.Week1, nil
 	default:
-		return nil, fmt.Errorf("unsupported interval: %s", interval)
+		return coinank_enum.Minute1, fmt.Errorf("unsupported interval: %s", interval)
 	}
+}
 
-	// Map exchange string to coinank enum
-	var coinankExchange coinank_enum.Exchange
+// mapCoinAnkExchange maps an exchange string to the CoinAnk enum.
+func mapCoinAnkExchange(exchange string) coinank_enum.Exchange {
 	switch strings.ToLower(exchange) {
 	case "binance":
-		coinankExchange = coinank_enum.Binance
+		return coinank_enum.Binance
 	case "bybit":
-		coinankExchange = coinank_enum.Bybit
+		return coinank_enum.Bybit
 	case "okx":
-		coinankExchange = coinank_enum.Okex
+		return coinank_enum.Okex
 	case "bitget":
-		coinankExchange = coinank_enum.Bitget
+		return coinank_enum.Bitget
 	case "gate":
-		coinankExchange = coinank_enum.Gate
+		return coinank_enum.Gate
 	case "hyperliquid":
-		coinankExchange = coinank_enum.Hyperliquid
+		return coinank_enum.Hyperliquid
 	case "aster":
-		coinankExchange = coinank_enum.Aster
+		return coinank_enum.Aster
 	default:
-		// Default to Binance for unknown exchanges
-		coinankExchange = coinank_enum.Binance
+		return coinank_enum.Binance
 	}
+}
 
-	// Call CoinAnk free/open API (no authentication required)
-	ctx := context.Background()
-	ts := time.Now().UnixMilli()
-	// Use "To" side to search backward from current time (get historical klines)
-	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
-	if err != nil || len(coinankKlines) == 0 {
-		// If exchange-specific data fails or returns empty, fallback to Binance
-		if coinankExchange != coinank_enum.Binance {
-			if err != nil {
-				logger.Warnf("⚠️ CoinAnk %s data failed, falling back to Binance: %v", exchange, err)
-			} else {
-				logger.Warnf("⚠️ CoinAnk %s %s data empty for %s, falling back to Binance", exchange, interval, symbol)
-			}
-			coinankKlines, err = coinank_api.Kline(ctx, symbol, coinank_enum.Binance, ts, coinank_enum.To, limit, coinankInterval)
-			if err != nil {
-				return nil, fmt.Errorf("CoinAnk API error (fallback): %w", err)
-			}
-		} else if err != nil {
-			return nil, fmt.Errorf("CoinAnk API error: %w", err)
-		} else {
-			// Binance + no error + empty data: likely silent rate-limiting.
-			// CoinAnk free API returns {"success":true, "data":[]} when throttled,
-			// which is indistinguishable from genuine "no data".
-			logger.Warnf("⚠️ CoinAnk Binance %s %s returned empty data (possible rate limiting)", symbol, interval)
-			return nil, fmt.Errorf("CoinAnk Binance %s %s returned empty kline data (possible rate limiting)", symbol, interval)
-		}
-	}
-
-	// Convert coinank kline format to market.Kline format
+// convertCoinAnkKlines converts coinank kline format to market.Kline format.
+func convertCoinAnkKlines(coinankKlines []coinank.KlineResult) []Kline {
 	klines := make([]Kline, len(coinankKlines))
 	for i, ck := range coinankKlines {
 		klines[i] = Kline{
@@ -114,29 +90,73 @@ func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline
 			CloseTime: ck.EndTime,
 		}
 	}
-
-	return klines, nil
+	return klines
 }
 
-// getKlinesFromHyperliquid fetches kline data from Hyperliquid API for xyz dex assets
-func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, error) {
+// fetchKlinesCoinAnkRaw performs a single CoinAnk API request for the given
+// exchange, with NO fallback. The returned data is authoritative for the
+// (symbol, exchange, interval) key. Used as the underlying fetcher for the
+// cache layer, which must never silently substitute another exchange's data.
+func fetchKlinesCoinAnkRaw(ctx context.Context, symbol, interval string, limit int, exchange string) ([]Kline, error) {
+	coinankInterval, err := mapCoinAnkInterval(interval)
+	if err != nil {
+		return nil, err
+	}
+	coinankExchange := mapCoinAnkExchange(exchange)
+
+	ts := time.Now().UnixMilli()
+	coinankKlines, err := coinank_api.Kline(ctx, symbol, coinankExchange, ts, coinank_enum.To, limit, coinankInterval)
+	if err != nil {
+		return nil, fmt.Errorf("CoinAnk %s %s %s: %w", exchange, symbol, interval, err)
+	}
+	if len(coinankKlines) == 0 {
+		// Binance + empty data: likely silent rate-limiting
+		// (CoinAnk free API returns {"success":true, "data":[]} when throttled).
+		if coinankExchange == coinank_enum.Binance {
+			logger.Warnf("⚠️ CoinAnk Binance %s %s returned empty data (possible rate limiting)", symbol, interval)
+			return nil, fmt.Errorf("CoinAnk Binance %s %s returned empty kline data (possible rate limiting)", symbol, interval)
+		}
+		return nil, fmt.Errorf("CoinAnk %s %s %s returned empty data", exchange, symbol, interval)
+	}
+	return convertCoinAnkKlines(coinankKlines), nil
+}
+
+// getKlinesFromCoinAnkContext is the public fallback wrapper. It first tries
+// the requested exchange; on failure or empty data, it falls back to Binance
+// (and that fallback also goes through the cache, so a Binance outage does
+// not amplify the load).
+func getKlinesFromCoinAnkContext(ctx context.Context, symbol, interval string, limit int, exchange string) ([]Kline, error) {
+	klines, err := getKlinesCached(ctx, symbol, exchange, interval, limit, fetchKlinesCoinAnkRaw)
+	if err == nil {
+		return klines, nil
+	}
+	if strings.EqualFold(exchange, "binance") {
+		return nil, err
+	}
+	logger.Warnf("⚠️ CoinAnk %s data failed, falling back to Binance: %v", exchange, err)
+	return getKlinesCached(ctx, symbol, "binance", interval, limit, fetchKlinesCoinAnkRaw)
+}
+
+// getKlinesFromCoinAnk is the legacy no-context entry point. It delegates to
+// the context-aware version with a background context.
+func getKlinesFromCoinAnk(symbol, interval, exchange string, limit int) ([]Kline, error) {
+	return getKlinesFromCoinAnkContext(context.Background(), symbol, interval, limit, exchange)
+}
+
+// fetchKlinesHyperliquidRaw performs a single Hyperliquid API request with NO
+// fallback. Used as the underlying fetcher for the cache layer.
+func fetchKlinesHyperliquidRaw(ctx context.Context, symbol, interval string, limit int, exchange string) ([]Kline, error) {
 	// Remove xyz: prefix if present for the API call
 	baseCoin := strings.TrimPrefix(symbol, "xyz:")
 
-	// Map interval to Hyperliquid format
 	hlInterval := hyperliquid.MapTimeframe(interval)
 
-	// Create Hyperliquid client
 	client := hyperliquid.NewClient()
-
-	// Fetch candles
-	ctx := context.Background()
 	candles, err := client.GetCandles(ctx, baseCoin, hlInterval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("Hyperliquid API error: %w", err)
 	}
 
-	// Convert to market.Kline format
 	klines := make([]Kline, len(candles))
 	for i, c := range candles {
 		open, _ := strconv.ParseFloat(c.Open, 64)
@@ -155,8 +175,213 @@ func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, erro
 			CloseTime: c.CloseTime,
 		}
 	}
-
 	return klines, nil
+}
+
+// getKlinesFromHyperliquidContext is the context-aware Hyperliquid fetcher.
+// Hyperliquid has no fallback exchange, so this just goes through the cache
+// directly.
+func getKlinesFromHyperliquidContext(ctx context.Context, symbol, interval string, limit int) ([]Kline, error) {
+	return getKlinesCached(ctx, symbol, "hyperliquid", interval, limit, fetchKlinesHyperliquidRaw)
+}
+
+// getKlinesFromHyperliquid is the legacy no-context entry point. It delegates
+// to the context-aware version with a background context.
+func getKlinesFromHyperliquid(symbol, interval string, limit int) ([]Kline, error) {
+	return getKlinesFromHyperliquidContext(context.Background(), symbol, interval, limit)
+}
+
+// ---------------------------------------------------------------------------
+// Kline cache layer (see docs/plans/2026-06-12-kline-cache-design.md)
+// ---------------------------------------------------------------------------
+
+// klineFetcher is the function signature used by getKlinesCached. It performs
+// a single, side-effect-free fetch for a (symbol, interval, limit, exchange)
+// tuple. The cache layer treats the returned data as authoritative for that
+// tuple; the fetcher must NOT transparently fall back to a different
+// exchange, or the cache would store data under a misleading key.
+type klineFetcher func(ctx context.Context, symbol, interval string, limit int, exchange string) ([]Kline, error)
+
+type klineCacheEntry struct {
+	klines    []Kline
+	fetchedAt time.Time
+	limit     int
+}
+
+var (
+	klineCache   = make(map[string]*klineCacheEntry)
+	klineCacheMu sync.RWMutex
+	klineSF      singleflight.Group
+)
+
+func init() {
+	go cleanExpiredCacheLoop(5 * time.Minute)
+}
+
+// cacheKey returns the storage key for a (symbol, exchange, interval) tuple.
+func cacheKey(symbol, exchange, interval string) string {
+	return symbol + ":" + strings.ToLower(exchange) + ":" + interval
+}
+
+// baseTTL returns the base freshness window for a given interval. A new bar
+// (when it closes) is the actual signal that data has changed; the TTL is
+// just a backstop so we never serve indefinitely stale data.
+func baseTTL(interval string) time.Duration {
+	switch interval {
+	case "1m":
+		return 30 * time.Second
+	case "3m":
+		return 90 * time.Second
+	case "5m":
+		return 150 * time.Second
+	default:
+		// 15m and above: short TTL is enough; a single decision cycle reuses it.
+		return 30 * time.Second
+	}
+}
+
+// intervalDuration returns the duration of a single bar for the given
+// interval. Returns 0 for unknown intervals.
+func intervalDuration(interval string) time.Duration {
+	mins := parseTimeframeToMinutes(interval)
+	if mins <= 0 {
+		return 0
+	}
+	return time.Duration(mins) * time.Minute
+}
+
+// cacheValid reports whether the cached entry is still fresh enough to serve.
+// It enforces both the base TTL and a "bar boundary" check: if at least one
+// full bar has closed since the newest cached bar, we have definitely missed
+// a bar and must refetch.
+func cacheValid(entry *klineCacheEntry, interval string) bool {
+	if entry == nil {
+		return false
+	}
+	if time.Since(entry.fetchedAt) >= baseTTL(interval) {
+		return false
+	}
+	if len(entry.klines) == 0 {
+		return true
+	}
+	barDuration := intervalDuration(interval)
+	if barDuration <= 0 {
+		return true
+	}
+	newestBar := entry.klines[len(entry.klines)-1]
+	if newestBar.CloseTime <= 0 {
+		// No CloseTime: degrade to base TTL only.
+		return true
+	}
+	if time.Since(time.UnixMilli(newestBar.CloseTime)) > barDuration {
+		return false
+	}
+	return true
+}
+
+// cacheGet returns a copy of the cache entry pointer (not a deep copy of the
+// kline slice) under the read lock. Callers must not mutate the kline slice.
+func cacheGet(key string) (*klineCacheEntry, bool) {
+	klineCacheMu.RLock()
+	defer klineCacheMu.RUnlock()
+	entry, ok := klineCache[key]
+	return entry, ok
+}
+
+// cacheSet stores klines under the given key. The entry is only overwritten
+// if the new fetch's limit is >= the existing entry's limit, so a concurrent
+// "small" request can't shrink a "big" request's cache.
+func cacheSet(key string, klines []Kline, limit int) {
+	klineCacheMu.Lock()
+	defer klineCacheMu.Unlock()
+	if existing, ok := klineCache[key]; ok && existing.limit > limit {
+		return
+	}
+	klineCache[key] = &klineCacheEntry{
+		klines:    klines,
+		fetchedAt: time.Now(),
+		limit:     limit,
+	}
+}
+
+// sliceTail returns the last `limit` klines (or all of them if shorter).
+func sliceTail(klines []Kline, limit int) []Kline {
+	if limit <= 0 || len(klines) <= limit {
+		// Return a copy so callers can't mutate the cache.
+		out := make([]Kline, len(klines))
+		copy(out, klines)
+		return out
+	}
+	out := make([]Kline, limit)
+	copy(out, klines[len(klines)-limit:])
+	return out
+}
+
+// getKlinesCached returns klines for (symbol, exchange, interval) with a
+// per-process in-memory cache. Concurrent requests for the same key+limit
+// share a single underlying fetch via singleflight. The fetcher is injected
+// so callers (and tests) can swap in mocks.
+func getKlinesCached(ctx context.Context, symbol, exchange, interval string, limit int, fetch klineFetcher) ([]Kline, error) {
+	if fetch == nil {
+		return nil, fmt.Errorf("getKlinesCached: nil fetcher")
+	}
+	cKey := cacheKey(symbol, exchange, interval)
+
+	// Fast path: cache hit, fully covers the requested limit, no singleflight.
+	if entry, ok := cacheGet(cKey); ok && cacheValid(entry, interval) && entry.limit >= limit {
+		logger.Debugf("kline cache hit: %s limit=%d", cKey, limit)
+		return sliceTail(entry.klines, limit), nil
+	}
+
+	// Slow path: singleflight-coalesce fetches per (key, limit).
+	sfKey := cKey + ":" + strconv.Itoa(limit)
+	v, err, _ := klineSF.Do(sfKey, func() (interface{}, error) {
+		// Double-check: another goroutine may have filled the cache while we
+		// were waiting on singleflight.
+		if entry, ok := cacheGet(cKey); ok && cacheValid(entry, interval) && entry.limit >= limit {
+			return sliceTail(entry.klines, limit), nil
+		}
+
+		// If a "bigger" entry exists but is stale, we re-fetch with the
+		// bigger limit to amortize future requests; otherwise we fetch
+		// exactly what was asked for.
+		fetchLimit := limit
+		if entry, ok := cacheGet(cKey); ok && entry.limit > fetchLimit {
+			fetchLimit = entry.limit
+		}
+
+		klines, err := fetch(ctx, symbol, interval, fetchLimit, exchange)
+		if err != nil {
+			return nil, err
+		}
+		cacheSet(cKey, klines, fetchLimit)
+		return klines, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return sliceTail(v.([]Kline), limit), nil
+}
+
+// cleanExpiredCacheLoop periodically drops entries whose fetchedAt + base TTL
+// is already in the past. Prevents stale residue from symbols that have been
+// removed from the candidate set.
+func cleanExpiredCacheLoop(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		klineCacheMu.Lock()
+		for key, entry := range klineCache {
+			// Re-use the most generous TTL when judging expiry, so we don't
+			// drop an entry whose interval is unknown.
+			ttl := 5 * time.Minute
+			if now.Sub(entry.fetchedAt) >= ttl {
+				delete(klineCache, key)
+			}
+		}
+		klineCacheMu.Unlock()
+	}
 }
 
 // calculateTimeframeSeries calculates series data for a single timeframe
@@ -496,9 +721,9 @@ func GetBoxData(symbol string) (*BoxData, error) {
 	var err error
 
 	if IsXyzDexAsset(symbol) {
-		klines, err = getKlinesFromHyperliquid(symbol, "1h", LongBoxPeriod)
+		klines, err = getKlinesFromHyperliquidContext(context.Background(), symbol, "1h", LongBoxPeriod)
 	} else {
-		klines, err = getKlinesFromCoinAnk(symbol, "1h", "binance", LongBoxPeriod)
+		klines, err = getKlinesFromCoinAnkContext(context.Background(), symbol, "1h", LongBoxPeriod, "binance")
 	}
 
 	if err != nil {
