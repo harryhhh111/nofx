@@ -71,6 +71,21 @@ export const dataApi = {
     return result.data!
   },
 
+  async getDecisionById(
+    traderId: string,
+    decisionId: number,
+    silent?: boolean
+  ): Promise<DecisionRecord> {
+    const params = new URLSearchParams()
+    params.append('trader_id', traderId)
+    const result = await httpClient.request<DecisionRecord>(
+      `${API_BASE}/decisions/${decisionId}?${params}`,
+      { silent }
+    )
+    if (!result.success) throw new Error('Failed to fetch decision record')
+    return result.data!
+  },
+
   async getStatistics(traderId?: string, silent?: boolean): Promise<Statistics> {
     const url = traderId
       ? `${API_BASE}/statistics?trader_id=${traderId}`

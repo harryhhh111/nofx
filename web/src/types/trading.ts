@@ -332,6 +332,26 @@ export interface HistoricalPosition {
   leverage: number
   status: string
   close_reason: string
+  opening_cycle?: number
+  opening_reasoning?: string
+  opening_decision_id?: number
+  opening_signal_id?: string
+  opening_rule_id?: string
+  opening_setup?: string
+  strategy_id?: string
+  strategy_version?: string
+  last_review_summary?: string
+  last_review_cycle?: number
+  stop_loss_source?: string
+  stop_loss_timeframe?: string
+  stop_loss_anchor?: number
+  take_profit_source?: string
+  take_profit_timeframe?: string
+  take_profit_anchor?: number
+  protective_atr?: number
+  protective_atr_timeframe?: string
+  protective_atr_buffer?: number
+  protective_risk_reward?: number
   created_at: string
   updated_at: string
 }

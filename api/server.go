@@ -254,6 +254,8 @@ func (s *Server) setupRoutes() {
 				s.handleDecisions)
 			s.route(protected, "GET", "/decisions/latest",
 				s.handleLatestDecisions)
+			s.route(protected, "GET", "/decisions/:id",
+				s.handleDecisionByID)
 			s.route(protected, "GET", "/trade-memories",
 				s.handleTradeMemories)
 			s.route(protected, "GET", "/execution-analytics",

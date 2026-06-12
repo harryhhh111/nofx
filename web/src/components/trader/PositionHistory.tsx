@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { api } from '../../lib/api'
 import { useLanguage } from '../../contexts/LanguageContext'
 import { t, type Language } from '../../i18n/translations'
@@ -21,8 +21,10 @@ function formatCloseReasonLabel(code: string | undefined, language: Language): s
 import { MetricTooltip } from '../common/MetricTooltip'
 import { formatPrice, formatQuantity } from '../../utils/format'
 import { NofxSelect } from '../ui/select'
+import { DecisionCard } from './DecisionCard'
 import type {
   HistoricalPosition,
+  DecisionRecord,
   TraderStats,
   SymbolStats,
   DirectionStats,
@@ -248,11 +250,17 @@ function DirectionStatsCard({ stat, language }: { stat: DirectionStats; language
 // Position Row Component
 function PositionRow({
   position,
+  traderId,
   language,
 }: {
   position: HistoricalPosition
+  traderId: string
   language: Language
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const [decision, setDecision] = useState<DecisionRecord | null>(null)
+  const [decisionLoading, setDecisionLoading] = useState(false)
+  const [decisionError, setDecisionError] = useState<string | null>(null)
   const side = position.side || ''
   const isLong = side.toUpperCase() === 'LONG'
   const realizedPnl = position.realized_pnl || 0
@@ -279,11 +287,41 @@ function PositionRow({
 
   // Use entry_quantity for display (original position size)
   const displayQty = position.entry_quantity || position.quantity || 0
+  const decisionId = position.opening_decision_id || 0
+  const hasDetails = Boolean(
+    decisionId ||
+      position.opening_setup ||
+      position.opening_reasoning ||
+      position.last_review_summary ||
+      position.opening_signal_id ||
+      position.opening_rule_id
+  )
+
+  const loadDecision = useCallback(async () => {
+    if (!decisionId || decision || decisionLoading) return
+    try {
+      setDecisionLoading(true)
+      setDecisionError(null)
+      const record = await api.getDecisionById(traderId, decisionId, true)
+      setDecision(record)
+    } catch (err) {
+      setDecisionError(err instanceof Error ? err.message : 'Failed to load decision')
+    } finally {
+      setDecisionLoading(false)
+    }
+  }, [decisionId, decision, decisionLoading, traderId])
+
+  useEffect(() => {
+    if (expanded && decisionId > 0) {
+      void loadDecision()
+    }
+  }, [expanded, decisionId, loadDecision])
 
   return (
+    <>
     <tr
       className="transition-all duration-200 hover:bg-white/5"
-      style={{ borderBottom: '1px solid #2B3139' }}
+      style={{ borderBottom: expanded ? '0' : '1px solid #2B3139' }}
     >
       {/* Symbol */}
       <td className="py-3 px-4">
@@ -355,9 +393,101 @@ function PositionRow({
 
       {/* Exit Time */}
       <td className="py-3 px-4 text-right text-xs" style={{ color: '#848E9C' }}>
-        {formatDate(position.exit_time)}
+        <div className="flex items-center justify-end gap-2">
+          <span>{formatDate(position.exit_time)}</span>
+          {hasDetails && (
+            <button
+              type="button"
+              onClick={() => setExpanded((value) => !value)}
+              className="rounded px-2 py-1 text-[11px] transition-colors"
+              style={{
+                background: expanded ? '#2B3139' : 'rgba(255,255,255,0.04)',
+                border: '1px solid #2B3139',
+                color: '#EAECEF',
+              }}
+            >
+              {expanded
+                ? language === 'zh' ? '收起' : 'Hide'
+                : language === 'zh' ? '详情' : 'Details'}
+            </button>
+          )}
+        </div>
       </td>
     </tr>
+    {expanded && (
+      <tr style={{ borderBottom: '1px solid #2B3139' }}>
+        <td colSpan={10} className="px-4 pb-4">
+          <div className="space-y-3">
+            <div
+              className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-xs"
+              style={{ color: '#848E9C' }}
+            >
+              <span>
+                {language === 'zh' ? '关联持仓' : 'Linked Position'}:{' '}
+                <span className="font-mono" style={{ color: '#EAECEF' }}>
+                  {(position.symbol || '').replace('USDT', '')} {side}
+                </span>
+              </span>
+              <span>
+                PnL:{' '}
+                <span className="font-mono" style={{ color: pnlColor }}>
+                  {isProfitable ? '+' : ''}
+                  {formatNumber(realizedPnl)}
+                </span>
+              </span>
+              <span>
+                Decision ID:{' '}
+                <span className="font-mono" style={{ color: '#EAECEF' }}>
+                  {decisionId || '-'}
+                </span>
+              </span>
+              {position.opening_setup && (
+                <span>
+                  Setup:{' '}
+                  <span className="font-mono" style={{ color: '#EAECEF' }}>
+                    {position.opening_setup}
+                  </span>
+                </span>
+              )}
+            </div>
+
+            {decisionLoading && (
+              <div
+                className="rounded-lg border border-white/10 bg-black/20 p-4 text-sm"
+                style={{ color: '#848E9C' }}
+              >
+                {language === 'zh' ? '正在加载决策轮次...' : 'Loading decision round...'}
+              </div>
+            )}
+
+            {decisionError && (
+              <div
+                className="rounded-lg border p-4 text-sm"
+                style={{
+                  background: 'rgba(246, 70, 93, 0.08)',
+                  borderColor: 'rgba(246, 70, 93, 0.3)',
+                  color: '#F6465D',
+                }}
+              >
+                {decisionError}
+              </div>
+            )}
+
+            {decision && <DecisionCard decision={decision} language={language} />}
+
+            {!decisionLoading && !decision && position.opening_reasoning && (
+              <div
+                className="whitespace-pre-wrap rounded-lg border border-white/10 bg-black/20 p-4 text-xs leading-relaxed"
+                style={{ color: '#EAECEF' }}
+              >
+                {position.opening_reasoning}
+              </div>
+            )}
+          </div>
+        </td>
+      </tr>
+    )}
+    </>
   )
 }
 
@@ -829,7 +959,12 @@ export function PositionHistory({ traderId }: PositionHistoryProps) {
             </thead>
             <tbody>
               {filteredPositions.map((position) => (
-                <PositionRow key={position.id} position={position} language={language} />
+                <PositionRow
+                  key={position.id}
+                  position={position}
+                  traderId={traderId}
+                  language={language}
+                />
               ))}
             </tbody>
           </table>

@@ -39,6 +39,33 @@ func (s *Server) handleDecisions(c *gin.Context) {
 	c.JSON(http.StatusOK, records)
 }
 
+// handleDecisionByID returns one decision record for the selected trader.
+func (s *Server) handleDecisionByID(c *gin.Context) {
+	_, traderID, err := s.getTraderFromQuery(c)
+	if err != nil {
+		SafeBadRequest(c, "Invalid trader ID")
+		return
+	}
+	decisionID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || decisionID <= 0 {
+		SafeBadRequest(c, "Invalid decision ID")
+		return
+	}
+
+	trader, err := s.traderManager.GetTrader(traderID)
+	if err != nil {
+		SafeNotFound(c, "Trader")
+		return
+	}
+	record, err := trader.GetStore().Decision().GetRecordByID(trader.GetID(), decisionID)
+	if err != nil {
+		SafeNotFound(c, "Decision record")
+		return
+	}
+
+	c.JSON(http.StatusOK, record)
+}
+
 // handleLatestDecisions Latest decision logs (newest first, supports limit parameter)
 func (s *Server) handleLatestDecisions(c *gin.Context) {
 	_, traderID, err := s.getTraderFromQuery(c)
