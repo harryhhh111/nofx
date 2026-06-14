@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/assert"
@@ -154,8 +156,8 @@ func NewAsterTraderTestSuite(t *testing.T) *AsterTraderTestSuite {
 				"type":    orderParams["type"],
 			}
 
-		// Mock CancelOrder - /fapi/v1/order (DELETE)
-		case path == "/fapi/v1/order" && r.Method == "DELETE":
+		// Mock CancelOrder - /fapi/v3/order (DELETE)
+		case path == "/fapi/v3/order" && r.Method == "DELETE":
 			respBody = map[string]interface{}{
 				"orderId": 123456,
 				"symbol":  "BTCUSDT",
@@ -600,5 +602,69 @@ func TestNewAsterTrader(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestAsterCancelStopLossOrdersUsesV3Endpoint(t *testing.T) {
+	var deletedOrderIDs []int64
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/fapi/v3/time":
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"serverTime": time.Now().UnixMilli()})
+		case r.URL.Path == "/fapi/v3/openOrders" && r.Method == "GET":
+			_ = json.NewEncoder(w).Encode([]map[string]interface{}{
+				{
+					"orderId":      1001,
+					"symbol":       "BTCUSDT",
+					"type":         "STOP_MARKET",
+					"side":         "SELL",
+					"positionSide": "LONG",
+					"stopPrice":    "49000",
+					"origQty":      "0.01",
+					"status":       "NEW",
+				},
+				{
+					"orderId":      1002,
+					"symbol":       "BTCUSDT",
+					"type":         "TAKE_PROFIT_MARKET",
+					"side":         "SELL",
+					"positionSide": "LONG",
+					"stopPrice":    "60000",
+					"origQty":      "0.01",
+					"status":       "NEW",
+				},
+			})
+		case r.URL.Path == "/fapi/v3/order" && r.Method == "DELETE":
+			orderID := r.URL.Query().Get("orderId")
+			if id, err := strconv.ParseInt(orderID, 10, 64); err == nil {
+				deletedOrderIDs = append(deletedOrderIDs, id)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"orderId": orderID,
+				"symbol":  "BTCUSDT",
+				"status":  "CANCELED",
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
+		}
+	}))
+	defer mockServer.Close()
+
+	privateKey, _ := crypto.GenerateKey()
+	trader := &AsterTrader{
+		ctx:             context.Background(),
+		user:            "0x1234567890123456789012345678901234567890",
+		signer:          "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+		privateKey:      privateKey,
+		client:          mockServer.Client(),
+		baseURL:         mockServer.URL,
+		symbolPrecision: make(map[string]SymbolPrecision),
+	}
+
+	if err := trader.CancelStopLossOrders("BTCUSDT"); err != nil {
+		t.Fatalf("CancelStopLossOrders failed: %v", err)
+	}
+	if len(deletedOrderIDs) != 1 || deletedOrderIDs[0] != 1001 {
+		t.Fatalf("expected only STOP_MARKET order 1001 to be deleted via /fapi/v3/order, got %v", deletedOrderIDs)
 	}
 }
