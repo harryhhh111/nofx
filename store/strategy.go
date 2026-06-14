@@ -728,6 +728,23 @@ func ParseStrategyConfigWithDefaults(raw []byte, fallbackLang string) (*Strategy
 	if config.StrategyType == "grid_trading" && config.GridConfig == nil {
 		config.GridConfig = GetDefaultGridStrategyConfig()
 	}
+
+	// Backward compatibility for BreakevenProtection:
+	// New strategies created with an empty config inherit the default (enabled).
+	// Existing strategies that did not explicitly configure breakeven_protection
+	// keep it disabled, matching the original design intent in
+	// docs/plans/2026-06-10-breakeven-protection-design.md §4.3.
+	if len(override) > 0 {
+		rc, rcOK := override["risk_control"].(map[string]interface{})
+		if !rcOK {
+			// Existing config has no risk_control block at all.
+			config.RiskControl.BreakevenProtection = nil
+		} else if _, hasBE := rc["breakeven_protection"]; !hasBE {
+			// risk_control exists but breakeven_protection was never set.
+			config.RiskControl.BreakevenProtection = nil
+		}
+	}
+
 	config.ClampLimits()
 	return &config, nil
 }

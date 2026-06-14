@@ -425,11 +425,13 @@ func (at *AutoTrader) checkBreakevenPromotion(positions []map[string]interface{}
 		return
 	}
 
-	// Exchanges where CancelStopLossOrders is unsafe for BE:
+	// Exchanges where CancelStopLossOrders is unsafe or broken for BE:
 	// - hyperliquid: cannot distinguish SL/TP (would wipe TP)
 	// - lighter: same limitation
+	// - aster: CancelStopLossOrders consistently fails with "API-key format invalid"
+	//   (HTTP 401 / Binance code -2014), so BE promotion cannot complete safely.
 	exch := strings.ToLower(at.exchange)
-	if exch == "hyperliquid" || exch == "lighter" {
+	if exch == "hyperliquid" || exch == "lighter" || exch == "aster" {
 		return
 	}
 

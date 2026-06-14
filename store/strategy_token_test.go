@@ -150,14 +150,58 @@ func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
 	if config.Indicators.Klines.PrimaryTimeframe != "5m" {
 		t.Errorf("primary timeframe = %q, want 5m", config.Indicators.Klines.PrimaryTimeframe)
 	}
-	if config.Indicators.Klines.PrimaryCount != 20 {
-		t.Errorf("primary count = %d, want 20", config.Indicators.Klines.PrimaryCount)
+	if config.Indicators.Klines.PrimaryCount != 25 {
+		t.Errorf("primary count = %d, want 25", config.Indicators.Klines.PrimaryCount)
 	}
 	if config.Indicators.EnableQuantData {
 		t.Error("explicit enable_quant_data=false should be preserved")
 	}
 	if len(config.Indicators.ATRPeriods) != 1 || config.Indicators.ATRPeriods[0] != 14 {
 		t.Errorf("atr periods = %v, want [14]", config.Indicators.ATRPeriods)
+	}
+}
+
+func TestParseConfig_BreakevenProtectionBackwardCompat(t *testing.T) {
+	// Empty config (new strategy) should inherit the default: enabled.
+	empty := &Strategy{Config: "{}"}
+	cfg, err := empty.ParseConfig()
+	if err != nil {
+		t.Fatalf("empty ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.BreakevenProtection == nil || !cfg.RiskControl.BreakevenProtection.Enabled {
+		t.Errorf("empty config should have BreakevenProtection enabled by default, got %v", cfg.RiskControl.BreakevenProtection)
+	}
+
+	// Existing partial config without breakeven_protection should keep it disabled.
+	existing := &Strategy{Config: `{"language":"zh","risk_control":{"min_confidence":75}}`}
+	cfg, err = existing.ParseConfig()
+	if err != nil {
+		t.Fatalf("existing ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.BreakevenProtection != nil {
+		t.Errorf("existing config missing breakeven_protection should keep it nil, got %v", cfg.RiskControl.BreakevenProtection)
+	}
+
+	// Explicitly configured breakeven_protection should be preserved.
+	explicitOff := &Strategy{Config: `{"risk_control":{"breakeven_protection":{"enabled":false,"trigger_pct":1}}}`}
+	cfg, err = explicitOff.ParseConfig()
+	if err != nil {
+		t.Fatalf("explicitOff ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.BreakevenProtection == nil || cfg.RiskControl.BreakevenProtection.Enabled {
+		t.Errorf("explicitly disabled breakeven_protection should stay disabled, got %v", cfg.RiskControl.BreakevenProtection)
+	}
+
+	explicitOn := &Strategy{Config: `{"risk_control":{"breakeven_protection":{"enabled":true,"trigger_pct":2}}}`}
+	cfg, err = explicitOn.ParseConfig()
+	if err != nil {
+		t.Fatalf("explicitOn ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.BreakevenProtection == nil || !cfg.RiskControl.BreakevenProtection.Enabled {
+		t.Errorf("explicitly enabled breakeven_protection should stay enabled, got %v", cfg.RiskControl.BreakevenProtection)
+	}
+	if cfg.RiskControl.BreakevenProtection.TriggerPct != 2.0 {
+		t.Errorf("trigger_pct = %v, want 2.0", cfg.RiskControl.BreakevenProtection.TriggerPct)
 	}
 }
 
