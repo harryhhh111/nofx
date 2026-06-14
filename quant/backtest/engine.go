@@ -18,17 +18,33 @@ type pendingOrder struct {
 }
 
 type openPosition struct {
-	tradeID      string
-	signal       StrategySignal
-	snapshot     FeatureSnapshot
-	riskDecision RiskDecision
-	side         Side
-	quantity     float64
-	entryTime    time.Time
-	entryPrice   float64
-	entryFee     float64
-	mfePct       float64
-	maePct       float64
+	tradeID       string
+	signal        StrategySignal
+	snapshot      FeatureSnapshot
+	riskDecision  RiskDecision
+	side          Side
+	quantity      float64
+	entryTime     time.Time
+	entryBarIndex int
+	entryPrice    float64
+	entryFee      float64
+	stopPrice     float64
+	stopReason    ExitReason
+	mfePct        float64
+	maePct        float64
+	peakPrice     float64
+	troughPrice   float64
+}
+
+type runState struct {
+	currentDay          string
+	dailyStartEquity    float64
+	dailyPnL            float64
+	dailyTrades         int
+	lossStreakBySide    map[Side]int
+	lossStreakBySymSide map[string]int
+	cooldownBySide      map[Side]int
+	cooldownBySymSide   map[string]int
 }
 
 func (e Engine) Run(klines []market.Kline) (Result, error) {
@@ -68,25 +84,35 @@ func (e Engine) Run(klines []market.Kline) (Result, error) {
 	equity := e.Config.InitialEquity
 	var pending *pendingOrder
 	var position *openPosition
+	state := newRunState(run.StartTime, equity)
 
 	for i, bar := range klines {
 		barTime := time.UnixMilli(bar.OpenTime).UTC()
+		state.ensureDay(barTime, equity)
 
 		if pending != nil && position == nil {
-			opened, err := e.openPosition(*pending, bar, len(result.Trades)+1)
+			opened, rejected, err := e.openPosition(*pending, bar, i, len(result.Trades)+1, equity, state)
 			if err != nil {
 				return Result{}, err
 			}
-			position = opened
+			if rejected != nil {
+				result.RejectedSignals = append(result.RejectedSignals, *rejected)
+			}
+			if opened != nil {
+				position = opened
+				state.recordEntry()
+			}
 			pending = nil
 		}
 
 		if position != nil {
 			updateExcursions(position, bar)
-			if exitPrice, reason, ok := e.exitTriggered(position, bar); ok {
+			if exitPrice, reason, ok := e.exitTriggered(position, bar, i); ok {
 				trade := e.closePosition(position, barTime, exitPrice, reason)
 				result.Trades = append(result.Trades, trade)
 				equity += trade.NetPnL
+				state.recordExit(trade)
+				state.updateCooldowns(trade, i, e.Config)
 				result.EquityCurve = append(result.EquityCurve, EquityPoint{Time: trade.ExitTime, Equity: equity})
 				position = nil
 			}
@@ -125,6 +151,9 @@ func (e Engine) Run(klines []market.Kline) (Result, error) {
 		trade := e.closePosition(position, exitTime, last.Close, ExitReasonEndOfData)
 		result.Trades = append(result.Trades, trade)
 		equity += trade.NetPnL
+		state.ensureDay(trade.ExitTime, equity-trade.NetPnL)
+		state.recordExit(trade)
+		state.updateCooldowns(trade, len(klines)-1, e.Config)
 		result.EquityCurve = append(result.EquityCurve, EquityPoint{Time: trade.ExitTime, Equity: equity})
 	}
 
@@ -148,8 +177,32 @@ func (e Engine) validate(klines []market.Kline) error {
 	if e.Config.InitialEquity <= 0 {
 		return fmt.Errorf("initial equity must be positive")
 	}
-	if e.Config.FixedQuantity <= 0 && e.Config.FixedNotionalUSDT <= 0 {
-		return fmt.Errorf("fixed quantity or fixed notional must be positive")
+	if e.Config.FixedQuantity <= 0 && e.Config.FixedNotionalUSDT <= 0 && e.Config.RiskPerTradePct <= 0 {
+		return fmt.Errorf("fixed quantity, fixed notional, or risk per trade must be positive")
+	}
+	if e.Config.RiskPerTradePct < 0 {
+		return fmt.Errorf("risk per trade cannot be negative")
+	}
+	if e.Config.MaxDailyLossPct < 0 {
+		return fmt.Errorf("max daily loss cannot be negative")
+	}
+	if e.Config.MaxDailyTrades < 0 {
+		return fmt.Errorf("max daily trades cannot be negative")
+	}
+	if e.Config.TimeStopBars < 0 {
+		return fmt.Errorf("time stop bars cannot be negative")
+	}
+	if e.Config.BreakevenTriggerPct < 0 {
+		return fmt.Errorf("breakeven trigger cannot be negative")
+	}
+	if e.Config.TrailingStartPct < 0 || e.Config.TrailingDistancePct < 0 {
+		return fmt.Errorf("trailing stop values cannot be negative")
+	}
+	if e.Config.TrailingStartPct > 0 && e.Config.TrailingDistancePct <= 0 {
+		return fmt.Errorf("trailing distance must be positive when trailing start is enabled")
+	}
+	if e.Config.CooldownLosses < 0 || e.Config.CooldownBars < 0 {
+		return fmt.Errorf("cooldown values cannot be negative")
 	}
 	if e.Config.TakerFeeRate < 0 {
 		return fmt.Errorf("taker fee rate cannot be negative")
@@ -160,56 +213,128 @@ func (e Engine) validate(klines []market.Kline) error {
 	return nil
 }
 
-func (e Engine) openPosition(order pendingOrder, bar market.Kline, sequence int) (*openPosition, error) {
+func (e Engine) openPosition(order pendingOrder, bar market.Kline, barIndex, sequence int, equity float64, state *runState) (*openPosition, *RejectedSignal, error) {
 	entryPrice := applySlippage(order.signal.Side, true, bar.Open, e.Config.SlippageBps)
 	if err := validateStops(order.signal, entryPrice); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	quantity := e.Config.FixedQuantity
-	if quantity <= 0 {
-		quantity = e.Config.FixedNotionalUSDT / entryPrice
+	quantity, riskUSDT, reasons := e.positionSize(order.signal, entryPrice, equity)
+	decision := state.riskDecision(order.signal, quantity, riskUSDT, reasons, e.Config, barIndex)
+	if decision.Action == "block" {
+		return nil, &RejectedSignal{
+			Signal:          order.signal,
+			FeatureSnapshot: order.snapshot,
+			RiskDecision:    decision,
+			Time:            time.UnixMilli(bar.OpenTime).UTC(),
+			RawEntryPrice:   bar.Open,
+		}, nil
 	}
 	notional := entryPrice * quantity
 	entryFee := notional * e.Config.TakerFeeRate
 
 	return &openPosition{
-		tradeID:      fmt.Sprintf("bt_%06d", sequence),
-		signal:       order.signal,
-		snapshot:     order.snapshot,
-		riskDecision: RiskDecision{Action: "allow", PositionSize: quantity, Reasons: []string{"phase1_fixed_size"}},
-		side:         order.signal.Side,
-		quantity:     quantity,
-		entryTime:    time.UnixMilli(bar.OpenTime).UTC(),
-		entryPrice:   entryPrice,
-		entryFee:     entryFee,
-		mfePct:       0,
-		maePct:       0,
-	}, nil
+		tradeID:       fmt.Sprintf("bt_%06d", sequence),
+		signal:        order.signal,
+		snapshot:      order.snapshot,
+		riskDecision:  decision,
+		side:          order.signal.Side,
+		quantity:      quantity,
+		entryTime:     time.UnixMilli(bar.OpenTime).UTC(),
+		entryBarIndex: barIndex,
+		entryPrice:    entryPrice,
+		entryFee:      entryFee,
+		stopPrice:     order.signal.StopLoss,
+		stopReason:    ExitReasonStopLoss,
+		mfePct:        0,
+		maePct:        0,
+		peakPrice:     entryPrice,
+		troughPrice:   entryPrice,
+	}, nil, nil
 }
 
-func (e Engine) exitTriggered(position *openPosition, bar market.Kline) (float64, ExitReason, bool) {
+func (e Engine) positionSize(signal StrategySignal, entryPrice, equity float64) (float64, float64, []string) {
+	if e.Config.RiskPerTradePct > 0 {
+		riskUSDT := equity * e.Config.RiskPerTradePct
+		perUnitRisk := abs(entryPrice - signal.StopLoss)
+		if perUnitRisk <= 0 {
+			return 0, riskUSDT, []string{"invalid_stop_distance"}
+		}
+		return riskUSDT / perUnitRisk, riskUSDT, []string{fmt.Sprintf("risk_per_trade_%.4f_pct", e.Config.RiskPerTradePct*100)}
+	}
+	if e.Config.FixedQuantity > 0 {
+		return e.Config.FixedQuantity, 0, []string{"phase1_fixed_quantity"}
+	}
+	return e.Config.FixedNotionalUSDT / entryPrice, 0, []string{"phase1_fixed_notional"}
+}
+
+func (e Engine) exitTriggered(position *openPosition, bar market.Kline, barIndex int) (float64, ExitReason, bool) {
 	switch position.side {
 	case SideLong:
-		stopHit := bar.Low <= position.signal.StopLoss
+		stopHit := bar.Low <= position.stopPrice
 		takeHit := bar.High >= position.signal.TakeProfit
 		if stopHit {
-			return position.signal.StopLoss, ExitReasonStopLoss, true
+			return position.stopPrice, position.stopReason, true
 		}
 		if takeHit {
 			return position.signal.TakeProfit, ExitReasonTakeProfit, true
 		}
 	case SideShort:
-		stopHit := bar.High >= position.signal.StopLoss
+		stopHit := bar.High >= position.stopPrice
 		takeHit := bar.Low <= position.signal.TakeProfit
 		if stopHit {
-			return position.signal.StopLoss, ExitReasonStopLoss, true
+			return position.stopPrice, position.stopReason, true
 		}
 		if takeHit {
 			return position.signal.TakeProfit, ExitReasonTakeProfit, true
 		}
 	}
+	if e.Config.TimeStopBars > 0 && barIndex-position.entryBarIndex+1 >= e.Config.TimeStopBars {
+		return bar.Close, ExitReasonTimeStop, true
+	}
+	e.updateLifecycleStops(position, bar)
 	return 0, "", false
+}
+
+func (e Engine) updateLifecycleStops(position *openPosition, bar market.Kline) {
+	switch position.side {
+	case SideLong:
+		if bar.High > position.peakPrice {
+			position.peakPrice = bar.High
+		}
+		favorablePct := (position.peakPrice - position.entryPrice) / position.entryPrice * 100
+		if e.Config.BreakevenTriggerPct > 0 && favorablePct >= e.Config.BreakevenTriggerPct {
+			if position.stopPrice < position.entryPrice {
+				position.stopPrice = position.entryPrice
+				position.stopReason = ExitReasonBreakeven
+			}
+		}
+		if e.Config.TrailingStartPct > 0 && favorablePct >= e.Config.TrailingStartPct {
+			trailingStop := position.peakPrice * (1 - e.Config.TrailingDistancePct/100)
+			if trailingStop > position.stopPrice {
+				position.stopPrice = trailingStop
+				position.stopReason = ExitReasonTrailing
+			}
+		}
+	case SideShort:
+		if bar.Low < position.troughPrice {
+			position.troughPrice = bar.Low
+		}
+		favorablePct := (position.entryPrice - position.troughPrice) / position.entryPrice * 100
+		if e.Config.BreakevenTriggerPct > 0 && favorablePct >= e.Config.BreakevenTriggerPct {
+			if position.stopPrice > position.entryPrice {
+				position.stopPrice = position.entryPrice
+				position.stopReason = ExitReasonBreakeven
+			}
+		}
+		if e.Config.TrailingStartPct > 0 && favorablePct >= e.Config.TrailingStartPct {
+			trailingStop := position.troughPrice * (1 + e.Config.TrailingDistancePct/100)
+			if trailingStop < position.stopPrice {
+				position.stopPrice = trailingStop
+				position.stopReason = ExitReasonTrailing
+			}
+		}
+	}
 }
 
 func (e Engine) closePosition(position *openPosition, exitTime time.Time, rawExitPrice float64, reason ExitReason) BacktestTrade {
@@ -358,4 +483,108 @@ func snapshotFromBar(symbol, timeframe string, bar market.Kline) FeatureSnapshot
 		Close:     bar.Close,
 		Volume:    bar.Volume,
 	}
+}
+
+func newRunState(start time.Time, equity float64) *runState {
+	return &runState{
+		currentDay:          dayKey(start),
+		dailyStartEquity:    equity,
+		lossStreakBySide:    make(map[Side]int),
+		lossStreakBySymSide: make(map[string]int),
+		cooldownBySide:      make(map[Side]int),
+		cooldownBySymSide:   make(map[string]int),
+	}
+}
+
+func (s *runState) ensureDay(ts time.Time, equity float64) {
+	key := dayKey(ts)
+	if s.currentDay == key {
+		return
+	}
+	s.currentDay = key
+	s.dailyStartEquity = equity
+	s.dailyPnL = 0
+	s.dailyTrades = 0
+}
+
+func (s *runState) recordEntry() {
+	s.dailyTrades++
+}
+
+func (s *runState) recordExit(trade BacktestTrade) {
+	s.dailyPnL += trade.NetPnL
+
+	symSide := symbolSideKey(trade.Symbol, trade.Side)
+	if trade.NetPnL < 0 {
+		s.lossStreakBySide[trade.Side]++
+		s.lossStreakBySymSide[symSide]++
+	} else if trade.NetPnL > 0 {
+		s.lossStreakBySide[trade.Side] = 0
+		s.lossStreakBySymSide[symSide] = 0
+	}
+}
+
+func (s *runState) riskDecision(signal StrategySignal, quantity, riskUSDT float64, reasons []string, cfg Config, barIndex int) RiskDecision {
+	decision := RiskDecision{
+		Action:       "allow",
+		PositionSize: quantity,
+		RiskUSDT:     riskUSDT,
+		Reasons:      append([]string{}, reasons...),
+	}
+	if quantity <= 0 {
+		decision.Action = "block"
+		decision.Reasons = append(decision.Reasons, "invalid_position_size")
+	}
+	if cfg.MaxDailyLossPct > 0 && s.dailyStartEquity > 0 {
+		maxLoss := s.dailyStartEquity * cfg.MaxDailyLossPct
+		if s.dailyPnL <= -maxLoss {
+			decision.Action = "block"
+			decision.Reasons = append(decision.Reasons, "daily_loss_limit")
+		}
+	}
+	if cfg.MaxDailyTrades > 0 && s.dailyTrades >= cfg.MaxDailyTrades {
+		decision.Action = "block"
+		decision.Reasons = append(decision.Reasons, "daily_trade_limit")
+	}
+	if cfg.CooldownLosses > 0 && cfg.CooldownBars > 0 {
+		sideUntil := s.cooldownBySide[signal.Side]
+		if barIndex < sideUntil {
+			decision.Action = "block"
+			decision.Reasons = append(decision.Reasons, "side_cooldown")
+		}
+		symSideUntil := s.cooldownBySymSide[symbolSideKey(signal.Symbol, signal.Side)]
+		if barIndex < symSideUntil {
+			decision.Action = "block"
+			decision.Reasons = append(decision.Reasons, "symbol_side_cooldown")
+		}
+	}
+	return decision
+}
+
+func (s *runState) updateCooldowns(trade BacktestTrade, barIndex int, cfg Config) {
+	if cfg.CooldownLosses <= 0 || cfg.CooldownBars <= 0 || trade.NetPnL >= 0 {
+		return
+	}
+	symSide := symbolSideKey(trade.Symbol, trade.Side)
+	if s.lossStreakBySide[trade.Side] >= cfg.CooldownLosses {
+		s.cooldownBySide[trade.Side] = barIndex + cfg.CooldownBars + 1
+	}
+	if s.lossStreakBySymSide[symSide] >= cfg.CooldownLosses {
+		s.cooldownBySymSide[symSide] = barIndex + cfg.CooldownBars + 1
+	}
+}
+
+func dayKey(ts time.Time) string {
+	return ts.UTC().Format("2006-01-02")
+}
+
+func symbolSideKey(symbol string, side Side) string {
+	return symbol + ":" + string(side)
+}
+
+func abs(v float64) float64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

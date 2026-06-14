@@ -24,6 +24,9 @@ type ExitReason string
 const (
 	ExitReasonStopLoss   ExitReason = "stop_loss"
 	ExitReasonTakeProfit ExitReason = "take_profit"
+	ExitReasonTimeStop   ExitReason = "time_stop"
+	ExitReasonBreakeven  ExitReason = "breakeven"
+	ExitReasonTrailing   ExitReason = "trailing_stop"
 	ExitReasonEndOfData  ExitReason = "end_of_data"
 )
 
@@ -65,15 +68,24 @@ type BacktestRun struct {
 }
 
 type Config struct {
-	RunID             string
-	Symbol            string
-	Timeframe         string
-	InitialEquity     float64
-	FixedQuantity     float64
-	FixedNotionalUSDT float64
-	TakerFeeRate      float64
-	SlippageBps       float64
-	ConfigVersion     string
+	RunID               string
+	Symbol              string
+	Timeframe           string
+	InitialEquity       float64
+	FixedQuantity       float64
+	FixedNotionalUSDT   float64
+	RiskPerTradePct     float64
+	MaxDailyLossPct     float64
+	MaxDailyTrades      int
+	TimeStopBars        int
+	BreakevenTriggerPct float64
+	TrailingStartPct    float64
+	TrailingDistancePct float64
+	CooldownLosses      int
+	CooldownBars        int
+	TakerFeeRate        float64
+	SlippageBps         float64
+	ConfigVersion       string
 }
 
 type BarContext struct {
@@ -136,6 +148,14 @@ type BacktestTrade struct {
 	RiskDecision             RiskDecision    `json:"risk_decision"`
 }
 
+type RejectedSignal struct {
+	Signal          StrategySignal  `json:"signal"`
+	FeatureSnapshot FeatureSnapshot `json:"feature_snapshot"`
+	RiskDecision    RiskDecision    `json:"risk_decision"`
+	Time            time.Time       `json:"time"`
+	RawEntryPrice   float64         `json:"raw_entry_price"`
+}
+
 type Metrics struct {
 	InitialEquity       float64 `json:"initial_equity"`
 	FinalEquity         float64 `json:"final_equity"`
@@ -155,10 +175,11 @@ type Metrics struct {
 }
 
 type Result struct {
-	Run         BacktestRun     `json:"run"`
-	Trades      []BacktestTrade `json:"trades"`
-	EquityCurve []EquityPoint   `json:"equity_curve"`
-	Metrics     Metrics         `json:"metrics"`
+	Run             BacktestRun      `json:"run"`
+	Trades          []BacktestTrade  `json:"trades"`
+	RejectedSignals []RejectedSignal `json:"rejected_signals,omitempty"`
+	EquityCurve     []EquityPoint    `json:"equity_curve"`
+	Metrics         Metrics          `json:"metrics"`
 }
 
 type EquityPoint struct {
