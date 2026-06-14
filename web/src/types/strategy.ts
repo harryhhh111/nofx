@@ -199,7 +199,8 @@ export interface RiskControlConfig {
 
   // Drawdown-based position close (risk monitor, runs every minute)
   drawdown_close_enabled?: boolean;         // Whether the mechanism is enabled (default: true)
-  drawdown_close_min_profit_pct?: number;   // Min leveraged profit (%) before measuring drawdown (default: 5)
+  drawdown_close_min_profit_pct?: number;   // Min peak leveraged profit (%) to arm drawdown protection (default: 5)
+  drawdown_close_min_protected_profit_pct?: number; // Min remaining leveraged profit (%) to protect after armed (default: 0.3)
   drawdown_close_trigger_pct?: number;      // Drawdown % from peak that triggers action (default: 40)
   drawdown_close_use_ai?: boolean;          // false=close immediately, true=let AI decide (default: false)
 

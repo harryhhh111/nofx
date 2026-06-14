@@ -38,6 +38,7 @@ func (at *AutoTrader) startDrawdownMonitor() {
 func (at *AutoTrader) checkPositionDrawdown() {
 	// Read drawdown config from strategy engine (with safe defaults)
 	minProfitPct := 5.0
+	minProtectedProfitPct := store.DefaultDrawdownCloseMinProtectedProfitPct
 	triggerPct := 40.0
 	useAI := false
 	enabled := true
@@ -46,6 +47,9 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		rc := cfg.RiskControl
 		if rc.DrawdownCloseMinProfitPct > 0 {
 			minProfitPct = rc.DrawdownCloseMinProfitPct
+		}
+		if rc.DrawdownCloseMinProtectedProfitPct > 0 {
+			minProtectedProfitPct = rc.DrawdownCloseMinProtectedProfitPct
 		}
 		if rc.DrawdownCloseTriggerPct > 0 {
 			triggerPct = rc.DrawdownCloseTriggerPct
@@ -124,8 +128,11 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			drawdownPct = ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
 		}
 
-		// Check close position condition
-		if currentPnLPct > minProfitPct && drawdownPct >= triggerPct {
+		// Check close position condition. The guard is armed by the historical
+		// peak crossing minProfitPct, not by the current tick still being above
+		// that activation line; otherwise fast reversals can drop below the
+		// activation line and escape protection.
+		if shouldTriggerDrawdownClose(peakPnLPct, currentPnLPct, minProfitPct, minProtectedProfitPct, triggerPct) {
 			logger.Infof("🚨 Drawdown condition triggered: %s %s | Current profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct, map[bool]string{true: "ai-decide", false: "auto-close"}[useAI])
 
@@ -179,6 +186,20 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 		}
 	}
+}
+
+func shouldTriggerDrawdownClose(peakPnLPct, currentPnLPct, minProfitPct, minProtectedProfitPct, triggerPct float64) bool {
+	if peakPnLPct < minProfitPct {
+		return false
+	}
+	if currentPnLPct <= minProtectedProfitPct {
+		return false
+	}
+	if peakPnLPct <= 0 || currentPnLPct >= peakPnLPct {
+		return false
+	}
+	drawdownPct := ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
+	return drawdownPct >= triggerPct
 }
 
 // emergencyClosePosition emergency close position function
