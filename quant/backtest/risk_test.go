@@ -179,6 +179,31 @@ func TestEngineBreakevenStop(t *testing.T) {
 	assertClose(t, trade.ExitPrice, 100, 1e-9)
 }
 
+func TestEngineShortBreakevenStop(t *testing.T) {
+	klines := []market.Kline{
+		testBar(0, 100, 101, 99, 100),
+		testBar(1, 100, 99, 97, 98),
+		testBar(2, 98, 100, 97, 99),
+	}
+	engine := testEngine(1, 0, 0, signalOnce(0, StrategySignal{
+		Side:       SideShort,
+		StopLoss:   105,
+		TakeProfit: 80,
+	}))
+	engine.Config.BreakevenTriggerPct = 2
+
+	result, err := engine.Run(klines)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	trade := result.Trades[0]
+	if trade.ExitReason != ExitReasonBreakeven {
+		t.Fatalf("exit reason = %s, want %s", trade.ExitReason, ExitReasonBreakeven)
+	}
+	assertClose(t, trade.ExitPrice, 100, 1e-9)
+}
+
 func TestEngineTrailingStop(t *testing.T) {
 	klines := []market.Kline{
 		testBar(0, 100, 101, 99, 100),
@@ -203,6 +228,32 @@ func TestEngineTrailingStop(t *testing.T) {
 		t.Fatalf("exit reason = %s, want %s", trade.ExitReason, ExitReasonTrailing)
 	}
 	assertClose(t, trade.ExitPrice, 105.6, 1e-9)
+}
+
+func TestEngineShortTrailingStop(t *testing.T) {
+	klines := []market.Kline{
+		testBar(0, 100, 101, 99, 100),
+		testBar(1, 100, 94, 90, 91),
+		testBar(2, 91, 95, 90, 94),
+	}
+	engine := testEngine(1, 0, 0, signalOnce(0, StrategySignal{
+		Side:       SideShort,
+		StopLoss:   105,
+		TakeProfit: 80,
+	}))
+	engine.Config.TrailingStartPct = 5
+	engine.Config.TrailingDistancePct = 4
+
+	result, err := engine.Run(klines)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	trade := result.Trades[0]
+	if trade.ExitReason != ExitReasonTrailing {
+		t.Fatalf("exit reason = %s, want %s", trade.ExitReason, ExitReasonTrailing)
+	}
+	assertClose(t, trade.ExitPrice, 93.6, 1e-9)
 }
 
 func signalsAt(signals map[int]StrategySignal) Strategy {

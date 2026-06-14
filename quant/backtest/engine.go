@@ -70,7 +70,7 @@ func (e Engine) Run(klines []market.Kline) (Result, error) {
 		run.RunID = fmt.Sprintf("%s-%s-%s", run.Strategy, run.Symbol, run.Timeframe)
 	}
 	if run.ConfigVersion == "" {
-		run.ConfigVersion = "phase1"
+		run.ConfigVersion = "phase2"
 	}
 
 	result := Result{
