@@ -9,97 +9,309 @@
 export const coinSource = {
   sourceType: { zh: '数据来源类型', en: 'Source Type', es: 'Tipo de Fuente' },
   static: { zh: '静态列表', en: 'Static List', es: 'Lista Estática' },
-  ai500: { zh: 'AI500 数据源', en: 'AI500 Data Provider', es: 'Proveedor AI500' },
+  ai500: {
+    zh: 'AI500 数据源',
+    en: 'AI500 Data Provider',
+    es: 'Proveedor AI500',
+  },
   oi_top: { zh: 'OI 持仓增加', en: 'OI Increase', es: 'Aumento OI' },
   oi_low: { zh: 'OI 持仓减少', en: 'OI Decrease', es: 'Disminución OI' },
   mixed: { zh: '混合模式', en: 'Mixed Mode', es: 'Modo Mixto' },
-  staticCoins: { zh: '自定义币种', en: 'Custom Coins', es: 'Monedas Personalizadas' },
+  staticCoins: {
+    zh: '自定义币种',
+    en: 'Custom Coins',
+    es: 'Monedas Personalizadas',
+  },
   addCoin: { zh: '添加币种', en: 'Add Coin', es: 'Agregar Moneda' },
-  useAI500: { zh: '启用 AI500 数据源', en: 'Enable AI500 Data Provider', es: 'Habilitar AI500' },
+  useAI500: {
+    zh: '启用 AI500 数据源',
+    en: 'Enable AI500 Data Provider',
+    es: 'Habilitar AI500',
+  },
   ai500Limit: { zh: '数量上限', en: 'Limit', es: 'Límite' },
-  useOITop: { zh: '启用 OI 持仓增加榜', en: 'Enable OI Increase', es: 'Habilitar Aumento OI' },
+  useOITop: {
+    zh: '启用 OI 持仓增加榜',
+    en: 'Enable OI Increase',
+    es: 'Habilitar Aumento OI',
+  },
   oiTopLimit: { zh: '数量上限', en: 'Limit', es: 'Límite' },
-  useOILow: { zh: '启用 OI 持仓减少榜', en: 'Enable OI Decrease', es: 'Habilitar Disminución OI' },
+  useOILow: {
+    zh: '启用 OI 持仓减少榜',
+    en: 'Enable OI Decrease',
+    es: 'Habilitar Disminución OI',
+  },
   oiLowLimit: { zh: '数量上限', en: 'Limit', es: 'Límite' },
-  staticDesc: { zh: '手动指定交易币种列表', en: 'Manually specify trading coins', es: 'Especificar monedas manualmente' },
-  mixedConfig: { zh: '组合数据源配置', en: 'Combined Sources Configuration', es: 'Configuración Combinada' },
-  mixedSummary: { zh: '已选组合', en: 'Selected Sources', es: 'Fuentes Seleccionadas' },
+  staticDesc: {
+    zh: '手动指定交易币种列表',
+    en: 'Manually specify trading coins',
+    es: 'Especificar monedas manualmente',
+  },
+  mixedConfig: {
+    zh: '组合数据源配置',
+    en: 'Combined Sources Configuration',
+    es: 'Configuración Combinada',
+  },
+  mixedSummary: {
+    zh: '已选组合',
+    en: 'Selected Sources',
+    es: 'Fuentes Seleccionadas',
+  },
   maxCoins: { zh: '最多', en: 'Up to', es: 'Hasta' },
   coins: { zh: '个币种', en: 'coins', es: 'monedas' },
-  dataSourceConfig: { zh: '数据源配置', en: 'Data Source Configuration', es: 'Configuración de Fuente' },
-  excludedCoins: { zh: '排除币种', en: 'Excluded Coins', es: 'Monedas Excluidas' },
-  excludedCoinsDesc: { zh: '这些币种将从所有数据源中排除，不会被交易', en: 'These coins will be excluded from all sources and will not be traded', es: 'Estas monedas serán excluidas de todas las fuentes' },
-  addExcludedCoin: { zh: '添加排除', en: 'Add Excluded', es: 'Agregar Excluida' },
-  nofxosNote: { zh: '使用 NofxOS API Key（在指标配置中设置）', en: 'Uses NofxOS API Key (set in Indicators config)', es: 'Usa API Key de NofxOS' },
-  ai500Desc: { zh: '使用 AI500 智能筛选的热门币种', en: 'Use AI500 smart-filtered popular coins', es: 'Monedas filtradas por AI500' },
-  oi_topDesc: { zh: '持仓增加榜，适合做多', en: 'OI increase ranking, for long', es: 'Ranking OI creciente, para largo' },
-  oi_lowDesc: { zh: '持仓减少榜，适合做空', en: 'OI decrease ranking, for short', es: 'Ranking OI decreciente, para corto' },
-  mixedDesc: { zh: '组合多种数据源', en: 'Combine multiple sources', es: 'Combinar fuentes múltiples' },
+  dataSourceConfig: {
+    zh: '数据源配置',
+    en: 'Data Source Configuration',
+    es: 'Configuración de Fuente',
+  },
+  excludedCoins: {
+    zh: '排除币种',
+    en: 'Excluded Coins',
+    es: 'Monedas Excluidas',
+  },
+  excludedCoinsDesc: {
+    zh: '这些币种将从所有数据源中排除，不会被交易',
+    en: 'These coins will be excluded from all sources and will not be traded',
+    es: 'Estas monedas serán excluidas de todas las fuentes',
+  },
+  addExcludedCoin: {
+    zh: '添加排除',
+    en: 'Add Excluded',
+    es: 'Agregar Excluida',
+  },
+  nofxosNote: {
+    zh: '使用 NofxOS API Key（在指标配置中设置）',
+    en: 'Uses NofxOS API Key (set in Indicators config)',
+    es: 'Usa API Key de NofxOS',
+  },
+  ai500Desc: {
+    zh: '使用 AI500 智能筛选的热门币种',
+    en: 'Use AI500 smart-filtered popular coins',
+    es: 'Monedas filtradas por AI500',
+  },
+  oi_topDesc: {
+    zh: '持仓增加榜，适合做多',
+    en: 'OI increase ranking, for long',
+    es: 'Ranking OI creciente, para largo',
+  },
+  oi_lowDesc: {
+    zh: '持仓减少榜，适合做空',
+    en: 'OI decrease ranking, for short',
+    es: 'Ranking OI decreciente, para corto',
+  },
+  mixedDesc: {
+    zh: '组合多种数据源',
+    en: 'Combine multiple sources',
+    es: 'Combinar fuentes múltiples',
+  },
   oiIncreaseShort: { zh: 'OI增', en: 'OI↑', es: 'OI↑' },
   oiDecreaseShort: { zh: 'OI减', en: 'OI↓', es: 'OI↓' },
   custom: { zh: '自定义', en: 'Custom', es: 'Personalizado' },
   excludedNone: { zh: '无', en: 'None', es: 'Ninguno' },
   oiIncreaseTitle: { zh: 'OI 持仓增加榜', en: 'OI Increase', es: 'OI Aumento' },
-  oiDecreaseTitle: { zh: 'OI 持仓减少榜', en: 'OI Decrease', es: 'OI Disminución' },
+  oiDecreaseTitle: {
+    zh: 'OI 持仓减少榜',
+    en: 'OI Decrease',
+    es: 'OI Disminución',
+  },
   oiIncreaseLabel: { zh: 'OI 增加', en: 'OI Increase', es: 'OI Aumento' },
   forLong: { zh: '适合做多', en: 'For long', es: 'Para largo' },
   oiDecreaseLabel: { zh: 'OI 减少', en: 'OI Decrease', es: 'OI Disminución' },
   forShort: { zh: '适合做空', en: 'For short', es: 'Para corto' },
-};
+}
 
 // ============================================================================
 // GRID CONFIG TRANSLATIONS (60+ keys)
 // ============================================================================
 export const gridConfig = {
-  tradingPair: { zh: '交易设置', en: 'Trading Setup', es: 'Configuración de Trading' },
-  gridParameters: { zh: '网格参数', en: 'Grid Parameters', es: 'Parámetros de Grid' },
+  tradingPair: {
+    zh: '交易设置',
+    en: 'Trading Setup',
+    es: 'Configuración de Trading',
+  },
+  gridParameters: {
+    zh: '网格参数',
+    en: 'Grid Parameters',
+    es: 'Parámetros de Grid',
+  },
   priceBounds: { zh: '价格边界', en: 'Price Bounds', es: 'Límites de Precio' },
   riskControl: { zh: '风险控制', en: 'Risk Control', es: 'Control de Riesgo' },
   symbol: { zh: '交易对', en: 'Trading Pair', es: 'Par de Trading' },
-  symbolDesc: { zh: '选择要进行网格交易的交易对', en: 'Select trading pair for grid trading', es: 'Seleccionar par para grid trading' },
-  totalInvestment: { zh: '投资金额 (USDT)', en: 'Investment (USDT)', es: 'Inversión (USDT)' },
-  totalInvestmentDesc: { zh: '网格策略的总投资金额', en: 'Total investment for grid strategy', es: 'Inversión total' },
+  symbolDesc: {
+    zh: '选择要进行网格交易的交易对',
+    en: 'Select trading pair for grid trading',
+    es: 'Seleccionar par para grid trading',
+  },
+  totalInvestment: {
+    zh: '投资金额 (USDT)',
+    en: 'Investment (USDT)',
+    es: 'Inversión (USDT)',
+  },
+  totalInvestmentDesc: {
+    zh: '网格策略的总投资金额',
+    en: 'Total investment for grid strategy',
+    es: 'Inversión total',
+  },
   leverage: { zh: '杠杆倍数', en: 'Leverage', es: 'Apalancamiento' },
-  leverageDesc: { zh: '交易使用的杠杆倍数 (1-5)', en: 'Leverage for trading (1-5)', es: 'Apalancamiento (1-5)' },
+  leverageDesc: {
+    zh: '交易使用的杠杆倍数 (1-5)',
+    en: 'Leverage for trading (1-5)',
+    es: 'Apalancamiento (1-5)',
+  },
   gridCount: { zh: '网格数量', en: 'Grid Count', es: 'Cantidad de Grids' },
-  gridCountDesc: { zh: '网格层级数量 (5-50)', en: 'Number of grid levels (5-50)', es: 'Niveles (5-50)' },
+  gridCountDesc: {
+    zh: '网格层级数量 (5-50)',
+    en: 'Number of grid levels (5-50)',
+    es: 'Niveles (5-50)',
+  },
   distribution: { zh: '资金分配方式', en: 'Distribution', es: 'Distribución' },
-  distributionDesc: { zh: '网格层级的资金分配方式', en: 'Fund allocation across grid levels', es: 'Asignación de fondos' },
+  distributionDesc: {
+    zh: '网格层级的资金分配方式',
+    en: 'Fund allocation across grid levels',
+    es: 'Asignación de fondos',
+  },
   uniform: { zh: '均匀分配', en: 'Uniform', es: 'Uniforme' },
-  gaussian: { zh: '高斯分配 (推荐)', en: 'Gaussian (Recommended)', es: 'Gaussiana (Recomendado)' },
+  gaussian: {
+    zh: '高斯分配 (推荐)',
+    en: 'Gaussian (Recommended)',
+    es: 'Gaussiana (Recomendado)',
+  },
   pyramid: { zh: '金字塔分配', en: 'Pyramid', es: 'Pirámide' },
-  useAtrBounds: { zh: '自动计算边界 (ATR)', en: 'Auto-calculate Bounds (ATR)', es: 'Calcular Límites (ATR)' },
-  useAtrBoundsDesc: { zh: '基于 ATR 自动计算网格上下边界', en: 'Auto-calculate bounds based on ATR', es: 'Calcular límites automáticamente' },
-  atrMultiplier: { zh: 'ATR 倍数', en: 'ATR Multiplier', es: 'Multiplicador ATR' },
-  atrMultiplierDesc: { zh: '边界距离当前价格的 ATR 倍数', en: 'ATR multiplier for bounds distance', es: 'Distancia en ATR' },
+  useAtrBounds: {
+    zh: '自动计算边界 (ATR)',
+    en: 'Auto-calculate Bounds (ATR)',
+    es: 'Calcular Límites (ATR)',
+  },
+  useAtrBoundsDesc: {
+    zh: '基于 ATR 自动计算网格上下边界',
+    en: 'Auto-calculate bounds based on ATR',
+    es: 'Calcular límites automáticamente',
+  },
+  atrMultiplier: {
+    zh: 'ATR 倍数',
+    en: 'ATR Multiplier',
+    es: 'Multiplicador ATR',
+  },
+  atrMultiplierDesc: {
+    zh: '边界距离当前价格的 ATR 倍数',
+    en: 'ATR multiplier for bounds distance',
+    es: 'Distancia en ATR',
+  },
   upperPrice: { zh: '上边界价格', en: 'Upper Price', es: 'Precio Superior' },
-  upperPriceDesc: { zh: '网格上边界价格 (0=自动计算)', en: 'Grid upper bound (0=auto)', es: 'Límite superior (0=auto)' },
+  upperPriceDesc: {
+    zh: '网格上边界价格 (0=自动计算)',
+    en: 'Grid upper bound (0=auto)',
+    es: 'Límite superior (0=auto)',
+  },
   lowerPrice: { zh: '下边界价格', en: 'Lower Price', es: 'Precio Inferior' },
-  lowerPriceDesc: { zh: '网格下边界价格 (0=自动计算)', en: 'Grid lower bound (0=auto)', es: 'Límite inferior (0=auto)' },
-  maxDrawdown: { zh: '最大回撤 (%)', en: 'Max Drawdown (%)', es: 'Máximo Drawdown (%)' },
-  maxDrawdownDesc: { zh: '触发紧急退出的最大回撤百分比', en: 'Max drawdown before emergency exit', es: 'Drawdown máximo' },
+  lowerPriceDesc: {
+    zh: '网格下边界价格 (0=自动计算)',
+    en: 'Grid lower bound (0=auto)',
+    es: 'Límite inferior (0=auto)',
+  },
+  maxDrawdown: {
+    zh: '最大回撤 (%)',
+    en: 'Max Drawdown (%)',
+    es: 'Máximo Drawdown (%)',
+  },
+  maxDrawdownDesc: {
+    zh: '触发紧急退出的最大回撤百分比',
+    en: 'Max drawdown before emergency exit',
+    es: 'Drawdown máximo',
+  },
   stopLoss: { zh: '止损 (%)', en: 'Stop Loss (%)', es: 'Stop Loss (%)' },
-  stopLossDesc: { zh: '单仓位止损百分比', en: 'Stop loss per position', es: 'Stop loss por posición' },
-  dailyLossLimit: { zh: '日损失限制 (%)', en: 'Daily Loss Limit (%)', es: 'Límite Diario (%)' },
-  dailyLossLimitDesc: { zh: '每日最大亏损百分比', en: 'Maximum daily loss percentage', es: 'Pérdida diaria máxima' },
-  useMakerOnly: { zh: '仅使用 Maker 订单', en: 'Maker Only Orders', es: 'Solo Maker' },
-  useMakerOnlyDesc: { zh: '使用限价单以降低手续费', en: 'Use limit orders for lower fees', es: 'Órdenes límite para menos fees' },
-  directionAdjust: { zh: '方向自动调整', en: 'Direction Auto-Adjust', es: 'Ajuste Automático de Dirección' },
-  enableDirectionAdjust: { zh: '启用方向调整', en: 'Enable Direction Adjust', es: 'Habilitar Ajuste' },
-  enableDirectionAdjustDesc: { zh: '根据箱体突破自动调整网格方向', en: 'Auto-adjust grid direction based on box breakouts', es: 'Ajustar según breaks' },
-  directionBiasRatio: { zh: '偏向强度', en: 'Bias Strength', es: 'Intensidad de Sesgo' },
-  directionBiasRatioDesc: { zh: '偏多/偏空模式的强度', en: 'Strength for long_bias/short_bias modes', es: 'Fuerza del sesgo' },
-  directionBiasExplain: { zh: '偏多模式：X%买 + (100-X)%卖 | 偏空模式：(100-X)%买 + X%卖', en: 'Long bias: X% buy + (100-X)% sell | Short bias: (100-X)% buy + X% sell', es: 'Sesgo largo: X% compra | Sesgo corto: X% venta' },
-  directionExplain: { zh: '短期箱体突破 → 偏向，中期箱体突破 → 全仓，价格回归 → 逐步恢复中性', en: 'Short box breakout → bias, Mid box breakout → full, Price return → gradually recover to neutral', es: 'Break corto → sesgo, Break medio → full' },
-  directionModes: { zh: '方向模式说明', en: 'Direction Modes', es: 'Descripción de Modos' },
-  modeNeutral: { zh: '中性：50%买 + 50%卖（默认）', en: 'Neutral: 50% buy + 50% sell (default)', es: 'Neutral: 50% compra + 50% venta' },
-  modeLongBias: { zh: '偏多：X%买 + (100-X)%卖', en: 'Long Bias: X% buy + (100-X)% sell', es: 'Sesgo Largo: X% compra' },
-  modeLong: { zh: '全多：100%买 + 0%卖', en: 'Long: 100% buy + 0% sell', es: 'Largo: 100% compra' },
-  modeShortBias: { zh: '偏空：(100-X)%买 + X%卖', en: 'Short Bias: (100-X)% buy + X% sell', es: 'Sesgo Corto: X% venta' },
-  modeShort: { zh: '全空：0%买 + 100%卖', en: 'Short: 0% buy + 100% sell', es: 'Corto: 100% venta' },
+  stopLossDesc: {
+    zh: '单仓位止损百分比',
+    en: 'Stop loss per position',
+    es: 'Stop loss por posición',
+  },
+  dailyLossLimit: {
+    zh: '日损失限制 (%)',
+    en: 'Daily Loss Limit (%)',
+    es: 'Límite Diario (%)',
+  },
+  dailyLossLimitDesc: {
+    zh: '每日最大亏损百分比',
+    en: 'Maximum daily loss percentage',
+    es: 'Pérdida diaria máxima',
+  },
+  useMakerOnly: {
+    zh: '仅使用 Maker 订单',
+    en: 'Maker Only Orders',
+    es: 'Solo Maker',
+  },
+  useMakerOnlyDesc: {
+    zh: '使用限价单以降低手续费',
+    en: 'Use limit orders for lower fees',
+    es: 'Órdenes límite para menos fees',
+  },
+  directionAdjust: {
+    zh: '方向自动调整',
+    en: 'Direction Auto-Adjust',
+    es: 'Ajuste Automático de Dirección',
+  },
+  enableDirectionAdjust: {
+    zh: '启用方向调整',
+    en: 'Enable Direction Adjust',
+    es: 'Habilitar Ajuste',
+  },
+  enableDirectionAdjustDesc: {
+    zh: '根据箱体突破自动调整网格方向',
+    en: 'Auto-adjust grid direction based on box breakouts',
+    es: 'Ajustar según breaks',
+  },
+  directionBiasRatio: {
+    zh: '偏向强度',
+    en: 'Bias Strength',
+    es: 'Intensidad de Sesgo',
+  },
+  directionBiasRatioDesc: {
+    zh: '偏多/偏空模式的强度',
+    en: 'Strength for long_bias/short_bias modes',
+    es: 'Fuerza del sesgo',
+  },
+  directionBiasExplain: {
+    zh: '偏多模式：X%买 + (100-X)%卖 | 偏空模式：(100-X)%买 + X%卖',
+    en: 'Long bias: X% buy + (100-X)% sell | Short bias: (100-X)% buy + X% sell',
+    es: 'Sesgo largo: X% compra | Sesgo corto: X% venta',
+  },
+  directionExplain: {
+    zh: '短期箱体突破 → 偏向，中期箱体突破 → 全仓，价格回归 → 逐步恢复中性',
+    en: 'Short box breakout → bias, Mid box breakout → full, Price return → gradually recover to neutral',
+    es: 'Break corto → sesgo, Break medio → full',
+  },
+  directionModes: {
+    zh: '方向模式说明',
+    en: 'Direction Modes',
+    es: 'Descripción de Modos',
+  },
+  modeNeutral: {
+    zh: '中性：50%买 + 50%卖（默认）',
+    en: 'Neutral: 50% buy + 50% sell (default)',
+    es: 'Neutral: 50% compra + 50% venta',
+  },
+  modeLongBias: {
+    zh: '偏多：X%买 + (100-X)%卖',
+    en: 'Long Bias: X% buy + (100-X)% sell',
+    es: 'Sesgo Largo: X% compra',
+  },
+  modeLong: {
+    zh: '全多：100%买 + 0%卖',
+    en: 'Long: 100% buy + 0% sell',
+    es: 'Largo: 100% compra',
+  },
+  modeShortBias: {
+    zh: '偏空：(100-X)%买 + X%卖',
+    en: 'Short Bias: (100-X)% buy + X% sell',
+    es: 'Sesgo Corto: X% venta',
+  },
+  modeShort: {
+    zh: '全空：0%买 + 100%卖',
+    en: 'Short: 0% buy + 100% sell',
+    es: 'Corto: 100% venta',
+  },
   buy: { zh: '买', en: 'buy', es: 'compra' },
   sell: { zh: '卖', en: 'sell', es: 'venta' },
-};
+}
 
 // ============================================================================
 // GRID RISK TRANSLATIONS (50 keys)
@@ -140,189 +352,716 @@ export const gridRisk = {
   loading: { zh: '加载中...', en: 'Loading...', es: 'Cargando...' },
   error: { zh: '加载失败', en: 'Load Failed', es: 'Error al Cargar' },
   noData: { zh: '暂无数据', en: 'No Data', es: 'Sin Datos' },
-};
+}
 
 // ============================================================================
 // RISK CONTROL TRANSLATIONS (25+ keys)
 // ============================================================================
 export const riskControl = {
-  positionLimits: { zh: '仓位限制', en: 'Position Limits', es: 'Límites de Posición' },
-  maxPositions: { zh: '最大持仓数量', en: 'Max Positions', es: 'Máximo de Posiciones' },
-  maxPositionsDesc: { zh: '同时持有的最大币种数量', en: 'Maximum coins held simultaneously', es: 'Monedas máximas simultáneas' },
-  tradingLeverage: { zh: '交易杠杆（交易所杠杆）', en: 'Trading Leverage (Exchange)', es: 'Apalancamiento (Exchange)' },
-  btcEthLeverage: { zh: 'BTC/ETH 交易杠杆', en: 'BTC/ETH Trading Leverage', es: 'BTC/ETH Apalancamiento' },
-  btcEthLeverageDesc: { zh: '交易所开仓使用的杠杆倍数', en: 'Exchange leverage for opening positions', es: 'Apalancamiento del exchange' },
-  altcoinLeverage: { zh: '山寨币交易杠杆', en: 'Altcoin Trading Leverage', es: 'Apalancamiento Altcoins' },
-  altcoinLeverageDesc: { zh: '交易所开仓使用的杠杆倍数', en: 'Exchange leverage for opening positions', es: 'Apalancamiento del exchange' },
-  positionValueRatio: { zh: '仓位价值比例（代码强制）', en: 'Position Value Ratio (CODE ENFORCED)', es: 'Ratio de Valor (CÓDIGO)' },
-  positionValueRatioDesc: { zh: '单仓位名义价值 / 账户净值，由代码强制执行', en: 'Position notional value / equity, enforced by code', es: 'Valor nominal / equity' },
-  btcEthPositionValueRatio: { zh: 'BTC/ETH 仓位价值比例', en: 'BTC/ETH Position Value Ratio', es: 'BTC/ETH Ratio de Valor' },
-  btcEthPositionValueRatioDesc: { zh: '单仓最大名义价值 = 净值 × 此值（代码强制）', en: 'Max position value = equity × this ratio (CODE ENFORCED)', es: 'Valor máximo = equity × ratio' },
-  altcoinPositionValueRatio: { zh: '山寨币仓位价值比例', en: 'Altcoin Position Value Ratio', es: 'Altcoin Ratio de Valor' },
-  altcoinPositionValueRatioDesc: { zh: '单仓最大名义价值 = 净值 × 此值（代码强制）', en: 'Max position value = equity × this ratio (CODE ENFORCED)', es: 'Valor máximo = equity × ratio' },
-  riskParameters: { zh: '风险参数', en: 'Risk Parameters', es: 'Parámetros de Riesgo' },
-  minRiskReward: { zh: '最小风险回报比', en: 'Min Risk/Reward Ratio', es: 'Ratio Riesgo/Recompensa Mínimo' },
-  minRiskRewardDesc: { zh: '开仓要求的最低盈亏比', en: 'Minimum profit ratio for entry', es: 'Ratio mínimo para entrada' },
-  maxMarginUsage: { zh: '最大保证金使用率（代码强制）', en: 'Max Margin Usage (CODE ENFORCED)', es: 'Uso Máximo de Margen (CÓDIGO)' },
-  maxMarginUsageDesc: { zh: '保证金使用率上限，由代码强制执行', en: 'Maximum margin utilization, enforced by code', es: 'Límite de margen' },
-  entryRequirements: { zh: '开仓要求', en: 'Entry Requirements', es: 'Requisitos de Entrada' },
-  minPositionSize: { zh: '最小开仓金额', en: 'Min Position Size', es: 'Tamaño Mínimo' },
-  minPositionSizeDesc: { zh: 'USDT 最小名义价值', en: 'Minimum notional value in USDT', es: 'Valor mínimo en USDT' },
-  minConfidence: { zh: '最小信心度', en: 'Min Confidence', es: 'Confianza Mínima' },
-  minConfidenceDesc: { zh: 'AI 开仓信心度阈值', en: 'AI confidence threshold for entry', es: 'Umbral de confianza AI' },
-  minCloseConfidence: { zh: '提前平仓最小信心度', en: 'Min Early-Close Confidence', es: 'Confianza Mínima de Cierre Temprano' },
-  minCloseConfidenceDesc: { zh: 'AI 主动提前平仓的信心度阈值', en: 'AI confidence threshold for proactive early exits', es: 'Umbral de confianza AI para cierres tempranos' },
+  positionLimits: {
+    zh: '仓位限制',
+    en: 'Position Limits',
+    es: 'Límites de Posición',
+  },
+  maxPositions: {
+    zh: '最大持仓数量',
+    en: 'Max Positions',
+    es: 'Máximo de Posiciones',
+  },
+  maxPositionsDesc: {
+    zh: '同时持有的最大币种数量',
+    en: 'Maximum coins held simultaneously',
+    es: 'Monedas máximas simultáneas',
+  },
+  tradingLeverage: {
+    zh: '交易杠杆（交易所杠杆）',
+    en: 'Trading Leverage (Exchange)',
+    es: 'Apalancamiento (Exchange)',
+  },
+  btcEthLeverage: {
+    zh: 'BTC/ETH 交易杠杆',
+    en: 'BTC/ETH Trading Leverage',
+    es: 'BTC/ETH Apalancamiento',
+  },
+  btcEthLeverageDesc: {
+    zh: '交易所开仓使用的杠杆倍数',
+    en: 'Exchange leverage for opening positions',
+    es: 'Apalancamiento del exchange',
+  },
+  altcoinLeverage: {
+    zh: '山寨币交易杠杆',
+    en: 'Altcoin Trading Leverage',
+    es: 'Apalancamiento Altcoins',
+  },
+  altcoinLeverageDesc: {
+    zh: '交易所开仓使用的杠杆倍数',
+    en: 'Exchange leverage for opening positions',
+    es: 'Apalancamiento del exchange',
+  },
+  positionValueRatio: {
+    zh: '仓位价值比例（代码强制）',
+    en: 'Position Value Ratio (CODE ENFORCED)',
+    es: 'Ratio de Valor (CÓDIGO)',
+  },
+  positionValueRatioDesc: {
+    zh: '单仓位名义价值 / 账户净值，由代码强制执行',
+    en: 'Position notional value / equity, enforced by code',
+    es: 'Valor nominal / equity',
+  },
+  btcEthPositionValueRatio: {
+    zh: 'BTC/ETH 仓位价值比例',
+    en: 'BTC/ETH Position Value Ratio',
+    es: 'BTC/ETH Ratio de Valor',
+  },
+  btcEthPositionValueRatioDesc: {
+    zh: '单仓最大名义价值 = 净值 × 此值（代码强制）',
+    en: 'Max position value = equity × this ratio (CODE ENFORCED)',
+    es: 'Valor máximo = equity × ratio',
+  },
+  altcoinPositionValueRatio: {
+    zh: '山寨币仓位价值比例',
+    en: 'Altcoin Position Value Ratio',
+    es: 'Altcoin Ratio de Valor',
+  },
+  altcoinPositionValueRatioDesc: {
+    zh: '单仓最大名义价值 = 净值 × 此值（代码强制）',
+    en: 'Max position value = equity × this ratio (CODE ENFORCED)',
+    es: 'Valor máximo = equity × ratio',
+  },
+  riskParameters: {
+    zh: '风险参数',
+    en: 'Risk Parameters',
+    es: 'Parámetros de Riesgo',
+  },
+  minRiskReward: {
+    zh: '最小风险回报比',
+    en: 'Min Risk/Reward Ratio',
+    es: 'Ratio Riesgo/Recompensa Mínimo',
+  },
+  minRiskRewardDesc: {
+    zh: '开仓要求的最低盈亏比',
+    en: 'Minimum profit ratio for entry',
+    es: 'Ratio mínimo para entrada',
+  },
+  maxMarginUsage: {
+    zh: '最大保证金使用率（代码强制）',
+    en: 'Max Margin Usage (CODE ENFORCED)',
+    es: 'Uso Máximo de Margen (CÓDIGO)',
+  },
+  maxMarginUsageDesc: {
+    zh: '保证金使用率上限，由代码强制执行',
+    en: 'Maximum margin utilization, enforced by code',
+    es: 'Límite de margen',
+  },
+  entryRequirements: {
+    zh: '开仓要求',
+    en: 'Entry Requirements',
+    es: 'Requisitos de Entrada',
+  },
+  minPositionSize: {
+    zh: '最小开仓金额',
+    en: 'Min Position Size',
+    es: 'Tamaño Mínimo',
+  },
+  minPositionSizeDesc: {
+    zh: 'USDT 最小名义价值',
+    en: 'Minimum notional value in USDT',
+    es: 'Valor mínimo en USDT',
+  },
+  minConfidence: {
+    zh: '最小信心度',
+    en: 'Min Confidence',
+    es: 'Confianza Mínima',
+  },
+  minConfidenceDesc: {
+    zh: 'AI 开仓信心度阈值',
+    en: 'AI confidence threshold for entry',
+    es: 'Umbral de confianza AI',
+  },
+  minCloseConfidence: {
+    zh: '提前平仓最小信心度',
+    en: 'Min Early-Close Confidence',
+    es: 'Confianza Mínima de Cierre Temprano',
+  },
+  minCloseConfidenceDesc: {
+    zh: 'AI 主动提前平仓的信心度阈值',
+    en: 'AI confidence threshold for proactive early exits',
+    es: 'Umbral de confianza AI para cierres tempranos',
+  },
   // Entry risk guard
-  entryRiskGuard: { zh: '入场风险门控', en: 'Entry Risk Guard', es: 'Guardia de Entrada' },
-  entryRiskGuardDesc: { zh: '后端在 AI 开仓前检查极端 RSI、布林边缘、过渡市和 TP 外推风险，避免 prompt 规则被绕过', en: 'Backend checks extreme RSI, Bollinger-edge, transition-market, and extended-TP risks before AI entries', es: 'Control backend antes de entradas AI' },
-  entryRiskGuardEnabled: { zh: '启用门控', en: 'Guard Enabled', es: 'Guardia Activa' },
-  entryRiskGuardMode: { zh: '触发后动作', en: 'Action on Trigger', es: 'Acción al Activar' },
-  entryRiskGuardModeHard: { zh: '硬拦截', en: 'Hard Block', es: 'Bloqueo Duro' },
-  entryRiskGuardModeHardDesc: { zh: '违反规则时直接拒绝开仓', en: 'Reject the entry when a rule is violated', es: 'Rechaza la entrada' },
-  entryRiskGuardModeWarnReduce: { zh: '提示并降仓', en: 'Warn + Reduce', es: 'Avisar + Reducir' },
-  entryRiskGuardModeWarnReduceDesc: { zh: '保留开仓，但降低仓位并写入原因', en: 'Keep the entry, reduce size, and annotate reasoning', es: 'Mantiene y reduce tamaño' },
-  entryRiskGuardExtremeRSI: { zh: '极端 RSI 防追涨杀跌', en: 'Extreme RSI guard', es: 'Guardia RSI extremo' },
-  entryRiskGuardBoll: { zh: '布林边缘支撑/阻力保护', en: 'Bollinger edge guard', es: 'Guardia borde Bollinger' },
-  entryRiskGuardTransition: { zh: '1h 过渡市保护', en: '1h transition-market guard', es: 'Guardia transición 1h' },
-  entryRiskGuardTP: { zh: 'TP 结构位外推保护', en: 'Extended TP guard', es: 'Guardia TP extendido' },
+  entryRiskGuard: {
+    zh: '入场风险门控',
+    en: 'Entry Risk Guard',
+    es: 'Guardia de Entrada',
+  },
+  entryRiskGuardDesc: {
+    zh: '后端在 AI 开仓前检查极端 RSI、布林边缘、过渡市和 TP 外推风险，避免 prompt 规则被绕过',
+    en: 'Backend checks extreme RSI, Bollinger-edge, transition-market, and extended-TP risks before AI entries',
+    es: 'Control backend antes de entradas AI',
+  },
+  entryRiskGuardEnabled: {
+    zh: '启用门控',
+    en: 'Guard Enabled',
+    es: 'Guardia Activa',
+  },
+  entryRiskGuardMode: {
+    zh: '触发后动作',
+    en: 'Action on Trigger',
+    es: 'Acción al Activar',
+  },
+  entryRiskGuardModeHard: {
+    zh: '硬拦截',
+    en: 'Hard Block',
+    es: 'Bloqueo Duro',
+  },
+  entryRiskGuardModeHardDesc: {
+    zh: '违反规则时直接拒绝开仓',
+    en: 'Reject the entry when a rule is violated',
+    es: 'Rechaza la entrada',
+  },
+  entryRiskGuardModeWarnReduce: {
+    zh: '提示并降仓',
+    en: 'Warn + Reduce',
+    es: 'Avisar + Reducir',
+  },
+  entryRiskGuardModeWarnReduceDesc: {
+    zh: '保留开仓，但降低仓位并写入原因',
+    en: 'Keep the entry, reduce size, and annotate reasoning',
+    es: 'Mantiene y reduce tamaño',
+  },
+  entryRiskGuardExtremeRSI: {
+    zh: '极端 RSI 防追涨杀跌',
+    en: 'Extreme RSI guard',
+    es: 'Guardia RSI extremo',
+  },
+  entryRiskGuardBoll: {
+    zh: '布林边缘支撑/阻力保护',
+    en: 'Bollinger edge guard',
+    es: 'Guardia borde Bollinger',
+  },
+  entryRiskGuardTransition: {
+    zh: '1h 过渡市保护',
+    en: '1h transition-market guard',
+    es: 'Guardia transición 1h',
+  },
+  entryRiskGuardTP: {
+    zh: 'TP 结构位外推保护',
+    en: 'Extended TP guard',
+    es: 'Guardia TP extendido',
+  },
+  entryRiskGuardTPModeNote: {
+    zh: '默认"提示并降仓"，不会直接拒绝开仓。',
+    en: 'Default "warn + reduce" — does not reject the entry.',
+    es: 'Por defecto "avisar + reducir", no rechaza.',
+  },
+  entryRiskGuardLowRR: {
+    zh: '低 R:R 保护',
+    en: 'Low R/R Protection',
+    es: 'Protección R/R Bajo',
+  },
+  entryRiskGuardRRSoftFloor: {
+    zh: 'R:R soft floor（硬阈值 = MinRR × 此值）',
+    en: 'R/R soft floor (hard threshold = MinRR × this)',
+    es: 'Soft floor R/R (umbral duro = MinRR × esto)',
+  },
   // Drawdown close
-  drawdownClose: { zh: '回撤平仓监控', en: 'Drawdown Close Monitor', es: 'Monitor de Drawdown' },
-  drawdownCloseDesc: { zh: '每分钟检测盈利仓位是否从峰值出现大幅回撤，触发时自动平仓或交给 AI 判断', en: 'Checks every minute whether a profitable position has drawn down from its peak, then closes or lets the AI decide', es: 'Monitoreo de drawdown cada minuto' },
-  drawdownCloseEnabled: { zh: '启用回撤监控', en: 'Enable Drawdown Monitor', es: 'Habilitar Monitor' },
-  drawdownCloseMinProfit: { zh: '最低触发收益率', en: 'Min Profit to Activate', es: 'Ganancia Mínima' },
-  drawdownCloseMinProfitDesc: { zh: '峰值杠杆收益率达到此值后，回撤保护进入监控状态（%）', en: 'Drawdown protection is armed once peak leveraged PnL reaches this value (%)', es: 'PnL máximo mínimo para activar (%)' },
-  drawdownCloseTrigger: { zh: '回撤触发阈值', en: 'Drawdown Trigger', es: 'Umbral de Drawdown' },
-  drawdownCloseTriggerDesc: { zh: '从峰值收益率回撤此百分比后触发动作（%）', en: 'Action is triggered when PnL drops this % from peak (%)', es: 'Caída desde el pico (%)' },
-  drawdownCloseMode: { zh: '触发后动作', en: 'Action on Trigger', es: 'Acción al Activar' },
-  drawdownCloseModeAuto: { zh: '自动平仓', en: 'Auto Close', es: 'Cierre Automático' },
+  drawdownClose: {
+    zh: '回撤平仓监控',
+    en: 'Drawdown Close Monitor',
+    es: 'Monitor de Drawdown',
+  },
+  drawdownCloseDesc: {
+    zh: '每分钟检测盈利仓位是否从峰值出现大幅回撤，触发时自动平仓或交给 AI 判断',
+    en: 'Checks every minute whether a profitable position has drawn down from its peak, then closes or lets the AI decide',
+    es: 'Monitoreo de drawdown cada minuto',
+  },
+  drawdownCloseEnabled: {
+    zh: '启用回撤监控',
+    en: 'Enable Drawdown Monitor',
+    es: 'Habilitar Monitor',
+  },
+  drawdownCloseMinProfit: {
+    zh: '最低触发收益率',
+    en: 'Min Profit to Activate',
+    es: 'Ganancia Mínima',
+  },
+  drawdownCloseMinProfitDesc: {
+    zh: '峰值杠杆收益率达到此值后，回撤保护进入监控状态（%）',
+    en: 'Drawdown protection is armed once peak leveraged PnL reaches this value (%)',
+    es: 'PnL máximo mínimo para activar (%)',
+  },
+  drawdownCloseTrigger: {
+    zh: '回撤触发阈值',
+    en: 'Drawdown Trigger',
+    es: 'Umbral de Drawdown',
+  },
+  drawdownCloseTriggerDesc: {
+    zh: '从峰值收益率回撤此百分比后触发动作（%）',
+    en: 'Action is triggered when PnL drops this % from peak (%)',
+    es: 'Caída desde el pico (%)',
+  },
+  drawdownCloseMode: {
+    zh: '触发后动作',
+    en: 'Action on Trigger',
+    es: 'Acción al Activar',
+  },
+  drawdownCloseModeAuto: {
+    zh: '自动平仓',
+    en: 'Auto Close',
+    es: 'Cierre Automático',
+  },
   drawdownCloseModeAI: { zh: 'AI 决策', en: 'AI Decide', es: 'Decisión AI' },
-  drawdownCloseModeAutoDesc: { zh: '条件触发后立即平仓', en: 'Close position immediately when triggered', es: 'Cierre inmediato' },
-  drawdownCloseModeAIDesc: { zh: '将告警注入下一次 AI 周期，由 AI 结合开仓理由决定是否平仓', en: 'Inject alert into next AI cycle; AI decides based on opening thesis', es: 'AI decide basado en la tesis de apertura' },
-  consecutiveLossBrake: { zh: '连续亏损冷却', en: 'Consecutive Loss Brake', es: 'Freno por Pérdidas' },
-  consecutiveLossBrakeDesc: { zh: '连续亏损后禁止开仓并注入冷静提示，冷却期结束后自动恢复', en: 'Block new entries and inject cooldown prompt after consecutive losses. Auto-resumes after cooling.', es: 'Bloquea nuevas entradas después de pérdidas consecutivas' },
-  consecutiveLossBrakeEnabled: { zh: '启用连续亏损冷却', en: 'Enable Consecutive Loss Brake', es: 'Habilitar Freno' },
-  consecutiveLossBrakeMaxLosses: { zh: '触发连续亏损数', en: 'Trigger After N Losses', es: 'Activar tras N Pérdidas' },
-  consecutiveLossBrakeCooldown: { zh: '冷却轮次数', en: 'Cooldown Cycles', es: 'Ciclos de Enfriamiento' },
-  breakevenProtection: { zh: '保本止损', en: 'Breakeven Protection', es: 'Protección BE' },
-  breakevenProtectionDesc: { zh: '每达阈值浮盈推进一格 SL，永不后退', en: 'Push SL forward by one step per trigger threshold. Never retreats.', es: 'Avanza SL por umbral. Nunca retrocede.' },
-  breakevenProtectionTriggerPct: { zh: '每步触发浮盈（杠杆收益率 %）', en: 'Step trigger (leveraged PnL %)', es: 'Umbral por paso (PnL apalancado %)' },
-};
+  drawdownCloseModeAutoDesc: {
+    zh: '条件触发后立即平仓',
+    en: 'Close position immediately when triggered',
+    es: 'Cierre inmediato',
+  },
+  drawdownCloseModeAIDesc: {
+    zh: '将告警注入下一次 AI 周期，由 AI 结合开仓理由决定是否平仓',
+    en: 'Inject alert into next AI cycle; AI decides based on opening thesis',
+    es: 'AI decide basado en la tesis de apertura',
+  },
+  consecutiveLossBrake: {
+    zh: '连续亏损冷却',
+    en: 'Consecutive Loss Brake',
+    es: 'Freno por Pérdidas',
+  },
+  consecutiveLossBrakeDesc: {
+    zh: '连续亏损后禁止开仓并注入冷静提示，冷却期结束后自动恢复',
+    en: 'Block new entries and inject cooldown prompt after consecutive losses. Auto-resumes after cooling.',
+    es: 'Bloquea nuevas entradas después de pérdidas consecutivas',
+  },
+  consecutiveLossBrakeEnabled: {
+    zh: '启用连续亏损冷却',
+    en: 'Enable Consecutive Loss Brake',
+    es: 'Habilitar Freno',
+  },
+  consecutiveLossBrakeMaxLosses: {
+    zh: '触发连续亏损数',
+    en: 'Trigger After N Losses',
+    es: 'Activar tras N Pérdidas',
+  },
+  consecutiveLossBrakeCooldown: {
+    zh: '冷却轮次数',
+    en: 'Cooldown Cycles',
+    es: 'Ciclos de Enfriamiento',
+  },
+  consecutiveLossBrakeScope: {
+    zh: '冷却范围',
+    en: 'Cooling Scope',
+    es: 'Alcance del Frenado',
+  },
+  consecutiveLossBrakeScopeGlobal: {
+    zh: '全局（所有交易一起计数）',
+    en: 'Global (all trades count together)',
+    es: 'Global (todas las operaciones)',
+  },
+  consecutiveLossBrakeScopeDirection: {
+    zh: '按方向（LONG / SHORT 各自计数）',
+    en: 'Per direction (LONG / SHORT separately)',
+    es: 'Por dirección (LONG / SHORT)',
+  },
+  consecutiveLossBrakeScopeSymbolSide: {
+    zh: '按币种+方向（如 BTCUSDT_LONG 单独计数）',
+    en: 'Per symbol+side (e.g. BTCUSDT_LONG separately)',
+    es: 'Por símbolo+dirección (p.ej. BTCUSDT_LONG)',
+  },
+  trendEndWatch: {
+    zh: '趋势末期观望',
+    en: 'Trend End Watch',
+    es: 'Vigilancia Fin de Tendencia',
+  },
+  trendEndWatchDesc: {
+    zh: '当最近 N 笔同方向交易都没触及 TP 就平仓时，暂停该方向/币种的新开仓',
+    en: 'When recent N trades in the same direction never hit TP, pause new entries for that scope',
+    es: 'Pausa nuevas entradas si N cierres recientes no tocaron TP',
+  },
+  trendEndWatchEnabled: {
+    zh: '启用趋势末期观望',
+    en: 'Enable Trend End Watch',
+    es: 'Habilitar Vigilancia',
+  },
+  trendEndWatchMisses: {
+    zh: '连续未达 TP 次数',
+    en: 'Consecutive Non-TP Closes',
+    es: 'Cierres sin TP consecutivos',
+  },
+  trendEndWatchCooldown: {
+    zh: '冷却轮次数',
+    en: 'Cooldown Cycles',
+    es: 'Ciclos de Enfriamiento',
+  },
+  trendEndWatchScope: { zh: '范围', en: 'Scope', es: 'Alcance' },
+  trendEndWatchScopeDirection: {
+    zh: '按方向',
+    en: 'Per direction',
+    es: 'Por dirección',
+  },
+  trendEndWatchScopeSymbolSide: {
+    zh: '按币种+方向',
+    en: 'Per symbol+side',
+    es: 'Por símbolo+dirección',
+  },
+  breakevenProtection: {
+    zh: '保本止损',
+    en: 'Breakeven Protection',
+    es: 'Protección BE',
+  },
+  breakevenProtectionDesc: {
+    zh: '每达阈值浮盈推进一格 SL，永不后退',
+    en: 'Push SL forward by one step per trigger threshold. Never retreats.',
+    es: 'Avanza SL por umbral. Nunca retrocede.',
+  },
+  breakevenProtectionTriggerPct: {
+    zh: '每步触发浮盈（杠杆收益率 %）',
+    en: 'Step trigger (leveraged PnL %)',
+    es: 'Umbral por paso (PnL apalancado %)',
+  },
+}
 
 // ============================================================================
 // PROMPT SECTIONS TRANSLATIONS (12+ keys)
 // ============================================================================
 export const promptSections = {
-  promptSections: { zh: 'System Prompt 自定义', en: 'System Prompt Customization', es: 'Personalización de Prompt' },
-  promptSectionsDesc: { zh: '自定义 AI 行为和决策逻辑（输出格式和风控规则不可修改）', en: 'Customize AI behavior and decision logic (output format and risk rules are fixed)', es: 'Personalizar comportamiento AI' },
-  roleDefinition: { zh: '角色定义', en: 'Role Definition', es: 'Definición de Rol' },
-  roleDefinitionDesc: { zh: '定义 AI 的身份和核心目标', en: 'Define AI identity and core objectives', es: 'Definir identidad AI' },
-  tradingFrequency: { zh: '交易频率', en: 'Trading Frequency', es: 'Frecuencia de Trading' },
-  tradingFrequencyDesc: { zh: '设定交易频率预期和过度交易警告', en: 'Set trading frequency expectations and overtrading warnings', es: 'Establecer frecuencia' },
-  entryStandards: { zh: '开仓标准', en: 'Entry Standards', es: 'Estándares de Entrada' },
-  entryStandardsDesc: { zh: '定义开仓信号条件和避免事项', en: 'Define entry signal conditions and avoidances', es: 'Definir señales de entrada' },
-  exitStandards: { zh: '出场标准', en: 'Exit Standards', es: 'Estándares de Salida' },
-  exitStandardsDesc: { zh: '平仓前的判断 checklist（趋势破坏、利润保护、早止盈禁令）', en: 'Close-position decision checklist (trend broken, profit protection, early profit-taking ban)', es: 'Checklist de decisión de cierre' },
-  decisionProcess: { zh: '决策流程', en: 'Decision Process', es: 'Proceso de Decisión' },
-  decisionProcessDesc: { zh: '设定决策步骤和思考流程', en: 'Set decision steps and thinking process', es: 'Establecer proceso' },
-  resetToDefault: { zh: '重置为默认', en: 'Reset to Default', es: 'Restablecer' },
+  promptSections: {
+    zh: 'System Prompt 自定义',
+    en: 'System Prompt Customization',
+    es: 'Personalización de Prompt',
+  },
+  promptSectionsDesc: {
+    zh: '自定义 AI 行为和决策逻辑（输出格式和风控规则不可修改）',
+    en: 'Customize AI behavior and decision logic (output format and risk rules are fixed)',
+    es: 'Personalizar comportamiento AI',
+  },
+  roleDefinition: {
+    zh: '角色定义',
+    en: 'Role Definition',
+    es: 'Definición de Rol',
+  },
+  roleDefinitionDesc: {
+    zh: '定义 AI 的身份和核心目标',
+    en: 'Define AI identity and core objectives',
+    es: 'Definir identidad AI',
+  },
+  tradingFrequency: {
+    zh: '交易频率',
+    en: 'Trading Frequency',
+    es: 'Frecuencia de Trading',
+  },
+  tradingFrequencyDesc: {
+    zh: '设定交易频率预期和过度交易警告',
+    en: 'Set trading frequency expectations and overtrading warnings',
+    es: 'Establecer frecuencia',
+  },
+  entryStandards: {
+    zh: '开仓标准',
+    en: 'Entry Standards',
+    es: 'Estándares de Entrada',
+  },
+  entryStandardsDesc: {
+    zh: '定义开仓信号条件和避免事项',
+    en: 'Define entry signal conditions and avoidances',
+    es: 'Definir señales de entrada',
+  },
+  exitStandards: {
+    zh: '出场标准',
+    en: 'Exit Standards',
+    es: 'Estándares de Salida',
+  },
+  exitStandardsDesc: {
+    zh: '平仓前的判断 checklist（趋势破坏、利润保护、早止盈禁令）',
+    en: 'Close-position decision checklist (trend broken, profit protection, early profit-taking ban)',
+    es: 'Checklist de decisión de cierre',
+  },
+  decisionProcess: {
+    zh: '决策流程',
+    en: 'Decision Process',
+    es: 'Proceso de Decisión',
+  },
+  decisionProcessDesc: {
+    zh: '设定决策步骤和思考流程',
+    en: 'Set decision steps and thinking process',
+    es: 'Establecer proceso',
+  },
+  resetToDefault: {
+    zh: '重置为默认',
+    en: 'Reset to Default',
+    es: 'Restablecer',
+  },
   chars: { zh: '字符', en: 'chars', es: 'caracteres' },
   modified: { zh: '已修改', en: 'Modified', es: 'Modificado' },
-};
+}
 
 // ============================================================================
 // INDICATOR TRANSLATIONS (75+ keys)
 // ============================================================================
 export const indicator = {
   marketData: { zh: '市场数据', en: 'Market Data', es: 'Datos de Mercado' },
-  marketDataDesc: { zh: 'AI 分析所需的核心价格数据', en: 'Core price data for AI analysis', es: 'Datos de precio esenciales' },
-  technicalIndicators: { zh: '技术指标', en: 'Technical Indicators', es: 'Indicadores Técnicos' },
-  technicalIndicatorsDesc: { zh: '可选的技术分析指标，AI 可自行计算', en: 'Optional indicators, AI can calculate them', es: 'Indicadores opcionales' },
-  marketSentiment: { zh: '市场情绪', en: 'Market Sentiment', es: 'Sentimiento de Mercado' },
-  marketSentimentDesc: { zh: '持仓量、资金费率等市场情绪数据', en: 'OI, funding rate and market sentiment data', es: 'OI, funding rate' },
+  marketDataDesc: {
+    zh: 'AI 分析所需的核心价格数据',
+    en: 'Core price data for AI analysis',
+    es: 'Datos de precio esenciales',
+  },
+  technicalIndicators: {
+    zh: '技术指标',
+    en: 'Technical Indicators',
+    es: 'Indicadores Técnicos',
+  },
+  technicalIndicatorsDesc: {
+    zh: '可选的技术分析指标，AI 可自行计算',
+    en: 'Optional indicators, AI can calculate them',
+    es: 'Indicadores opcionales',
+  },
+  marketSentiment: {
+    zh: '市场情绪',
+    en: 'Market Sentiment',
+    es: 'Sentimiento de Mercado',
+  },
+  marketSentimentDesc: {
+    zh: '持仓量、资金费率等市场情绪数据',
+    en: 'OI, funding rate and market sentiment data',
+    es: 'OI, funding rate',
+  },
   quantData: { zh: '量化数据', en: 'Quant Data', es: 'Datos Quant' },
-  quantDataDesc: { zh: '资金流向、大户动向', en: 'Netflow, whale movements', es: 'Netflow, ballenas' },
+  quantDataDesc: {
+    zh: '资金流向、大户动向',
+    en: 'Netflow, whale movements',
+    es: 'Netflow, ballenas',
+  },
   timeframes: { zh: '时间周期', en: 'Timeframes', es: 'Marcos de Tiempo' },
-  timeframesDesc: { zh: '选择 K 线分析周期，★ 为主周期（双击设置）', en: 'Select K-line timeframes, ★ = primary (double-click)', es: 'Seleccionar timeframes' },
+  timeframesDesc: {
+    zh: '选择 K 线分析周期，★ 为主周期（双击设置）',
+    en: 'Select K-line timeframes, ★ = primary (double-click)',
+    es: 'Seleccionar timeframes',
+  },
   klineCount: { zh: 'K 线数量', en: 'K-line Count', es: 'Cantidad de Velas' },
   scalp: { zh: '超短', en: 'Scalp', es: 'Scalp' },
   intraday: { zh: '日内', en: 'Intraday', es: 'Intradía' },
   swing: { zh: '波段', en: 'Swing', es: 'Swing' },
   position: { zh: '趋势', en: 'Position', es: 'Posición' },
-  rawKlines: { zh: 'OHLCV 原始 K 线', en: 'Raw OHLCV K-lines', es: 'Velas OHLCV' },
-  rawKlinesDesc: { zh: '开高低收量原始数据（关闭后该时间框架仅显示趋势摘要）', en: 'Raw OHLCV data (when off, shows trend summary instead)', es: 'Datos OHLCV (al desactivar, muestra resumen de tendencia)' },
-  summarizedTimeframes: { zh: '摘要模式时间框架', en: 'Summary Mode Timeframes', es: 'Resumen' },
-  summarizedTimeframesDesc: { zh: '勾选的时间框架不输出原始K线和指标数组，仅显示趋势状态描述', en: 'Selected timeframes show trend state instead of raw K-lines and indicator arrays', es: 'Muestra estado de tendencia en lugar de velas' },
-	  summarizedIndicators: { zh: '摘要指标选择', en: 'Summarized Indicators', es: 'Indicadores Resumidos' },
-	  summarizedIndicatorsDesc: { zh: '勾选的指标始终输出趋势摘要（无论所在周期是否开启摘要）。未勾选的仅在摘要模式周期下才输出摘要', en: 'Checked indicators always show trend summary (even in raw timeframes). Unchecked only summarize in summary-mode timeframes', es: 'Indicadores marcados siempre muestran resumen; no marcados solo en modo resumen' },
-  compactKlineSummary: { zh: 'K线摘要', en: 'Compact K-lines', es: 'Resumen K-line' },
-  compactKlineSummaryDesc: { zh: '输出摆动高低点、蜡烛形态、量能等关键盘面信息，替代完整OHLCV表格', en: 'Swing pivots, candle morphology, and volume context instead of full OHLCV table', es: 'Pivotes, morfología de velas y volumen en lugar de tabla OHLCV' },
+  rawKlines: {
+    zh: 'OHLCV 原始 K 线',
+    en: 'Raw OHLCV K-lines',
+    es: 'Velas OHLCV',
+  },
+  rawKlinesDesc: {
+    zh: '开高低收量原始数据（关闭后该时间框架仅显示趋势摘要）',
+    en: 'Raw OHLCV data (when off, shows trend summary instead)',
+    es: 'Datos OHLCV (al desactivar, muestra resumen de tendencia)',
+  },
+  summarizedTimeframes: {
+    zh: '摘要模式时间框架',
+    en: 'Summary Mode Timeframes',
+    es: 'Resumen',
+  },
+  summarizedTimeframesDesc: {
+    zh: '勾选的时间框架不输出原始K线和指标数组，仅显示趋势状态描述',
+    en: 'Selected timeframes show trend state instead of raw K-lines and indicator arrays',
+    es: 'Muestra estado de tendencia en lugar de velas',
+  },
+  summarizedIndicators: {
+    zh: '摘要指标选择',
+    en: 'Summarized Indicators',
+    es: 'Indicadores Resumidos',
+  },
+  summarizedIndicatorsDesc: {
+    zh: '勾选的指标始终输出趋势摘要（无论所在周期是否开启摘要）。未勾选的仅在摘要模式周期下才输出摘要',
+    en: 'Checked indicators always show trend summary (even in raw timeframes). Unchecked only summarize in summary-mode timeframes',
+    es: 'Indicadores marcados siempre muestran resumen; no marcados solo en modo resumen',
+  },
+  compactKlineSummary: {
+    zh: 'K线摘要',
+    en: 'Compact K-lines',
+    es: 'Resumen K-line',
+  },
+  compactKlineSummaryDesc: {
+    zh: '输出摆动高低点、蜡烛形态、量能等关键盘面信息，替代完整OHLCV表格',
+    en: 'Swing pivots, candle morphology, and volume context instead of full OHLCV table',
+    es: 'Pivotes, morfología de velas y volumen en lugar de tabla OHLCV',
+  },
   klineSection: { zh: 'K线', en: 'K-line', es: 'K-line' },
   indicatorSection: { zh: '指标', en: 'Indicator', es: 'Indicador' },
   summaryMode: { zh: '摘要模式', en: 'Summary Mode', es: 'Modo Resumen' },
-  summaryModeDesc: { zh: '勾选时间框架后可在下方配置该周期的K线和指标输出方式', en: 'Select a timeframe to configure its K-line and indicator output format', es: 'Selecciona un timeframe para configurar su formato de salida' },
+  summaryModeDesc: {
+    zh: '勾选时间框架后可在下方配置该周期的K线和指标输出方式',
+    en: 'Select a timeframe to configure its K-line and indicator output format',
+    es: 'Selecciona un timeframe para configurar su formato de salida',
+  },
   allIndicators: { zh: '全部指标', en: 'All Indicators', es: 'Todos' },
   required: { zh: '必须', en: 'Required', es: 'Requerido' },
   ema: { zh: 'EMA 均线', en: 'EMA', es: 'EMA' },
-  emaDesc: { zh: '指数移动平均线', en: 'Exponential Moving Average', es: 'Media Móvil Exponencial' },
+  emaDesc: {
+    zh: '指数移动平均线',
+    en: 'Exponential Moving Average',
+    es: 'Media Móvil Exponencial',
+  },
   sma: { zh: 'SMA 均线', en: 'SMA', es: 'SMA' },
-  smaDesc: { zh: '简单移动平均线', en: 'Simple Moving Average', es: 'Media Móvil Simple' },
+  smaDesc: {
+    zh: '简单移动平均线',
+    en: 'Simple Moving Average',
+    es: 'Media Móvil Simple',
+  },
   macd: { zh: 'MACD', en: 'MACD', es: 'MACD' },
-  macdDesc: { zh: '异同移动平均线', en: 'Moving Average Convergence Divergence', es: 'Convergencia/Divergencia' },
+  macdDesc: {
+    zh: '异同移动平均线',
+    en: 'Moving Average Convergence Divergence',
+    es: 'Convergencia/Divergencia',
+  },
   rsi: { zh: 'RSI', en: 'RSI', es: 'RSI' },
-  rsiDesc: { zh: '相对强弱指标', en: 'Relative Strength Index', es: 'Índice de Fuerza Relativa' },
+  rsiDesc: {
+    zh: '相对强弱指标',
+    en: 'Relative Strength Index',
+    es: 'Índice de Fuerza Relativa',
+  },
   atr: { zh: 'ATR', en: 'ATR', es: 'ATR' },
-  atrDesc: { zh: '真实波幅均值', en: 'Average True Range', es: 'Rango Promedio Verdadero' },
+  atrDesc: {
+    zh: '真实波幅均值',
+    en: 'Average True Range',
+    es: 'Rango Promedio Verdadero',
+  },
   adx: { zh: 'ADX/DMI', en: 'ADX/DMI', es: 'ADX/DMI' },
-  adxDesc: { zh: '趋势强度与方向指标', en: 'Trend Strength & Direction', es: 'Fuerza y Dirección de Tendencia' },
+  adxDesc: {
+    zh: '趋势强度与方向指标',
+    en: 'Trend Strength & Direction',
+    es: 'Fuerza y Dirección de Tendencia',
+  },
   sar: { zh: 'SAR 抛物线', en: 'Parabolic SAR', es: 'SAR Parabólico' },
-  sarDesc: { zh: '止损反转指标', en: 'Stop-and-Reverse', es: 'Parada y Reversión' },
+  sarDesc: {
+    zh: '止损反转指标',
+    en: 'Stop-and-Reverse',
+    es: 'Parada y Reversión',
+  },
   boll: { zh: 'BOLL 布林带', en: 'Bollinger Bands', es: 'Bandas de Bollinger' },
-  bollDesc: { zh: '布林带指标（上中下轨）', en: 'Upper/Middle/Lower Bands', es: 'Bandas Superior/Inferior' },
+  bollDesc: {
+    zh: '布林带指标（上中下轨）',
+    en: 'Upper/Middle/Lower Bands',
+    es: 'Bandas Superior/Inferior',
+  },
   volume: { zh: '成交量', en: 'Volume', es: 'Volumen' },
-  volumeDesc: { zh: '交易量分析', en: 'Trading volume analysis', es: 'Análisis de volumen' },
+  volumeDesc: {
+    zh: '交易量分析',
+    en: 'Trading volume analysis',
+    es: 'Análisis de volumen',
+  },
   oi: { zh: '持仓量', en: 'Open Interest', es: 'Interés Abierto' },
-  oiDesc: { zh: '合约未平仓量', en: 'Futures open interest', es: 'Posiciones abiertas' },
+  oiDesc: {
+    zh: '合约未平仓量',
+    en: 'Futures open interest',
+    es: 'Posiciones abiertas',
+  },
   fundingRate: { zh: '资金费率', en: 'Funding Rate', es: 'Funding Rate' },
-  fundingRateDesc: { zh: '永续合约资金费率', en: 'Perpetual funding rate', es: 'Rate de perpetuo' },
+  fundingRateDesc: {
+    zh: '永续合约资金费率',
+    en: 'Perpetual funding rate',
+    es: 'Rate de perpetuo',
+  },
   oiRanking: { zh: 'OI 排行', en: 'OI Ranking', es: 'Ranking OI' },
-  oiRankingDesc: { zh: '持仓量增减排行', en: 'OI change ranking', es: 'Cambios de OI' },
-  oiRankingNote: { zh: '显示持仓量增加/减少的币种排行，帮助发现资金流向', en: 'Shows coins with OI increase/decrease, helps identify capital flow', es: 'Identificar flujo de capital' },
+  oiRankingDesc: {
+    zh: '持仓量增减排行',
+    en: 'OI change ranking',
+    es: 'Cambios de OI',
+  },
+  oiRankingNote: {
+    zh: '显示持仓量增加/减少的币种排行，帮助发现资金流向',
+    en: 'Shows coins with OI increase/decrease, helps identify capital flow',
+    es: 'Identificar flujo de capital',
+  },
   netflowRanking: { zh: '资金流向', en: 'NetFlow', es: 'Flujo de Fondos' },
-  netflowRankingDesc: { zh: '机构/散户资金流向', en: 'Institution/retail fund flow', es: 'Institucional/Retail' },
-  netflowRankingNote: { zh: '显示机构资金流入/流出排行，散户动向对比，发现聪明钱信号', en: 'Shows institution inflow/outflow ranking, retail flow comparison, Smart Money signals', es: 'Señales de Smart Money' },
-  priceRanking: { zh: '涨跌幅排行', en: 'Price Ranking', es: 'Ranking de Precios' },
-  priceRankingDesc: { zh: '涨跌幅排行榜', en: 'Gainers/losers ranking', es: 'Ganadores/Perdedores' },
-  priceRankingNote: { zh: '显示涨幅/跌幅排行，结合资金流和持仓变化分析趋势强度', en: 'Shows top gainers/losers, combined with fund flow and OI for trend analysis', es: 'Analizar fuerza de tendencia' },
+  netflowRankingDesc: {
+    zh: '机构/散户资金流向',
+    en: 'Institution/retail fund flow',
+    es: 'Institucional/Retail',
+  },
+  netflowRankingNote: {
+    zh: '显示机构资金流入/流出排行，散户动向对比，发现聪明钱信号',
+    en: 'Shows institution inflow/outflow ranking, retail flow comparison, Smart Money signals',
+    es: 'Señales de Smart Money',
+  },
+  priceRanking: {
+    zh: '涨跌幅排行',
+    en: 'Price Ranking',
+    es: 'Ranking de Precios',
+  },
+  priceRankingDesc: {
+    zh: '涨跌幅排行榜',
+    en: 'Gainers/losers ranking',
+    es: 'Ganadores/Perdedores',
+  },
+  priceRankingNote: {
+    zh: '显示涨幅/跌幅排行，结合资金流和持仓变化分析趋势强度',
+    en: 'Shows top gainers/losers, combined with fund flow and OI for trend analysis',
+    es: 'Analizar fuerza de tendencia',
+  },
   priceRankingMulti: { zh: '多周期', en: 'Multi-period', es: 'Multi-período' },
   duration: { zh: '周期', en: 'Duration', es: 'Duración' },
   limit: { zh: '数量', en: 'Limit', es: 'Límite' },
-  aiCanCalculate: { zh: '💡 提示：AI 可自行计算这些指标，开启可减少 AI 计算量', en: '💡 Tip: AI can calculate these, enabling reduces AI workload', es: '💡 AI puede calcularlos' },
-  nofxosTitle: { zh: 'NofxOS 量化数据源', en: 'NofxOS Data Provider', es: 'Proveedor NofxOS' },
-  nofxosDesc: { zh: '专业加密货币量化数据服务', en: 'Professional crypto quant data service', es: 'Servicio crypto quant' },
-  nofxosFeatures: { zh: 'AI500 · OI排行 · 资金流向 · 涨跌榜', en: 'AI500 · OI Ranking · Fund Flow · Price Ranking', es: 'AI500 · OI · NetFlow · Ranking' },
+  aiCanCalculate: {
+    zh: '💡 提示：AI 可自行计算这些指标，开启可减少 AI 计算量',
+    en: '💡 Tip: AI can calculate these, enabling reduces AI workload',
+    es: '💡 AI puede calcularlos',
+  },
+  nofxosTitle: {
+    zh: 'NofxOS 量化数据源',
+    en: 'NofxOS Data Provider',
+    es: 'Proveedor NofxOS',
+  },
+  nofxosDesc: {
+    zh: '专业加密货币量化数据服务',
+    en: 'Professional crypto quant data service',
+    es: 'Servicio crypto quant',
+  },
+  nofxosFeatures: {
+    zh: 'AI500 · OI排行 · 资金流向 · 涨跌榜',
+    en: 'AI500 · OI Ranking · Fund Flow · Price Ranking',
+    es: 'AI500 · OI · NetFlow · Ranking',
+  },
   viewApiDocs: { zh: 'API 文档', en: 'API Docs', es: 'Docs API' },
   apiKey: { zh: 'API Key', en: 'API Key', es: 'API Key' },
-  apiKeyPlaceholder: { zh: '输入 NofxOS API Key', en: 'Enter NofxOS API Key', es: 'Ingresar API Key' },
+  apiKeyPlaceholder: {
+    zh: '输入 NofxOS API Key',
+    en: 'Enter NofxOS API Key',
+    es: 'Ingresar API Key',
+  },
   fillDefault: { zh: '填入默认', en: 'Fill Default', es: 'Llenar Default' },
   connected: { zh: '已配置', en: 'Configured', es: 'Configurado' },
   notConfigured: { zh: '未配置', en: 'Not Configured', es: 'No Configurado' },
-  nofxosDataSources: { zh: 'NofxOS 数据源', en: 'NofxOS Data Sources', es: 'Fuentes NofxOS' },
-  configureApiKey: { zh: '请配置 API Key 以启用 NofxOS 数据源', en: 'Please configure API Key to enable NofxOS data sources', es: 'Configure API Key para habilitar NofxOS' },
-};
+  nofxosDataSources: {
+    zh: 'NofxOS 数据源',
+    en: 'NofxOS Data Sources',
+    es: 'Fuentes NofxOS',
+  },
+  configureApiKey: {
+    zh: '请配置 API Key 以启用 NofxOS 数据源',
+    en: 'Please configure API Key to enable NofxOS data sources',
+    es: 'Configure API Key para habilitar NofxOS',
+  },
+}
 
 // ============================================================================
 // PUBLISH SETTINGS TRANSLATIONS (8 keys)
 // ============================================================================
 export const publishSettings = {
-  publishToMarket: { zh: '发布到策略市场', en: 'Publish to Market', es: 'Publicar al Mercado' },
-  publishDesc: { zh: '策略将在市场公开展示，其他用户可发现并使用', en: 'Strategy will be publicly visible in the marketplace', es: 'Visible públicamente' },
+  publishToMarket: {
+    zh: '发布到策略市场',
+    en: 'Publish to Market',
+    es: 'Publicar al Mercado',
+  },
+  publishDesc: {
+    zh: '策略将在市场公开展示，其他用户可发现并使用',
+    en: 'Strategy will be publicly visible in the marketplace',
+    es: 'Visible públicamente',
+  },
   showConfig: { zh: '公开配置参数', en: 'Show Config', es: 'Mostrar Config' },
-  showConfigDesc: { zh: '允许他人查看和复制详细配置', en: 'Allow others to view and clone config details', es: 'Permitir clonación' },
+  showConfigDesc: {
+    zh: '允许他人查看和复制详细配置',
+    en: 'Allow others to view and clone config details',
+    es: 'Permitir clonación',
+  },
   private: { zh: '私有', en: 'PRIVATE', es: 'PRIVADO' },
   public: { zh: '公开', en: 'PUBLIC', es: 'PÚBLICO' },
   hidden: { zh: '隐藏', en: 'HIDDEN', es: 'OCULTO' },
   visible: { zh: '可见', en: 'VISIBLE', es: 'VISIBLE' },
-};
+}
 
 // ============================================================================
 // CHART TABS TRANSLATIONS (5 keys)
@@ -333,13 +1072,16 @@ export const chartTabs = {
   forex: { zh: '外汇', en: 'Forex', es: 'Forex' },
   metals: { zh: '金属', en: 'Metals', es: 'Metales' },
   hyperliquid: { zh: 'HL', en: 'HL', es: 'HL' },
-};
+}
 
 // ============================================================================
 // HELPER FUNCTION
 // ============================================================================
 
-export function ts(entry: { zh: string; en: string; [k: string]: string }, lang: string): string {
+export function ts(
+  entry: { zh: string; en: string; [k: string]: string },
+  lang: string
+): string {
   return entry[lang] ?? entry.en ?? ''
 }
 
@@ -352,30 +1094,42 @@ export const zhStrategy = {
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.zh])),
-  ...Object.fromEntries(Object.entries(promptSections).map(([k, v]) => [k, v.zh])),
+  ...Object.fromEntries(
+    Object.entries(promptSections).map(([k, v]) => [k, v.zh])
+  ),
   ...Object.fromEntries(Object.entries(indicator).map(([k, v]) => [k, v.zh])),
-  ...Object.fromEntries(Object.entries(publishSettings).map(([k, v]) => [k, v.zh])),
+  ...Object.fromEntries(
+    Object.entries(publishSettings).map(([k, v]) => [k, v.zh])
+  ),
   ...Object.fromEntries(Object.entries(chartTabs).map(([k, v]) => [k, v.zh])),
-};
+}
 
 export const enStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.en])),
-  ...Object.fromEntries(Object.entries(promptSections).map(([k, v]) => [k, v.en])),
+  ...Object.fromEntries(
+    Object.entries(promptSections).map(([k, v]) => [k, v.en])
+  ),
   ...Object.fromEntries(Object.entries(indicator).map(([k, v]) => [k, v.en])),
-  ...Object.fromEntries(Object.entries(publishSettings).map(([k, v]) => [k, v.en])),
+  ...Object.fromEntries(
+    Object.entries(publishSettings).map(([k, v]) => [k, v.en])
+  ),
   ...Object.fromEntries(Object.entries(chartTabs).map(([k, v]) => [k, v.en])),
-};
+}
 
 export const esStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.es])),
-  ...Object.fromEntries(Object.entries(promptSections).map(([k, v]) => [k, v.es])),
+  ...Object.fromEntries(
+    Object.entries(promptSections).map(([k, v]) => [k, v.es])
+  ),
   ...Object.fromEntries(Object.entries(indicator).map(([k, v]) => [k, v.es])),
-  ...Object.fromEntries(Object.entries(publishSettings).map(([k, v]) => [k, v.es])),
+  ...Object.fromEntries(
+    Object.entries(publishSettings).map(([k, v]) => [k, v.es])
+  ),
   ...Object.fromEntries(Object.entries(chartTabs).map(([k, v]) => [k, v.es])),
-};
+}

@@ -28,7 +28,6 @@ func (at *AutoTrader) runCycle() error {
 		return nil
 	}
 
-
 	// Create decision record
 	record := &store.DecisionRecord{
 		ExecutionLog: []string{},
@@ -248,11 +247,56 @@ func (at *AutoTrader) runCycle() error {
 	// State machine: N losses → cooling K cycles (block entries) → recover.
 	if cfg := at.strategyEngine.GetConfig().RiskControl.ConsecutiveLossBrake; cfg != nil && cfg.Enabled {
 		recentTrades, _ := at.store.Position().GetRecentTrades(at.id, 20)
-		blocked, msg := UpdateCoolingState(&at.cooling, recentTrades, cfg, string(at.strategyEngine.GetLanguage()))
-		if msg != "" { ctx.BrakeNotice = msg }
-		if blocked { sortedDecisions = ApplyConsecutiveLossGate(sortedDecisions, at.name) }
+		scope := cfg.Scope
+		if scope == "" {
+			scope = store.ConsecutiveLossScopeGlobal
+		}
+		scopeKeys := collectScopeKeys(scope, recentTrades)
+		if at.coolingStates == nil {
+			at.coolingStates = make(map[string]*CoolingState)
+		}
+		lang := string(at.strategyEngine.GetLanguage())
+		var notices []string
+		anyBlocked := false
+		for _, key := range scopeKeys {
+			blocked, msg := UpdateCoolingState(at.coolingStates, key, recentTrades, cfg, lang)
+			if msg != "" {
+				notices = append(notices, msg)
+			}
+			if blocked {
+				anyBlocked = true
+			}
+		}
+		if len(notices) > 0 {
+			ctx.BrakeNotice = strings.Join(notices, "")
+		}
+		if anyBlocked {
+			sortedDecisions = ApplyConsecutiveLossGate(sortedDecisions, at.coolingStates, scope, at.name)
+		}
 	}
 
+	// ── Trend End Watch ────────────────────────────────────────────────
+	// When recent closed trades never hit take-profit, pause new entries
+	// for that scope. Existing positions are still managed normally.
+	if cfg := at.strategyEngine.GetConfig().RiskControl.TrendEndWatch; cfg != nil {
+		closedPositions, _ := at.store.Position().GetClosedPositions(at.id, 20)
+		scope := cfg.Scope
+		if scope == "" {
+			scope = store.TrendEndWatchScopeDirection
+		}
+		updated, blockedKeys := UpdateMissCooldown(at.missCooldown, closedPositions, cfg)
+		at.missCooldown = updated
+		if len(blockedKeys) > 0 {
+			notice := FormatTrendEndWatchPrompt(updated, scope, string(at.strategyEngine.GetLanguage()))
+			if notice != "" {
+				if ctx.BrakeNotice != "" {
+					ctx.BrakeNotice += "\n"
+				}
+				ctx.BrakeNotice += notice
+			}
+			sortedDecisions = ApplyTrendEndWatchGate(sortedDecisions, updated, scope, at.name)
+		}
+	}
 
 	// Execute decisions and record results
 	for _, d := range sortedDecisions {
@@ -814,4 +858,3 @@ func sortDecisionsByPriority(decisions []kernel.Decision) []kernel.Decision {
 
 	return sorted
 }
-

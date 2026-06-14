@@ -470,6 +470,11 @@ type RiskControlConfig struct {
 	// into the prompt before the next entry. nil/disabled = off (default).
 	ConsecutiveLossBrake *ConsecutiveLossBrakeConfig `json:"consecutive_loss_brake,omitempty"`
 
+	// TrendEndWatch: when the trailing N closed trades for a (direction |
+	// symbol_side) all missed the take-profit price, pause new entries for
+	// the matching scope. nil/disabled = off (default).
+	TrendEndWatch *TrendEndWatchConfig `json:"trend_end_watch,omitempty"`
+
 	// BreakevenProtection: progressive SL promotion as float profit increases.
 	// Each trigger_pct of float profit (leveraged PnL%) pushes the SL forward
 	// by one step in the price-favorable direction. SL never retreats.
@@ -483,10 +488,32 @@ type RiskControlConfig struct {
 
 // ConsecutiveLossBrakeConfig warns AI after consecutive losing closed trades.
 type ConsecutiveLossBrakeConfig struct {
-	Enabled        bool `json:"enabled"`          // Enable this feature
-	MaxLosses      int  `json:"max_losses"`       // Trigger after N consecutive losses (default 3)
-	CoolDownCycles int  `json:"cool_down_cycles"` // Block entries for K cycles (default 5)
+	Enabled        bool   `json:"enabled"`          // Enable this feature
+	MaxLosses      int    `json:"max_losses"`       // Trigger after N consecutive losses (default 3)
+	CoolDownCycles int    `json:"cool_down_cycles"` // Block entries for K cycles (default 5)
+	Scope          string `json:"scope,omitempty"`  // "global" | "direction" | "symbol_side"，默认 "global"
 }
+
+const (
+	ConsecutiveLossScopeGlobal     = "global"
+	ConsecutiveLossScopeDirection  = "direction"
+	ConsecutiveLossScopeSymbolSide = "symbol_side"
+)
+
+// TrendEndWatchConfig blocks new entries when the trailing N closed trades
+// for a (direction | symbol_side) all closed without hitting the take-profit
+// price. Cooldown blocks entries for K cycles after the trigger.
+type TrendEndWatchConfig struct {
+	Enabled        bool   `json:"enabled"`          // Enable this feature
+	Misses         int    `json:"misses"`           // Consecutive non-TP closes that trigger cooldown (default 3)
+	CoolDownCycles int    `json:"cool_down_cycles"` // Block entries for K cycles (default 3)
+	Scope          string `json:"scope,omitempty"`  // "direction" | "symbol_side"，默认 "direction"
+}
+
+const (
+	TrendEndWatchScopeDirection  = "direction"
+	TrendEndWatchScopeSymbolSide = "symbol_side"
+)
 
 // BreakevenProtectionConfig promotes SL in the favorable direction as float
 // profit grows. trigger_pct is leveraged PnL% (priceMovePct * leverage),
@@ -509,6 +536,14 @@ type EntryRiskGuardConfig struct {
 	BlockTransitionMarket   bool `json:"block_transition_market"`
 	BlockExtendedTakeProfit bool `json:"block_extended_take_profit"`
 
+	// BlockLowRiskReward moves the "0.8× hard floor" magic number into the
+	// entry guard so it can be configured per-strategy. When enabled, R/R
+	// below RiskRewardSoftFloor still hard-blocks, while R/R between the
+	// soft floor and the configured MinRiskRewardRatio triggers warn_reduce.
+	// Default: true (preserves the original behavior).
+	BlockLowRiskReward  bool    `json:"block_low_risk_reward"`
+	RiskRewardSoftFloor float64 `json:"risk_reward_soft_floor"` // default 0.8 (i.e. soft floor = MinRR × 0.8)
+
 	ShortRSI7Min  float64 `json:"short_rsi7_min"`  // default 20: block shorts when 1h RSI7 is below this
 	ShortRSI14Min float64 `json:"short_rsi14_min"` // default 30: block shorts when 1h RSI14 is below this
 	LongRSI7Max   float64 `json:"long_rsi7_max"`   // default 80: block longs when 1h RSI7 is above this
@@ -520,7 +555,19 @@ type EntryRiskGuardConfig struct {
 	BollATRBuffer          float64 `json:"boll_atr_buffer"`           // default 0.25 ATR from band edge
 	TakeProfitATRTolerance float64 `json:"take_profit_atr_tolerance"` // default 0.5 ATR beyond recent high/low
 	ReducePositionPct      float64 `json:"reduce_position_pct"`       // default 0.5 when mode=warn_reduce
+
+	// TakeProfitGuardMode overrides the global Mode ONLY for the
+	// extended-take-profit reason. Valid values:
+	//   - "hard_block"  : convert to wait (preserve old behavior)
+	//   - "warn_reduce" : keep the decision but reduce size and annotate reasoning
+	// Default (empty string) inherits the global Mode.
+	TakeProfitGuardMode string `json:"take_profit_guard_mode,omitempty"`
 }
+
+const (
+	TakeProfitGuardModeHardBlock  = "hard_block"
+	TakeProfitGuardModeWarnReduce = "warn_reduce"
+)
 
 func DefaultEntryRiskGuardConfig() *EntryRiskGuardConfig {
 	return &EntryRiskGuardConfig{
@@ -530,6 +577,8 @@ func DefaultEntryRiskGuardConfig() *EntryRiskGuardConfig {
 		BlockNearBollBand:       true,
 		BlockTransitionMarket:   true,
 		BlockExtendedTakeProfit: true,
+		BlockLowRiskReward:      true,
+		RiskRewardSoftFloor:     0.8,
 		ShortRSI7Min:            20,
 		ShortRSI14Min:           30,
 		LongRSI7Max:             80,
@@ -549,6 +598,11 @@ func (c *EntryRiskGuardConfig) Clamp() {
 	defaults := DefaultEntryRiskGuardConfig()
 	if c.Mode != EntryRiskGuardModeHardBlock && c.Mode != EntryRiskGuardModeWarnReduce {
 		c.Mode = defaults.Mode
+	}
+	if c.TakeProfitGuardMode != "" &&
+		c.TakeProfitGuardMode != TakeProfitGuardModeHardBlock &&
+		c.TakeProfitGuardMode != TakeProfitGuardModeWarnReduce {
+		c.TakeProfitGuardMode = ""
 	}
 	if c.Enabled && !c.BlockExtremeRSI && !c.BlockNearBollBand && !c.BlockTransitionMarket && !c.BlockExtendedTakeProfit {
 		c.BlockExtremeRSI = true
@@ -591,6 +645,12 @@ func (c *EntryRiskGuardConfig) Clamp() {
 	}
 	if c.ReducePositionPct < 0.1 {
 		c.ReducePositionPct = 0.1
+	}
+	if c.RiskRewardSoftFloor <= 0 {
+		c.RiskRewardSoftFloor = defaults.RiskRewardSoftFloor
+	}
+	if c.RiskRewardSoftFloor > 1 {
+		c.RiskRewardSoftFloor = 1
 	}
 }
 
@@ -692,6 +752,13 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				Enabled:        true, // Default ON
 				MaxLosses:      3,
 				CoolDownCycles: 3,
+				Scope:          ConsecutiveLossScopeGlobal,
+			},
+			TrendEndWatch: &TrendEndWatchConfig{
+				Enabled:        false, // Default OFF (opt-in)
+				Misses:         3,
+				CoolDownCycles: 3,
+				Scope:          TrendEndWatchScopeDirection,
 			},
 			BreakevenProtection: &BreakevenProtectionConfig{
 				Enabled:    true, // Default ON: progressive SL promotion

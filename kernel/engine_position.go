@@ -55,7 +55,7 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 // Action type validation is done by the caller (validateDecisions).
 func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64) error {
 	if d.Action == "open_long" || d.Action == "open_short" {
-		if err := applyEntryRiskGuard(d, entryRiskGuard, marketDataMap); err != nil {
+		if err := applyEntryRiskGuard(d, entryRiskGuard, marketDataMap, marketPrices, minRiskRewardRatio); err != nil {
 			return err
 		}
 
@@ -124,31 +124,6 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			entryPrice = (d.StopLoss + d.TakeProfit) / 2
 		}
 
-		var riskPercent, rewardPercent, riskRewardRatio float64
-		if d.Action == "open_long" {
-			riskPercent = (entryPrice - d.StopLoss) / entryPrice * 100
-			rewardPercent = (d.TakeProfit - entryPrice) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		} else {
-			riskPercent = (d.StopLoss - entryPrice) / entryPrice * 100
-			rewardPercent = (entryPrice - d.TakeProfit) / entryPrice * 100
-			if riskPercent > 0 {
-				riskRewardRatio = rewardPercent / riskPercent
-			}
-		}
-
-		if minRiskRewardRatio <= 0 {
-			minRiskRewardRatio = 2.0
-		}
-		// Match prompt tolerance: AI is told ≥80% of target is acceptable with strong signals
-		hardFloor := minRiskRewardRatio * 0.8
-		if riskRewardRatio < hardFloor {
-			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [entry≈%.2f risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
-				riskRewardRatio, minRiskRewardRatio, hardFloor, entryPrice, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
-		}
-
 		// Check SL distance ≥ ATR buffer (prevent AI from setting SL too tight)
 		if entryPrice > 0 {
 			var minDist float64
@@ -181,12 +156,119 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 	return nil
 }
 
-func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data) error {
+// computeRiskRewardRatio returns (riskPct, rewardPct, rrRatio) using the
+// same entry-price heuristic as validateDecision. Returns zero values if
+// the SL/TP do not make sense.
+func computeRiskRewardRatio(d *Decision, marketPrices map[string]float64) (entryPrice, riskPct, rewardPct, rr float64) {
+	if d.StopLoss <= 0 || d.TakeProfit <= 0 {
+		return 0, 0, 0, 0
+	}
+	if d.Action != "open_long" && d.Action != "open_short" {
+		return 0, 0, 0, 0
+	}
+	if marketPrices != nil {
+		if p, ok := marketPrices[d.Symbol]; ok && p > 0 {
+			entryPrice = p
+		}
+	}
+	if entryPrice <= 0 {
+		entryPrice = (d.StopLoss + d.TakeProfit) / 2
+	}
+	if d.Action == "open_long" {
+		riskPct = (entryPrice - d.StopLoss) / entryPrice * 100
+		rewardPct = (d.TakeProfit - entryPrice) / entryPrice * 100
+	} else {
+		riskPct = (d.StopLoss - entryPrice) / entryPrice * 100
+		rewardPct = (entryPrice - d.TakeProfit) / entryPrice * 100
+	}
+	if riskPct > 0 {
+		rr = rewardPct / riskPct
+	}
+	return entryPrice, riskPct, rewardPct, rr
+}
+
+// applyEntryRiskGuard runs all enabled guard checks for an open decision.
+// When BlockLowRiskReward is true in cfg, the R/R tier check is also
+// performed here (replacing the original 0.8× hard-floor magic number).
+//
+// marketPrices and minRiskRewardRatio are passed in so the R/R check can
+// be evaluated against the same entry-price heuristic as the rest of the
+// pipeline.
+//
+// Returns a non-nil error only when a guard reason requires hard-blocking
+// (e.g. Mode=hard_block and a non-TP reason fired, or
+// TakeProfitGuardMode=hard_block and the TP reason fired). warn_reduce
+// always returns nil after annotating Reasoning and reducing PositionSizeUSD.
+func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minRiskRewardRatio float64) error {
+	if d.Action != "open_long" && d.Action != "open_short" {
+		return nil
+	}
+	if minRiskRewardRatio <= 0 {
+		minRiskRewardRatio = 2.0
+	}
+
+	// ── R/R check (ALWAYS RUNS, independent of cfg.Enabled) ─────────────
+	// The R/R floor is a hard contract; turning the entry risk guard off
+	// must not silently disable it. BlockLowRiskReward (default ON) routes
+	// the hard floor through the configurable RiskRewardSoftFloor and adds a
+	// soft tier that triggers warn_reduce. When BlockLowRiskReward is off,
+	// fall back to the legacy MinRR × 0.8 hard floor.
+	entryPrice, _, rewardPct, rr := computeRiskRewardRatio(d, marketPrices)
+
+	// Reject TP placed on the wrong side of the entry price (e.g. open_long
+	// with TP < entry, or open_short with TP > entry). Such trades have a
+	// non-positive reward component and would silently skip the R/R check
+	// below.
+	if d.StopLoss > 0 && d.TakeProfit > 0 {
+		if d.Action == "open_long" && d.TakeProfit <= entryPrice {
+			return fmt.Errorf("take profit is on the wrong side of entry price for long: entry≈%.4f, TP=%.4f", entryPrice, d.TakeProfit)
+		}
+		if d.Action == "open_short" && d.TakeProfit >= entryPrice {
+			return fmt.Errorf("take profit is on the wrong side of entry price for short: entry≈%.4f, TP=%.4f", entryPrice, d.TakeProfit)
+		}
+	}
+
+	useTiered := cfg != nil && cfg.Enabled && cfg.BlockLowRiskReward
+	if useTiered {
+		guard := *cfg
+		guard.Clamp()
+		soft := guard.RiskRewardSoftFloor
+		if soft <= 0 {
+			soft = 0.8
+		}
+		hardFloor := minRiskRewardRatio * soft
+		if rr > 0 && rr < hardFloor {
+			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [stop loss: %.2f take profit: %.2f]",
+				rr, minRiskRewardRatio, hardFloor, d.StopLoss, d.TakeProfit)
+		}
+		if rr > 0 && rr < minRiskRewardRatio {
+			// Soft tier: warn_reduce regardless of the global mode.
+			applyWarnReduce(d, &guard, fmt.Sprintf(
+				"R/R %.2f below target %.1f:1 (soft floor %.2f, hard floor %.1f:1)",
+				rr, minRiskRewardRatio, soft, hardFloor,
+			))
+			// Fall through: other reasons may still trigger hard-block.
+		}
+	} else {
+		// Legacy: hard block at MinRR × 0.8
+		hardFloor := minRiskRewardRatio * 0.8
+		if rr > 0 && rr < hardFloor {
+			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [stop loss: %.2f take profit: %.2f]",
+				rr, minRiskRewardRatio, hardFloor, d.StopLoss, d.TakeProfit)
+		}
+	}
+	_ = rewardPct
+
+	// Everything below is gated by cfg.Enabled — these are the soft guards
+	// (RSI / BOLL / transition / extended TP). Returning early here keeps
+	// the R/R check above as the only thing that runs when the guard is
+	// fully off.
 	if cfg == nil || !cfg.Enabled {
 		return nil
 	}
 	guard := *cfg
 	guard.Clamp()
+
 	md := (*market.Data)(nil)
 	if marketDataMap != nil {
 		md = marketDataMap[d.Symbol]
@@ -195,17 +277,47 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 		logger.Warnf("⚠️ Entry risk guard enabled but no market data for %s, skipping guard", d.Symbol)
 		return nil
 	}
-	reasons := evaluateEntryRiskGuard(d, &guard, md)
-	if len(reasons) == 0 {
+	allReasons, tpReasons, otherReasons := evaluateEntryRiskGuardSplit(d, &guard, md)
+	if len(allReasons) == 0 {
 		return nil
 	}
 
-	msg := "entry risk guard: " + strings.Join(reasons, "; ")
-	if guard.Mode == store.EntryRiskGuardModeHardBlock {
-		return fmt.Errorf("%s", msg)
+	// Effective mode for TP reasons: cfg.TakeProfitGuardMode overrides the
+	// global cfg.Mode (only for the extended-TP reason). Empty value falls
+	// back to the global Mode.
+	tpMode := guard.TakeProfitGuardMode
+	if tpMode == "" {
+		tpMode = guard.Mode
 	}
 
-	reducePct := guard.ReducePositionPct
+	// Hard block on TP reason → return error (even if other reasons are soft).
+	if len(tpReasons) > 0 && tpMode == store.TakeProfitGuardModeHardBlock {
+		return fmt.Errorf("%s", "entry risk guard: "+strings.Join(tpReasons, "; "))
+	}
+	// Hard block on a non-TP reason → return error.
+	if len(otherReasons) > 0 && guard.Mode == store.EntryRiskGuardModeHardBlock {
+		return fmt.Errorf("%s", "entry risk guard: "+strings.Join(otherReasons, "; "))
+	}
+
+	// Otherwise: warn + reduce. If TP is in warn_reduce mode, prefix the
+	// reasoning with [TP_EXTENSION_GUARD] so it shows up in post-mortem.
+	msg := "entry risk guard: " + strings.Join(allReasons, "; ")
+	prefix := "[ENTRY_GUARD_WARNING]"
+	if len(tpReasons) > 0 {
+		prefix = "[TP_EXTENSION_GUARD]"
+	}
+	applyWarnReduce(d, &guard, fmt.Sprintf("%s %s", prefix, msg))
+	return nil
+}
+
+// applyWarnReduce is the shared helper that mutates a Decision into the
+// "warn + reduce" state: shrinks PositionSizeUSD by ReducePositionPct and
+// prepends a tagged message to Reasoning.
+//
+// Public so future callers (e.g. higher-level decision stages) can reuse
+// the same shape without duplicating the prefix/format logic.
+func applyWarnReduce(d *Decision, cfg *store.EntryRiskGuardConfig, msg string) {
+	reducePct := cfg.ReducePositionPct
 	if reducePct <= 0 {
 		reducePct = 0.5
 	}
@@ -217,19 +329,30 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 	}
 	originalSize := d.PositionSizeUSD
 	d.PositionSizeUSD *= reducePct
-	d.Reasoning = fmt.Sprintf("[ENTRY_GUARD_WARNING] %s; position_size_usd reduced %.2f -> %.2f | Original: %s",
+	d.Reasoning = fmt.Sprintf("%s; position_size_usd reduced %.2f -> %.2f | Original: %s",
 		msg, originalSize, d.PositionSizeUSD, d.Reasoning)
-	logger.Infof("⚠️ Decision %s %s entry guard warning: %s; reduced position %.2f -> %.2f",
-		d.Symbol, d.Action, strings.Join(reasons, "; "), originalSize, d.PositionSizeUSD)
-	return nil
+	logger.Infof("⚠️ Decision %s %s warn_reduce: %s; reduced position %.2f -> %.2f",
+		d.Symbol, d.Action, msg, originalSize, d.PositionSizeUSD)
 }
 
 func evaluateEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, md *market.Data) []string {
+	all, _, _ := evaluateEntryRiskGuardSplit(d, cfg, md)
+	return all
+}
+
+// evaluateEntryRiskGuardSplit returns three slices:
+//   - allReasons: every triggered guard reason
+//   - tpReasons:  the subset that came from the extended-TP check
+//   - otherReasons: every triggered reason that did NOT come from TP
+//
+// Used by applyEntryRiskGuard so the TP reason can be subject to its own
+// guard mode (TakeProfitGuardMode) independent of the global Mode.
+func evaluateEntryRiskGuardSplit(d *Decision, cfg *store.EntryRiskGuardConfig, md *market.Data) (allReasons, tpReasons, otherReasons []string) {
 	var reasons []string
 	isShort := d.Action == "open_short"
 	isLong := d.Action == "open_long"
 	if !isShort && !isLong {
-		return reasons
+		return reasons, nil, nil
 	}
 
 	if cfg.BlockExtremeRSI {
@@ -291,7 +414,19 @@ func evaluateEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, md *ma
 		}
 	}
 
-	return reasons
+	// Partition reasons into TP-related and others. TP reasons are detected
+	// by the leading "TP " token (matches the format emitted above).
+	tpReasons = make([]string, 0, len(reasons))
+	otherReasons = make([]string, 0, len(reasons))
+	for _, r := range reasons {
+		if strings.HasPrefix(r, "TP ") {
+			tpReasons = append(tpReasons, r)
+		} else {
+			otherReasons = append(otherReasons, r)
+		}
+	}
+	allReasons = reasons
+	return allReasons, tpReasons, otherReasons
 }
 
 func chooseGuardTimeframe(md *market.Data) *market.TimeframeSeriesData {
