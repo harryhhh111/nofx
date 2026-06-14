@@ -41,11 +41,16 @@ var (
 func GetFullDecision(ctx *Context, mcpClient mcp.AIClient) (*FullDecision, error) {
 	defaultConfig := store.GetDefaultStrategyConfig("en")
 	engine := NewStrategyEngine(&defaultConfig)
-	return GetFullDecisionWithStrategy(ctx, mcpClient, engine, "")
+	return GetFullDecisionWithStrategy(ctx, mcpClient, engine, "", nil)
 }
 
 // GetFullDecisionWithStrategy uses StrategyEngine to get AI decision (unified prompt generation)
-func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *StrategyEngine, variant string) (*FullDecision, error) {
+//
+// gc is optional. When non-nil, every guard hit during validation is
+// recorded under gc.Events and returned on FullDecision.GuardEvents so
+// the caller can bulk-insert them into guard_events after persisting the
+// decision record.
+func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *StrategyEngine, variant string, gc *GuardContext) (*FullDecision, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context is nil")
 	}
@@ -108,6 +113,13 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	riskConfig := engine.GetRiskControlConfig()
 	systemPrompt := engine.BuildSystemPrompt(ctx.Account.TotalEquity, variant)
 
+	// 2b. Capture the active guard config once so every GuardEvent can
+	// reference the exact parameters that produced it (avoids re-marshaling
+	// at each emit site and keeps the on-disk snapshot stable per cycle).
+	if gc != nil && gc.ConfigSnapshot == nil {
+		gc.ConfigSnapshot = configSnapshotJSON(riskConfig.EntryRiskGuard)
+	}
+
 	// 2a. Inject brake notice if trader layer has activated the brake system
 	if ctx.BrakeNotice != "" {
 		systemPrompt += "\n\n" + ctx.BrakeNotice + "\n"
@@ -162,6 +174,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		ctx.MarketDataMap,
 		marketPrices,
 		minSLDistances,
+		gc,
 	)
 
 	if decision != nil {
@@ -170,6 +183,9 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		decision.UserPrompt = userPrompt
 		decision.AIRequestDurationMs = aiCallDuration.Milliseconds()
 		decision.RawResponse = aiResponse
+		if gc != nil {
+			decision.GuardEvents = gc.Events
+		}
 	}
 
 	if err != nil {
@@ -267,7 +283,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext) (*FullDecision, error) {
 	// Detect truncated response: if AI started outputting (<reasoning> present)
 	// but never closed the response (</decision> missing)
 	if strings.Contains(aiResponse, "<reasoning>") && !strings.Contains(aiResponse, "</decision>") {
@@ -286,7 +302,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	rejectedCount := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances)
+	rejectedCount := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances, gc)
 	if rejectedCount > 0 {
 		logger.Infof("⚠️ %d/%d decisions rejected during validation (converted to wait)", rejectedCount, len(decisions))
 	}

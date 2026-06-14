@@ -191,6 +191,12 @@ Body: {"show_in_competition":<bool>}`,
 			s.routeWithSchema(protected, "GET", "/traders/:id/grid-risk", "Get grid trading risk info",
 				`:id = trader_id from GET /api/my-traders.`,
 				s.handleGetGridRiskInfo)
+			s.routeWithSchema(protected, "GET", "/traders/:id/guard-events", "Get recent guard-rule telemetry events for a trader",
+				`:id = trader_id from GET /api/my-traders.
+Query: ?trader_id=&limit=100&guard_type=&action=&symbol=&since_hours=24
+Returns: {"events":[GuardEvent...],"count":N,"stats":[{guard_type,action,count}]}
+GuardEvent: {trader_id, decision_record_id, cycle_number, strategy_id, guard_type, action, reason, symbol, side, entry_price, stop_loss, take_profit, position_size_before, position_size_after, config_snapshot, triggered_at}`,
+				s.handleGuardEvents)
 
 			// AI cost tracking
 			s.route(protected, "GET", "/ai-costs", "Get AI call costs for a trader (?trader_id=xxx&period=today)", s.handleGetAICosts)

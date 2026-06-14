@@ -112,6 +112,7 @@ type AutoTraderConfig struct {
 
 	// Strategy configuration (use complete strategy config)
 	StrategyConfig *store.StrategyConfig // Strategy configuration (includes coin sources, indicators, risk control, prompts, etc.)
+	StrategyID     string                // Strategy ID (for guard event telemetry, may be empty)
 }
 
 // AutoTrader automatic trader
@@ -122,6 +123,7 @@ type AutoTrader struct {
 	exchange                string // Trading platform type (binance/bybit/etc)
 	exchangeID              string // Exchange account UUID
 	showInCompetition       bool   // Whether to show in competition page
+	strategyID              string // Strategy ID (for guard event telemetry)
 	config                  AutoTraderConfig
 	trader                  Trader // Use Trader interface (supports multiple platforms)
 	mcpClient               mcp.AIClient
@@ -359,6 +361,7 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		exchange:              config.Exchange,
 		exchangeID:            config.ExchangeID,
 		showInCompetition:     config.ShowInCompetition,
+		strategyID:            config.StrategyID,
 		config:                config,
 		trader:                trader,
 		mcpClient:             mcpClient,

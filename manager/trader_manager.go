@@ -645,6 +645,7 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		IsCrossMargin:         traderCfg.IsCrossMargin,
 		ShowInCompetition:     traderCfg.ShowInCompetition,
 		StrategyConfig:        strategyConfig,
+		StrategyID:            traderCfg.StrategyID,
 	}
 
 	logger.Infof("📊 Loading trader %s: ScanIntervalMinutes=%d (from DB), ScanInterval=%v",
@@ -740,4 +741,3 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 
 	return nil
 }
-
