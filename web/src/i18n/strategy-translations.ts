@@ -177,7 +177,7 @@ export const riskControl = {
   drawdownCloseDesc: { zh: '每分钟检测盈利仓位是否从峰值出现大幅回撤，触发时自动平仓或交给 AI 判断', en: 'Checks every minute whether a profitable position has drawn down from its peak, then closes or lets the AI decide', es: 'Monitoreo de drawdown cada minuto' },
   drawdownCloseEnabled: { zh: '启用回撤监控', en: 'Enable Drawdown Monitor', es: 'Habilitar Monitor' },
   drawdownCloseMinProfit: { zh: '最低触发收益率', en: 'Min Profit to Activate', es: 'Ganancia Mínima' },
-  drawdownCloseMinProfitDesc: { zh: '当前杠杆收益率高于此值时才开始监控回撤（%）', en: 'Drawdown is only measured once leveraged PnL exceeds this value (%)', es: 'PnL mínimo para activar (%)' },
+  drawdownCloseMinProfitDesc: { zh: '峰值杠杆收益率达到此值后，回撤保护进入监控状态（%）', en: 'Drawdown protection is armed once peak leveraged PnL reaches this value (%)', es: 'PnL máximo mínimo para activar (%)' },
   drawdownCloseTrigger: { zh: '回撤触发阈值', en: 'Drawdown Trigger', es: 'Umbral de Drawdown' },
   drawdownCloseTriggerDesc: { zh: '从峰值收益率回撤此百分比后触发动作（%）', en: 'Action is triggered when PnL drops this % from peak (%)', es: 'Caída desde el pico (%)' },
   drawdownCloseMode: { zh: '触发后动作', en: 'Action on Trigger', es: 'Acción al Activar' },

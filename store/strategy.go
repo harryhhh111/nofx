@@ -24,6 +24,8 @@ const (
 	DefaultMinCloseConfidence = 75
 	MinMinCloseConfidence     = 60
 	MaxMinCloseConfidence     = 95
+
+	DefaultDrawdownCloseMinProtectedProfitPct = 0.3
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -109,9 +111,18 @@ func (c *StrategyConfig) ClampLimits() {
 		c.RiskControl.DrawdownCloseMinProfitPct = 5.0
 		c.RiskControl.DrawdownCloseTriggerPct = 40.0
 	}
+	if c.RiskControl.DrawdownCloseMinProtectedProfitPct == 0 {
+		c.RiskControl.DrawdownCloseMinProtectedProfitPct = DefaultDrawdownCloseMinProtectedProfitPct
+	}
 	// Clamp to sensible ranges
 	if c.RiskControl.DrawdownCloseMinProfitPct < 1.0 {
 		c.RiskControl.DrawdownCloseMinProfitPct = 1.0
+	}
+	if c.RiskControl.DrawdownCloseMinProtectedProfitPct < 0 {
+		c.RiskControl.DrawdownCloseMinProtectedProfitPct = 0
+	}
+	if c.RiskControl.DrawdownCloseMinProtectedProfitPct >= c.RiskControl.DrawdownCloseMinProfitPct {
+		c.RiskControl.DrawdownCloseMinProtectedProfitPct = c.RiskControl.DrawdownCloseMinProfitPct / 2
 	}
 	if c.RiskControl.DrawdownCloseTriggerPct < 10.0 {
 		c.RiskControl.DrawdownCloseTriggerPct = 10.0
@@ -434,9 +445,12 @@ type RiskControlConfig struct {
 	// ── Drawdown-based position close (risk monitor, runs every minute) ──────
 	// Whether the drawdown-close mechanism is enabled. Default: true.
 	DrawdownCloseEnabled bool `json:"drawdown_close_enabled"`
-	// Min unrealised leveraged profit (%) before drawdown is measured. Default: 5.0.
-	// Example: 5.0 means the mechanism only activates once the position is ≥5% in profit.
+	// Min peak leveraged profit (%) before drawdown protection is armed. Default: 5.0.
+	// Example: 5.0 means the mechanism activates once the position has reached ≥5% profit.
 	DrawdownCloseMinProfitPct float64 `json:"drawdown_close_min_profit_pct"`
+	// Min remaining leveraged profit (%) to protect after peak has crossed the activation line. Default: 0.3.
+	// Example: if peak reached 5% and then draws down, close only while current profit is still >0.3%.
+	DrawdownCloseMinProtectedProfitPct float64 `json:"drawdown_close_min_protected_profit_pct"`
 	// Drawdown threshold (%) relative to peak profit that triggers the close. Default: 40.0.
 	// Example: 40.0 means: if profit dropped from peak by ≥40%, close the position.
 	DrawdownCloseTriggerPct float64 `json:"drawdown_close_trigger_pct"`
@@ -559,10 +573,11 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
 			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
 			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
-			MinPositionSize:              12,  // Min 12 USDT per position (CODE ENFORCED)
-			MinRiskRewardRatio:           2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
-			MinConfidence:                DefaultMinConfidence,
-			MinCloseConfidence:           75,  // Lowered from 85 to allow more flexible exits
+			MinPositionSize:                    12,  // Min 12 USDT per position (CODE ENFORCED)
+			MinRiskRewardRatio:                 2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
+			MinConfidence:                      DefaultMinConfidence,
+			MinCloseConfidence:                 75,  // Lowered from 85 to allow more flexible exits
+			DrawdownCloseMinProtectedProfitPct: DefaultDrawdownCloseMinProtectedProfitPct,
 			ConsecutiveLossBrake: &ConsecutiveLossBrakeConfig{
 				Enabled:        true,  // Default ON
 				MaxLosses:      3,

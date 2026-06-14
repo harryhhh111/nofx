@@ -134,6 +134,31 @@ func TestClampLimits_ConfidenceThresholds(t *testing.T) {
 	}
 }
 
+func TestClampLimits_DrawdownMinProtectedProfit(t *testing.T) {
+	config := StrategyConfig{}
+	config.RiskControl.DrawdownCloseMinProfitPct = 2
+	config.RiskControl.DrawdownCloseTriggerPct = 40
+	config.ClampLimits()
+
+	if config.RiskControl.DrawdownCloseMinProtectedProfitPct != DefaultDrawdownCloseMinProtectedProfitPct {
+		t.Errorf(
+			"default drawdown min protected profit = %v, want %v",
+			config.RiskControl.DrawdownCloseMinProtectedProfitPct,
+			DefaultDrawdownCloseMinProtectedProfitPct,
+		)
+	}
+
+	config.RiskControl.DrawdownCloseMinProtectedProfitPct = 3
+	config.ClampLimits()
+	if config.RiskControl.DrawdownCloseMinProtectedProfitPct != config.RiskControl.DrawdownCloseMinProfitPct/2 {
+		t.Errorf(
+			"clamped drawdown min protected profit = %v, want %v",
+			config.RiskControl.DrawdownCloseMinProtectedProfitPct,
+			config.RiskControl.DrawdownCloseMinProfitPct/2,
+		)
+	}
+}
+
 func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
 	st := &Strategy{
 		Config: `{"language":"zh","risk_control":{"min_confidence":75},"indicators":{"enable_quant_data":false}}`,

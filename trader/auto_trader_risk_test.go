@@ -268,3 +268,67 @@ func TestFindActiveStopLossPriceTrustsClosingSideWhenPositionSideMismatches(t *t
 		t.Fatalf("active SL = %.4f, want 100.2", price)
 	}
 }
+
+func TestShouldTriggerDrawdownCloseUsesArmedPeak(t *testing.T) {
+	tests := []struct {
+		name                  string
+		peakPnLPct            float64
+		currentPnLPct         float64
+		minProfitPct          float64
+		minProtectedProfitPct float64
+		triggerPct            float64
+		want                  bool
+	}{
+		{
+			name:                  "triggers after armed peak even when current falls below activation line",
+			peakPnLPct:            3.0,
+			currentPnLPct:         1.7,
+			minProfitPct:          2.0,
+			minProtectedProfitPct: 0.3,
+			triggerPct:            40.0,
+			want:                  true,
+		},
+		{
+			name:                  "does not trigger before peak arms protection",
+			peakPnLPct:            1.9,
+			currentPnLPct:         1.0,
+			minProfitPct:          2.0,
+			minProtectedProfitPct: 0.3,
+			triggerPct:            40.0,
+			want:                  false,
+		},
+		{
+			name:                  "does not trigger after protected profit is gone",
+			peakPnLPct:            3.0,
+			currentPnLPct:         0.2,
+			minProfitPct:          2.0,
+			minProtectedProfitPct: 0.3,
+			triggerPct:            40.0,
+			want:                  false,
+		},
+		{
+			name:                  "does not trigger when drawdown is too small",
+			peakPnLPct:            3.0,
+			currentPnLPct:         2.2,
+			minProfitPct:          2.0,
+			minProtectedProfitPct: 0.3,
+			triggerPct:            40.0,
+			want:                  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldTriggerDrawdownClose(
+				tt.peakPnLPct,
+				tt.currentPnLPct,
+				tt.minProfitPct,
+				tt.minProtectedProfitPct,
+				tt.triggerPct,
+			)
+			if got != tt.want {
+				t.Fatalf("shouldTriggerDrawdownClose() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
