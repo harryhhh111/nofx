@@ -14,12 +14,14 @@
 - AI 会为了满足趋势叙事，弱化 RSI、结构位、回撤、盈亏比等风险信号。
 - prompt 很难保证每一次都稳定执行同一套纪律。
 - 已经能明确量化的边界，应由代码强制执行，而不是让 AI 自觉遵守。
+- 规则命中后如果没有留痕、追踪和复盘，系统会变成“规则越加越多，但不知道是否有效”。
 
 因此更合理的边界是：
 
 ```text
 AI 负责：解释市场、识别异常、给方向倾向、生成候选交易
 代码负责：拒绝坏交易、验证 SL/TP/R:R、控制仓位、执行退出纪律
+治理负责：记录规则命中、追踪后续表现、评估误杀/漏杀、推动参数迭代
 ```
 
 这不是“AI vs 代码”，而是“AI 产出假设，代码做交易准入和风控审计”。
@@ -81,6 +83,15 @@ R:R 不能只看数字，还要看目标价是否有市场结构依据：
 - TP 如果明显越过最近结构位，需要有突破确认，否则应拒绝或降级。
 
 这能避免 AI 为了凑出漂亮的 R:R，把 TP 放到没有依据的远端位置。
+
+TP 锚点不应第一版就做成强结构位系统，建议分阶段：
+
+| 阶段 | 做法 | 说明 |
+|---|---|---|
+| Phase 1 | 用最近 N 根 K 线 high/low、BOLL 边界、ATR 容差做粗锚点 | 复用现有行情数据，先检测明显外推 |
+| Phase 2 | 引入 supports/resistances/swing high/swing low 结构位服务 | 数据稳定后再做精确校验 |
+
+第一版更适合做 `warn_reduce` 或“要求 AI 提供 breakout evidence”，而不是直接把所有超出前高/前低的 TP 硬拒绝。
 
 #### c) 退出状态机
 
@@ -246,7 +257,7 @@ prompt 的行为很难精确回测；代码规则可以被历史数据检验。
 │  - entry_risk_guard                       │
 │  - SL/TP/R:R/TP 锚点校验                  │
 │  - 币种/方向/时段禁区                      │
-│  输出：allow / reduce / block             │
+│  输出：allow / reduce / block + guard log │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
@@ -258,6 +269,124 @@ prompt 的行为很难精确回测；代码规则可以被历史数据检验。
 └─────────────────────────────────────────┘
 ```
 
+### 风控治理原则
+
+规则审查层不能只输出 `allow / reduce / block`，还必须定义命中后的治理边界。
+
+#### 1. 不可 override 的硬安全规则
+
+以下规则属于资金安全底线，不能被 AI、prompt 或普通策略配置绕过：
+
+- 杠杆上限。
+- 最大仓位和最大持仓数。
+- margin 使用率。
+- 缺失 SL / TP。
+- TP 在入场价反方向。
+- R:R 低于硬下限。
+- 交易所最小下单额、精度、账户余额不足等执行安全约束。
+
+这些规则一旦触发，只能 `block` 或转换为 `wait`，AI 不允许通过“重新解释 reasoning”绕过。
+
+#### 2. 可参数化但必须留痕的规则
+
+以下规则可以通过策略配置调整，但不能由 AI 临场 override：
+
+- RSI 极端阈值。
+- BOLL/ATR buffer。
+- TP 外推容差。
+- R:R soft floor。
+- 连亏冷却阈值。
+- time stop / trailing stop 参数。
+
+参数调整后应记录配置版本，并通过 paper trading 或回测观察效果。
+
+#### 3. AI 的有效权限
+
+AI 可以：
+
+- 放弃交易。
+- 降低 confidence。
+- 给出候选方向和 TP/SL rationale。
+- 解释是否存在 breakout evidence。
+- 对异常环境提出人工复核建议。
+
+AI 不可以：
+
+- 绕过 hard block。
+- 在 live 决策里修改风控参数。
+- 因为趋势叙事强而忽略已命中的禁区。
+- 将被 block 的交易重新包装成另一个 open decision。
+
+### Prompt 改造要求
+
+现有 prompt 不应只提醒 AI “谨慎”，而应要求 AI 输出可被代码和复盘系统消费的结构化字段。
+
+建议后续单独产出 `docs/plans/ai-guard-prompt-refactor.md`，至少固定这些字段：
+
+```json
+{
+  "direction_bias": "long | short | neutral",
+  "market_regime": "trend | range | transition | high_volatility",
+  "risk_signals": [
+    "extreme_rsi",
+    "near_support_resistance",
+    "transition_market",
+    "tp_extension"
+  ],
+  "guard_awareness": {
+    "known_entry_risk": true,
+    "risk_can_be_overridden_by_ai": false
+  },
+  "tp_rationale": {
+    "anchor_type": "recent_high_low | boll_band | support_resistance | breakout_extension",
+    "anchor_price": 0,
+    "breakout_evidence": []
+  }
+}
+```
+
+代码层不应信任这些字段做最终风控，但可以用它们做：
+
+- AI 自检。
+- prompt 质量评估。
+- AI 判断与代码 guard 的差异分析。
+- 后续复盘归因。
+
+### 规则命中遥测与看板
+
+每次规则审查都应记录事件，而不仅仅把交易改成 `wait`。
+
+建议事件字段：
+
+```json
+{
+  "decision_id": "...",
+  "trader_id": "...",
+  "strategy_id": "...",
+  "guard_type": "entry_risk_guard | rr_check | tp_anchor | cooldown | lifecycle_exit",
+  "action": "allow | reduce | block",
+  "reason": "...",
+  "symbol": "BTCUSDT",
+  "side": "short",
+  "position_size_before": 1000,
+  "position_size_after": 500,
+  "config_version": "risk-v3",
+  "timestamp": 0
+}
+```
+
+后续看板至少统计：
+
+- 每个 guard 的命中次数。
+- `block / reduce / allow` 占比。
+- 被 block 信号的后续最大有利/不利波动。
+- 被 reduce 信号的实际 PnL。
+- 误杀率：被 block 后本来会盈利的比例。
+- 漏杀率：未被 block 但后续亏损的比例。
+- 按 symbol、side、regime、策略版本拆分的命中表现。
+
+这一步很关键：没有遥测，规则只会越加越多；有了遥测，规则才能被治理和淘汰。
+
 ### 落地顺序建议
 
 **第一步：把入场禁区代码化**
@@ -265,7 +394,25 @@ prompt 的行为很难精确回测；代码规则可以被历史数据检验。
 - 已落地方向：`entry_risk_guard`
 - 重点不是让代码判断“该买什么”，而是让代码拒绝“明显不该买/卖”的交易。
 
-**第二步：把退出纪律代码化**
+**第二步：补规则命中遥测**
+
+- 为 `entry_risk_guard`、R:R、TP 外推、冷却机制记录 guard event。
+- 追踪被 `block/reduce` 的信号后续走势。
+- 先有数据，再继续扩大规则范围。
+
+**第三步：改造 prompt 输出字段**
+
+- 要求 AI 显式输出 `risk_signals`、`market_regime`、`tp_rationale`。
+- 让 AI 先自检是否触及禁区。
+- 明确 AI 不能 override hard block。
+
+**第四步：把候选池 ranking 约束提前**
+
+- 用 ranking、momentum、volume、OI、funding rate 生成候选列表。
+- AI 只在候选池内解释、排序、否决异常。
+- 至少先把 quant score 作为 AI 选币的输入约束，避免 AI 全市场自由挑逆势币。
+
+**第五步：把退出纪律代码化**
 
 - 完善 `breakeven_protection`
 - 完善 `drawdown_close`
@@ -273,20 +420,15 @@ prompt 的行为很难精确回测；代码规则可以被历史数据检验。
 - 增加 `time_stop`
 - 评估 `structure_break_exit`
 
-**第三步：把 TP 可信度代码化**
+**第六步：把 TP 可信度代码化**
 
-- 生成 supports/resistances/swing high/swing low。
-- 校验 TP 是否靠近结构位。
-- 对无锚点外推 TP 拒绝或降级。
+- Phase 1：先用最近 N 根 K 线 high/low、BOLL、ATR 做粗锚点。
+- Phase 2：再引入 supports/resistances/swing high/swing low。
+- 对无锚点外推 TP 先 `warn_reduce`，有足够证据后再考虑 hard block。
 
-**第四步：把候选池代码化**
+**第七步：用回测和 paper trading 验证参数**
 
-- 用 ranking、momentum、volume、OI、funding rate 生成候选列表。
-- AI 只在候选池内解释、排序、否决异常。
-
-**第五步：用回测和 paper trading 验证参数**
-
-- 每个规则都要记录命中原因。
+- 每个规则都要记录命中原因和后续表现。
 - 对比被 block/reduce 的交易后续表现。
 - 避免凭直觉越加越多规则，最后形成过拟合系统。
 
@@ -320,8 +462,9 @@ prompt 的行为很难精确回测；代码规则可以被历史数据检验。
 
 ## 八、下一步建议
 
-1. 为 `entry_risk_guard` 补充命中统计，观察被 block/reduce 的交易后续走势。
-2. 在 `docs/plans/` 中新增“规则审查层与 AI 假设层边界设计”。
-3. 优先设计 `trailing_stop` 与 `time_stop`，补齐退出生命周期。
-4. 为 TP 锚点校验建立结构位数据来源，而不是先写复杂规则。
-5. 保留 AI 系统作为候选交易生成器，用 paper trading 对比规则审查前后的差异。
+1. 新增 `entry_risk_guard` / R:R / cooldown 的 guard event 记录。
+2. 在 `docs/plans/` 中新增 `ai-guard-prompt-refactor.md`，固定 AI 输出字段。
+3. 在 `docs/plans/` 中新增 `entry-risk-guard-telemetry-design.md`，定义事件表、看板和误杀/漏杀口径。
+4. 把候选池 ranking 约束提前，让 AI 在代码筛选后的候选池内做解释和排序。
+5. TP 锚点先做粗锚点 soft guard，再等结构位服务成熟后升级。
+6. 继续完善 `trailing_stop` 与 `time_stop`，补齐退出生命周期。
