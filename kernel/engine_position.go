@@ -192,6 +192,7 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 		md = marketDataMap[d.Symbol]
 	}
 	if md == nil {
+		logger.Warnf("⚠️ Entry risk guard enabled but no market data for %s, skipping guard", d.Symbol)
 		return nil
 	}
 	reasons := evaluateEntryRiskGuard(d, &guard, md)
@@ -315,13 +316,21 @@ func lastFloat(values []float64) float64 {
 	return values[len(values)-1]
 }
 
+// recentLowHigh returns the lowest low and highest high over the most recent
+// bars. Using only a recent window makes the TP-extension guard react to
+// nearby structure rather than ancient extremes from a long series.
 func recentLowHigh(klines []market.KlineBar) (float64, float64) {
 	if len(klines) == 0 {
 		return 0, 0
 	}
-	low := klines[0].Low
-	high := klines[0].High
-	for _, kline := range klines[1:] {
+	const window = 20
+	start := len(klines) - window
+	if start < 0 {
+		start = 0
+	}
+	low := klines[start].Low
+	high := klines[start].High
+	for _, kline := range klines[start+1:] {
 		if kline.Low < low {
 			low = kline.Low
 		}

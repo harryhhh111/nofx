@@ -871,6 +871,19 @@ func ParseStrategyConfigWithDefaults(raw []byte, fallbackLang string) (*Strategy
 		}
 	}
 
+	// Backward compatibility for EntryRiskGuard:
+	// New strategies created with an empty config inherit the default (enabled).
+	// Existing strategies that did not explicitly configure entry_risk_guard
+	// keep it disabled to avoid a surprise behavior change on deploy.
+	if len(override) > 0 {
+		rc, rcOK := override["risk_control"].(map[string]interface{})
+		if !rcOK {
+			config.RiskControl.EntryRiskGuard = &EntryRiskGuardConfig{Enabled: false}
+		} else if _, hasERG := rc["entry_risk_guard"]; !hasERG {
+			config.RiskControl.EntryRiskGuard = &EntryRiskGuardConfig{Enabled: false}
+		}
+	}
+
 	config.ClampLimits()
 	return &config, nil
 }

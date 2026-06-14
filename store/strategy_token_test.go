@@ -189,6 +189,32 @@ func TestParseConfig_EntryRiskGuardDefaultsAndExplicitDisable(t *testing.T) {
 	if cfg.RiskControl.EntryRiskGuard.Mode != EntryRiskGuardModeHardBlock {
 		t.Fatalf("explicit EntryRiskGuard mode = %q, want %q", cfg.RiskControl.EntryRiskGuard.Mode, EntryRiskGuardModeHardBlock)
 	}
+
+	// Existing configs that never configured entry_risk_guard must stay disabled
+	// to avoid a surprise behavior change on deploy.
+	existingNoERG := &Strategy{Config: `{"language":"zh","risk_control":{"min_confidence":75}}`}
+	cfg, err = existingNoERG.ParseConfig()
+	if err != nil {
+		t.Fatalf("existingNoERG ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.EntryRiskGuard == nil {
+		t.Fatal("existing config should have EntryRiskGuard struct")
+	}
+	if cfg.RiskControl.EntryRiskGuard.Enabled {
+		t.Fatalf("existing config without entry_risk_guard should stay disabled, got %+v", cfg.RiskControl.EntryRiskGuard)
+	}
+
+	existingNoRiskControl := &Strategy{Config: `{"language":"zh"}`}
+	cfg, err = existingNoRiskControl.ParseConfig()
+	if err != nil {
+		t.Fatalf("existingNoRiskControl ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.EntryRiskGuard == nil {
+		t.Fatal("existing config without risk_control should have EntryRiskGuard struct")
+	}
+	if cfg.RiskControl.EntryRiskGuard.Enabled {
+		t.Fatalf("existing config without risk_control should stay disabled, got %+v", cfg.RiskControl.EntryRiskGuard)
+	}
 }
 
 func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
