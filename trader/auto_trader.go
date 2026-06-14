@@ -155,8 +155,13 @@ type AutoTrader struct {
 	safeMode                bool                   // Safe mode: no new positions, protect existing ones
 	safeModeReason          string                 // Why safe mode was activated
 
-	// Consecutive loss cooling state (nil = not cooling)
-	cooling *CoolingState
+	// Consecutive loss cooling state keyed by scope (nil = not cooling)
+	coolingStates map[string]*CoolingState // key = scopeKey (e.g. "global" / "LONG" / "BTCUSDT_LONG")
+
+	// Trend end watch: remaining cooldown cycles for blocked scope keys.
+	// Decremented each cycle; removed when reach 0. Key = scopeKey
+	// (e.g. "LONG" / "BTCUSDT_LONG").
+	missCooldown map[string]int
 
 	// Breakeven protection: progressive SL promotion state (posKey -> steps promoted, 0 = not yet promoted)
 	breakevenSteps      map[string]int
@@ -610,4 +615,3 @@ func calculatePnLPercentage(unrealizedPnl, marginUsed float64) float64 {
 	}
 	return 0.0
 }
-

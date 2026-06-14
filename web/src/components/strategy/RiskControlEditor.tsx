@@ -22,6 +22,9 @@ export function RiskControlEditor({
     block_near_boll_band: true,
     block_transition_market: true,
     block_extended_take_profit: true,
+    block_low_risk_reward: true,
+    risk_reward_soft_floor: 0.8,
+    take_profit_guard_mode: '' as const,
     reduce_position_pct: 0.5,
   }
 
@@ -170,7 +173,10 @@ export function RiskControlEditor({
                 type="range"
                 value={config.btc_eth_max_position_value_ratio ?? 5}
                 onChange={(e) =>
-                  updateField('btc_eth_max_position_value_ratio', parseFloat(e.target.value))
+                  updateField(
+                    'btc_eth_max_position_value_ratio',
+                    parseFloat(e.target.value)
+                  )
                 }
                 disabled={disabled}
                 min={0.5}
@@ -202,7 +208,10 @@ export function RiskControlEditor({
                 type="range"
                 value={config.altcoin_max_position_value_ratio ?? 1}
                 onChange={(e) =>
-                  updateField('altcoin_max_position_value_ratio', parseFloat(e.target.value))
+                  updateField(
+                    'altcoin_max_position_value_ratio',
+                    parseFloat(e.target.value)
+                  )
                 }
                 disabled={disabled}
                 min={0.5}
@@ -247,7 +256,10 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_risk_reward_ratio ?? 3}
                 onChange={(e) =>
-                  updateField('min_risk_reward_ratio', parseFloat(e.target.value) || 3)
+                  updateField(
+                    'min_risk_reward_ratio',
+                    parseFloat(e.target.value) || 3
+                  )
                 }
                 disabled={disabled}
                 min={1}
@@ -278,14 +290,20 @@ export function RiskControlEditor({
                 type="range"
                 value={(config.max_margin_usage ?? 0.9) * 100}
                 onChange={(e) =>
-                  updateField('max_margin_usage', parseInt(e.target.value) / 100)
+                  updateField(
+                    'max_margin_usage',
+                    parseInt(e.target.value) / 100
+                  )
                 }
                 disabled={disabled}
                 min={10}
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#0ECB81' }}
+              >
                 {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
               </span>
             </div>
@@ -318,7 +336,10 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_position_size ?? 12}
                 onChange={(e) =>
-                  updateField('min_position_size', parseFloat(e.target.value) || 12)
+                  updateField(
+                    'min_position_size',
+                    parseFloat(e.target.value) || 12
+                  )
                 }
                 disabled={disabled}
                 min={10}
@@ -358,7 +379,10 @@ export function RiskControlEditor({
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#0ECB81' }}
+              >
                 {config.min_confidence ?? 75}
               </span>
             </div>
@@ -386,7 +410,10 @@ export function RiskControlEditor({
                 max={95}
                 className="flex-1 accent-yellow-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#F0B90B' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#F0B90B' }}
+              >
                 {config.min_close_confidence ?? 85}
               </span>
             </div>
@@ -395,11 +422,16 @@ export function RiskControlEditor({
       </div>
 
       {/* Stop Loss ATR Buffer */}
-      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #2B3139' }}
+      >
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle className="w-5 h-5" style={{ color: '#F6465D' }} />
           <h3 className="font-medium" style={{ color: '#EAECEF' }}>
-            {language === 'zh' ? '止损 ATR 缓冲 (AI 引导)' : 'Stop Loss ATR Buffer (AI Guided)'}
+            {language === 'zh'
+              ? '止损 ATR 缓冲 (AI 引导)'
+              : 'Stop Loss ATR Buffer (AI Guided)'}
           </h3>
         </div>
         <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
@@ -411,13 +443,22 @@ export function RiskControlEditor({
           <input
             type="number"
             value={config.stop_loss_atr_buffer ?? 0}
-            onChange={(e) => updateField('stop_loss_atr_buffer', parseFloat(e.target.value) || 0)}
+            onChange={(e) =>
+              updateField(
+                'stop_loss_atr_buffer',
+                parseFloat(e.target.value) || 0
+              )
+            }
             disabled={disabled}
             min={0}
             max={3}
             step={0.1}
             className="w-24 px-3 py-2 rounded text-center"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+            style={{
+              background: '#0B0E11',
+              border: '1px solid #2B3139',
+              color: '#EAECEF',
+            }}
           />
           <span className="text-sm" style={{ color: '#848E9C' }}>
             × ATR14
@@ -431,7 +472,10 @@ export function RiskControlEditor({
       </div>
 
       {/* Entry Risk Guard */}
-      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #F0B90B33' }}>
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #F0B90B33' }}
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-5 h-5" style={{ color: '#F0B90B' }} />
@@ -441,26 +485,42 @@ export function RiskControlEditor({
           </div>
           <button
             type="button"
-            onClick={() => !disabled && updateField('entry_risk_guard', {
-              ...(config.entry_risk_guard || defaultEntryRiskGuard),
-              enabled: !(config.entry_risk_guard?.enabled ?? true),
-            })}
+            onClick={() =>
+              !disabled &&
+              updateField('entry_risk_guard', {
+                ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                enabled: !(config.entry_risk_guard?.enabled ?? true),
+              })
+            }
             disabled={disabled}
             className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors"
             style={{
-              background: (config.entry_risk_guard?.enabled ?? true) ? '#F0B90B22' : '#2B3139',
+              background:
+                (config.entry_risk_guard?.enabled ?? true)
+                  ? '#F0B90B22'
+                  : '#2B3139',
               border: `1px solid ${(config.entry_risk_guard?.enabled ?? true) ? '#F0B90B' : '#5E6673'}`,
-              color: (config.entry_risk_guard?.enabled ?? true) ? '#F0B90B' : '#848E9C',
+              color:
+                (config.entry_risk_guard?.enabled ?? true)
+                  ? '#F0B90B'
+                  : '#848E9C',
               cursor: disabled ? 'not-allowed' : 'pointer',
             }}
           >
             <span
               className="w-2 h-2 rounded-full"
-              style={{ background: (config.entry_risk_guard?.enabled ?? true) ? '#F0B90B' : '#5E6673' }}
+              style={{
+                background:
+                  (config.entry_risk_guard?.enabled ?? true)
+                    ? '#F0B90B'
+                    : '#5E6673',
+              }}
             />
             {(config.entry_risk_guard?.enabled ?? true)
               ? ts(riskControl.entryRiskGuardEnabled, language)
-              : (language === 'zh' ? '已禁用' : 'Disabled')}
+              : language === 'zh'
+                ? '已禁用'
+                : 'Disabled'}
           </button>
         </div>
 
@@ -468,65 +528,123 @@ export function RiskControlEditor({
           {ts(riskControl.entryRiskGuardDesc, language)}
         </p>
 
-        <div style={{ opacity: (config.entry_risk_guard?.enabled ?? true) ? 1 : 0.4, pointerEvents: (config.entry_risk_guard?.enabled ?? true) ? 'auto' : 'none' }}>
+        <div
+          style={{
+            opacity: (config.entry_risk_guard?.enabled ?? true) ? 1 : 0.4,
+            pointerEvents:
+              (config.entry_risk_guard?.enabled ?? true) ? 'auto' : 'none',
+          }}
+        >
           <p className="text-xs font-medium mb-2" style={{ color: '#EAECEF' }}>
             {ts(riskControl.entryRiskGuardMode, language)}
           </p>
           <div className="grid grid-cols-2 gap-3 mb-4">
             <button
               type="button"
-              onClick={() => !disabled && updateField('entry_risk_guard', {
-                ...(config.entry_risk_guard || defaultEntryRiskGuard),
-                mode: 'hard_block',
-              })}
+              onClick={() =>
+                !disabled &&
+                updateField('entry_risk_guard', {
+                  ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                  mode: 'hard_block',
+                })
+              }
               disabled={disabled}
               className="p-3 rounded-lg text-left transition-colors"
               style={{
-                background: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'hard_block' ? '#F6465D22' : '#0B0E11',
+                background:
+                  (config.entry_risk_guard?.mode ?? 'warn_reduce') ===
+                  'hard_block'
+                    ? '#F6465D22'
+                    : '#0B0E11',
                 border: `1px solid ${(config.entry_risk_guard?.mode ?? 'warn_reduce') === 'hard_block' ? '#F6465D' : '#2B3139'}`,
               }}
             >
-              <p className="text-sm font-medium mb-1" style={{ color: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'hard_block' ? '#F6465D' : '#848E9C' }}>
+              <p
+                className="text-sm font-medium mb-1"
+                style={{
+                  color:
+                    (config.entry_risk_guard?.mode ?? 'warn_reduce') ===
+                    'hard_block'
+                      ? '#F6465D'
+                      : '#848E9C',
+                }}
+              >
                 {ts(riskControl.entryRiskGuardModeHard, language)}
               </p>
-              <p className="text-xs" style={{ color: '#5E6673' }}>{ts(riskControl.entryRiskGuardModeHardDesc, language)}</p>
+              <p className="text-xs" style={{ color: '#5E6673' }}>
+                {ts(riskControl.entryRiskGuardModeHardDesc, language)}
+              </p>
             </button>
 
             <button
               type="button"
-              onClick={() => !disabled && updateField('entry_risk_guard', {
-                ...(config.entry_risk_guard || defaultEntryRiskGuard),
-                mode: 'warn_reduce',
-              })}
+              onClick={() =>
+                !disabled &&
+                updateField('entry_risk_guard', {
+                  ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                  mode: 'warn_reduce',
+                })
+              }
               disabled={disabled}
               className="p-3 rounded-lg text-left transition-colors"
               style={{
-                background: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'warn_reduce' ? '#F0B90B22' : '#0B0E11',
+                background:
+                  (config.entry_risk_guard?.mode ?? 'warn_reduce') ===
+                  'warn_reduce'
+                    ? '#F0B90B22'
+                    : '#0B0E11',
                 border: `1px solid ${(config.entry_risk_guard?.mode ?? 'warn_reduce') === 'warn_reduce' ? '#F0B90B' : '#2B3139'}`,
               }}
             >
-              <p className="text-sm font-medium mb-1" style={{ color: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'warn_reduce' ? '#F0B90B' : '#848E9C' }}>
+              <p
+                className="text-sm font-medium mb-1"
+                style={{
+                  color:
+                    (config.entry_risk_guard?.mode ?? 'warn_reduce') ===
+                    'warn_reduce'
+                      ? '#F0B90B'
+                      : '#848E9C',
+                }}
+              >
                 {ts(riskControl.entryRiskGuardModeWarnReduce, language)}
               </p>
-              <p className="text-xs" style={{ color: '#5E6673' }}>{ts(riskControl.entryRiskGuardModeWarnReduceDesc, language)}</p>
+              <p className="text-xs" style={{ color: '#5E6673' }}>
+                {ts(riskControl.entryRiskGuardModeWarnReduceDesc, language)}
+              </p>
             </button>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {([
-              ['block_extreme_rsi', riskControl.entryRiskGuardExtremeRSI],
-              ['block_near_boll_band', riskControl.entryRiskGuardBoll],
-              ['block_transition_market', riskControl.entryRiskGuardTransition],
-              ['block_extended_take_profit', riskControl.entryRiskGuardTP],
-            ] as const).map(([key, label]) => (
-              <label key={key} className="flex items-center gap-2 p-3 rounded-lg text-sm" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}>
+            {(
+              [
+                ['block_extreme_rsi', riskControl.entryRiskGuardExtremeRSI],
+                ['block_near_boll_band', riskControl.entryRiskGuardBoll],
+                [
+                  'block_transition_market',
+                  riskControl.entryRiskGuardTransition,
+                ],
+                ['block_extended_take_profit', riskControl.entryRiskGuardTP],
+              ] as const
+            ).map(([key, label]) => (
+              <label
+                key={key}
+                className="flex items-center gap-2 p-3 rounded-lg text-sm"
+                style={{
+                  background: '#0B0E11',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
+              >
                 <input
                   type="checkbox"
                   checked={config.entry_risk_guard?.[key] ?? true}
-                  onChange={(e) => !disabled && updateField('entry_risk_guard', {
-                    ...(config.entry_risk_guard || defaultEntryRiskGuard),
-                    [key]: e.target.checked,
-                  })}
+                  onChange={(e) =>
+                    !disabled &&
+                    updateField('entry_risk_guard', {
+                      ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                      [key]: e.target.checked,
+                    })
+                  }
                   disabled={disabled}
                   className="accent-yellow-500"
                 />
@@ -534,11 +652,89 @@ export function RiskControlEditor({
               </label>
             ))}
           </div>
+          <p
+            className="text-xs mt-2"
+            style={{ color: '#5E6673', fontStyle: 'italic' }}
+          >
+            {ts(riskControl.entryRiskGuardTPModeNote, language)}
+          </p>
+
+          {/* Low R:R protection: tiered soft/hard floor */}
+          <div
+            className="mt-4 p-3 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label
+              className="flex items-center gap-2 text-sm"
+              style={{ color: '#EAECEF' }}
+            >
+              <input
+                type="checkbox"
+                checked={config.entry_risk_guard?.block_low_risk_reward ?? true}
+                onChange={(e) =>
+                  !disabled &&
+                  updateField('entry_risk_guard', {
+                    ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                    block_low_risk_reward: e.target.checked,
+                  })
+                }
+                disabled={disabled}
+                className="accent-yellow-500"
+              />
+              {ts(riskControl.entryRiskGuardLowRR, language)}
+            </label>
+            <div
+              className="mt-3"
+              style={{
+                opacity:
+                  (config.entry_risk_guard?.block_low_risk_reward ?? true)
+                    ? 1
+                    : 0.4,
+                pointerEvents:
+                  (config.entry_risk_guard?.block_low_risk_reward ?? true)
+                    ? 'auto'
+                    : 'none',
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-xs" style={{ color: '#848E9C' }}>
+                  {ts(riskControl.entryRiskGuardRRSoftFloor, language)}
+                </span>
+                <input
+                  type="range"
+                  value={config.entry_risk_guard?.risk_reward_soft_floor ?? 0.8}
+                  onChange={(e) =>
+                    updateField('entry_risk_guard', {
+                      ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                      risk_reward_soft_floor: parseFloat(e.target.value),
+                    })
+                  }
+                  disabled={disabled}
+                  min={0.5}
+                  max={1}
+                  step={0.05}
+                  className="flex-1"
+                  style={{ accentColor: '#F0B90B' }}
+                />
+                <span
+                  className="w-12 text-center font-mono text-xs"
+                  style={{ color: '#F0B90B' }}
+                >
+                  {(
+                    config.entry_risk_guard?.risk_reward_soft_floor ?? 0.8
+                  ).toFixed(2)}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Drawdown Close Monitor */}
-      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #F6465D33' }}>
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #F6465D33' }}
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <TrendingDown className="w-5 h-5" style={{ color: '#F6465D' }} />
@@ -549,23 +745,40 @@ export function RiskControlEditor({
           {/* Enable / disable toggle */}
           <button
             type="button"
-            onClick={() => !disabled && updateField('drawdown_close_enabled', !(config.drawdown_close_enabled ?? true))}
+            onClick={() =>
+              !disabled &&
+              updateField(
+                'drawdown_close_enabled',
+                !(config.drawdown_close_enabled ?? true)
+              )
+            }
             disabled={disabled}
             className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors"
             style={{
-              background: (config.drawdown_close_enabled ?? true) ? '#F6465D22' : '#2B3139',
+              background:
+                (config.drawdown_close_enabled ?? true)
+                  ? '#F6465D22'
+                  : '#2B3139',
               border: `1px solid ${(config.drawdown_close_enabled ?? true) ? '#F6465D' : '#5E6673'}`,
-              color: (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#848E9C',
+              color:
+                (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#848E9C',
               cursor: disabled ? 'not-allowed' : 'pointer',
             }}
           >
             <span
               className="w-2 h-2 rounded-full"
-              style={{ background: (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#5E6673' }}
+              style={{
+                background:
+                  (config.drawdown_close_enabled ?? true)
+                    ? '#F6465D'
+                    : '#5E6673',
+              }}
             />
             {(config.drawdown_close_enabled ?? true)
               ? ts(riskControl.drawdownCloseEnabled, language)
-              : (language === 'zh' ? '已禁用' : 'Disabled')}
+              : language === 'zh'
+                ? '已禁用'
+                : 'Disabled'}
           </button>
         </div>
 
@@ -573,9 +786,19 @@ export function RiskControlEditor({
           {ts(riskControl.drawdownCloseDesc, language)}
         </p>
 
-        <div className="grid grid-cols-2 gap-4 mb-4" style={{ opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4, pointerEvents: (config.drawdown_close_enabled ?? true) ? 'auto' : 'none' }}>
+        <div
+          className="grid grid-cols-2 gap-4 mb-4"
+          style={{
+            opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4,
+            pointerEvents:
+              (config.drawdown_close_enabled ?? true) ? 'auto' : 'none',
+          }}
+        >
           {/* Min profit to activate */}
-          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.drawdownCloseMinProfit, language)}
             </label>
@@ -586,21 +809,32 @@ export function RiskControlEditor({
               <input
                 type="range"
                 value={config.drawdown_close_min_profit_pct ?? 5}
-                onChange={(e) => updateField('drawdown_close_min_profit_pct', parseFloat(e.target.value))}
+                onChange={(e) =>
+                  updateField(
+                    'drawdown_close_min_profit_pct',
+                    parseFloat(e.target.value)
+                  )
+                }
                 disabled={disabled}
                 min={1}
                 max={30}
                 step={0.5}
                 className="flex-1 accent-red-500"
               />
-              <span className="w-14 text-center font-mono" style={{ color: '#F6465D' }}>
+              <span
+                className="w-14 text-center font-mono"
+                style={{ color: '#F6465D' }}
+              >
                 {config.drawdown_close_min_profit_pct ?? 5}%
               </span>
             </div>
           </div>
 
           {/* Drawdown trigger */}
-          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.drawdownCloseTrigger, language)}
             </label>
@@ -611,14 +845,22 @@ export function RiskControlEditor({
               <input
                 type="range"
                 value={config.drawdown_close_trigger_pct ?? 40}
-                onChange={(e) => updateField('drawdown_close_trigger_pct', parseFloat(e.target.value))}
+                onChange={(e) =>
+                  updateField(
+                    'drawdown_close_trigger_pct',
+                    parseFloat(e.target.value)
+                  )
+                }
                 disabled={disabled}
                 min={10}
                 max={90}
                 step={5}
                 className="flex-1 accent-red-500"
               />
-              <span className="w-14 text-center font-mono" style={{ color: '#F6465D' }}>
+              <span
+                className="w-14 text-center font-mono"
+                style={{ color: '#F6465D' }}
+              >
                 {config.drawdown_close_trigger_pct ?? 40}%
               </span>
             </div>
@@ -626,7 +868,13 @@ export function RiskControlEditor({
         </div>
 
         {/* Action mode: Auto Close vs AI Decide */}
-        <div style={{ opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4, pointerEvents: (config.drawdown_close_enabled ?? true) ? 'auto' : 'none' }}>
+        <div
+          style={{
+            opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4,
+            pointerEvents:
+              (config.drawdown_close_enabled ?? true) ? 'auto' : 'none',
+          }}
+        >
           <p className="text-xs font-medium mb-2" style={{ color: '#EAECEF' }}>
             {ts(riskControl.drawdownCloseMode, language)}
           </p>
@@ -634,16 +882,27 @@ export function RiskControlEditor({
             {/* Auto Close */}
             <button
               type="button"
-              onClick={() => !disabled && updateField('drawdown_close_use_ai', false)}
+              onClick={() =>
+                !disabled && updateField('drawdown_close_use_ai', false)
+              }
               disabled={disabled}
               className="p-3 rounded-lg text-left transition-colors"
               style={{
-                background: !(config.drawdown_close_use_ai ?? false) ? '#F6465D22' : '#0B0E11',
+                background: !(config.drawdown_close_use_ai ?? false)
+                  ? '#F6465D22'
+                  : '#0B0E11',
                 border: `1px solid ${!(config.drawdown_close_use_ai ?? false) ? '#F6465D' : '#2B3139'}`,
                 cursor: disabled ? 'not-allowed' : 'pointer',
               }}
             >
-              <p className="text-sm font-medium mb-1" style={{ color: !(config.drawdown_close_use_ai ?? false) ? '#F6465D' : '#848E9C' }}>
+              <p
+                className="text-sm font-medium mb-1"
+                style={{
+                  color: !(config.drawdown_close_use_ai ?? false)
+                    ? '#F6465D'
+                    : '#848E9C',
+                }}
+              >
                 {ts(riskControl.drawdownCloseModeAuto, language)}
               </p>
               <p className="text-xs" style={{ color: '#5E6673' }}>
@@ -654,16 +913,29 @@ export function RiskControlEditor({
             {/* AI Decide */}
             <button
               type="button"
-              onClick={() => !disabled && updateField('drawdown_close_use_ai', true)}
+              onClick={() =>
+                !disabled && updateField('drawdown_close_use_ai', true)
+              }
               disabled={disabled}
               className="p-3 rounded-lg text-left transition-colors"
               style={{
-                background: (config.drawdown_close_use_ai ?? false) ? '#F0B90B22' : '#0B0E11',
+                background:
+                  (config.drawdown_close_use_ai ?? false)
+                    ? '#F0B90B22'
+                    : '#0B0E11',
                 border: `1px solid ${(config.drawdown_close_use_ai ?? false) ? '#F0B90B' : '#2B3139'}`,
                 cursor: disabled ? 'not-allowed' : 'pointer',
               }}
             >
-              <p className="text-sm font-medium mb-1" style={{ color: (config.drawdown_close_use_ai ?? false) ? '#F0B90B' : '#848E9C' }}>
+              <p
+                className="text-sm font-medium mb-1"
+                style={{
+                  color:
+                    (config.drawdown_close_use_ai ?? false)
+                      ? '#F0B90B'
+                      : '#848E9C',
+                }}
+              >
                 {ts(riskControl.drawdownCloseModeAI, language)}
               </p>
               <p className="text-xs" style={{ color: '#5E6673' }}>
@@ -674,31 +946,96 @@ export function RiskControlEditor({
         </div>
 
         {/* ── Breakeven Protection ────────────────────────── */}
-        <div className="mt-6 p-4 rounded-lg" style={{ background: 'rgba(14, 203, 129, 0.04)', border: '1px solid rgba(14, 203, 129, 0.15)' }}>
+        <div
+          className="mt-6 p-4 rounded-lg"
+          style={{
+            background: 'rgba(14, 203, 129, 0.04)',
+            border: '1px solid rgba(14, 203, 129, 0.15)',
+          }}
+        >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>{ts(riskControl.breakevenProtection, language)}</span>
+              <span
+                className="text-sm font-medium"
+                style={{ color: '#EAECEF' }}
+              >
+                {ts(riskControl.breakevenProtection, language)}
+              </span>
             </div>
             <button
-              onClick={() => !disabled && updateField('breakeven_protection', (config.breakeven_protection?.enabled ?? false) ? undefined : { enabled: true, trigger_pct: 1 })}
+              onClick={() =>
+                !disabled &&
+                updateField(
+                  'breakeven_protection',
+                  (config.breakeven_protection?.enabled ?? false)
+                    ? undefined
+                    : { enabled: true, trigger_pct: 1 }
+                )
+              }
               disabled={disabled}
               className="relative w-11 h-6 rounded-full transition-colors"
-              style={{ background: (config.breakeven_protection?.enabled ?? false) ? '#0ECB81' : '#2B3139' }}
+              style={{
+                background:
+                  (config.breakeven_protection?.enabled ?? false)
+                    ? '#0ECB81'
+                    : '#2B3139',
+              }}
             >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.breakeven_protection?.enabled ?? false) ? 'translate-x-5' : ''}`} />
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.breakeven_protection?.enabled ?? false) ? 'translate-x-5' : ''}`}
+              />
             </button>
           </div>
-          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>{ts(riskControl.breakevenProtectionDesc, language)}</p>
-          <div style={{ opacity: (config.breakeven_protection?.enabled ?? false) ? 1 : 0.4, pointerEvents: (config.breakeven_protection?.enabled ?? false) ? 'auto' : 'none' }}>
+          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>
+            {ts(riskControl.breakevenProtectionDesc, language)}
+          </p>
+          <div
+            style={{
+              opacity:
+                (config.breakeven_protection?.enabled ?? false) ? 1 : 0.4,
+              pointerEvents:
+                (config.breakeven_protection?.enabled ?? false)
+                  ? 'auto'
+                  : 'none',
+            }}
+          >
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
-                <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{ts(riskControl.breakevenProtectionTriggerPct, language)}</label>
+              <div
+                className="p-3 rounded-lg"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              >
+                <label
+                  className="block text-xs mb-1"
+                  style={{ color: '#EAECEF' }}
+                >
+                  {ts(riskControl.breakevenProtectionTriggerPct, language)}
+                </label>
                 <div className="flex items-center gap-2">
-                  <input type="range" value={config.breakeven_protection?.trigger_pct ?? 1}
-                    onChange={(e) => updateField('breakeven_protection', { ...(config.breakeven_protection || { enabled: true, trigger_pct: 1 }), trigger_pct: parseFloat(e.target.value) })}
-                    disabled={disabled} min={0.1} max={20} step={0.1}
-                    className="flex-1" style={{ accentColor: '#0ECB81' }} />
-                  <span className="w-12 text-center font-mono text-sm" style={{ color: '#0ECB81' }}>{(config.breakeven_protection?.trigger_pct ?? 1).toFixed(1)}</span>
+                  <input
+                    type="range"
+                    value={config.breakeven_protection?.trigger_pct ?? 1}
+                    onChange={(e) =>
+                      updateField('breakeven_protection', {
+                        ...(config.breakeven_protection || {
+                          enabled: true,
+                          trigger_pct: 1,
+                        }),
+                        trigger_pct: parseFloat(e.target.value),
+                      })
+                    }
+                    disabled={disabled}
+                    min={0.1}
+                    max={20}
+                    step={0.1}
+                    className="flex-1"
+                    style={{ accentColor: '#0ECB81' }}
+                  />
+                  <span
+                    className="w-12 text-center font-mono text-sm"
+                    style={{ color: '#0ECB81' }}
+                  >
+                    {(config.breakeven_protection?.trigger_pct ?? 1).toFixed(1)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -706,47 +1043,370 @@ export function RiskControlEditor({
         </div>
 
         {/* ── Consecutive Loss Brake ──────────────────────── */}
-        <div className="mt-6 p-4 rounded-lg" style={{ background: 'rgba(14, 203, 129, 0.04)', border: '1px solid rgba(14, 203, 129, 0.15)' }}>
+        <div
+          className="mt-6 p-4 rounded-lg"
+          style={{
+            background: 'rgba(14, 203, 129, 0.04)',
+            border: '1px solid rgba(14, 203, 129, 0.15)',
+          }}
+        >
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium" style={{ color: '#EAECEF' }}>{ts(riskControl.consecutiveLossBrake, language)}</span>
+              <span
+                className="text-sm font-medium"
+                style={{ color: '#EAECEF' }}
+              >
+                {ts(riskControl.consecutiveLossBrake, language)}
+              </span>
             </div>
             <button
-              onClick={() => !disabled && updateField('consecutive_loss_brake', (config.consecutive_loss_brake?.enabled ?? true) ? undefined : { enabled: true, max_losses: 3, cool_down_cycles: 3 })}
+              onClick={() =>
+                !disabled &&
+                updateField(
+                  'consecutive_loss_brake',
+                  (config.consecutive_loss_brake?.enabled ?? true)
+                    ? undefined
+                    : { enabled: true, max_losses: 3, cool_down_cycles: 3 }
+                )
+              }
               disabled={disabled}
               className="relative w-11 h-6 rounded-full transition-colors"
-              style={{ background: (config.consecutive_loss_brake?.enabled ?? true) ? '#0ECB81' : '#2B3139' }}
+              style={{
+                background:
+                  (config.consecutive_loss_brake?.enabled ?? true)
+                    ? '#0ECB81'
+                    : '#2B3139',
+              }}
             >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.consecutive_loss_brake?.enabled ?? true) ? 'translate-x-5' : ''}`} />
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.consecutive_loss_brake?.enabled ?? true) ? 'translate-x-5' : ''}`}
+              />
             </button>
           </div>
-          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>{ts(riskControl.consecutiveLossBrakeDesc, language)}</p>
-          <div style={{ opacity: (config.consecutive_loss_brake?.enabled ?? true) ? 1 : 0.4, pointerEvents: (config.consecutive_loss_brake?.enabled ?? true) ? 'auto' : 'none' }}>
+          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>
+            {ts(riskControl.consecutiveLossBrakeDesc, language)}
+          </p>
+          <div
+            style={{
+              opacity:
+                (config.consecutive_loss_brake?.enabled ?? true) ? 1 : 0.4,
+              pointerEvents:
+                (config.consecutive_loss_brake?.enabled ?? true)
+                  ? 'auto'
+                  : 'none',
+            }}
+          >
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
-                <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{ts(riskControl.consecutiveLossBrakeMaxLosses, language)}</label>
+              <div
+                className="p-3 rounded-lg"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              >
+                <label
+                  className="block text-xs mb-1"
+                  style={{ color: '#EAECEF' }}
+                >
+                  {ts(riskControl.consecutiveLossBrakeMaxLosses, language)}
+                </label>
                 <div className="flex items-center gap-2">
-                  <input type="range" value={config.consecutive_loss_brake?.max_losses ?? 3}
-                    onChange={(e) => updateField('consecutive_loss_brake', { ...(config.consecutive_loss_brake || { enabled: true, max_losses: 3, cool_down_cycles: 3 }), max_losses: parseInt(e.target.value) })}
-                    disabled={disabled} min={2} max={10} step={1}
-                    className="flex-1" style={{ accentColor: '#0ECB81' }} />
-                  <span className="w-8 text-center font-mono text-sm" style={{ color: '#0ECB81' }}>{config.consecutive_loss_brake?.max_losses ?? 3}</span>
+                  <input
+                    type="range"
+                    value={config.consecutive_loss_brake?.max_losses ?? 3}
+                    onChange={(e) =>
+                      updateField('consecutive_loss_brake', {
+                        ...(config.consecutive_loss_brake || {
+                          enabled: true,
+                          max_losses: 3,
+                          cool_down_cycles: 3,
+                        }),
+                        max_losses: parseInt(e.target.value),
+                      })
+                    }
+                    disabled={disabled}
+                    min={2}
+                    max={10}
+                    step={1}
+                    className="flex-1"
+                    style={{ accentColor: '#0ECB81' }}
+                  />
+                  <span
+                    className="w-8 text-center font-mono text-sm"
+                    style={{ color: '#0ECB81' }}
+                  >
+                    {config.consecutive_loss_brake?.max_losses ?? 3}
+                  </span>
                 </div>
               </div>
-              <div className="p-3 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
-                <label className="block text-xs mb-1" style={{ color: '#EAECEF' }}>{ts(riskControl.consecutiveLossBrakeCooldown, language)}</label>
+              <div
+                className="p-3 rounded-lg"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              >
+                <label
+                  className="block text-xs mb-1"
+                  style={{ color: '#EAECEF' }}
+                >
+                  {ts(riskControl.consecutiveLossBrakeCooldown, language)}
+                </label>
                 <div className="flex items-center gap-2">
-                  <input type="range" value={config.consecutive_loss_brake?.cool_down_cycles ?? 3}
-                    onChange={(e) => updateField('consecutive_loss_brake', { ...(config.consecutive_loss_brake || { enabled: true, max_losses: 3, cool_down_cycles: 3 }), cool_down_cycles: parseInt(e.target.value) })}
-                    disabled={disabled} min={1} max={20} step={1}
-                    className="flex-1" style={{ accentColor: '#0ECB81' }} />
-                  <span className="w-8 text-center font-mono text-sm" style={{ color: '#0ECB81' }}>{config.consecutive_loss_brake?.cool_down_cycles ?? 3}</span>
+                  <input
+                    type="range"
+                    value={config.consecutive_loss_brake?.cool_down_cycles ?? 3}
+                    onChange={(e) =>
+                      updateField('consecutive_loss_brake', {
+                        ...(config.consecutive_loss_brake || {
+                          enabled: true,
+                          max_losses: 3,
+                          cool_down_cycles: 3,
+                        }),
+                        cool_down_cycles: parseInt(e.target.value),
+                      })
+                    }
+                    disabled={disabled}
+                    min={1}
+                    max={20}
+                    step={1}
+                    className="flex-1"
+                    style={{ accentColor: '#0ECB81' }}
+                  />
+                  <span
+                    className="w-8 text-center font-mono text-sm"
+                    style={{ color: '#0ECB81' }}
+                  >
+                    {config.consecutive_loss_brake?.cool_down_cycles ?? 3}
+                  </span>
                 </div>
               </div>
+            </div>
+            <div
+              className="mt-3 p-3 rounded-lg"
+              style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            >
+              <label
+                className="block text-xs mb-1"
+                style={{ color: '#EAECEF' }}
+              >
+                {ts(riskControl.consecutiveLossBrakeScope, language)}
+              </label>
+              <select
+                value={config.consecutive_loss_brake?.scope ?? 'global'}
+                onChange={(e) =>
+                  updateField('consecutive_loss_brake', {
+                    ...(config.consecutive_loss_brake || {
+                      enabled: true,
+                      max_losses: 3,
+                      cool_down_cycles: 3,
+                    }),
+                    scope: e.target.value as
+                      | 'global'
+                      | 'direction'
+                      | 'symbol_side',
+                  })
+                }
+                disabled={disabled}
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                  accentColor: '#0ECB81',
+                }}
+              >
+                <option value="global">
+                  {ts(riskControl.consecutiveLossBrakeScopeGlobal, language)}
+                </option>
+                <option value="direction">
+                  {ts(riskControl.consecutiveLossBrakeScopeDirection, language)}
+                </option>
+                <option value="symbol_side">
+                  {ts(
+                    riskControl.consecutiveLossBrakeScopeSymbolSide,
+                    language
+                  )}
+                </option>
+              </select>
             </div>
           </div>
         </div>
 
+        {/* ── Trend End Watch ──────────────────────────────── */}
+        <div
+          className="mt-6 p-4 rounded-lg"
+          style={{
+            background: 'rgba(246, 70, 93, 0.04)',
+            border: '1px solid rgba(246, 70, 93, 0.15)',
+          }}
+        >
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <span
+                className="text-sm font-medium"
+                style={{ color: '#EAECEF' }}
+              >
+                {ts(riskControl.trendEndWatch, language)}
+              </span>
+            </div>
+            <button
+              onClick={() =>
+                !disabled &&
+                updateField(
+                  'trend_end_watch',
+                  (config.trend_end_watch?.enabled ?? false)
+                    ? undefined
+                    : {
+                        enabled: true,
+                        misses: 3,
+                        cool_down_cycles: 3,
+                        scope: 'direction',
+                      }
+                )
+              }
+              disabled={disabled}
+              className="relative w-11 h-6 rounded-full transition-colors"
+              style={{
+                background:
+                  (config.trend_end_watch?.enabled ?? false)
+                    ? '#F6465D'
+                    : '#2B3139',
+              }}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${(config.trend_end_watch?.enabled ?? false) ? 'translate-x-5' : ''}`}
+              />
+            </button>
+          </div>
+          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>
+            {ts(riskControl.trendEndWatchDesc, language)}
+          </p>
+          <div
+            style={{
+              opacity: (config.trend_end_watch?.enabled ?? false) ? 1 : 0.4,
+              pointerEvents:
+                (config.trend_end_watch?.enabled ?? false) ? 'auto' : 'none',
+            }}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              <div
+                className="p-3 rounded-lg"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              >
+                <label
+                  className="block text-xs mb-1"
+                  style={{ color: '#EAECEF' }}
+                >
+                  {ts(riskControl.trendEndWatchMisses, language)}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    value={config.trend_end_watch?.misses ?? 3}
+                    onChange={(e) =>
+                      updateField('trend_end_watch', {
+                        ...(config.trend_end_watch || {
+                          enabled: true,
+                          misses: 3,
+                          cool_down_cycles: 3,
+                          scope: 'direction' as const,
+                        }),
+                        misses: parseInt(e.target.value),
+                      })
+                    }
+                    disabled={disabled}
+                    min={2}
+                    max={10}
+                    step={1}
+                    className="flex-1"
+                    style={{ accentColor: '#F6465D' }}
+                  />
+                  <span
+                    className="w-8 text-center font-mono text-sm"
+                    style={{ color: '#F6465D' }}
+                  >
+                    {config.trend_end_watch?.misses ?? 3}
+                  </span>
+                </div>
+              </div>
+              <div
+                className="p-3 rounded-lg"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+              >
+                <label
+                  className="block text-xs mb-1"
+                  style={{ color: '#EAECEF' }}
+                >
+                  {ts(riskControl.trendEndWatchCooldown, language)}
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    value={config.trend_end_watch?.cool_down_cycles ?? 3}
+                    onChange={(e) =>
+                      updateField('trend_end_watch', {
+                        ...(config.trend_end_watch || {
+                          enabled: true,
+                          misses: 3,
+                          cool_down_cycles: 3,
+                          scope: 'direction' as const,
+                        }),
+                        cool_down_cycles: parseInt(e.target.value),
+                      })
+                    }
+                    disabled={disabled}
+                    min={1}
+                    max={20}
+                    step={1}
+                    className="flex-1"
+                    style={{ accentColor: '#F6465D' }}
+                  />
+                  <span
+                    className="w-8 text-center font-mono text-sm"
+                    style={{ color: '#F6465D' }}
+                  >
+                    {config.trend_end_watch?.cool_down_cycles ?? 3}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div
+              className="mt-3 p-3 rounded-lg"
+              style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+            >
+              <label
+                className="block text-xs mb-1"
+                style={{ color: '#EAECEF' }}
+              >
+                {ts(riskControl.trendEndWatchScope, language)}
+              </label>
+              <select
+                value={config.trend_end_watch?.scope ?? 'direction'}
+                onChange={(e) =>
+                  updateField('trend_end_watch', {
+                    ...(config.trend_end_watch || {
+                      enabled: true,
+                      misses: 3,
+                      cool_down_cycles: 3,
+                      scope: 'direction' as const,
+                    }),
+                    scope: e.target.value as 'direction' | 'symbol_side',
+                  })
+                }
+                disabled={disabled}
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{
+                  background: '#1E2329',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                  accentColor: '#F6465D',
+                }}
+              >
+                <option value="direction">
+                  {ts(riskControl.trendEndWatchScopeDirection, language)}
+                </option>
+                <option value="symbol_side">
+                  {ts(riskControl.trendEndWatchScopeSymbolSide, language)}
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
