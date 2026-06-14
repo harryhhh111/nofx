@@ -15,6 +15,16 @@ export function RiskControlEditor({
   disabled,
   language,
 }: RiskControlEditorProps) {
+  const defaultEntryRiskGuard = {
+    enabled: true,
+    mode: 'warn_reduce' as const,
+    block_extreme_rsi: true,
+    block_near_boll_band: true,
+    block_transition_market: true,
+    block_extended_take_profit: true,
+    reduce_position_pct: 0.5,
+  }
+
   const updateField = <K extends keyof RiskControlConfig>(
     key: K,
     value: RiskControlConfig[K]
@@ -417,6 +427,113 @@ export function RiskControlEditor({
               ? '(0=自动: 保守1.5 / 平衡1.0 / 激进0.5 / 剥头皮0.3)'
               : '(0=auto: Conservative 1.5 / Balanced 1.0 / Aggressive 0.5 / Scalping 0.3)'}
           </span>
+        </div>
+      </div>
+
+      {/* Entry Risk Guard */}
+      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #F0B90B33' }}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" style={{ color: '#F0B90B' }} />
+            <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.entryRiskGuard, language)}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={() => !disabled && updateField('entry_risk_guard', {
+              ...(config.entry_risk_guard || defaultEntryRiskGuard),
+              enabled: !(config.entry_risk_guard?.enabled ?? true),
+            })}
+            disabled={disabled}
+            className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors"
+            style={{
+              background: (config.entry_risk_guard?.enabled ?? true) ? '#F0B90B22' : '#2B3139',
+              border: `1px solid ${(config.entry_risk_guard?.enabled ?? true) ? '#F0B90B' : '#5E6673'}`,
+              color: (config.entry_risk_guard?.enabled ?? true) ? '#F0B90B' : '#848E9C',
+              cursor: disabled ? 'not-allowed' : 'pointer',
+            }}
+          >
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ background: (config.entry_risk_guard?.enabled ?? true) ? '#F0B90B' : '#5E6673' }}
+            />
+            {(config.entry_risk_guard?.enabled ?? true)
+              ? ts(riskControl.entryRiskGuardEnabled, language)
+              : (language === 'zh' ? '已禁用' : 'Disabled')}
+          </button>
+        </div>
+
+        <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
+          {ts(riskControl.entryRiskGuardDesc, language)}
+        </p>
+
+        <div style={{ opacity: (config.entry_risk_guard?.enabled ?? true) ? 1 : 0.4, pointerEvents: (config.entry_risk_guard?.enabled ?? true) ? 'auto' : 'none' }}>
+          <p className="text-xs font-medium mb-2" style={{ color: '#EAECEF' }}>
+            {ts(riskControl.entryRiskGuardMode, language)}
+          </p>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <button
+              type="button"
+              onClick={() => !disabled && updateField('entry_risk_guard', {
+                ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                mode: 'hard_block',
+              })}
+              disabled={disabled}
+              className="p-3 rounded-lg text-left transition-colors"
+              style={{
+                background: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'hard_block' ? '#F6465D22' : '#0B0E11',
+                border: `1px solid ${(config.entry_risk_guard?.mode ?? 'warn_reduce') === 'hard_block' ? '#F6465D' : '#2B3139'}`,
+              }}
+            >
+              <p className="text-sm font-medium mb-1" style={{ color: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'hard_block' ? '#F6465D' : '#848E9C' }}>
+                {ts(riskControl.entryRiskGuardModeHard, language)}
+              </p>
+              <p className="text-xs" style={{ color: '#5E6673' }}>{ts(riskControl.entryRiskGuardModeHardDesc, language)}</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => !disabled && updateField('entry_risk_guard', {
+                ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                mode: 'warn_reduce',
+              })}
+              disabled={disabled}
+              className="p-3 rounded-lg text-left transition-colors"
+              style={{
+                background: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'warn_reduce' ? '#F0B90B22' : '#0B0E11',
+                border: `1px solid ${(config.entry_risk_guard?.mode ?? 'warn_reduce') === 'warn_reduce' ? '#F0B90B' : '#2B3139'}`,
+              }}
+            >
+              <p className="text-sm font-medium mb-1" style={{ color: (config.entry_risk_guard?.mode ?? 'warn_reduce') === 'warn_reduce' ? '#F0B90B' : '#848E9C' }}>
+                {ts(riskControl.entryRiskGuardModeWarnReduce, language)}
+              </p>
+              <p className="text-xs" style={{ color: '#5E6673' }}>{ts(riskControl.entryRiskGuardModeWarnReduceDesc, language)}</p>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              ['block_extreme_rsi', riskControl.entryRiskGuardExtremeRSI],
+              ['block_near_boll_band', riskControl.entryRiskGuardBoll],
+              ['block_transition_market', riskControl.entryRiskGuardTransition],
+              ['block_extended_take_profit', riskControl.entryRiskGuardTP],
+            ] as const).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 p-3 rounded-lg text-sm" style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}>
+                <input
+                  type="checkbox"
+                  checked={config.entry_risk_guard?.[key] ?? true}
+                  onChange={(e) => !disabled && updateField('entry_risk_guard', {
+                    ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                    [key]: e.target.checked,
+                  })}
+                  disabled={disabled}
+                  className="accent-yellow-500"
+                />
+                {ts(label, language)}
+              </label>
+            ))}
+          </div>
         </div>
       </div>
 

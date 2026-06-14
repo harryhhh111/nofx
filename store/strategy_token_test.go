@@ -159,6 +159,38 @@ func TestClampLimits_DrawdownMinProtectedProfit(t *testing.T) {
 	}
 }
 
+func TestParseConfig_EntryRiskGuardDefaultsAndExplicitDisable(t *testing.T) {
+	empty := &Strategy{Config: "{}"}
+	cfg, err := empty.ParseConfig()
+	if err != nil {
+		t.Fatalf("empty ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.EntryRiskGuard == nil {
+		t.Fatal("empty config should default EntryRiskGuard")
+	}
+	if !cfg.RiskControl.EntryRiskGuard.Enabled {
+		t.Fatal("default EntryRiskGuard should be enabled")
+	}
+	if cfg.RiskControl.EntryRiskGuard.Mode != EntryRiskGuardModeWarnReduce {
+		t.Fatalf("default EntryRiskGuard mode = %q, want %q", cfg.RiskControl.EntryRiskGuard.Mode, EntryRiskGuardModeWarnReduce)
+	}
+
+	explicitOff := &Strategy{Config: `{"risk_control":{"entry_risk_guard":{"enabled":false,"mode":"hard_block"}}}`}
+	cfg, err = explicitOff.ParseConfig()
+	if err != nil {
+		t.Fatalf("explicitOff ParseConfig() error = %v", err)
+	}
+	if cfg.RiskControl.EntryRiskGuard == nil {
+		t.Fatal("explicit disabled EntryRiskGuard should be present")
+	}
+	if cfg.RiskControl.EntryRiskGuard.Enabled {
+		t.Fatalf("explicit disabled EntryRiskGuard should stay disabled, got %+v", cfg.RiskControl.EntryRiskGuard)
+	}
+	if cfg.RiskControl.EntryRiskGuard.Mode != EntryRiskGuardModeHardBlock {
+		t.Fatalf("explicit EntryRiskGuard mode = %q, want %q", cfg.RiskControl.EntryRiskGuard.Mode, EntryRiskGuardModeHardBlock)
+	}
+}
+
 func TestParseConfig_AppliesDefaultsForMissingFields(t *testing.T) {
 	st := &Strategy{
 		Config: `{"language":"zh","risk_control":{"min_confidence":75},"indicators":{"enable_quant_data":false}}`,

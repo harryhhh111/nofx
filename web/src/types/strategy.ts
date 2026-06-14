@@ -197,6 +197,17 @@ export interface RiskControlConfig {
   min_close_confidence: number;    // Min AI confidence to proactively close early (AI guided)
   stop_loss_atr_buffer?: number;   // Stop loss ATR buffer multiplier (0 = use mode default)
 
+  // Backend entry guard for AI open decisions.
+  entry_risk_guard?: {
+    enabled: boolean;
+    mode: 'hard_block' | 'warn_reduce';
+    block_extreme_rsi: boolean;
+    block_near_boll_band: boolean;
+    block_transition_market: boolean;
+    block_extended_take_profit: boolean;
+    reduce_position_pct?: number;
+  };
+
   // Drawdown-based position close (risk monitor, runs every minute)
   drawdown_close_enabled?: boolean;         // Whether the mechanism is enabled (default: true)
   drawdown_close_min_profit_pct?: number;   // Min peak leveraged profit (%) to arm drawdown protection (default: 5)

@@ -26,6 +26,9 @@ const (
 	MaxMinCloseConfidence     = 95
 
 	DefaultDrawdownCloseMinProtectedProfitPct = 0.3
+
+	EntryRiskGuardModeHardBlock  = "hard_block"
+	EntryRiskGuardModeWarnReduce = "warn_reduce"
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -129,6 +132,12 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.RiskControl.DrawdownCloseTriggerPct > 90.0 {
 		c.RiskControl.DrawdownCloseTriggerPct = 90.0
+	}
+
+	if c.RiskControl.EntryRiskGuard == nil {
+		c.RiskControl.EntryRiskGuard = DefaultEntryRiskGuardConfig()
+	} else {
+		c.RiskControl.EntryRiskGuard.Clamp()
 	}
 
 	// BreakevenProtection: clamp trigger_pct; nil means off (backward compat).
@@ -279,24 +288,24 @@ type IndicatorConfig struct {
 	// Does NOT affect K-line output — use CompactKlineTimeframes for that.
 	// Empty = all raw. Example: ["5m"] = 5m summarized, others raw.
 	SummarizedTimeframes []string `json:"summarized_timeframes,omitempty"`
-		// Indicators to summarize in summary mode timeframes.
-		// Empty = all enabled indicators summarized (current behavior).
-		// e.g. ["ema", "adx", "boll"] = only these summarized, others output raw arrays.
-		SummarizedIndicators []string `json:"summarized_indicators,omitempty"`
-		// TODO(Phase 4): Use FactorSnapshot-based prompt rendering. Do NOT expose in frontend yet.
-		UseFactorSnapshot bool `json:"use_factor_snapshot,omitempty"`
+	// Indicators to summarize in summary mode timeframes.
+	// Empty = all enabled indicators summarized (current behavior).
+	// e.g. ["ema", "adx", "boll"] = only these summarized, others output raw arrays.
+	SummarizedIndicators []string `json:"summarized_indicators,omitempty"`
+	// TODO(Phase 4): Use FactorSnapshot-based prompt rendering. Do NOT expose in frontend yet.
+	UseFactorSnapshot bool `json:"use_factor_snapshot,omitempty"`
 	// Timeframes to emit compact K-line summary (swing levels + candle context + volume profile)
 	// instead of full OHLCV table. Independent of indicator summarization.
 	// Empty = all timeframes use full OHLCV. Example: ["5m"] = 5m compact, others full.
 	CompactKlineTimeframes []string `json:"compact_kline_timeframes,omitempty"`
 	// technical indicator switches
 	EnableEMA         bool `json:"enable_ema"`
-	EnableSMA         bool `json:"enable_sma"`          // Simple Moving Average
+	EnableSMA         bool `json:"enable_sma"` // Simple Moving Average
 	EnableMACD        bool `json:"enable_macd"`
 	EnableRSI         bool `json:"enable_rsi"`
 	EnableATR         bool `json:"enable_atr"`
-	EnableADX         bool `json:"enable_adx"`          // ADX/DMI trend strength
-	EnableSAR         bool `json:"enable_sar"`          // Parabolic SAR
+	EnableADX         bool `json:"enable_adx"`  // ADX/DMI trend strength
+	EnableSAR         bool `json:"enable_sar"`  // Parabolic SAR
 	EnableBOLL        bool `json:"enable_boll"` // Bollinger Bands
 	EnableVolume      bool `json:"enable_volume"`
 	EnableOI          bool `json:"enable_oi"`           // open interest
@@ -376,7 +385,6 @@ func (c *IndicatorConfig) ShouldSummarizeIndicator(name string) bool {
 	return false
 }
 
-
 // KlineConfig K-line configuration
 type KlineConfig struct {
 	// primary timeframe: "1m", "3m", "5m", "15m", "1h", "4h"
@@ -392,7 +400,7 @@ type KlineConfig struct {
 	// selected timeframe list (new: supports multi-timeframe selection)
 	SelectedTimeframes []string `json:"selected_timeframes,omitempty"`
 	// TODO(Phase 2): Compute vs prompt separation. Zero = use PrimaryCount for both (old behavior).
-	ComputeLookback    int `json:"compute_lookback,omitempty"`
+	ComputeLookback int `json:"compute_lookback,omitempty"`
 	// Do NOT expose in frontend until Phase 2 rendering is implemented.
 	PromptDisplayCount int `json:"prompt_display_count,omitempty"`
 }
@@ -467,6 +475,10 @@ type RiskControlConfig struct {
 	// by one step in the price-favorable direction. SL never retreats.
 	// nil = off; default strategy templates set Enabled=true.
 	BreakevenProtection *BreakevenProtectionConfig `json:"breakeven_protection,omitempty"`
+
+	// EntryRiskGuard: backend pre-trade guard for AI open decisions.
+	// It catches extreme RSI, transition-market, structure-proximity, and TP-extension risks.
+	EntryRiskGuard *EntryRiskGuardConfig `json:"entry_risk_guard,omitempty"`
 }
 
 // ConsecutiveLossBrakeConfig warns AI after consecutive losing closed trades.
@@ -482,6 +494,104 @@ type ConsecutiveLossBrakeConfig struct {
 type BreakevenProtectionConfig struct {
 	Enabled    bool    `json:"enabled"`     // Enable (default: true)
 	TriggerPct float64 `json:"trigger_pct"` // Step size in leveraged PnL% (default: 1.0)
+}
+
+// EntryRiskGuardConfig controls backend pre-trade filters for AI open decisions.
+// Mode:
+//   - hard_block: convert violating open decisions to wait.
+//   - warn_reduce: keep the decision but reduce size and annotate reasoning.
+type EntryRiskGuardConfig struct {
+	Enabled bool   `json:"enabled"`
+	Mode    string `json:"mode"` // hard_block | warn_reduce
+
+	BlockExtremeRSI         bool `json:"block_extreme_rsi"`
+	BlockNearBollBand       bool `json:"block_near_boll_band"`
+	BlockTransitionMarket   bool `json:"block_transition_market"`
+	BlockExtendedTakeProfit bool `json:"block_extended_take_profit"`
+
+	ShortRSI7Min  float64 `json:"short_rsi7_min"`  // default 20: block shorts when 1h RSI7 is below this
+	ShortRSI14Min float64 `json:"short_rsi14_min"` // default 30: block shorts when 1h RSI14 is below this
+	LongRSI7Max   float64 `json:"long_rsi7_max"`   // default 80: block longs when 1h RSI7 is above this
+	LongRSI14Max  float64 `json:"long_rsi14_max"`  // default 70: block longs when 1h RSI14 is above this
+
+	TransitionADXMin float64 `json:"transition_adx_min"` // default 20
+	TransitionADXMax float64 `json:"transition_adx_max"` // default 25
+
+	BollATRBuffer          float64 `json:"boll_atr_buffer"`           // default 0.25 ATR from band edge
+	TakeProfitATRTolerance float64 `json:"take_profit_atr_tolerance"` // default 0.5 ATR beyond recent high/low
+	ReducePositionPct      float64 `json:"reduce_position_pct"`       // default 0.5 when mode=warn_reduce
+}
+
+func DefaultEntryRiskGuardConfig() *EntryRiskGuardConfig {
+	return &EntryRiskGuardConfig{
+		Enabled:                 true,
+		Mode:                    EntryRiskGuardModeWarnReduce,
+		BlockExtremeRSI:         true,
+		BlockNearBollBand:       true,
+		BlockTransitionMarket:   true,
+		BlockExtendedTakeProfit: true,
+		ShortRSI7Min:            20,
+		ShortRSI14Min:           30,
+		LongRSI7Max:             80,
+		LongRSI14Max:            70,
+		TransitionADXMin:        20,
+		TransitionADXMax:        25,
+		BollATRBuffer:           0.25,
+		TakeProfitATRTolerance:  0.5,
+		ReducePositionPct:       0.5,
+	}
+}
+
+func (c *EntryRiskGuardConfig) Clamp() {
+	if c == nil {
+		return
+	}
+	defaults := DefaultEntryRiskGuardConfig()
+	if c.Mode != EntryRiskGuardModeHardBlock && c.Mode != EntryRiskGuardModeWarnReduce {
+		c.Mode = defaults.Mode
+	}
+	if c.Enabled && !c.BlockExtremeRSI && !c.BlockNearBollBand && !c.BlockTransitionMarket && !c.BlockExtendedTakeProfit {
+		c.BlockExtremeRSI = true
+		c.BlockNearBollBand = true
+		c.BlockTransitionMarket = true
+		c.BlockExtendedTakeProfit = true
+	}
+	if c.ShortRSI7Min <= 0 {
+		c.ShortRSI7Min = defaults.ShortRSI7Min
+	}
+	if c.ShortRSI14Min <= 0 {
+		c.ShortRSI14Min = defaults.ShortRSI14Min
+	}
+	if c.LongRSI7Max <= 0 {
+		c.LongRSI7Max = defaults.LongRSI7Max
+	}
+	if c.LongRSI14Max <= 0 {
+		c.LongRSI14Max = defaults.LongRSI14Max
+	}
+	if c.TransitionADXMin <= 0 {
+		c.TransitionADXMin = defaults.TransitionADXMin
+	}
+	if c.TransitionADXMax <= 0 {
+		c.TransitionADXMax = defaults.TransitionADXMax
+	}
+	if c.TransitionADXMax < c.TransitionADXMin {
+		c.TransitionADXMax = c.TransitionADXMin
+	}
+	if c.BollATRBuffer <= 0 {
+		c.BollATRBuffer = defaults.BollATRBuffer
+	}
+	if c.TakeProfitATRTolerance <= 0 {
+		c.TakeProfitATRTolerance = defaults.TakeProfitATRTolerance
+	}
+	if c.ReducePositionPct <= 0 {
+		c.ReducePositionPct = defaults.ReducePositionPct
+	}
+	if c.ReducePositionPct > 1 {
+		c.ReducePositionPct = 1
+	}
+	if c.ReducePositionPct < 0.1 {
+		c.ReducePositionPct = 0.1
+	}
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -530,12 +640,12 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
 			EnableRawKlines:   true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:         true,  // Core trend indicator
+			EnableEMA:         true, // Core trend indicator
 			EnableSMA:         false,
 			EnableMACD:        false,
 			EnableRSI:         false,
-			EnableATR:         true,  // Stop-loss sizing
-			EnableADX:         true,  // Trend strength confirmation
+			EnableATR:         true, // Stop-loss sizing
+			EnableADX:         true, // Trend strength confirmation
 			EnableSAR:         false,
 			EnableBOLL:        false,
 			EnableVolume:      true,
@@ -567,19 +677,19 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			PriceRankingLimit:    10,
 		},
 		RiskControl: RiskControlConfig{
-			MaxPositions:                 3,   // Max 3 coins simultaneously (CODE ENFORCED)
-			BTCETHMaxLeverage:            5,   // BTC/ETH exchange leverage (AI guided)
-			AltcoinMaxLeverage:           5,   // Altcoin exchange leverage (AI guided)
-			BTCETHMaxPositionValueRatio:  5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
-			AltcoinMaxPositionValueRatio: 1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
-			MaxMarginUsage:               0.9, // Max 90% margin usage (CODE ENFORCED)
+			MaxPositions:                       3,   // Max 3 coins simultaneously (CODE ENFORCED)
+			BTCETHMaxLeverage:                  5,   // BTC/ETH exchange leverage (AI guided)
+			AltcoinMaxLeverage:                 5,   // Altcoin exchange leverage (AI guided)
+			BTCETHMaxPositionValueRatio:        5.0, // BTC/ETH: max position = 5x equity (CODE ENFORCED)
+			AltcoinMaxPositionValueRatio:       1.0, // Altcoin: max position = 1x equity (CODE ENFORCED)
+			MaxMarginUsage:                     0.9, // Max 90% margin usage (CODE ENFORCED)
 			MinPositionSize:                    12,  // Min 12 USDT per position (CODE ENFORCED)
 			MinRiskRewardRatio:                 2.5, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                      DefaultMinConfidence,
-			MinCloseConfidence:                 75,  // Lowered from 85 to allow more flexible exits
+			MinCloseConfidence:                 75, // Lowered from 85 to allow more flexible exits
 			DrawdownCloseMinProtectedProfitPct: DefaultDrawdownCloseMinProtectedProfitPct,
 			ConsecutiveLossBrake: &ConsecutiveLossBrakeConfig{
-				Enabled:        true,  // Default ON
+				Enabled:        true, // Default ON
 				MaxLosses:      3,
 				CoolDownCycles: 3,
 			},
@@ -587,6 +697,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				Enabled:    true, // Default ON: progressive SL promotion
 				TriggerPct: 1.0,
 			},
+			EntryRiskGuard: DefaultEntryRiskGuardConfig(),
 		},
 	}
 

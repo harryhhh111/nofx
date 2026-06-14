@@ -158,6 +158,8 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		riskConfig.BTCETHMaxPositionValueRatio,
 		riskConfig.AltcoinMaxPositionValueRatio,
 		riskConfig.MinRiskRewardRatio,
+		riskConfig.EntryRiskGuard,
+		ctx.MarketDataMap,
 		marketPrices,
 		minSLDistances,
 	)
@@ -265,7 +267,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 // AI Response Parsing
 // ============================================================================
 
-func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64, minSLDistances map[string]float64) (*FullDecision, error) {
+func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64) (*FullDecision, error) {
 	// Detect truncated response: if AI started outputting (<reasoning> present)
 	// but never closed the response (</decision> missing)
 	if strings.Contains(aiResponse, "<reasoning>") && !strings.Contains(aiResponse, "</decision>") {
@@ -284,7 +286,7 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
-	rejectedCount := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, marketPrices, minSLDistances)
+	rejectedCount := validateDecisions(decisions, accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances)
 	if rejectedCount > 0 {
 		logger.Infof("⚠️ %d/%d decisions rejected during validation (converted to wait)", rejectedCount, len(decisions))
 	}
