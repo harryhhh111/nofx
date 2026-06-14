@@ -28,6 +28,9 @@ var (
 	reReasoningTag        = regexp.MustCompile(`(?s)<reasoning>(.*?)</reasoning>`)
 	reReasoningSummaryTag = regexp.MustCompile(`(?s)<reasoning_summary>(.*?)</reasoning_summary>`)
 	reDecisionTag         = regexp.MustCompile(`(?s)<decision>(.*?)</decision>`)
+	// Phase 2: AI's self-check JSON. Optional — missing section must not
+	// break decision parsing.
+	reGuardAssessmentTag = regexp.MustCompile(`(?s)<guard_assessment>(.*?)</guard_assessment>`)
 	// Strip data source names from summary
 	reDataSourceInSummary = regexp.MustCompile(`(?i)\b(ai500|oi[_\s]?top)\b`)
 )
@@ -134,6 +137,18 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	aiCallDuration := time.Since(aiCallStart)
 	if err != nil {
 		return nil, fmt.Errorf("AI API call failed: %w", err)
+	}
+
+	// 4b. Pre-extract the AI's <guard_assessment> self-check JSON so
+	// every guard event emitted by validateDecisions (which runs INSIDE
+	// parseFullDecisionResponse below) can carry the ai_self_check
+	// subset. This is the only way to attach AI assessment to events
+	// that fire during validation; otherwise events would be missing
+	// the comparison signal.
+	if gc != nil && gc.AIAssessment == nil {
+		if ga := extractGuardAssessment(aiResponse); ga != "" {
+			gc.AIAssessment = aiSelfCheckSubset(ga)
+		}
 	}
 
 	// 5. Parse AI response
@@ -292,13 +307,15 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 
 	cotTrace := extractCoTTrace(aiResponse)
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
+	guardAssessment := extractGuardAssessment(aiResponse)
 
 	decisions, err := extractDecisions(aiResponse)
 	if err != nil {
 		return &FullDecision{
-			CoTTrace:   cotTrace,
-			CoTSummary: cotSummary,
-			Decisions:  []Decision{},
+			CoTTrace:        cotTrace,
+			CoTSummary:      cotSummary,
+			GuardAssessment: guardAssessment,
+			Decisions:       []Decision{},
 		}, fmt.Errorf("failed to extract decisions: %w", err)
 	}
 
@@ -308,9 +325,10 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	}
 
 	return &FullDecision{
-		CoTTrace:   cotTrace,
-		CoTSummary: cotSummary,
-		Decisions:  decisions,
+		CoTTrace:        cotTrace,
+		CoTSummary:      cotSummary,
+		GuardAssessment: guardAssessment,
+		Decisions:       decisions,
 	}, nil
 }
 
@@ -357,6 +375,21 @@ func extractCoTTrace(response string) string {
 	}
 
 	return strings.TrimSpace(response)
+}
+
+// extractGuardAssessment pulls the AI's self-check JSON out of the
+// response. Returns "" if the section is missing or empty — callers must
+// treat this as a soft warning, not a parse error. The content is NOT
+// validated: the prompt instructs the model to emit valid JSON, but
+// downstream code only consumes ai_self_check / risk_signals for diff
+// analysis and never uses it for risk control. Invalid content is
+// preserved verbatim so post-mortem tooling can diagnose drift.
+func extractGuardAssessment(response string) string {
+	match := reGuardAssessmentTag.FindStringSubmatch(response)
+	if match == nil || len(match) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(match[1])
 }
 
 func extractDecisions(response string) ([]Decision, error) {

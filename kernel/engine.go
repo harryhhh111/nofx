@@ -268,7 +268,8 @@ type FullDecision struct {
 	RawResponse         string              `json:"raw_response"`
 	Timestamp           time.Time           `json:"timestamp"`
 	AIRequestDurationMs int64               `json:"ai_request_duration_ms,omitempty"`
-	GuardEvents         []*store.GuardEvent `json:"guard_events,omitempty"` // Phase 1 telemetry; persisted by the trader layer
+	GuardEvents         []*store.GuardEvent `json:"guard_events,omitempty"`     // Phase 1 telemetry; persisted by the trader layer
+	GuardAssessment     string              `json:"guard_assessment,omitempty"` // Phase 2: AI's <guard_assessment> JSON for diff analysis
 }
 
 // QuantData quantitative data structure (fund flow, position changes, price changes)

@@ -32,6 +32,7 @@ type DecisionRecordDB struct {
 	Success             bool      `gorm:"default:false"`
 	ErrorMessage        string    `gorm:"column:error_message;default:''"`
 	AIRequestDurationMs int64     `gorm:"column:ai_request_duration_ms;default:0"`
+	GuardAssessment     string    `gorm:"column:guard_assessment;default:''"` // Phase 2: AI's <guard_assessment> JSON for diff analysis
 	CreatedAt           time.Time `json:"created_at"`
 }
 
@@ -54,6 +55,7 @@ type DecisionRecord struct {
 	Success             bool               `json:"success"`
 	ErrorMessage        string             `json:"error_message"`
 	AIRequestDurationMs int64              `json:"ai_request_duration_ms"`
+	GuardAssessment     string             `json:"guard_assessment,omitempty"` // Phase 2: AI's <guard_assessment> JSON
 	AccountState        AccountSnapshot    `json:"account_state"`
 	Positions           []PositionSnapshot `json:"positions"`
 	Decisions           []DecisionAction   `json:"decisions"`
@@ -120,6 +122,7 @@ func (s *DecisionStore) initTables() error {
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'decision_records'`).Scan(&tableExists)
 		if tableExists > 0 {
 			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS cot_summary TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE decision_records ADD COLUMN IF NOT EXISTS guard_assessment TEXT DEFAULT ''`)
 			return nil
 		}
 	}
@@ -139,6 +142,7 @@ func (db *DecisionRecordDB) toRecord() *DecisionRecord {
 		CotSummary:          db.CotSummary,
 		DecisionJSON:        db.DecisionJSON,
 		RawResponse:         db.RawResponse,
+		GuardAssessment:     db.GuardAssessment,
 		Success:             db.Success,
 		ErrorMessage:        db.ErrorMessage,
 		AIRequestDurationMs: db.AIRequestDurationMs,
@@ -178,6 +182,7 @@ func (s *DecisionStore) LogDecision(record *DecisionRecord) error {
 		Success:             record.Success,
 		ErrorMessage:        record.ErrorMessage,
 		AIRequestDurationMs: record.AIRequestDurationMs,
+		GuardAssessment:     record.GuardAssessment,
 	}
 
 	if err := s.db.Create(dbRecord).Error; err != nil {

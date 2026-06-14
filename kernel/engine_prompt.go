@@ -365,6 +365,26 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] 开仓周期={TF}，当前使用同周期数据。 [THESIS] 失效条件={条件}；当前已触发。 [FEES] 毛利{X}，手续费{Y}，Net PnL={X-Y}。 [MIN PROFIT] {是否满足}。 [CLOSE CONFIDENCE] {0-100}。 [VERDICT] {结论}。\"}\n")
 		sb.WriteString("]\n```\n")
 		sb.WriteString("</decision>\n\n")
+		sb.WriteString("## 自检输出（用于差异分析）\n\n")
+		sb.WriteString("在 `</decision>` 之后，必须额外输出一个 `<guard_assessment>` 标签，JSON 格式：\n\n")
+		sb.WriteString("<guard_assessment>\n")
+		sb.WriteString("{\n")
+		sb.WriteString("  \"market_regime\": \"trend|range|transition|high_volatility\",\n")
+		sb.WriteString("  \"risk_signals\": [\"extreme_rsi|near_support_resistance|transition_market|tp_extension\"],\n")
+		sb.WriteString("  \"tp_rationale\": {\n")
+		sb.WriteString("    \"anchor_type\": \"recent_high_low|boll_band|support_resistance|breakout_extension|none\",\n")
+		sb.WriteString("    \"anchor_price\": 0,\n")
+		sb.WriteString("    \"breakout_evidence\": []\n")
+		sb.WriteString("  },\n")
+		sb.WriteString("  \"ai_self_check\": {\n")
+		sb.WriteString("    \"hard_block_expected\": false,\n")
+		sb.WriteString("    \"override_suggested\": false,\n")
+		sb.WriteString("    \"override_reason\": \"\"\n")
+		sb.WriteString("  }\n")
+		sb.WriteString("}\n")
+		sb.WriteString("</guard_assessment>\n\n")
+		sb.WriteString("- 关键约束：`ai_self_check.override_suggested=true` **不会**让代码放行任何被硬阻断的请求。该字段仅用于事后分析 prompt / 模型的判断偏差。\n")
+		sb.WriteString("- 缺失该段落不会导致决策失败，但会降低事后复盘质量，请尽量输出。\n\n")
 		sb.WriteString("## 字段说明\n\n")
 		sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 		sb.WriteString(fmt.Sprintf("- `confidence`: 0-100（开仓建议 ≥ %d）\n", riskControl.MinConfidence))
@@ -396,6 +416,26 @@ func (e *StrategyEngine) BuildSystemPrompt(accountEquity float64, variant string
 		sb.WriteString("  {\"symbol\": \"ETHUSDT\", \"action\": \"close_long\", \"reasoning\": \"[TIMEFRAME] Opened on {TF}, evaluating on same TF. [THESIS] Invalidation={condition}; currently triggered. [FEES] Gross {X}, fees {Y}, Net PnL {X-Y}. [MIN PROFIT] {met or N/A}. [CLOSE CONFIDENCE] {0-100}. [VERDICT] {conclusion}.\"}\n")
 		sb.WriteString("]\n```\n")
 		sb.WriteString("</decision>\n\n")
+		sb.WriteString("## Self-Check Output (for diff analysis)\n\n")
+		sb.WriteString("After `</decision>`, also emit a `<guard_assessment>` tag containing this JSON:\n\n")
+		sb.WriteString("<guard_assessment>\n")
+		sb.WriteString("{\n")
+		sb.WriteString("  \"market_regime\": \"trend|range|transition|high_volatility\",\n")
+		sb.WriteString("  \"risk_signals\": [\"extreme_rsi|near_support_resistance|transition_market|tp_extension\"],\n")
+		sb.WriteString("  \"tp_rationale\": {\n")
+		sb.WriteString("    \"anchor_type\": \"recent_high_low|boll_band|support_resistance|breakout_extension|none\",\n")
+		sb.WriteString("    \"anchor_price\": 0,\n")
+		sb.WriteString("    \"breakout_evidence\": []\n")
+		sb.WriteString("  },\n")
+		sb.WriteString("  \"ai_self_check\": {\n")
+		sb.WriteString("    \"hard_block_expected\": false,\n")
+		sb.WriteString("    \"override_suggested\": false,\n")
+		sb.WriteString("    \"override_reason\": \"\"\n")
+		sb.WriteString("  }\n")
+		sb.WriteString("}\n")
+		sb.WriteString("</guard_assessment>\n\n")
+		sb.WriteString("- Critical: setting `ai_self_check.override_suggested=true` does NOT let the code bypass a hard block. That field is purely for post-mortem analysis of prompt/model drift.\n")
+		sb.WriteString("- Missing the section will not fail the decision, but it will degrade post-mortem quality. Please include it.\n\n")
 		sb.WriteString("## Field Description\n\n")
 		sb.WriteString("- `action`: open_long | open_short | close_long | close_short | hold | wait\n")
 		sb.WriteString(fmt.Sprintf("- `confidence`: 0-100 (opening recommended ≥ %d)\n", riskControl.MinConfidence))
@@ -1394,7 +1434,9 @@ func indicatorConfigToRequest(cfg store.IndicatorConfig) market.IndicatorRequest
 	}
 	if cfg.EnableADX {
 		p := cfg.ADXPeriod
-		if p <= 0 { p = 14 }
+		if p <= 0 {
+			p = 14
+		}
 		req.ADX = &market.ADXSpec{Period: p}
 	}
 	if cfg.EnableSAR {
@@ -1839,14 +1881,22 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 	if indicators.IsTimeframeSummarized(timeframe) {
 		e.formatTimeframeSummary(sb, data, indicators)
 		// Raw fallback for indicators excluded from summary whitelist
-		if !indicators.ShouldSummarizeIndicator("ema") && len(data.EMA20Values) > 0 { sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values))) }
-		if !indicators.ShouldSummarizeIndicator("ema") && len(data.EMA50Values) > 0 { sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values))) }
+		if !indicators.ShouldSummarizeIndicator("ema") && len(data.EMA20Values) > 0 {
+			sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
+		}
+		if !indicators.ShouldSummarizeIndicator("ema") && len(data.EMA50Values) > 0 {
+			sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
+		}
 		if !indicators.ShouldSummarizeIndicator("sma") && len(data.SMAValues) > 0 {
 			periods := make([]int, 0, len(data.SMAValues))
-			for p := range data.SMAValues { periods = append(periods, p) }
+			for p := range data.SMAValues {
+				periods = append(periods, p)
+			}
 			sort.Ints(periods)
 			for _, p := range periods {
-				if len(data.SMAValues[p]) > 0 { sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(data.SMAValues[p]))) }
+				if len(data.SMAValues[p]) > 0 {
+					sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(data.SMAValues[p])))
+				}
 			}
 		}
 		if !indicators.ShouldSummarizeIndicator("adx") && len(data.ADXValues) > 0 {
@@ -1854,11 +1904,21 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 			sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
 			sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
 		}
-		if !indicators.ShouldSummarizeIndicator("sar") && len(data.SARValues) > 0 { sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues))) }
-		if !indicators.ShouldSummarizeIndicator("macd") && len(data.MACDValues) > 0 { sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues))) }
-		if !indicators.ShouldSummarizeIndicator("rsi") && len(data.RSI7Values) > 0 { sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values))) }
-		if !indicators.ShouldSummarizeIndicator("rsi") && len(data.RSI14Values) > 0 { sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values))) }
-		if !indicators.ShouldSummarizeIndicator("atr") && data.ATR14 > 0 { sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14)) }
+		if !indicators.ShouldSummarizeIndicator("sar") && len(data.SARValues) > 0 {
+			sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
+		}
+		if !indicators.ShouldSummarizeIndicator("macd") && len(data.MACDValues) > 0 {
+			sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
+		}
+		if !indicators.ShouldSummarizeIndicator("rsi") && len(data.RSI7Values) > 0 {
+			sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
+		}
+		if !indicators.ShouldSummarizeIndicator("rsi") && len(data.RSI14Values) > 0 {
+			sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
+		}
+		if !indicators.ShouldSummarizeIndicator("atr") && data.ATR14 > 0 {
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+		}
 		if !indicators.ShouldSummarizeIndicator("boll") && len(data.BOLLUpper) > 0 {
 			sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
 			sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
@@ -1867,15 +1927,23 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 	} else {
 		// All raw when TF is not summarized
 		if indicators.EnableEMA {
-			if len(data.EMA20Values) > 0 { sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values))) }
-			if len(data.EMA50Values) > 0 { sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values))) }
+			if len(data.EMA20Values) > 0 {
+				sb.WriteString(fmt.Sprintf("EMA20: %s\n", formatFloatSlice(data.EMA20Values)))
+			}
+			if len(data.EMA50Values) > 0 {
+				sb.WriteString(fmt.Sprintf("EMA50: %s\n", formatFloatSlice(data.EMA50Values)))
+			}
 		}
 		if indicators.EnableSMA && len(data.SMAValues) > 0 {
 			periods := make([]int, 0, len(data.SMAValues))
-			for p := range data.SMAValues { periods = append(periods, p) }
+			for p := range data.SMAValues {
+				periods = append(periods, p)
+			}
 			sort.Ints(periods)
 			for _, p := range periods {
-				if len(data.SMAValues[p]) > 0 { sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(data.SMAValues[p]))) }
+				if len(data.SMAValues[p]) > 0 {
+					sb.WriteString(fmt.Sprintf("SMA%d: %s\n", p, formatFloatSlice(data.SMAValues[p])))
+				}
 			}
 		}
 		if indicators.EnableADX && len(data.ADXValues) > 0 {
@@ -1883,13 +1951,23 @@ func (e *StrategyEngine) formatTimeframeSeriesData(sb *strings.Builder, data *ma
 			sb.WriteString(fmt.Sprintf("+DI: %s\n", formatFloatSlice(data.PlusDIValues)))
 			sb.WriteString(fmt.Sprintf("-DI: %s\n", formatFloatSlice(data.MinusDIValues)))
 		}
-		if indicators.EnableSAR && len(data.SARValues) > 0 { sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues))) }
-		if indicators.EnableMACD && len(data.MACDValues) > 0 { sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues))) }
-		if indicators.EnableRSI {
-			if len(data.RSI7Values) > 0 { sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values))) }
-			if len(data.RSI14Values) > 0 { sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values))) }
+		if indicators.EnableSAR && len(data.SARValues) > 0 {
+			sb.WriteString(fmt.Sprintf("SAR: %s\n", formatFloatSlice(data.SARValues)))
 		}
-		if indicators.EnableATR && data.ATR14 > 0 { sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14)) }
+		if indicators.EnableMACD && len(data.MACDValues) > 0 {
+			sb.WriteString(fmt.Sprintf("MACD: %s\n", formatFloatSlice(data.MACDValues)))
+		}
+		if indicators.EnableRSI {
+			if len(data.RSI7Values) > 0 {
+				sb.WriteString(fmt.Sprintf("RSI7: %s\n", formatFloatSlice(data.RSI7Values)))
+			}
+			if len(data.RSI14Values) > 0 {
+				sb.WriteString(fmt.Sprintf("RSI14: %s\n", formatFloatSlice(data.RSI14Values)))
+			}
+		}
+		if indicators.EnableATR && data.ATR14 > 0 {
+			sb.WriteString(fmt.Sprintf("ATR14: %.4f\n", data.ATR14))
+		}
 		if indicators.EnableBOLL && len(data.BOLLUpper) > 0 {
 			sb.WriteString(fmt.Sprintf("BOLL Upper: %s\n", formatFloatSlice(data.BOLLUpper)))
 			sb.WriteString(fmt.Sprintf("BOLL Middle: %s\n", formatFloatSlice(data.BOLLMiddle)))
@@ -1989,10 +2067,18 @@ func (e *StrategyEngine) formatCompactKlines(sb *strings.Builder, data *market.T
 		hhRising, llRising := true, true
 		hhFalling, llFalling := true, true
 		for i := n - seqN; i < n-1; i++ {
-			if data.Klines[i].High > data.Klines[i+1].High { hhRising = false }
-			if data.Klines[i].High < data.Klines[i+1].High { hhFalling = false }
-			if data.Klines[i].Low > data.Klines[i+1].Low { llRising = false }
-			if data.Klines[i].Low < data.Klines[i+1].Low { llFalling = false }
+			if data.Klines[i].High > data.Klines[i+1].High {
+				hhRising = false
+			}
+			if data.Klines[i].High < data.Klines[i+1].High {
+				hhFalling = false
+			}
+			if data.Klines[i].Low > data.Klines[i+1].Low {
+				llRising = false
+			}
+			if data.Klines[i].Low < data.Klines[i+1].Low {
+				llFalling = false
+			}
 		}
 		var hlNote string
 		if lang == LangChinese {
@@ -2618,7 +2704,9 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 		}
 		if lang == LangChinese {
 			dir := "多头"
-			if macdLast < 0 { dir = "空头" }
+			if macdLast < 0 {
+				dir = "空头"
+			}
 			accelStr := ""
 			if accel == "accelerating" {
 				accelStr = ", 加速"
@@ -2628,7 +2716,9 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 			sb.WriteString(fmt.Sprintf("MACD: %.4f%s, %s%s\n", macdLast, macdTrend, dir, accelStr))
 		} else {
 			dir := "bullish"
-			if macdLast < 0 { dir = "bearish" }
+			if macdLast < 0 {
+				dir = "bearish"
+			}
 			accelStr := ""
 			if accel == "accelerating" {
 				accelStr = ", accelerating"
@@ -2641,7 +2731,6 @@ func (e *StrategyEngine) formatTimeframeSummary(sb *strings.Builder, data *marke
 
 	sb.WriteString("\n")
 }
-
 
 // formatFloatSeq formats a float slice as "a→b→c".
 func formatFloatSeq(vals []float64) string {
@@ -2667,15 +2756,27 @@ func (e *StrategyEngine) writeEMASummary(sb *strings.Builder, data *market.Timef
 	e50Last := data.EMA50Values[len(data.EMA50Values)-1]
 	e50Prev := data.EMA50Values[len(data.EMA50Values)-2]
 	e20Dir, e50Dir := "→", "→"
-	if e20Last > e20Prev { e20Dir = "↑" } else if e20Last < e20Prev { e20Dir = "↓" }
-	if e50Last > e50Prev { e50Dir = "↑" } else if e50Last < e50Prev { e50Dir = "↓" }
+	if e20Last > e20Prev {
+		e20Dir = "↑"
+	} else if e20Last < e20Prev {
+		e20Dir = "↓"
+	}
+	if e50Last > e50Prev {
+		e50Dir = "↑"
+	} else if e50Last < e50Prev {
+		e50Dir = "↓"
+	}
 	if lang == LangChinese {
 		align := "多头排列"
-		if e20Last <= e50Last { align = "空头排列" }
+		if e20Last <= e50Last {
+			align = "空头排列"
+		}
 		sb.WriteString(fmt.Sprintf("EMA: 20%s=%.2f 50%s=%.2f, %s\n", e20Dir, e20Last, e50Dir, e50Last, align))
 	} else {
 		align := "Bullish"
-		if e20Last <= e50Last { align = "Bearish" }
+		if e20Last <= e50Last {
+			align = "Bearish"
+		}
 		sb.WriteString(fmt.Sprintf("EMA: 20%s=%.2f 50%s=%.2f, %s\n", e20Dir, e20Last, e50Dir, e50Last, align))
 	}
 }
@@ -2687,7 +2788,9 @@ func (e *StrategyEngine) writeSMASummary(sb *strings.Builder, data *market.Timef
 	}
 	lang := e.GetLanguage()
 	periods := make([]int, 0, len(data.SMAValues))
-	for p := range data.SMAValues { periods = append(periods, p) }
+	for p := range data.SMAValues {
+		periods = append(periods, p)
+	}
 	sort.Ints(periods)
 	var parts []string
 	for _, p := range periods {
@@ -2716,19 +2819,27 @@ func (e *StrategyEngine) writeADXSummary(sb *strings.Builder, data *market.Timef
 	minusDI := data.MinusDIValues[len(data.MinusDIValues)-1]
 	var strength string
 	switch {
-	case adxLast < 20: strength = "weak"
-	case adxLast < 40: strength = "moderate"
-	case adxLast < 60: strength = "strong"
-	default: strength = "very_strong"
+	case adxLast < 20:
+		strength = "weak"
+	case adxLast < 40:
+		strength = "moderate"
+	case adxLast < 60:
+		strength = "strong"
+	default:
+		strength = "very_strong"
 	}
 	if lang == LangChinese {
 		strMap := map[string]string{"weak": "弱", "moderate": "中等", "strong": "强", "very_strong": "极强"}
 		diStr := "多方主导"
-		if minusDI > plusDI { diStr = "空方主导" }
+		if minusDI > plusDI {
+			diStr = "空方主导"
+		}
 		sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s (+DI=%.2f -DI=%.2f)\n", adxLast, strMap[strength], diStr, plusDI, minusDI))
 	} else {
 		diStr := "Bullish (+DI > -DI)"
-		if minusDI > plusDI { diStr = "Bearish (-DI > +DI)" }
+		if minusDI > plusDI {
+			diStr = "Bearish (-DI > +DI)"
+		}
 		sb.WriteString(fmt.Sprintf("ADX: %.2f %s, %s (+DI=%.2f -DI=%.2f)\n", adxLast, strength, diStr, plusDI, minusDI))
 	}
 }
@@ -2747,18 +2858,26 @@ func (e *StrategyEngine) writeBOLLSummary(sb *strings.Builder, data *market.Time
 	var posLabel string
 	if lang == LangChinese {
 		switch {
-		case lastClose > bollUpper: posLabel = "突破上轨(超买)"
-		case lastClose > bollMid: posLabel = "中轨上方(偏多)"
-		case lastClose > bollLower: posLabel = "中轨下方(偏空)"
-		default: posLabel = "跌破下轨(超卖)"
+		case lastClose > bollUpper:
+			posLabel = "突破上轨(超买)"
+		case lastClose > bollMid:
+			posLabel = "中轨上方(偏多)"
+		case lastClose > bollLower:
+			posLabel = "中轨下方(偏空)"
+		default:
+			posLabel = "跌破下轨(超卖)"
 		}
 		sb.WriteString(fmt.Sprintf("BOLL: 价格%.2f %s, 中轨%.2f, 带宽%.1f%%\n", lastClose, posLabel, bollMid, bw))
 	} else {
 		switch {
-		case lastClose > bollUpper: posLabel = "above upper (overbought)"
-		case lastClose > bollMid: posLabel = "above mid (bullish)"
-		case lastClose > bollLower: posLabel = "below mid (bearish)"
-		default: posLabel = "below lower (oversold)"
+		case lastClose > bollUpper:
+			posLabel = "above upper (overbought)"
+		case lastClose > bollMid:
+			posLabel = "above mid (bullish)"
+		case lastClose > bollLower:
+			posLabel = "below mid (bearish)"
+		default:
+			posLabel = "below lower (oversold)"
 		}
 		sb.WriteString(fmt.Sprintf("BOLL: Price %.2f %s, Mid %.2f, BW %.1f%%\n", lastClose, posLabel, bollMid, bw))
 	}
@@ -2779,7 +2898,9 @@ func (e *StrategyEngine) writeSARSummary(sb *strings.Builder, data *market.Timef
 	// Bars since last flip
 	barsSinceFlip := 0
 	for i := len(data.SARFlipUp) - 1; i >= 0; i-- {
-		if data.SARFlipUp[i] || data.SARFlipDown[i] { break }
+		if data.SARFlipUp[i] || data.SARFlipDown[i] {
+			break
+		}
 		barsSinceFlip++
 	}
 
@@ -2795,19 +2916,30 @@ func (e *StrategyEngine) writeSARSummary(sb *strings.Builder, data *market.Timef
 
 	if lang == LangChinese {
 		dirStr := "下行"
-		if uptrend { dirStr = "上行" }
+		if uptrend {
+			dirStr = "上行"
+		}
 		sb.WriteString(fmt.Sprintf("SAR: %.2f %s, 距价格%+.1f%%(%.0f点), %d周期, AF=%.2f", sarLast, dirStr, priceDistPct, priceDistAbs, barsSinceFlip, sarAF))
-		if flipUp { sb.WriteString(", 向上翻转") } else if flipDown { sb.WriteString(", 向下翻转") }
+		if flipUp {
+			sb.WriteString(", 向上翻转")
+		} else if flipDown {
+			sb.WriteString(", 向下翻转")
+		}
 		sb.WriteString("\n")
 	} else {
 		dirStr := "Downtrend"
-		if uptrend { dirStr = "Uptrend" }
+		if uptrend {
+			dirStr = "Uptrend"
+		}
 		sb.WriteString(fmt.Sprintf("SAR: %.2f %s, price %+.1f%%(%.0f pts), %d bars, AF=%.2f", sarLast, dirStr, priceDistPct, priceDistAbs, barsSinceFlip, sarAF))
-		if flipUp { sb.WriteString(", flip up") } else if flipDown { sb.WriteString(", flip down") }
+		if flipUp {
+			sb.WriteString(", flip up")
+		} else if flipDown {
+			sb.WriteString(", flip down")
+		}
 		sb.WriteString("\n")
 	}
 }
-
 
 func (e *StrategyEngine) formatQuantData(data *QuantData) string {
 	if data == nil {

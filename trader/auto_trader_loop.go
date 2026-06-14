@@ -118,6 +118,7 @@ func (at *AutoTrader) runCycle() error {
 		record.CoTTrace = aiDecision.CoTTrace
 		record.CotSummary = aiDecision.CoTSummary
 		record.RawResponse = aiDecision.RawResponse // Save raw AI response for debugging
+		record.GuardAssessment = aiDecision.GuardAssessment
 		if len(aiDecision.Decisions) > 0 {
 			decisionJSON, _ := json.MarshalIndent(aiDecision.Decisions, "", "  ")
 			record.DecisionJSON = string(decisionJSON)

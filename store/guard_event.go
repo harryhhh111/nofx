@@ -52,6 +52,7 @@ type GuardEvent struct {
 	PositionSizeBefore float64         `gorm:"column:position_size_before" json:"position_size_before"`
 	PositionSizeAfter  float64         `gorm:"column:position_size_after" json:"position_size_after"`
 	ConfigSnapshot     json.RawMessage `gorm:"column:config_snapshot;type:jsonb" json:"config_snapshot"`
+	AIAssessment       json.RawMessage `gorm:"column:ai_assessment;type:jsonb" json:"ai_assessment,omitempty"`
 	TriggeredAt        time.Time       `gorm:"column:triggered_at;not null;index:idx_guard_events_trader_time,sort:desc;index:idx_guard_events_type_time,sort:desc" json:"triggered_at"`
 }
 
@@ -67,8 +68,19 @@ func NewGuardEventStore(db *gorm.DB) *GuardEventStore {
 	return &GuardEventStore{db: db}
 }
 
-// initTables migrates the guard_events table.
+// initTables migrates the guard_events table. For PostgreSQL with an
+// existing deployment, also add the AIAssessment JSONB column and the
+// composite index lazily so older tables keep working.
 func (s *GuardEventStore) initTables() error {
+	if s.db.Dialector.Name() == "postgres" {
+		var tableExists int64
+		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'guard_events'`).Scan(&tableExists)
+		if tableExists > 0 {
+			s.db.Exec(`ALTER TABLE guard_events ADD COLUMN IF NOT EXISTS ai_assessment JSONB`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_guard_events_type_time ON guard_events (guard_type, action, triggered_at DESC)`)
+			return nil
+		}
+	}
 	if err := s.db.AutoMigrate(&GuardEvent{}); err != nil {
 		return err
 	}

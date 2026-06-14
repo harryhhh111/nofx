@@ -16,11 +16,17 @@ import (
 // post-mortem queries can filter without joining decision_records.
 // ConfigSnapshot is captured once at the top of validation and reused
 // for every event (saves re-marshaling on the hot path).
+//
+// AIAssessment is the AI's <guard_assessment> JSON (or its
+// ai_self_check subset). It's attached to every event emitted during the
+// cycle so the dashboard can compute "AI expected hard block vs code
+// hard block" agreement rates. Optional; nil-safe.
 type GuardContext struct {
 	TraderID       string
 	StrategyID     string
 	CycleNumber    int
 	ConfigSnapshot []byte
+	AIAssessment   []byte
 	Events         []*store.GuardEvent
 }
 
@@ -43,6 +49,7 @@ func (gc *GuardContext) newGuardEvent(
 		Action:         action,
 		Reason:         reason,
 		ConfigSnapshot: gc.ConfigSnapshot,
+		AIAssessment:   cloneBytes(gc.AIAssessment),
 		TriggeredAt:    time.Now().UTC(),
 	}
 	if d != nil {
@@ -53,6 +60,17 @@ func (gc *GuardContext) newGuardEvent(
 		evt.PositionSizeBefore = d.PositionSizeUSD
 	}
 	return evt
+}
+
+// cloneBytes returns a defensive copy of b so callers can mutate the
+// original without affecting stored events.
+func cloneBytes(b []byte) []byte {
+	if b == nil {
+		return nil
+	}
+	c := make([]byte, len(b))
+	copy(c, b)
+	return c
 }
 
 // append adds an event to the context. Safe to call on a nil receiver
@@ -88,4 +106,32 @@ func configSnapshotJSON(cfg any) []byte {
 		return nil
 	}
 	return b
+}
+
+// aiSelfCheckSubset extracts just the `ai_self_check` field from a
+// <guard_assessment> JSON body. Used to store a compact, focused
+// snapshot alongside each guard event so the dashboard can compute
+// agreement rates without re-parsing the full prompt output.
+//
+// Returns nil if the input is empty / not JSON / has no ai_self_check
+// field — callers must not treat this as an error.
+func aiSelfCheckSubset(guardAssessment string) []byte {
+	if guardAssessment == "" {
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(guardAssessment), &raw); err != nil {
+		return nil
+	}
+	sub, ok := raw["ai_self_check"]
+	if !ok {
+		return nil
+	}
+	// Re-marshal as a compact JSON object so the column stores
+	// {"hard_block_expected":..., "override_suggested":..., "override_reason":...}
+	out, err := json.Marshal(map[string]json.RawMessage{"ai_self_check": sub})
+	if err != nil {
+		return nil
+	}
+	return out
 }
