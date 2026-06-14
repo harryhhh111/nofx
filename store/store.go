@@ -31,6 +31,7 @@ type Store struct {
 	bbmacdSignal   *BBMACDSignalStore
 	aiCharge       *AIChargeStore
 	telegramConfig TelegramConfigStore
+	guardEvent     *GuardEventStore
 
 	mu sync.RWMutex
 }
@@ -167,6 +168,9 @@ func (s *Store) initTables() error {
 	}
 	if err := s.AICharge().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize AI charge tables: %w", err)
+	}
+	if err := s.GuardEvent().initTables(); err != nil {
+		return fmt.Errorf("failed to initialize guard event tables: %w", err)
 	}
 	return nil
 }
@@ -319,6 +323,16 @@ func (s *Store) TelegramConfig() TelegramConfigStore {
 		s.telegramConfig = NewTelegramConfigStore(s.gdb)
 	}
 	return s.telegramConfig
+}
+
+// GuardEvent gets guard event storage
+func (s *Store) GuardEvent() *GuardEventStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.guardEvent == nil {
+		s.guardEvent = NewGuardEventStore(s.gdb)
+	}
+	return s.guardEvent
 }
 
 // Close closes database connection

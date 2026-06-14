@@ -134,12 +134,12 @@ type Context struct {
 // DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
 // so it can decide whether to close the position.
 type DrawdownAlert struct {
-	Symbol         string  `json:"symbol"`
-	Side           string  `json:"side"`
-	CurrentPnLPct  float64 `json:"current_pnl_pct"`
-	PeakPnLPct     float64 `json:"peak_pnl_pct"`
-	DrawdownPct    float64 `json:"drawdown_pct"`
-	OpeningReason  string  `json:"opening_reason,omitempty"`
+	Symbol        string  `json:"symbol"`
+	Side          string  `json:"side"`
+	CurrentPnLPct float64 `json:"current_pnl_pct"`
+	PeakPnLPct    float64 `json:"peak_pnl_pct"`
+	DrawdownPct   float64 `json:"drawdown_pct"`
+	OpeningReason string  `json:"opening_reason,omitempty"`
 }
 
 // ExternalDataItem holds the result of a single external data source fetch.
@@ -260,14 +260,15 @@ func parseJSONNumber(raw json.RawMessage, field string) (float64, error) {
 
 // FullDecision AI's complete decision (including chain of thought)
 type FullDecision struct {
-	SystemPrompt        string     `json:"system_prompt"`
-	UserPrompt          string     `json:"user_prompt"`
-	CoTTrace            string     `json:"cot_trace"`
-	CoTSummary          string     `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
-	Decisions           []Decision `json:"decisions"`
-	RawResponse         string     `json:"raw_response"`
-	Timestamp           time.Time  `json:"timestamp"`
-	AIRequestDurationMs int64      `json:"ai_request_duration_ms,omitempty"`
+	SystemPrompt        string              `json:"system_prompt"`
+	UserPrompt          string              `json:"user_prompt"`
+	CoTTrace            string              `json:"cot_trace"`
+	CoTSummary          string              `json:"cot_summary"` // Refined summary (2-4 sentences from <reasoning_summary>)
+	Decisions           []Decision          `json:"decisions"`
+	RawResponse         string              `json:"raw_response"`
+	Timestamp           time.Time           `json:"timestamp"`
+	AIRequestDurationMs int64               `json:"ai_request_duration_ms,omitempty"`
+	GuardEvents         []*store.GuardEvent `json:"guard_events,omitempty"` // Phase 1 telemetry; persisted by the trader layer
 }
 
 // QuantData quantitative data structure (fund flow, position changes, price changes)

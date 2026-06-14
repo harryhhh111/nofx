@@ -55,6 +55,44 @@ func (at *AutoTrader) saveDecision(record *store.DecisionRecord) error {
 	return nil
 }
 
+// saveGuardEvents bulk-inserts guard events for a single cycle, back-filling
+// the DecisionRecordID from the previously-saved decision record. Failures
+// are logged but never returned: guard events are telemetry and must not
+// block or fail the main decision path.
+func (at *AutoTrader) saveGuardEvents(decisionRecordID int64, events []*store.GuardEvent) {
+	if at.store == nil || len(events) == 0 {
+		return
+	}
+	for _, evt := range events {
+		if evt == nil {
+			continue
+		}
+		if decisionRecordID > 0 {
+			id := decisionRecordID
+			evt.DecisionRecordID = &id
+		}
+		// Make sure trader_id / cycle / strategy_id are populated even if
+		// the engine caller forgot (defensive — engine already fills these).
+		if evt.TraderID == "" {
+			evt.TraderID = at.id
+		}
+		if evt.CycleNumber == 0 {
+			evt.CycleNumber = at.cycleNumber
+		}
+		if evt.StrategyID == "" {
+			evt.StrategyID = at.strategyID
+		}
+		if evt.TriggeredAt.IsZero() {
+			evt.TriggeredAt = time.Now().UTC()
+		}
+	}
+	if err := at.store.GuardEvent().BulkInsert(events); err != nil {
+		logger.Warnf("⚠️ Failed to save %d guard events: %v", len(events), err)
+		return
+	}
+	logger.Infof("📝 Saved %d guard events for cycle %d (decision_record_id=%d)", len(events), at.cycleNumber, decisionRecordID)
+}
+
 // saveBBMACDSignals stores BB MACD snapshots for later offline accuracy evaluation.
 // These records are not injected into AI prompts and do not affect trading decisions.
 func (at *AutoTrader) saveBBMACDSignals(ctx *kernel.Context) {

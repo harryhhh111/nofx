@@ -96,7 +96,12 @@ func (at *AutoTrader) runCycle() error {
 
 	// 5. Use strategy engine to call AI for decision
 	logger.Infof("🤖 Requesting AI analysis and decision... [Strategy Engine]")
-	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced")
+	guardCtx := &kernel.GuardContext{
+		TraderID:    at.id,
+		StrategyID:  at.strategyID,
+		CycleNumber: at.cycleNumber + 1,
+	}
+	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced", guardCtx)
 	at.saveBBMACDSignals(ctx)
 
 	if aiDecision != nil && aiDecision.AIRequestDurationMs > 0 {
@@ -380,6 +385,11 @@ func (at *AutoTrader) runCycle() error {
 	if err := at.saveDecision(record); err != nil {
 		logger.Infof("⚠ Failed to save decision record: %v", err)
 	}
+
+	// 10. Persist guard events (telemetry) for this cycle. Back-fills
+	// DecisionRecordID and is best-effort: a write failure does not
+	// affect the main decision outcome.
+	at.saveGuardEvents(record.ID, aiDecision.GuardEvents)
 
 	return nil
 }

@@ -18,7 +18,10 @@ import (
 //     valid close/hold actions in the same batch.
 //
 // Returns the number of rejected decisions (0 = all passed).
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64) int {
+//
+// gc is optional. When non-nil, every guard hit is recorded as a
+// GuardEvent under gc.Events for later bulk-insert into guard_events.
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext) int {
 	rejected := 0
 	for i := range decisions {
 		// Step 1: action type validation applies to ALL decisions
@@ -28,10 +31,12 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 			"hold": true, "wait": true,
 		}
 		if !validActions[decisions[i].Action] {
+			reason := fmt.Sprintf("invalid action '%s'", decisions[i].Action)
 			logger.Infof("⚠️ Decision #%d (%s) invalid action '%s', converting to wait",
 				i+1, decisions[i].Symbol, decisions[i].Action)
 			decisions[i].Action = "wait"
 			decisions[i].Reasoning = fmt.Sprintf("[REJECTED] invalid action | Original: %s", decisions[i].Reasoning)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, reason, &decisions[i]))
 			rejected++
 			continue
 		}
@@ -40,7 +45,7 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 		if decisions[i].Action != "open_long" && decisions[i].Action != "open_short" {
 			continue
 		}
-		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances); err != nil {
+		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances, gc); err != nil {
 			logger.Infof("⚠️ Decision #%d (%s %s) rejected, converting to wait: %v",
 				i+1, decisions[i].Symbol, decisions[i].Action, err)
 			decisions[i].Action = "wait"
@@ -53,9 +58,12 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 
 // validateDecision validates a single open_long/open_short decision.
 // Action type validation is done by the caller (validateDecisions).
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64) error {
+//
+// gc is optional; pass nil to disable guard-event recording (the unit
+// tests use this).
+func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext) error {
 	if d.Action == "open_long" || d.Action == "open_short" {
-		if err := applyEntryRiskGuard(d, entryRiskGuard, marketDataMap, marketPrices, minRiskRewardRatio); err != nil {
+		if err := applyEntryRiskGuard(d, entryRiskGuard, marketDataMap, marketPrices, minRiskRewardRatio, gc); err != nil {
 			return err
 		}
 
@@ -69,7 +77,9 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 
 		if d.Leverage <= 0 {
-			return fmt.Errorf("leverage must be greater than 0: %d", d.Leverage)
+			err := fmt.Errorf("leverage must be greater than 0: %d", d.Leverage)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 		if d.Leverage > maxLeverage {
 			logger.Infof("⚠️  [Leverage Fallback] %s leverage exceeded (%dx > %dx), auto-adjusting to limit %dx",
@@ -77,7 +87,9 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			d.Leverage = maxLeverage
 		}
 		if d.PositionSizeUSD <= 0 {
-			return fmt.Errorf("position size must be greater than 0: %.2f", d.PositionSizeUSD)
+			err := fmt.Errorf("position size must be greater than 0: %.2f", d.PositionSizeUSD)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 
 		const minPositionSizeGeneral = 12.0
@@ -85,33 +97,46 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 
 		if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
 			if d.PositionSizeUSD < minPositionSizeBTCETH {
-				return fmt.Errorf("%s opening amount too small (%.2f USDT), must be ≥%.2f USDT", d.Symbol, d.PositionSizeUSD, minPositionSizeBTCETH)
+				err := fmt.Errorf("%s opening amount too small (%.2f USDT), must be ≥%.2f USDT", d.Symbol, d.PositionSizeUSD, minPositionSizeBTCETH)
+				gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+				return err
 			}
 		} else {
 			if d.PositionSizeUSD < minPositionSizeGeneral {
-				return fmt.Errorf("opening amount too small (%.2f USDT), must be ≥%.2f USDT", d.PositionSizeUSD, minPositionSizeGeneral)
+				err := fmt.Errorf("opening amount too small (%.2f USDT), must be ≥%.2f USDT", d.PositionSizeUSD, minPositionSizeGeneral)
+				gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+				return err
 			}
 		}
 
 		tolerance := maxPositionValue * 0.01
 		if d.PositionSizeUSD > maxPositionValue+tolerance {
+			var err error
 			if d.Symbol == "BTCUSDT" || d.Symbol == "ETHUSDT" {
-				return fmt.Errorf("BTC/ETH single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f", maxPositionValue, posRatio, d.PositionSizeUSD)
+				err = fmt.Errorf("BTC/ETH single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f", maxPositionValue, posRatio, d.PositionSizeUSD)
 			} else {
-				return fmt.Errorf("altcoin single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f", maxPositionValue, posRatio, d.PositionSizeUSD)
+				err = fmt.Errorf("altcoin single coin position value cannot exceed %.0f USDT (%.1fx account equity), actual: %.0f", maxPositionValue, posRatio, d.PositionSizeUSD)
 			}
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 		if d.StopLoss <= 0 || d.TakeProfit <= 0 {
-			return fmt.Errorf("stop loss and take profit must be greater than 0")
+			err := fmt.Errorf("stop loss and take profit must be greater than 0")
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 
 		if d.Action == "open_long" {
 			if d.StopLoss >= d.TakeProfit {
-				return fmt.Errorf("for long positions, stop loss price must be less than take profit price")
+				err := fmt.Errorf("for long positions, stop loss price must be less than take profit price")
+				gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+				return err
 			}
 		} else {
 			if d.StopLoss <= d.TakeProfit {
-				return fmt.Errorf("for short positions, stop loss price must be greater than take profit price")
+				err := fmt.Errorf("for short positions, stop loss price must be greater than take profit price")
+				gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+				return err
 			}
 		}
 
@@ -147,8 +172,10 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			if slDistance < minDist {
 				slDistPct := slDistance / entryPrice * 100
 				minDistPct := minDist / entryPrice * 100
-				return fmt.Errorf("stop-loss too tight: SL distance %.2f (%.2f%%) < minimum %.2f (%.2f%%). SL must be based on chart structure + ATR, not leverage. Widen SL or skip trade",
+				err := fmt.Errorf("stop-loss too tight: SL distance %.2f (%.2f%%) < minimum %.2f (%.2f%%). SL must be based on chart structure + ATR, not leverage. Widen SL or skip trade",
 					slDistance, slDistPct, minDist, minDistPct)
+				gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+				return err
 			}
 		}
 	}
@@ -195,11 +222,14 @@ func computeRiskRewardRatio(d *Decision, marketPrices map[string]float64) (entry
 // be evaluated against the same entry-price heuristic as the rest of the
 // pipeline.
 //
+// gc is optional. When non-nil, every guard hit is recorded under
+// gc.Events for later bulk-insert into guard_events.
+//
 // Returns a non-nil error only when a guard reason requires hard-blocking
 // (e.g. Mode=hard_block and a non-TP reason fired, or
 // TakeProfitGuardMode=hard_block and the TP reason fired). warn_reduce
 // always returns nil after annotating Reasoning and reducing PositionSizeUSD.
-func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minRiskRewardRatio float64) error {
+func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minRiskRewardRatio float64, gc *GuardContext) error {
 	if d.Action != "open_long" && d.Action != "open_short" {
 		return nil
 	}
@@ -221,10 +251,14 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 	// below.
 	if d.StopLoss > 0 && d.TakeProfit > 0 {
 		if d.Action == "open_long" && d.TakeProfit <= entryPrice {
-			return fmt.Errorf("take profit is on the wrong side of entry price for long: entry≈%.4f, TP=%.4f", entryPrice, d.TakeProfit)
+			err := fmt.Errorf("take profit is on the wrong side of entry price for long: entry≈%.4f, TP=%.4f", entryPrice, d.TakeProfit)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 		if d.Action == "open_short" && d.TakeProfit >= entryPrice {
-			return fmt.Errorf("take profit is on the wrong side of entry price for short: entry≈%.4f, TP=%.4f", entryPrice, d.TakeProfit)
+			err := fmt.Errorf("take profit is on the wrong side of entry price for short: entry≈%.4f, TP=%.4f", entryPrice, d.TakeProfit)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeHardSafety, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 	}
 
@@ -238,23 +272,35 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 		}
 		hardFloor := minRiskRewardRatio * soft
 		if rr > 0 && rr < hardFloor {
-			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [stop loss: %.2f take profit: %.2f]",
+			err := fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [stop loss: %.2f take profit: %.2f]",
 				rr, minRiskRewardRatio, hardFloor, d.StopLoss, d.TakeProfit)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeRRCheck, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 		if rr > 0 && rr < minRiskRewardRatio {
 			// Soft tier: warn_reduce regardless of the global mode.
-			applyWarnReduce(d, &guard, fmt.Sprintf(
+			softMsg := fmt.Sprintf(
 				"R/R %.2f below target %.1f:1 (soft floor %.2f, hard floor %.1f:1)",
 				rr, minRiskRewardRatio, soft, hardFloor,
-			))
+			)
+			sizeBefore := d.PositionSizeUSD
+			applyWarnReduce(d, &guard, softMsg)
+			evt := gc.newGuardEvent(store.GuardEventTypeRRCheck, store.GuardEventActionReduce, softMsg, d)
+			if evt != nil {
+				evt.PositionSizeBefore = sizeBefore
+				evt.PositionSizeAfter = d.PositionSizeUSD
+			}
+			gc.append(evt)
 			// Fall through: other reasons may still trigger hard-block.
 		}
 	} else {
 		// Legacy: hard block at MinRR × 0.8
 		hardFloor := minRiskRewardRatio * 0.8
 		if rr > 0 && rr < hardFloor {
-			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [stop loss: %.2f take profit: %.2f]",
+			err := fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [stop loss: %.2f take profit: %.2f]",
 				rr, minRiskRewardRatio, hardFloor, d.StopLoss, d.TakeProfit)
+			gc.append(gc.newGuardEvent(store.GuardEventTypeRRCheck, store.GuardEventActionBlock, err.Error(), d))
+			return err
 		}
 	}
 	_ = rewardPct
@@ -292,21 +338,34 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 
 	// Hard block on TP reason → return error (even if other reasons are soft).
 	if len(tpReasons) > 0 && tpMode == store.TakeProfitGuardModeHardBlock {
-		return fmt.Errorf("%s", "entry risk guard: "+strings.Join(tpReasons, "; "))
+		err := fmt.Errorf("%s", "entry risk guard: "+strings.Join(tpReasons, "; "))
+		gc.append(gc.newGuardEvent(store.GuardEventTypeTPAnchor, store.GuardEventActionBlock, err.Error(), d))
+		return err
 	}
 	// Hard block on a non-TP reason → return error.
 	if len(otherReasons) > 0 && guard.Mode == store.EntryRiskGuardModeHardBlock {
-		return fmt.Errorf("%s", "entry risk guard: "+strings.Join(otherReasons, "; "))
+		err := fmt.Errorf("%s", "entry risk guard: "+strings.Join(otherReasons, "; "))
+		gc.append(gc.newGuardEvent(store.GuardEventTypeEntryRiskGuard, store.GuardEventActionBlock, err.Error(), d))
+		return err
 	}
 
 	// Otherwise: warn + reduce. If TP is in warn_reduce mode, prefix the
 	// reasoning with [TP_EXTENSION_GUARD] so it shows up in post-mortem.
 	msg := "entry risk guard: " + strings.Join(allReasons, "; ")
 	prefix := "[ENTRY_GUARD_WARNING]"
+	guardType := store.GuardEventTypeEntryRiskGuard
 	if len(tpReasons) > 0 {
 		prefix = "[TP_EXTENSION_GUARD]"
+		guardType = store.GuardEventTypeTPAnchor
 	}
+	sizeBefore := d.PositionSizeUSD
 	applyWarnReduce(d, &guard, fmt.Sprintf("%s %s", prefix, msg))
+	evt := gc.newGuardEvent(guardType, store.GuardEventActionReduce, msg, d)
+	if evt != nil {
+		evt.PositionSizeBefore = sizeBefore
+		evt.PositionSizeAfter = d.PositionSizeUSD
+	}
+	gc.append(evt)
 	return nil
 }
 

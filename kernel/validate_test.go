@@ -92,7 +92,7 @@ func TestLeverageFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use default position value ratios for testing (10x for BTC/ETH, 1.5x for altcoins)
-			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, 3.0, nil, nil, tt.marketPrices, nil)
+			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, 3.0, nil, nil, tt.marketPrices, nil, nil)
 
 			// Check error status
 			if (err != nil) != tt.wantError {
@@ -148,6 +148,7 @@ func TestEntryRiskGuardHardBlocksExtremeRSIShort(t *testing.T) {
 		},
 		map[string]float64{"BTCUSDT": 61350},
 		nil,
+		nil,
 	)
 
 	if err == nil {
@@ -201,6 +202,7 @@ func TestEntryRiskGuardWarnReduceKeepsDecisionAndReducesSize(t *testing.T) {
 			},
 		},
 		map[string]float64{"SOLUSDT": 62.65},
+		nil,
 		nil,
 	)
 
@@ -265,7 +267,7 @@ func TestEntryRiskGuardTPExtensionDefaultWarnReduce(t *testing.T) {
 				},
 			},
 		},
-	}, nil, 0.5)
+	}, nil, 0.5, nil)
 	if err != nil {
 		t.Fatalf("applyEntryRiskGuard() error = %v, want nil (warn_reduce mode should not block)", err)
 	}
@@ -311,7 +313,7 @@ func TestEntryRiskGuardTPExtensionHardBlockMode(t *testing.T) {
 				},
 			},
 		},
-	}, nil, 0.5)
+	}, nil, 0.5, nil)
 	if err == nil {
 		t.Fatalf("applyEntryRiskGuard() error = nil, want TP hard block error")
 	}
@@ -358,7 +360,7 @@ func TestEntryRiskGuardTPExtensionWarnReduceOverride(t *testing.T) {
 				},
 			},
 		},
-	}, nil, 0.5)
+	}, nil, 0.5, nil)
 	// Only TP reason triggered → warn_reduce should keep the decision.
 	if err != nil {
 		t.Fatalf("applyEntryRiskGuard() error = %v, want nil (TP reason in warn_reduce)", err)
@@ -408,7 +410,7 @@ func TestEntryRiskGuardNonTPStillHardBlock(t *testing.T) {
 				},
 			},
 		},
-	}, nil, 0.5)
+	}, nil, 0.5, nil)
 	if err == nil {
 		t.Fatalf("applyEntryRiskGuard() error = nil, want hard block on RSI reason")
 	}
@@ -442,7 +444,7 @@ func TestEntryRiskGuardRRTierWarnReduce(t *testing.T) {
 
 	// minRR=1.5, soft=0.8 → hard floor=1.2.
 	// Decision R/R ≈ 1.0 → below hard floor → expect hard block.
-	err := applyEntryRiskGuard(&decision, guard, nil, nil, 1.5)
+	err := applyEntryRiskGuard(&decision, guard, nil, nil, 1.5, nil)
 	if err == nil {
 		t.Fatalf("expected hard block on R/R below hard floor, got nil")
 	}
@@ -475,7 +477,7 @@ func TestEntryRiskGuardRRTierSoftFloorTriggersWarnReduce(t *testing.T) {
 
 	// Decision R/R = 1.0 → above soft floor (0.75) but below MinRR (1.5)
 	// → soft tier: warn_reduce, no error.
-	err := applyEntryRiskGuard(&decision, guard, nil, nil, 1.5)
+	err := applyEntryRiskGuard(&decision, guard, nil, nil, 1.5, nil)
 	if err != nil {
 		t.Fatalf("expected warn_reduce (nil err) for R/R in soft tier, got %v", err)
 	}
@@ -508,7 +510,7 @@ func TestEntryRiskGuardRRDisabledKeepsLegacyHardFloor(t *testing.T) {
 
 	// minRR=1.5, hardFloor=1.2. R/R=1.0 below hard floor → hard block
 	// (legacy behavior preserved).
-	err := applyEntryRiskGuard(&decision, guard, nil, nil, 1.5)
+	err := applyEntryRiskGuard(&decision, guard, nil, nil, 1.5, nil)
 	if err == nil {
 		t.Fatalf("expected hard block under legacy hard floor, got nil")
 	}
@@ -536,7 +538,7 @@ func TestEntryRiskGuardRRMeetsTargetPassesThrough(t *testing.T) {
 	guard.BlockLowRiskReward = true
 
 	// Provide entry price so R/R = 9.0 (well above MinRR=1.5).
-	err := applyEntryRiskGuard(&decision, guard, nil, map[string]float64{"BTCUSDT": 61000}, 1.5)
+	err := applyEntryRiskGuard(&decision, guard, nil, map[string]float64{"BTCUSDT": 61000}, 1.5, nil)
 	if err != nil {
 		t.Fatalf("expected nil for high R/R, got %v", err)
 	}
@@ -560,7 +562,7 @@ func TestEntryRiskGuardRRStillRunsWhenGuardDisabled(t *testing.T) {
 	}
 
 	// nil cfg → guard disabled entirely. R/R check must still run.
-	err := applyEntryRiskGuard(&decision, nil, nil, nil, 1.5)
+	err := applyEntryRiskGuard(&decision, nil, nil, nil, 1.5, nil)
 	if err == nil {
 		t.Fatalf("expected R/R hard block with nil cfg, got nil")
 	}
@@ -572,7 +574,7 @@ func TestEntryRiskGuardRRStillRunsWhenGuardDisabled(t *testing.T) {
 	guard := store.DefaultEntryRiskGuardConfig()
 	guard.Enabled = false
 	decision2 := decision
-	err = applyEntryRiskGuard(&decision2, guard, nil, nil, 1.5)
+	err = applyEntryRiskGuard(&decision2, guard, nil, nil, 1.5, nil)
 	if err == nil {
 		t.Fatalf("expected R/R hard block with Enabled=false, got nil")
 	}
@@ -601,7 +603,7 @@ func TestEntryRiskGuardTPLongBelowEntryRejected(t *testing.T) {
 	guard.BlockExtendedTakeProfit = false
 	guard.BlockLowRiskReward = false // even with tiered check disabled
 
-	err := applyEntryRiskGuard(&decision, guard, nil, map[string]float64{"BTCUSDT": 61000}, 1.5)
+	err := applyEntryRiskGuard(&decision, guard, nil, map[string]float64{"BTCUSDT": 61000}, 1.5, nil)
 	if err == nil {
 		t.Fatalf("expected rejection for long TP below entry, got nil")
 	}
@@ -628,7 +630,7 @@ func TestEntryRiskGuardTPShortAboveEntryRejected(t *testing.T) {
 	guard.BlockExtendedTakeProfit = false
 	guard.BlockLowRiskReward = false
 
-	err := applyEntryRiskGuard(&decision, guard, nil, map[string]float64{"BTCUSDT": 61000}, 1.5)
+	err := applyEntryRiskGuard(&decision, guard, nil, map[string]float64{"BTCUSDT": 61000}, 1.5, nil)
 	if err == nil {
 		t.Fatalf("expected rejection for short TP above entry, got nil")
 	}
