@@ -343,7 +343,7 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 		logger.Warnf("⚠️ Entry risk guard enabled but no market data for %s, skipping guard", d.Symbol)
 		return nil
 	}
-	allReasons, tpReasons, otherReasons := evaluateEntryRiskGuardSplit(d, &guard, md)
+	allReasons, tpReasons, otherReasons, tpAnchorType := evaluateEntryRiskGuardSplit(d, &guard, md)
 	if len(allReasons) == 0 {
 		return nil
 	}
@@ -358,7 +358,8 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 
 	// Hard block on TP reason → return error (even if other reasons are soft).
 	if len(tpReasons) > 0 && tpMode == store.TakeProfitGuardModeHardBlock {
-		err := fmt.Errorf("%s", "entry risk guard: "+strings.Join(tpReasons, "; "))
+		reason := "entry risk guard: " + strings.Join(tpReasons, "; ") + tpAnchorDiffSuffix(gc, tpAnchorType)
+		err := fmt.Errorf("%s", reason)
 		gc.append(gc.newGuardEvent(store.GuardEventTypeTPAnchor, store.GuardEventActionBlock, err.Error(), d))
 		return err
 	}
@@ -377,6 +378,7 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 	if len(tpReasons) > 0 {
 		prefix = "[TP_EXTENSION_GUARD]"
 		guardType = store.GuardEventTypeTPAnchor
+		msg += tpAnchorDiffSuffix(gc, tpAnchorType)
 	}
 	sizeBefore := d.PositionSizeUSD
 	applyWarnReduce(d, &guard, fmt.Sprintf("%s %s", prefix, msg))
@@ -415,7 +417,7 @@ func applyWarnReduce(d *Decision, cfg *store.EntryRiskGuardConfig, msg string) {
 }
 
 func evaluateEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, md *market.Data) []string {
-	all, _, _ := evaluateEntryRiskGuardSplit(d, cfg, md)
+	all, _, _, _ := evaluateEntryRiskGuardSplit(d, cfg, md)
 	return all
 }
 
@@ -426,12 +428,12 @@ func evaluateEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, md *ma
 //
 // Used by applyEntryRiskGuard so the TP reason can be subject to its own
 // guard mode (TakeProfitGuardMode) independent of the global Mode.
-func evaluateEntryRiskGuardSplit(d *Decision, cfg *store.EntryRiskGuardConfig, md *market.Data) (allReasons, tpReasons, otherReasons []string) {
+func evaluateEntryRiskGuardSplit(d *Decision, cfg *store.EntryRiskGuardConfig, md *market.Data) (allReasons, tpReasons, otherReasons []string, tpAnchorType string) {
 	var reasons []string
 	isShort := d.Action == "open_short"
 	isLong := d.Action == "open_long"
 	if !isShort && !isLong {
-		return reasons, nil, nil
+		return reasons, nil, nil, ""
 	}
 
 	if cfg.BlockExtremeRSI {
@@ -486,9 +488,15 @@ func evaluateEntryRiskGuardSplit(d *Decision, cfg *store.EntryRiskGuardConfig, m
 			tolerance := tf.ATR14 * cfg.TakeProfitATRTolerance
 			if isShort && low > 0 && d.TakeProfit < low-tolerance {
 				reasons = append(reasons, fmt.Sprintf("TP %.4f extends below recent %s low %.4f by > %.2fx ATR", d.TakeProfit, tf.Timeframe, low, cfg.TakeProfitATRTolerance))
+				if tpAnchorType == "" {
+					tpAnchorType = "recent_high_low"
+				}
 			}
 			if isLong && high > 0 && d.TakeProfit > high+tolerance {
 				reasons = append(reasons, fmt.Sprintf("TP %.4f extends above recent %s high %.4f by > %.2fx ATR", d.TakeProfit, tf.Timeframe, high, cfg.TakeProfitATRTolerance))
+				if tpAnchorType == "" {
+					tpAnchorType = "recent_high_low"
+				}
 			}
 		}
 	}
@@ -505,7 +513,24 @@ func evaluateEntryRiskGuardSplit(d *Decision, cfg *store.EntryRiskGuardConfig, m
 		}
 	}
 	allReasons = reasons
-	return allReasons, tpReasons, otherReasons
+	return allReasons, tpReasons, otherReasons, tpAnchorType
+}
+
+// tpAnchorDiffSuffix compares the AI's declared tp_rationale.anchor_type
+// with the code-detected anchor type and returns a marker when they
+// disagree. Empty values on either side produce no marker.
+func tpAnchorDiffSuffix(gc *GuardContext, codeAnchor string) string {
+	if gc == nil || codeAnchor == "" {
+		return ""
+	}
+	aiAnchor := aiTPAnchorType(string(gc.AIAssessment))
+	if aiAnchor == "" {
+		return ""
+	}
+	if normalizeTPAnchorType(aiAnchor) == normalizeTPAnchorType(codeAnchor) {
+		return ""
+	}
+	return fmt.Sprintf(" [ai-code-diff: ai=%s code=%s]", aiAnchor, codeAnchor)
 }
 
 func chooseGuardTimeframe(md *market.Data) *market.TimeframeSeriesData {

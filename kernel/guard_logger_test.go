@@ -190,3 +190,69 @@ func TestConfigSnapshotJSON_NilSafe(t *testing.T) {
 		t.Fatalf("snapshot is not valid JSON: %s", string(got))
 	}
 }
+
+func TestTPAnchorDiffSuffix(t *testing.T) {
+	cases := []struct {
+		name      string
+		ai        string
+		code      string
+		wantEmpty bool
+	}{
+		{"empty assessment", ``, "recent_high_low", true},
+		{"missing tp_rationale", `{"ai_self_check":{}}`, "recent_high_low", true},
+		{"match recent_high_low", `{"tp_rationale":{"anchor_type":"recent_high_low"}}`, "recent_high_low", true},
+		{"match via normalization", `{"tp_rationale":{"anchor_type":"recent_low_high"}}`, "recent_high_low", true},
+		{"diff breakout vs recent", `{"tp_rationale":{"anchor_type":"breakout_extension"}}`, "recent_high_low", false},
+		{"diff boll vs recent", `{"tp_rationale":{"anchor_type":"boll_band"}}`, "recent_high_low", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gc := &GuardContext{AIAssessment: []byte(c.ai)}
+			got := tpAnchorDiffSuffix(gc, c.code)
+			if c.wantEmpty {
+				if got != "" {
+					t.Fatalf("expected empty suffix, got %q", got)
+				}
+				return
+			}
+			if got == "" {
+				t.Fatalf("expected non-empty diff suffix")
+			}
+			if !strings.Contains(got, "ai-code-diff") {
+				t.Fatalf("expected ai-code-diff marker, got %q", got)
+			}
+		})
+	}
+}
+
+func TestApplyEntryRiskGuard_TPAnchorDiffInReason(t *testing.T) {
+	gc := &GuardContext{
+		TraderID:     "t1",
+		CycleNumber:  1,
+		AIAssessment: []byte(`{"tp_rationale":{"anchor_type":"breakout_extension"}}`),
+	}
+	cfg := store.DefaultEntryRiskGuardConfig()
+	cfg.Enabled = true
+	cfg.Mode = store.EntryRiskGuardModeWarnReduce
+	cfg.TakeProfitGuardMode = store.TakeProfitGuardModeHardBlock
+	cfg.BlockExtremeRSI = false
+	cfg.BlockNearBollBand = false
+	cfg.BlockTransitionMarket = false
+	cfg.BlockLowRiskReward = false
+
+	klines := makeKlines("BTCUSDT", 65000, 30, 0.005)
+	d := Decision{Symbol: "BTCUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000, StopLoss: 64000, TakeProfit: 70000}
+	err := applyEntryRiskGuard(&d, cfg, map[string]*market.Data{
+		"BTCUSDT": {Symbol: "BTCUSDT", CurrentPrice: 65000, TimeframeData: map[string]*market.TimeframeSeriesData{"15m": {Timeframe: "15m", ATR14: 100, Klines: klines}}},
+	}, map[string]float64{"BTCUSDT": 65000}, 1.5, gc)
+	if err == nil {
+		t.Fatalf("expected TP-anchor hard block")
+	}
+	got := eventByType(gc, store.GuardEventTypeTPAnchor)
+	if got == nil {
+		t.Fatalf("expected tp_anchor event")
+	}
+	if !strings.Contains(got.Reason, "ai-code-diff") {
+		t.Fatalf("expected ai-code-diff marker in reason, got %q", got.Reason)
+	}
+}
