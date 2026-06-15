@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Plus, X, Database, TrendingUp, TrendingDown, List, Ban, Zap, Shuffle } from 'lucide-react'
-import type { CoinSourceConfig } from '../../types'
-import { coinSource, ts } from '../../i18n/strategy-translations'
+import { Plus, X, Database, TrendingUp, TrendingDown, List, Ban, Zap, Shuffle, Filter } from 'lucide-react'
+import type { CoinSourceConfig, CandidateRankingFilter } from '../../types'
+import { coinSource, rankingFilter as rankingFilterI18n, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
 
 interface CoinSourceEditorProps {
@@ -673,6 +673,145 @@ export function CoinSourceEditor({
               </div>
             )
           })()}
+        </div>
+      )}
+
+      {/* Phase 3: candidate ranking filter */}
+      <RankingFilterPanel
+        config={config.ranking_filter}
+        disabled={disabled}
+        language={language}
+        onChange={(rf) => onChange({ ...config, ranking_filter: rf })}
+      />
+    </div>
+  )
+}
+
+// Phase 3: collapsible candidate-ranking filter panel. Default values
+// match the backend defaultCandidateRankingFilter() so a fresh UI
+// state still produces a usable config.
+function RankingFilterPanel({
+  config,
+  disabled,
+  language,
+  onChange,
+}: {
+  config: CandidateRankingFilter | undefined
+  disabled?: boolean
+  language: string
+  onChange: (rf: CandidateRankingFilter) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  // Build a local state with defaults so toggles never produce undefined.
+  const rf: CandidateRankingFilter = {
+    enabled: config?.enabled ?? false,
+    use_price_momentum: config?.use_price_momentum ?? true,
+    use_oi_change: config?.use_oi_change ?? true,
+    use_funding_rate: config?.use_funding_rate ?? false,
+    max_candidates: config?.max_candidates ?? 10,
+    enforce: config?.enforce ?? false,
+  }
+
+  const update = (patch: Partial<CandidateRankingFilter>) => {
+    const next: CandidateRankingFilter = { ...rf, ...patch }
+    if (patch.enabled === false) next.enforce = false
+    onChange(next)
+  }
+
+  return (
+    <div className="mt-4 border border-nofx-border rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-4 py-2.5 flex items-center justify-between bg-nofx-bg-tertiary hover:bg-nofx-bg-secondary transition-colors"
+        disabled={disabled}
+      >
+        <div className="flex items-center gap-2 text-sm font-medium text-nofx-text-primary">
+          <Filter size={16} className="text-nofx-primary" />
+          {ts(rankingFilterI18n.rankingFilter, language)}
+        </div>
+        <div className="flex items-center gap-2">
+          {rf.enabled && (
+            <span className="text-xs px-1.5 py-0.5 rounded bg-nofx-primary/15 text-nofx-primary">
+              {rf.enforce ? 'enforce' : 'rank-only'}
+            </span>
+          )}
+          <span className="text-nofx-text-muted text-xs">{open ? '−' : '+'}</span>
+        </div>
+      </button>
+      {open && (
+        <div className="p-4 space-y-3 bg-nofx-bg-primary">
+          <p className="text-xs text-nofx-text-muted">
+            {ts(rankingFilterI18n.rankingFilterDesc, language)}
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={rf.enabled}
+              disabled={disabled}
+              onChange={(e) => update({ enabled: e.target.checked })}
+            />
+            <span>{ts(rankingFilterI18n.rankingFilter, language)}</span>
+          </label>
+          <div className="grid grid-cols-3 gap-2 pl-6">
+            <label className="flex items-center gap-1 text-xs">
+              <input
+                type="checkbox"
+                checked={rf.use_price_momentum}
+                disabled={disabled || !rf.enabled}
+                onChange={(e) => update({ use_price_momentum: e.target.checked })}
+              />
+              {ts(rankingFilterI18n.usePriceMomentum, language)}
+            </label>
+            <label className="flex items-center gap-1 text-xs">
+              <input
+                type="checkbox"
+                checked={rf.use_oi_change}
+                disabled={disabled || !rf.enabled}
+                onChange={(e) => update({ use_oi_change: e.target.checked })}
+              />
+              {ts(rankingFilterI18n.useOIChange, language)}
+            </label>
+            <label className="flex items-center gap-1 text-xs" title={ts(rankingFilterI18n.fundingRateNoSource, language)}>
+              <input
+                type="checkbox"
+                checked={rf.use_funding_rate}
+                disabled={disabled || !rf.enabled}
+                onChange={(e) => update({ use_funding_rate: e.target.checked })}
+              />
+              {ts(rankingFilterI18n.useFundingRate, language)}
+            </label>
+          </div>
+          <div className="flex items-center gap-3 pl-6">
+            <span className="text-xs text-nofx-text-muted w-24">
+              {ts(rankingFilterI18n.maxCandidates, language)}
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={rf.max_candidates}
+              disabled={disabled || !rf.enabled}
+              onChange={(e) => update({ max_candidates: Number(e.target.value) || 10 })}
+              className="w-20 bg-nofx-bg-tertiary border border-nofx-border rounded px-2 py-1 text-sm"
+            />
+          </div>
+          <label className="flex items-start gap-2 text-sm pl-6">
+            <input
+              type="checkbox"
+              checked={rf.enforce}
+              disabled={disabled || !rf.enabled}
+              onChange={(e) => update({ enforce: e.target.checked })}
+              className="mt-0.5"
+            />
+            <div>
+              <div>{ts(rankingFilterI18n.enforceCandidatePool, language)}</div>
+              <div className="text-xs text-nofx-text-muted">
+                {ts(rankingFilterI18n.enforceCandidatePoolDesc, language)}
+              </div>
+            </div>
+          </label>
         </div>
       )}
     </div>

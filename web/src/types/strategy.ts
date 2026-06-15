@@ -89,6 +89,17 @@ export interface GridStrategyConfig {
   direction_bias_ratio?: number
 }
 
+// Phase 3: optional candidate-coin ranking filter. When disabled (the
+// default) the candidate list is passed through unchanged.
+export interface CandidateRankingFilter {
+  enabled: boolean
+  use_price_momentum: boolean
+  use_oi_change: boolean
+  use_funding_rate: boolean
+  max_candidates: number
+  enforce: boolean
+}
+
 export interface CoinSourceConfig {
   source_type: 'static' | 'ai500' | 'oi_top' | 'oi_low' | 'mixed'
   static_coins?: string[]
@@ -99,6 +110,7 @@ export interface CoinSourceConfig {
   oi_top_limit?: number
   use_oi_low: boolean
   oi_low_limit?: number
+  ranking_filter?: CandidateRankingFilter
   // Note: API URLs are now built automatically using nofxos_api_key from IndicatorConfig
 }
 

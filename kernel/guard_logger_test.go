@@ -38,7 +38,7 @@ func TestValidateDecision_EmitsHardSafetyOnInvalidAction(t *testing.T) {
 		{Symbol: "ETHUSDT", Action: "moon_long", Leverage: 3, PositionSizeUSD: 1000, StopLoss: 2000, TakeProfit: 3000},
 	}
 
-	validateDecisions(decisions, 1000, 5, 5, 10, 5, 1.5, nil, nil, nil, nil, gc)
+	validateDecisions(decisions, 1000, 5, 5, 10, 5, 1.5, nil, nil, nil, nil, gc, nil, nil)
 
 	if got := eventByType(gc, store.GuardEventTypeHardSafety); got == nil || got.Action != store.GuardEventActionBlock {
 		t.Fatalf("expected hard_safety|block event, got %+v", got)
@@ -53,7 +53,7 @@ func TestValidateDecision_EmitsHardSafetyOnLeverageZero(t *testing.T) {
 	// Use a market price so the entry-price heuristic gives SL/TP enough
 	// room to satisfy the SL-distance guard before leverage=0 fires.
 	d := Decision{Symbol: "BTCUSDT", Action: "open_long", Leverage: 0, PositionSizeUSD: 1000, StopLoss: 64000, TakeProfit: 68000}
-	err := validateDecision(&d, 10000, 5, 5, 10, 5, 1.5, nil, nil, map[string]float64{"BTCUSDT": 65000}, nil, gc)
+	err := validateDecision(&d, 10000, 5, 5, 10, 5, 1.5, nil, nil, map[string]float64{"BTCUSDT": 65000}, nil, gc, nil, nil)
 	if err == nil {
 		t.Fatalf("expected leverage error")
 	}

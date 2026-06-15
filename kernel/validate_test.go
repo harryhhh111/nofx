@@ -92,7 +92,7 @@ func TestLeverageFallback(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Use default position value ratios for testing (10x for BTC/ETH, 1.5x for altcoins)
-			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, 3.0, nil, nil, tt.marketPrices, nil, nil)
+			err := validateDecision(&tt.decision, tt.accountEquity, tt.btcEthLeverage, tt.altcoinLeverage, 10.0, 1.5, 3.0, nil, nil, tt.marketPrices, nil, nil, nil, nil)
 
 			// Check error status
 			if (err != nil) != tt.wantError {
@@ -149,6 +149,8 @@ func TestEntryRiskGuardHardBlocksExtremeRSIShort(t *testing.T) {
 		map[string]float64{"BTCUSDT": 61350},
 		nil,
 		nil,
+		nil,
+		nil,
 	)
 
 	if err == nil {
@@ -202,6 +204,8 @@ func TestEntryRiskGuardWarnReduceKeepsDecisionAndReducesSize(t *testing.T) {
 			},
 		},
 		map[string]float64{"SOLUSDT": 62.65},
+		nil,
+		nil,
 		nil,
 		nil,
 	)
@@ -657,4 +661,140 @@ func makeKlines(_ string, base float64, count int, pct float64) []market.KlineBa
 		}
 	}
 	return out
+}
+
+// =============================================================================
+// Phase 3: candidate-pool enforcement tests
+// =============================================================================
+
+// TestEnforceCandidatePool_BlocksOutOfPoolSymbol verifies that when
+// RankingFilter.Enforce=true and the decision symbol is not in the
+// candidate list, the decision is rejected with a candidate_pool
+// guard event.
+func TestEnforceCandidatePool_BlocksOutOfPoolSymbol(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	candidates := []CandidateCoin{
+		{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"},
+	}
+	filter := &store.CandidateRankingFilter{
+		Enabled: true, Enforce: true, MaxCandidates: 10,
+	}
+	d := Decision{
+		Symbol: "DOGEUSDT", // not in pool
+		Action: "open_long", Leverage: 3, PositionSizeUSD: 1000,
+		StopLoss: 60000, TakeProfit: 70000,
+	}
+	// Use market prices that would otherwise pass R/R.
+	err := validateDecision(&d, 1000, 5, 5, 10, 5, 1.5, nil, nil,
+		map[string]float64{"DOGEUSDT": 65000}, nil, gc, candidates, filter)
+	if err == nil {
+		t.Fatalf("expected out-of-pool rejection, got nil")
+	}
+	if !contains(err.Error(), "not in the ranked candidate pool") {
+		t.Fatalf("err = %q, want 'not in the ranked candidate pool'", err.Error())
+	}
+	// Guard event must be present with the right type.
+	if got := eventByType(gc, store.GuardEventTypeCandidatePool); got == nil || got.Action != store.GuardEventActionBlock {
+		t.Fatalf("expected candidate_pool|block, got %+v", got)
+	}
+}
+
+func TestEnforceCandidatePool_AllowsInPoolSymbol(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	candidates := []CandidateCoin{{Symbol: "BTCUSDT"}}
+	filter := &store.CandidateRankingFilter{
+		Enabled: true, Enforce: true, MaxCandidates: 10,
+	}
+	// Use numbers that pass R/R hard floor AND have TP strictly above entry.
+	d := Decision{
+		Symbol: "BTCUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000,
+		StopLoss: 60000, TakeProfit: 75000, // risk=5000, reward=10000, rr=2.0
+	}
+	if err := validateDecision(&d, 1000, 5, 5, 10, 5, 1.5, nil, nil,
+		map[string]float64{"BTCUSDT": 65000}, nil, gc, candidates, filter); err != nil {
+		t.Fatalf("in-pool symbol should pass, got %v", err)
+	}
+	// No candidate_pool event should fire for an allowed symbol.
+	if got := eventByType(gc, store.GuardEventTypeCandidatePool); got != nil {
+		t.Fatalf("unexpected candidate_pool event: %+v", got)
+	}
+}
+
+// TestEnforceCandidatePool_DisabledPassesThrough verifies that the
+// existing test fixture (filter=nil) is unchanged: any symbol is
+// allowed through validateDecision.
+func TestEnforceCandidatePool_DisabledPassesThrough(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	// candidates=nil, filter=nil. No candidate check at all.
+	d := Decision{
+		Symbol: "DOGEUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000,
+		StopLoss: 60000, TakeProfit: 75000,
+	}
+	if err := validateDecision(&d, 1000, 5, 5, 10, 5, 1.5, nil, nil,
+		map[string]float64{"DOGEUSDT": 65000}, nil, gc, nil, nil); err != nil {
+		t.Fatalf("filter=nil should not block, got %v", err)
+	}
+}
+
+// TestEnforceCandidatePool_CaseInsensitive verifies that "btcusdt" and
+// "BTCUSDT" both pass through the membership check.
+func TestEnforceCandidatePool_CaseInsensitive(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	candidates := []CandidateCoin{{Symbol: "btcusdt"}}
+	filter := &store.CandidateRankingFilter{
+		Enabled: true, Enforce: true, MaxCandidates: 10,
+	}
+	d := Decision{
+		Symbol: "BTCUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000,
+		StopLoss: 60000, TakeProfit: 75000,
+	}
+	if err := validateDecision(&d, 1000, 5, 5, 10, 5, 1.5, nil, nil,
+		map[string]float64{"BTCUSDT": 65000}, nil, gc, candidates, filter); err != nil {
+		t.Fatalf("case-insensitive membership failed: %v", err)
+	}
+}
+
+// TestEnforceCandidatePool_FiresBeforeRRCheck verifies the ordering:
+// a symbol outside the pool with terrible R/R is rejected with
+// candidate_pool, NOT rr_check — the pool check runs first to avoid
+// wasting cycles on hard-safety / R/R work for symbols we'd block
+// anyway.
+func TestEnforceCandidatePool_FiresBeforeRRCheck(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	candidates := []CandidateCoin{{Symbol: "BTCUSDT"}}
+	filter := &store.CandidateRankingFilter{
+		Enabled: true, Enforce: true, MaxCandidates: 10,
+	}
+	d := Decision{
+		Symbol: "DOGEUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000,
+		StopLoss: 60000, TakeProfit: 60050, // terrible R/R
+	}
+	_ = validateDecision(&d, 1000, 5, 5, 10, 5, 1.5, nil, nil,
+		map[string]float64{"DOGEUSDT": 60025}, nil, gc, candidates, filter)
+	if got := eventByType(gc, store.GuardEventTypeCandidatePool); got == nil {
+		t.Fatalf("expected candidate_pool event to fire first, got events=%+v", gc.Events)
+	}
+	if got := eventByType(gc, store.GuardEventTypeRRCheck); got != nil {
+		t.Fatalf("R/R check should not run for out-of-pool symbols, got %+v", got)
+	}
+}
+
+// TestSymbolInCandidates covers the helper directly.
+func TestSymbolInCandidates(t *testing.T) {
+	cands := []CandidateCoin{{Symbol: "BTCUSDT"}, {Symbol: "ETHUSDT"}}
+	if !symbolInCandidates("btcusdt", cands) {
+		t.Errorf("case-insensitive match failed")
+	}
+	if !symbolInCandidates("ETHUSDT", cands) {
+		t.Errorf("exact match failed")
+	}
+	if symbolInCandidates("DOGEUSDT", cands) {
+		t.Errorf("non-member should return false")
+	}
+	if symbolInCandidates("", cands) {
+		t.Errorf("empty symbol should return false")
+	}
+	if symbolInCandidates("BTCUSDT", nil) {
+		t.Errorf("nil candidates should return false")
+	}
 }

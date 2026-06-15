@@ -275,7 +275,60 @@ type CoinSourceConfig struct {
 	UseHyperMain bool `json:"use_hyper_main"`
 	// Hyperliquid Main maximum count (default 20)
 	HyperMainLimit int `json:"hyper_main_limit,omitempty"`
+	// Phase 3: optional candidate-coin ranking filter. When disabled
+	// (the default) the candidate list is passed through unchanged.
+	RankingFilter *CandidateRankingFilter `json:"ranking_filter,omitempty"`
 	// Note: API URLs are now built automatically using NofxOSAPIKey from IndicatorConfig
+}
+
+// CandidateRankingFilter ranks the candidate coin pool by quantitative
+// signals (price momentum / OI change / funding rate) before exposing
+// it to the AI. Defaults are conservative: Enabled=false, Enforce=false.
+// Turning Enforce=true blocks open_* decisions whose symbol is not in
+// the (ranked, truncated) pool. Recommended rollout is to enable
+// ranking-only first (Enabled=true, Enforce=false) for a few weeks so
+// the score-vs-outcome correlation can be observed before enforcing.
+type CandidateRankingFilter struct {
+	Enabled          bool `json:"enabled"`            // Master switch; off → pass-through
+	UsePriceMomentum bool `json:"use_price_momentum"` // Weight 0.4 (price_change_1h)
+	UseOIChange      bool `json:"use_oi_change"`      // Weight 0.3 (oi_delta_percent_1h)
+	UseFundingRate   bool `json:"use_funding_rate"`   // Weight 0.3 (funding_rate, sign-inverted)
+	MaxCandidates    int  `json:"max_candidates"`     // 0 or <1 → default 10
+	Enforce          bool `json:"enforce"`            // When true, open decisions outside the pool are blocked
+}
+
+// Clamp normalises a CandidateRankingFilter in place. Idempotent and
+// safe to call on a nil receiver (no-op). Used by the engine to repair
+// partially-set configs loaded from older strategy JSON.
+func (c *CandidateRankingFilter) Clamp() {
+	if c == nil {
+		return
+	}
+	if c.MaxCandidates <= 0 {
+		c.MaxCandidates = 10
+	}
+	if c.MaxCandidates > 100 {
+		c.MaxCandidates = 100
+	}
+	// When the master switch is off, force Enforce off too — otherwise
+	// an old config could silently start blocking decisions.
+	if !c.Enabled {
+		c.Enforce = false
+	}
+}
+
+// DefaultCandidateRankingFilter is the conservative off-by-default
+// factory used by GetDefaultStrategyConfig. Exported so the kernel
+// package can pin the same defaults in unit tests.
+func DefaultCandidateRankingFilter() *CandidateRankingFilter {
+	return &CandidateRankingFilter{
+		Enabled:          false,
+		UsePriceMomentum: true,
+		UseOIChange:      true,
+		UseFundingRate:   false, // off by default: nofxos has no funding-rate ranking
+		MaxCandidates:    10,
+		Enforce:          false,
+	}
 }
 
 // IndicatorConfig indicator configuration
@@ -681,13 +734,14 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 		StrategyType: "ai_trading",
 		Language:     normalizedLang,
 		CoinSource: CoinSourceConfig{
-			SourceType: "ai500",
-			UseAI500:   true,
-			AI500Limit: 3,
-			UseOITop:   false,
-			OITopLimit: 3,
-			UseOILow:   false,
-			OILowLimit: 3,
+			SourceType:    "ai500",
+			UseAI500:      true,
+			AI500Limit:    3,
+			UseOITop:      false,
+			OITopLimit:    3,
+			UseOILow:      false,
+			OILowLimit:    3,
+			RankingFilter: DefaultCandidateRankingFilter(),
 		},
 		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{

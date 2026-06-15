@@ -98,7 +98,7 @@ func TestParseFullDecisionResponse_OverrideSuggestedDoesNotAffectCode(t *testing
 		nil,
 		map[string]float64{"BTCUSDT": 60050},
 		nil,
-		gc,
+		gc, nil, nil,
 	)
 	// parseFullDecisionResponse converts bad decisions to "wait" and
 	// returns nil err — the test must look at the emitted guard event
@@ -132,6 +132,7 @@ func TestParseFullDecisionResponse_MissingGuardAssessmentDoesNotError(t *testing
 		aiResponse, 1000, 5, 5, 10, 5, 1.5,
 		nil, nil, nil, nil,
 		&GuardContext{TraderID: "t1", CycleNumber: 1},
+		nil, nil,
 	)
 	if err != nil {
 		t.Fatalf("missing <guard_assessment> should not error, got %v", err)

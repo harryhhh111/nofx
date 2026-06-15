@@ -120,6 +120,57 @@ export const coinSource = {
 }
 
 // ============================================================================
+// RANKING FILTER TRANSLATIONS (Phase 3)
+// ============================================================================
+export const rankingFilter = {
+  rankingFilter: {
+    zh: '排名过滤器',
+    en: 'Ranking Filter',
+    es: 'Filtro de Ranking',
+  },
+  rankingFilterDesc: {
+    zh: '按价格动量 / OI 变化 / 资金费率等量化信号对候选币打分排序。可选 enforce 阻断池外币。',
+    en: 'Rank candidate coins by quant signals (price momentum / OI change / funding rate). Enforce to block symbols outside the pool.',
+    es: 'Ranking de candidatos por señales cuantitativas (momentum de precio / cambio de OI / funding). Enforce para bloquear símbolos fuera del pool.',
+  },
+  usePriceMomentum: {
+    zh: '启用价格动量',
+    en: 'Use price momentum',
+    es: 'Usar momentum de precio',
+  },
+  useOIChange: {
+    zh: '启用 OI 变化',
+    en: 'Use OI change',
+    es: 'Usar cambio de OI',
+  },
+  useFundingRate: {
+    zh: '启用资金费率',
+    en: 'Use funding rate',
+    es: 'Usar funding rate',
+  },
+  maxCandidates: {
+    zh: '最大候选数',
+    en: 'Max candidates',
+    es: 'Máx. candidatos',
+  },
+  enforceCandidatePool: {
+    zh: '强制限制在池内',
+    en: 'Enforce candidate pool',
+    es: 'Forzar dentro del pool',
+  },
+  enforceCandidatePoolDesc: {
+    zh: '开启后，AI 选择的开仓币种不在排序后的池内时会被自动阻断并转换为 wait。',
+    en: 'When enabled, open decisions whose symbol is not in the ranked pool are auto-blocked and converted to wait.',
+    es: 'Cuando se activa, las decisiones de apertura fuera del pool se bloquean y se convierten a wait.',
+  },
+  fundingRateNoSource: {
+    zh: '注意：当前 nofxos 未提供资金费率 ranking 端点，启用此因子对分数无贡献。',
+    en: 'Note: nofxos has no funding-rate ranking endpoint yet — enabling this factor currently contributes 0 to the score.',
+    es: 'Nota: nofxos no tiene endpoint de ranking de funding — activar este factor aporta 0 al score.',
+  },
+}
+
+// ============================================================================
 // GRID CONFIG TRANSLATIONS (60+ keys)
 // ============================================================================
 export const gridConfig = {
@@ -1091,6 +1142,7 @@ export function ts(
 
 export const zhStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.zh])),
+  ...Object.fromEntries(Object.entries(rankingFilter).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.zh])),
@@ -1106,6 +1158,7 @@ export const zhStrategy = {
 
 export const enStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.en])),
+  ...Object.fromEntries(Object.entries(rankingFilter).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.en])),
@@ -1121,6 +1174,7 @@ export const enStrategy = {
 
 export const esStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.es])),
+  ...Object.fromEntries(Object.entries(rankingFilter).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.es])),

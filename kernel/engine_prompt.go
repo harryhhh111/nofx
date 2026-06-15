@@ -994,6 +994,28 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 
 		sourceTags := e.formatCoinSourceTag(coin.Sources)
 		sb.WriteString(fmt.Sprintf("### %d. %s%s\n\n", displayedCount, coin.Symbol, sourceTags))
+		// Phase 3: surface the ranking score (when ranking is enabled)
+		// so the AI can see which candidates the engine prefers.
+		if coin.Score > 0 || len(coin.RankFactors) > 0 {
+			if lang == LangChinese {
+				sb.WriteString(fmt.Sprintf("**排名得分**: %.3f", coin.Score))
+			} else {
+				sb.WriteString(fmt.Sprintf("**Ranking score**: %.3f", coin.Score))
+			}
+			if len(coin.RankFactors) > 0 {
+				keys := make([]string, 0, len(coin.RankFactors))
+				for k := range coin.RankFactors {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				parts := make([]string, 0, len(keys))
+				for _, k := range keys {
+					parts = append(parts, fmt.Sprintf("%s=%.2f", k, coin.RankFactors[k]))
+				}
+				sb.WriteString(" (" + strings.Join(parts, ", ") + ")")
+			}
+			sb.WriteString("\n\n")
+		}
 		sb.WriteString(e.formatMarketData(marketData))
 
 		if ctx.QuantDataMap != nil {
@@ -1002,6 +1024,14 @@ func (e *StrategyEngine) BuildUserPrompt(ctx *Context) string {
 			}
 		}
 		sb.WriteString("\n")
+	}
+	// Phase 3: footer advising the AI to prefer high-score candidates.
+	if e.config.CoinSource.RankingFilter != nil && e.config.CoinSource.RankingFilter.Enabled {
+		if lang == LangChinese {
+			sb.WriteString("**提示**：上述候选币已按 quant 分数排序。优先从高分候选中挑选；若选择池外币，请在 reasoning 中明确说明原因。\n\n")
+		} else {
+			sb.WriteString("**Hint**: the candidates above are ranked by quant score. Prefer high-score candidates; if you pick a symbol outside the pool, justify it in the reasoning.\n\n")
+		}
 	}
 	sb.WriteString("\n")
 

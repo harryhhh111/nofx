@@ -66,8 +66,10 @@ type AccountInfo struct {
 
 // CandidateCoin candidate coin (from coin pool)
 type CandidateCoin struct {
-	Symbol  string   `json:"symbol"`
-	Sources []string `json:"sources"` // Sources: "ai500" and/or "oi_top"
+	Symbol      string             `json:"symbol"`
+	Sources     []string           `json:"sources"`                // Sources: "ai500" and/or "oi_top"
+	Score       float64            `json:"score,omitempty"`        // Phase 3: composite ranking score; 0 when ranking disabled
+	RankFactors map[string]float64 `json:"rank_factors,omitempty"` // Per-signal contributions to Score
 }
 
 // OITopData open interest growth top data (for AI decision reference)
@@ -403,7 +405,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 			})
 		}
 
-		return e.filterExcludedCoins(candidates), nil
+		return e.rankCandidateCoins(e.filterExcludedCoins(candidates)), nil
 
 	case "ai500":
 		// Check use_ai500 flag; if false, fall back to static coins
@@ -416,7 +418,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 					Sources: []string{"static"},
 				})
 			}
-			return e.filterExcludedCoins(candidates), nil
+			return e.rankCandidateCoins(e.filterExcludedCoins(candidates)), nil
 		}
 		coins, err := e.getAI500Coins(coinSource.AI500Limit)
 		if err != nil {
@@ -432,7 +434,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		if len(filtered) == 0 && len(coins) > 0 {
 			logger.Warnf("⚠️  All %d AI500 coins were excluded by ExcludedCoins filter", len(coins))
 		}
-		return filtered, nil
+		return e.rankCandidateCoins(filtered), nil
 
 	case "oi_top":
 		// Check use_oi_top flag; if false, fall back to static coins
@@ -445,14 +447,14 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 					Sources: []string{"static"},
 				})
 			}
-			return e.filterExcludedCoins(candidates), nil
+			return e.rankCandidateCoins(e.filterExcludedCoins(candidates)), nil
 		}
 		coins, err := e.getOITopCoins(coinSource.OITopLimit)
 		if err != nil {
 			return nil, err
 		}
 		// Empty list is a normal condition, return directly
-		return e.filterExcludedCoins(coins), nil
+		return e.rankCandidateCoins(e.filterExcludedCoins(coins)), nil
 
 	case "oi_low":
 		// OI decrease ranking, suitable for short positions
@@ -465,14 +467,14 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 					Sources: []string{"static"},
 				})
 			}
-			return e.filterExcludedCoins(candidates), nil
+			return e.rankCandidateCoins(e.filterExcludedCoins(candidates)), nil
 		}
 		coins, err := e.getOILowCoins(coinSource.OILowLimit)
 		if err != nil {
 			return nil, err
 		}
 		// Empty list is a normal condition, return directly
-		return e.filterExcludedCoins(coins), nil
+		return e.rankCandidateCoins(e.filterExcludedCoins(coins)), nil
 
 	case "hyper_all":
 		// All Hyperliquid perp coins
@@ -485,13 +487,13 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 					Sources: []string{"static"},
 				})
 			}
-			return e.filterExcludedCoins(candidates), nil
+			return e.rankCandidateCoins(e.filterExcludedCoins(candidates)), nil
 		}
 		coins, err := e.getHyperAllCoins()
 		if err != nil {
 			return nil, err
 		}
-		return e.filterExcludedCoins(coins), nil
+		return e.rankCandidateCoins(e.filterExcludedCoins(coins)), nil
 
 	case "hyper_main":
 		// Top N Hyperliquid coins by 24h volume
@@ -504,13 +506,13 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 					Sources: []string{"static"},
 				})
 			}
-			return e.filterExcludedCoins(candidates), nil
+			return e.rankCandidateCoins(e.filterExcludedCoins(candidates)), nil
 		}
 		coins, err := e.getHyperMainCoins(coinSource.HyperMainLimit)
 		if err != nil {
 			return nil, err
 		}
-		return e.filterExcludedCoins(coins), nil
+		return e.rankCandidateCoins(e.filterExcludedCoins(coins)), nil
 
 	case "mixed":
 		var sourceErrors []string
@@ -594,7 +596,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		if len(candidates) == 0 && len(sourceErrors) > 0 {
 			return nil, fmt.Errorf("candidate sources failed [%s]", strings.Join(sourceErrors, "; "))
 		}
-		return candidates, nil
+		return e.rankCandidateCoins(candidates), nil
 
 	default:
 		return nil, fmt.Errorf("unknown coin source type: %s", coinSource.SourceType)

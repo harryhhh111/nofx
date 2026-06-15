@@ -21,7 +21,11 @@ import (
 //
 // gc is optional. When non-nil, every guard hit is recorded as a
 // GuardEvent under gc.Events for later bulk-insert into guard_events.
-func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext) int {
+//
+// candidates is the post-source-filter, post-ranking (if any) list of
+// allowed symbols for this cycle. When non-nil, the CandidateRankingFilter
+// (Enforce) can block open_* decisions whose symbol is not in the list.
+func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext, candidates []CandidateCoin, rankingFilter *store.CandidateRankingFilter) int {
 	rejected := 0
 	for i := range decisions {
 		// Step 1: action type validation applies to ALL decisions
@@ -45,7 +49,7 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 		if decisions[i].Action != "open_long" && decisions[i].Action != "open_short" {
 			continue
 		}
-		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances, gc); err != nil {
+		if err := validateDecision(&decisions[i], accountEquity, btcEthLeverage, altcoinLeverage, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio, entryRiskGuard, marketDataMap, marketPrices, minSLDistances, gc, candidates, rankingFilter); err != nil {
 			logger.Infof("⚠️ Decision #%d (%s %s) rejected, converting to wait: %v",
 				i+1, decisions[i].Symbol, decisions[i].Action, err)
 			decisions[i].Action = "wait"
@@ -61,8 +65,24 @@ func validateDecisions(decisions []Decision, accountEquity float64, btcEthLevera
 //
 // gc is optional; pass nil to disable guard-event recording (the unit
 // tests use this).
-func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext) error {
+//
+// candidates + rankingFilter implement the Phase 3 candidate-pool
+// enforcement. When rankingFilter.Enforce=true and the decision symbol
+// is not in candidates, the decision is rejected with a candidate_pool
+// guard event.
+func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, entryRiskGuard *store.EntryRiskGuardConfig, marketDataMap map[string]*market.Data, marketPrices map[string]float64, minSLDistances map[string]float64, gc *GuardContext, candidates []CandidateCoin, rankingFilter *store.CandidateRankingFilter) error {
 	if d.Action == "open_long" || d.Action == "open_short" {
+		// Phase 3: candidate-pool enforcement. Runs FIRST so an
+		// out-of-pool symbol doesn't waste cycles on R/R and other
+		// hard-safety checks.
+		if rankingFilter != nil && rankingFilter.Enforce {
+			if !symbolInCandidates(d.Symbol, candidates) {
+				err := fmt.Errorf("symbol %s is not in the ranked candidate pool (enforce=true)", d.Symbol)
+				gc.append(gc.newGuardEvent(store.GuardEventTypeCandidatePool, store.GuardEventActionBlock, err.Error(), d))
+				return err
+			}
+		}
+
 		if err := applyEntryRiskGuard(d, entryRiskGuard, marketDataMap, marketPrices, minRiskRewardRatio, gc); err != nil {
 			return err
 		}
@@ -533,4 +553,23 @@ func recentLowHigh(klines []market.KlineBar) (float64, float64) {
 		}
 	}
 	return low, high
+}
+
+// symbolInCandidates is the membership test used by the candidate-pool
+// guard. Symbols are matched case-insensitively after market.Normalize
+// so "btcusdt" / "BTCUSDT" / "BtcUsdt" all collapse to the same key.
+// A nil candidates slice returns false (the enforce check should not
+// be invoked with an empty pool — the engine should always have
+// produced a non-empty ranked list when Enforce is on).
+func symbolInCandidates(symbol string, candidates []CandidateCoin) bool {
+	if symbol == "" {
+		return false
+	}
+	sym := market.Normalize(symbol)
+	for _, c := range candidates {
+		if market.Normalize(c.Symbol) == sym {
+			return true
+		}
+	}
+	return false
 }
