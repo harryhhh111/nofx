@@ -1,9 +1,11 @@
 package kernel
 
 import (
+	"math"
 	"sort"
 
 	"nofx/logger"
+	"nofx/market"
 	"nofx/provider/nofxos"
 )
 
@@ -48,20 +50,25 @@ func (e *StrategyEngine) rankCandidateCoins(candidates []CandidateCoin) []Candid
 			}
 			if bucket != nil {
 				for _, item := range bucket.Top {
-					priceBySymbol[item.Symbol] = item
+					priceBySymbol[market.Normalize(item.Symbol)] = item
 				}
 				for _, item := range bucket.Low {
 					// Low bucket entries can also contribute (short-side
 					// signal); store them under the same key, last write
 					// wins. In practice Top and Low are disjoint so this
 					// is rare.
-					if _, ok := priceBySymbol[item.Symbol]; !ok {
-						priceBySymbol[item.Symbol] = item
+					sym := market.Normalize(item.Symbol)
+					if _, ok := priceBySymbol[sym]; !ok {
+						priceBySymbol[sym] = item
 					}
 				}
 			}
 		} else {
 			logger.Infof("⚠️  candidate ranking: price data unavailable, skipping price_momentum factor")
+		}
+		ind := e.config.Indicators
+		if !ind.EnablePriceRanking {
+			logger.Warnf("⚠️  candidate ranking: price_momentum enabled but indicators.EnablePriceRanking is false; factor will contribute 0")
 		}
 	}
 
@@ -69,15 +76,20 @@ func (e *StrategyEngine) rankCandidateCoins(candidates []CandidateCoin) []Candid
 	if filter.UseOIChange {
 		if data := e.FetchOIRankingData(); data != nil {
 			for _, pos := range data.TopPositions {
-				oiBySymbol[pos.Symbol] = pos
+				oiBySymbol[market.Normalize(pos.Symbol)] = pos
 			}
 			for _, pos := range data.LowPositions {
-				if _, ok := oiBySymbol[pos.Symbol]; !ok {
-					oiBySymbol[pos.Symbol] = pos
+				sym := market.Normalize(pos.Symbol)
+				if _, ok := oiBySymbol[sym]; !ok {
+					oiBySymbol[sym] = pos
 				}
 			}
 		} else {
 			logger.Infof("⚠️  candidate ranking: OI data unavailable, skipping oi_change factor")
+		}
+		ind := e.config.Indicators
+		if !ind.EnableOIRanking {
+			logger.Warnf("⚠️  candidate ranking: oi_change enabled but indicators.EnableOIRanking is false; factor will contribute 0")
 		}
 	}
 
@@ -117,15 +129,19 @@ func (e *StrategyEngine) rankCandidateCoins(candidates []CandidateCoin) []Candid
 		if weightPrice > 0 {
 			if item, ok := priceBySymbol[c.Symbol]; ok {
 				// PriceRankingItem.PriceDelta is a decimal (e.g. 0.025
-				// for +2.5%). Normalize to [0, 1] over [-5%, +5%].
-				factors["price_momentum"] = normalize(item.PriceDelta*100, -5, 5)
+				// for +2.5%). Use absolute magnitude so both strong
+				// gainers and strong losers get a high score; the AI
+				// decides direction. Normalize |delta| to [0, 1] over
+				// [0%, 5%].
+				factors["price_momentum"] = normalize(math.Abs(item.PriceDelta*100), 0, 5)
 			}
 		}
 		if weightOI > 0 {
 			if pos, ok := oiBySymbol[c.Symbol]; ok {
 				// OIDeltaPercent is already in percent units (e.g. 12.5
-				// for +12.5%). Normalize over [-2%, +2%].
-				factors["oi_change"] = normalize(pos.OIDeltaPercent, -2, 2)
+				// for +12.5%). Use absolute magnitude so both OI surges
+				// and OI drops are treated as high-conviction events.
+				factors["oi_change"] = normalize(math.Abs(pos.OIDeltaPercent), 0, 2)
 			}
 		}
 		if weightFunding > 0 {

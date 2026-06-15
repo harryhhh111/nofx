@@ -1142,7 +1142,9 @@ export function ts(
 
 export const zhStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.zh])),
-  ...Object.fromEntries(Object.entries(rankingFilter).map(([k, v]) => [k, v.zh])),
+  ...Object.fromEntries(
+    Object.entries(rankingFilter).map(([k, v]) => [k, v.zh])
+  ),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.zh])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.zh])),
@@ -1158,7 +1160,9 @@ export const zhStrategy = {
 
 export const enStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.en])),
-  ...Object.fromEntries(Object.entries(rankingFilter).map(([k, v]) => [k, v.en])),
+  ...Object.fromEntries(
+    Object.entries(rankingFilter).map(([k, v]) => [k, v.en])
+  ),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.en])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.en])),
@@ -1174,7 +1178,9 @@ export const enStrategy = {
 
 export const esStrategy = {
   ...Object.fromEntries(Object.entries(coinSource).map(([k, v]) => [k, v.es])),
-  ...Object.fromEntries(Object.entries(rankingFilter).map(([k, v]) => [k, v.es])),
+  ...Object.fromEntries(
+    Object.entries(rankingFilter).map(([k, v]) => [k, v.es])
+  ),
   ...Object.fromEntries(Object.entries(gridConfig).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(gridRisk).map(([k, v]) => [k, v.es])),
   ...Object.fromEntries(Object.entries(riskControl).map(([k, v]) => [k, v.es])),

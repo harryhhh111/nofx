@@ -645,7 +645,7 @@ func (e *StrategyEngine) getAI500Coins(limit int) ([]CandidateCoin, error) {
 	var candidates []CandidateCoin
 	for _, symbol := range symbols {
 		candidates = append(candidates, CandidateCoin{
-			Symbol:  symbol,
+			Symbol:  market.Normalize(symbol),
 			Sources: []string{"ai500"},
 		})
 	}

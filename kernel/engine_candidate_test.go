@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"math"
 	"testing"
 
 	"nofx/provider/nofxos"
@@ -88,29 +89,28 @@ func TestRankCandidateCoins_SortAndTruncate(t *testing.T) {
 	}
 	// Manually drive the scoring path with a fake price + OI map.
 	priceBySymbol := map[string]nofxos.PriceRankingItem{
-		"AAAUSDT": {Symbol: "AAAUSDT", PriceDelta: 0.04},  // +4% → 0.9
-		"BBBUSDT": {Symbol: "BBBUSDT", PriceDelta: 0.01},  // +1% → 0.6
-		"CCCUSDT": {Symbol: "CCCUSDT", PriceDelta: -0.02}, // -2% → 0.3
-		"DDDUSDT": {Symbol: "DDDUSDT", PriceDelta: -0.04}, // -4% → 0.1
+		"AAAUSDT": {Symbol: "AAAUSDT", PriceDelta: 0.05},  // |+5%| → 1.0
+		"BBBUSDT": {Symbol: "BBBUSDT", PriceDelta: 0.01},  // |+1%| → 0.2
+		"CCCUSDT": {Symbol: "CCCUSDT", PriceDelta: -0.02}, // |-2%| → 0.4
+		"DDDUSDT": {Symbol: "DDDUSDT", PriceDelta: -0.04}, // |-4%| → 0.8
 	}
 	oiBySymbol := map[string]nofxos.OIPosition{
 		// Add OI to flip some rankings.
-		"CCCUSDT": {Symbol: "CCCUSDT", OIDeltaPercent: 1.5}, // OI 0.875
-		"DDDUSDT": {Symbol: "DDDUSDT", OIDeltaPercent: 0},   // OI 0.5
+		"CCCUSDT": {Symbol: "CCCUSDT", OIDeltaPercent: 1.8}, // |OI 1.8%| → 0.9
+		"DDDUSDT": {Symbol: "DDDUSDT", OIDeltaPercent: 0},   // |OI 0%|   → 0
 	}
 
-	// Use the same factor loop the engine uses, but with our maps.
-	// Reproduce the body of rankCandidateCoins's scoring+sort+truncate
-	// block to assert on the order without needing the nofxos
-	// network path.
+	// Use the same factor loop the engine now uses (absolute magnitude),
+	// but with our maps, to assert on the order without needing the
+	// nofxos network path.
 	scored := make([]CandidateCoin, 0, len(in))
 	for _, c := range in {
 		factors := map[string]float64{}
 		if p, ok := priceBySymbol[c.Symbol]; ok {
-			factors["price_momentum"] = normalize(p.PriceDelta*100, -5, 5)
+			factors["price_momentum"] = normalize(math.Abs(p.PriceDelta*100), 0, 5)
 		}
 		if o, ok := oiBySymbol[c.Symbol]; ok {
-			factors["oi_change"] = normalize(o.OIDeltaPercent, -2, 2)
+			factors["oi_change"] = normalize(math.Abs(o.OIDeltaPercent), 0, 2)
 		}
 		var total float64
 		for k, v := range factors {
@@ -140,9 +140,9 @@ func TestRankCandidateCoins_SortAndTruncate(t *testing.T) {
 	if len(scored) != 2 {
 		t.Fatalf("len = %d, want 2 after truncate", len(scored))
 	}
-	// CCCUSDT: price -2% (factor 0.3*0.4=0.12) + OI +1.5% (factor 0.875*0.3=0.2625) → 0.547
-	// AAAUSDT: price +4% (factor 0.9*0.4=0.36) + no OI → 0.514
-	// So CCCUSDT nudges ahead thanks to its OI signal.
+	// CCCUSDT: |price -2%| (factor 0.4*0.4=0.16) + |OI +1.8%| (factor 0.9*0.3=0.27) → 0.614
+	// AAAUSDT: |price +5%| (factor 1.0*0.4=0.4) + no OI → 0.571
+	// Magnitude-based scoring lets strong losers/gainers both rank high.
 	if scored[0].Symbol != "CCCUSDT" {
 		t.Fatalf("top score should be CCCUSDT (high OI), got %s (score %v)", scored[0].Symbol, scored[0].Score)
 	}
