@@ -537,6 +537,14 @@ type RiskControlConfig struct {
 	// EntryRiskGuard: backend pre-trade guard for AI open decisions.
 	// It catches extreme RSI, transition-market, structure-proximity, and TP-extension risks.
 	EntryRiskGuard *EntryRiskGuardConfig `json:"entry_risk_guard,omitempty"`
+
+	// TrailingStop protects open profits once a position has reached a
+	// configured float-profit level. nil/disabled = off (default).
+	TrailingStop *TrailingStopConfig `json:"trailing_stop,omitempty"`
+
+	// TimeStop forces an exit review when a position has been open too long
+	// without progress. nil/disabled = off (default).
+	TimeStop *TimeStopConfig `json:"time_stop,omitempty"`
 }
 
 // ConsecutiveLossBrakeConfig warns AI after consecutive losing closed trades.
@@ -566,6 +574,37 @@ type TrendEndWatchConfig struct {
 const (
 	TrendEndWatchScopeDirection  = "direction"
 	TrendEndWatchScopeSymbolSide = "symbol_side"
+)
+
+// TrailingStopConfig protects open profits by closing (or reducing) a
+// position when the leveraged PnL% retreats from its peak by more than
+// RetractPct. The trailing stop is only active once the position has
+// reached TriggerPct of float profit. MinProfitLock optionally locks in
+// at least that much profit once TriggerPct is hit.
+type TrailingStopConfig struct {
+	Enabled       bool    `json:"enabled"`         // Enable this feature
+	TriggerPct    float64 `json:"trigger_pct"`     // Leveraged PnL% that arms the trailing stop (default 2.0)
+	RetractPct    float64 `json:"retract_pct"`     // Drawdown from peak that triggers the close (default 0.5)
+	MinProfitLock float64 `json:"min_profit_lock"` // Minimum profit locked once triggered (default 0.0)
+}
+
+// TimeStopConfig forces an exit review when a position has been open for
+// MaxBars of the configured BarInterval without reaching a meaningful
+// profit target. It does NOT close immediately by default: it emits a
+// lifecycle_exit guard event and injects a close decision for AI review.
+// Set CloseImmediately=true to close without AI confirmation.
+type TimeStopConfig struct {
+	Enabled         bool   `json:"enabled"`          // Enable this feature
+	MaxBars         int    `json:"max_bars"`         // Number of bars before triggering (default 12)
+	BarInterval     string `json:"bar_interval"`     // "15m" | "1h" | "4h" | "1d" (default "1h")
+	CloseImmediately bool  `json:"close_immediately` // Close immediately instead of requesting AI review
+}
+
+const (
+	TimeStopBarInterval15m = "15m"
+	TimeStopBarInterval1h  = "1h"
+	TimeStopBarInterval4h  = "4h"
+	TimeStopBarInterval1d  = "1d"
 )
 
 // BreakevenProtectionConfig promotes SL in the favorable direction as float
@@ -819,6 +858,18 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				TriggerPct: 1.0,
 			},
 			EntryRiskGuard: DefaultEntryRiskGuardConfig(),
+			TrailingStop: &TrailingStopConfig{
+				Enabled:       false, // Default OFF (opt-in)
+				TriggerPct:    2.0,
+				RetractPct:    0.5,
+				MinProfitLock: 0.0,
+			},
+			TimeStop: &TimeStopConfig{
+				Enabled:          false, // Default OFF (opt-in)
+				MaxBars:          12,
+				BarInterval:      TimeStopBarInterval1h,
+				CloseImmediately: false,
+			},
 		},
 	}
 

@@ -126,10 +126,13 @@ type TraderPosition struct {
 	Source              string `gorm:"column:source;default:system" json:"source"`
 	OpeningCycle        int    `gorm:"column:opening_cycle;default:0" json:"opening_cycle"`
 	OpeningReasoning    string `gorm:"column:opening_reasoning;default:''" json:"opening_reasoning"`
-	LastReviewSummary   string `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
-	LastReviewCycle     int    `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
-	CreatedAt           int64  `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
-	UpdatedAt           int64  `gorm:"column:updated_at" json:"updated_at"` // Unix milliseconds UTC
+	LastReviewSummary        string  `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
+	LastReviewCycle          int     `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
+	PeakUnrealizedPnLPct     float64 `gorm:"column:peak_unrealized_pnl_pct;default:0" json:"peak_unrealized_pnl_pct"`
+	TrailingStopTriggered    bool    `gorm:"column:trailing_stop_triggered;default:false" json:"trailing_stop_triggered"`
+	TimeStopTriggered        bool    `gorm:"column:time_stop_triggered;default:false" json:"time_stop_triggered"`
+	CreatedAt                int64   `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
+	UpdatedAt                int64   `gorm:"column:updated_at" json:"updated_at"` // Unix milliseconds UTC
 }
 
 // TableName returns the table name
@@ -182,7 +185,11 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS last_review_cycle INTEGER DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS pending_close_reason TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS pending_close_order_id TEXT DEFAULT ''`)
-			return nil
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS peak_unrealized_pnl_pct DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS trailing_stop_triggered BOOLEAN DEFAULT FALSE`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS time_stop_triggered BOOLEAN DEFAULT FALSE`)
+			// Run AutoMigrate as well so any future struct columns are added.
+			return s.db.AutoMigrate(&TraderPosition{})
 		}
 	}
 
@@ -238,6 +245,35 @@ func (s *PositionStore) UpdatePositionReviewSummary(traderID, symbol, side strin
 			"last_review_cycle":   cycle,
 			"updated_at":          time.Now().UnixMilli(),
 		}).Error
+}
+
+// UpdatePeakUnrealizedPnLPct updates the highest observed leveraged PnL% for
+// a position. Used by the trailing-stop calculation.
+func (s *PositionStore) UpdatePeakUnrealizedPnLPct(traderID, symbol, side string, peakPct float64) error {
+	return s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Update("peak_unrealized_pnl_pct", peakPct).Error
+}
+
+// UpdateLifecycleExitFlags records that a trailing/time stop has been
+// triggered for a position so we don't emit duplicate guard events every
+// cycle. The flags remain set until the position closes.
+func (s *PositionStore) UpdateLifecycleExitFlags(traderID, symbol, side string, trailingStopTriggered, timeStopTriggered bool) error {
+	updates := map[string]interface{}{
+		"updated_at": time.Now().UnixMilli(),
+	}
+	if trailingStopTriggered {
+		updates["trailing_stop_triggered"] = true
+	}
+	if timeStopTriggered {
+		updates["time_stop_triggered"] = true
+	}
+	if len(updates) == 1 {
+		return nil
+	}
+	return s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Updates(updates).Error
 }
 
 // effectiveCloseReasonFromPending picks close_reason when pending matches this fill.

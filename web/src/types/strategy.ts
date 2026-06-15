@@ -259,4 +259,20 @@ export interface RiskControlConfig {
     enabled: boolean // Enable (default: true)
     trigger_pct: number // Step size in leveraged PnL% (default: 1.0)
   }
+
+  // Trailing stop: close position when PnL% retreats from peak.
+  trailing_stop?: {
+    enabled: boolean // Enable (default: false, opt-in)
+    trigger_pct: number // PnL% that arms the trailing stop (default: 2.0)
+    retract_pct: number // Drawdown from peak that triggers close (default: 0.5)
+    min_profit_lock: number // Minimum profit locked once triggered (default: 0.0)
+  }
+
+  // Time stop: force exit review after MaxBars * BarInterval without progress.
+  time_stop?: {
+    enabled: boolean // Enable (default: false, opt-in)
+    max_bars: number // Number of bars before triggering (default: 12)
+    bar_interval: '15m' | '1h' | '4h' | '1d' // Bar interval (default: 1h)
+    close_immediately: boolean // Close immediately instead of AI review (default: false)
+  }
 }

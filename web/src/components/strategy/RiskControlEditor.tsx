@@ -1,4 +1,10 @@
-import { Shield, AlertTriangle, TrendingDown } from 'lucide-react'
+import {
+  Shield,
+  AlertTriangle,
+  TrendingDown,
+  TrendingUp,
+  Clock,
+} from 'lucide-react'
 import type { RiskControlConfig } from '../../types'
 import { riskControl, ts } from '../../i18n/strategy-translations'
 
@@ -26,6 +32,20 @@ export function RiskControlEditor({
     risk_reward_soft_floor: 0.8,
     take_profit_guard_mode: '' as const,
     reduce_position_pct: 0.5,
+  }
+
+  const defaultTrailingStop = {
+    enabled: false,
+    trigger_pct: 2.0,
+    retract_pct: 0.5,
+    min_profit_lock: 0.0,
+  }
+
+  const defaultTimeStop = {
+    enabled: false,
+    max_bars: 12,
+    bar_interval: '1h' as const,
+    close_immediately: false,
   }
 
   const updateField = <K extends keyof RiskControlConfig>(
@@ -803,6 +823,236 @@ export function RiskControlEditor({
               </span>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Trailing Stop */}
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #F0B90B33' }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5" style={{ color: '#F0B90B' }} />
+            <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.trailingStop, language)}
+            </h3>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              !disabled &&
+              updateField('trailing_stop', {
+                ...(config.trailing_stop || defaultTrailingStop),
+                enabled: !(config.trailing_stop?.enabled ?? false),
+              })
+            }
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              config.trailing_stop?.enabled ? 'bg-yellow-500' : 'bg-[#474D57]'
+            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                config.trailing_stop?.enabled
+                  ? 'translate-x-6'
+                  : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+        <div
+          style={{
+            opacity: config.trailing_stop?.enabled ? 1 : 0.4,
+            pointerEvents: config.trailing_stop?.enabled ? 'auto' : 'none',
+          }}
+          className="space-y-4"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-32" style={{ color: '#848E9C' }}>
+              {ts(riskControl.trailingStopTriggerPct, language)}
+            </span>
+            <input
+              type="range"
+              value={config.trailing_stop?.trigger_pct ?? 2.0}
+              onChange={(e) =>
+                updateField('trailing_stop', {
+                  ...(config.trailing_stop || defaultTrailingStop),
+                  trigger_pct: parseFloat(e.target.value),
+                })
+              }
+              disabled={disabled}
+              min={0.5}
+              max={10}
+              step={0.25}
+              className="flex-1"
+              style={{ accentColor: '#F0B90B' }}
+            />
+            <span
+              className="w-16 text-center font-mono text-xs"
+              style={{ color: '#F0B90B' }}
+            >
+              {(config.trailing_stop?.trigger_pct ?? 2.0).toFixed(2)}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-32" style={{ color: '#848E9C' }}>
+              {ts(riskControl.trailingStopRetractPct, language)}
+            </span>
+            <input
+              type="range"
+              value={config.trailing_stop?.retract_pct ?? 0.5}
+              onChange={(e) =>
+                updateField('trailing_stop', {
+                  ...(config.trailing_stop || defaultTrailingStop),
+                  retract_pct: parseFloat(e.target.value),
+                })
+              }
+              disabled={disabled}
+              min={0.1}
+              max={2}
+              step={0.05}
+              className="flex-1"
+              style={{ accentColor: '#F0B90B' }}
+            />
+            <span
+              className="w-16 text-center font-mono text-xs"
+              style={{ color: '#F0B90B' }}
+            >
+              {(config.trailing_stop?.retract_pct ?? 0.5).toFixed(2)}%
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-32" style={{ color: '#848E9C' }}>
+              {ts(riskControl.trailingStopMinProfitLock, language)}
+            </span>
+            <input
+              type="range"
+              value={config.trailing_stop?.min_profit_lock ?? 0.0}
+              onChange={(e) =>
+                updateField('trailing_stop', {
+                  ...(config.trailing_stop || defaultTrailingStop),
+                  min_profit_lock: parseFloat(e.target.value),
+                })
+              }
+              disabled={disabled}
+              min={0}
+              max={2}
+              step={0.05}
+              className="flex-1"
+              style={{ accentColor: '#F0B90B' }}
+            />
+            <span
+              className="w-16 text-center font-mono text-xs"
+              style={{ color: '#F0B90B' }}
+            >
+              {(config.trailing_stop?.min_profit_lock ?? 0.0).toFixed(2)}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Time Stop */}
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #F0B90B33' }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Clock className="w-5 h-5" style={{ color: '#F0B90B' }} />
+            <h3 className="font-medium" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.timeStop, language)}
+            </h3>
+          </div>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              !disabled &&
+              updateField('time_stop', {
+                ...(config.time_stop || defaultTimeStop),
+                enabled: !(config.time_stop?.enabled ?? false),
+              })
+            }
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              config.time_stop?.enabled ? 'bg-yellow-500' : 'bg-[#474D57]'
+            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                config.time_stop?.enabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+        <div
+          style={{
+            opacity: config.time_stop?.enabled ? 1 : 0.4,
+            pointerEvents: config.time_stop?.enabled ? 'auto' : 'none',
+          }}
+          className="space-y-4"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-32" style={{ color: '#848E9C' }}>
+              {ts(riskControl.timeStopMaxBars, language)}
+            </span>
+            <input
+              type="number"
+              value={config.time_stop?.max_bars ?? 12}
+              onChange={(e) =>
+                updateField('time_stop', {
+                  ...(config.time_stop || defaultTimeStop),
+                  max_bars: parseInt(e.target.value) || 12,
+                })
+              }
+              disabled={disabled}
+              min={1}
+              max={100}
+              className="flex-1 p-2 rounded-lg bg-[#0B0E11] border border-[#2B3139] text-sm"
+              style={{ color: '#EAECEF' }}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs w-32" style={{ color: '#848E9C' }}>
+              {ts(riskControl.timeStopBarInterval, language)}
+            </span>
+            <select
+              value={config.time_stop?.bar_interval ?? '1h'}
+              onChange={(e) =>
+                updateField('time_stop', {
+                  ...(config.time_stop || defaultTimeStop),
+                  bar_interval: e.target.value as '15m' | '1h' | '4h' | '1d',
+                })
+              }
+              disabled={disabled}
+              className="flex-1 p-2 rounded-lg bg-[#0B0E11] border border-[#2B3139] text-sm"
+              style={{ color: '#EAECEF' }}
+            >
+              <option value="15m">15m</option>
+              <option value="1h">1h</option>
+              <option value="4h">4h</option>
+              <option value="1d">1d</option>
+            </select>
+          </div>
+          <label
+            className="flex items-center gap-2 text-sm"
+            style={{ color: '#EAECEF' }}
+          >
+            <input
+              type="checkbox"
+              checked={config.time_stop?.close_immediately ?? false}
+              onChange={(e) =>
+                !disabled &&
+                updateField('time_stop', {
+                  ...(config.time_stop || defaultTimeStop),
+                  close_immediately: e.target.checked,
+                })
+              }
+              disabled={disabled}
+              className="accent-yellow-500"
+            />
+            {ts(riskControl.timeStopCloseImmediately, language)}
+          </label>
         </div>
       </div>
 

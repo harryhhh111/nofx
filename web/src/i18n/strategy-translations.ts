@@ -706,6 +706,46 @@ export const riskControl = {
     en: 'Position reduction on warn',
     es: 'Reducción de posición al avisar',
   },
+  trailingStop: {
+    zh: '移动止盈',
+    en: 'Trailing Stop',
+    es: 'Trailing Stop',
+  },
+  trailingStopTriggerPct: {
+    zh: '激活收益率',
+    en: 'Trigger P&L %',
+    es: 'Activar % P&L',
+  },
+  trailingStopRetractPct: {
+    zh: '回撤触发 %',
+    en: 'Retracement %',
+    es: '% Retroceso',
+  },
+  trailingStopMinProfitLock: {
+    zh: '最低利润锁定',
+    en: 'Min Profit Lock %',
+    es: 'Bloqueo Min Beneficio %',
+  },
+  timeStop: {
+    zh: '时间止损',
+    en: 'Time Stop',
+    es: 'Time Stop',
+  },
+  timeStopMaxBars: {
+    zh: '最大 K 线数',
+    en: 'Max Bars',
+    es: 'Max Barras',
+  },
+  timeStopBarInterval: {
+    zh: 'K 线周期',
+    en: 'Bar Interval',
+    es: 'Intervalo de Barra',
+  },
+  timeStopCloseImmediately: {
+    zh: '立即平仓（否则仅提示 AI 复核）',
+    en: 'Close immediately (otherwise ask AI review)',
+    es: 'Cerrar inmediatamente (si no, pedir revisión IA)',
+  },
   entryRiskGuardLowRR: {
     zh: '低 R:R 保护',
     en: 'Low R/R Protection',

@@ -304,6 +304,13 @@ func (at *AutoTrader) runCycle() error {
 		}
 	}
 
+	// ── Trailing Stop / Time Stop ──────────────────────────────────────────
+	// Lifecycle exits are evaluated against open positions. They append close
+	// decisions to the execution list and record guard_type=lifecycle_exit
+	// events. These run after the entry gates so existing positions are still
+	// managed even when new entries are blocked.
+	sortedDecisions = at.applyLifecycleExits(ctx, sortedDecisions, guardCtx)
+
 	// Execute decisions and record results
 	for _, d := range sortedDecisions {
 		// Check if trader is stopped before each decision (allow immediate stop during execution)
@@ -831,6 +838,98 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 	}
 
 	return ctx, nil
+}
+
+// applyLifecycleExits evaluates trailing stop and time stop for each open
+// position. When a trigger fires, it appends a close decision to the
+// execution list, records a lifecycle_exit guard event, and persists the
+// updated peak / trigger flags to the database.
+func (at *AutoTrader) applyLifecycleExits(ctx *kernel.Context, decisions []kernel.Decision, gc *kernel.GuardContext) []kernel.Decision {
+	if at.store == nil || ctx == nil {
+		return decisions
+	}
+	riskCfg := at.strategyEngine.GetConfig().RiskControl
+	tsCfg := riskCfg.TrailingStop
+	tmCfg := riskCfg.TimeStop
+	if (tsCfg == nil || !tsCfg.Enabled) && (tmCfg == nil || !tmCfg.Enabled) {
+		return decisions
+	}
+
+	// Avoid emitting duplicate lifecycle close decisions when AI already
+	// decided to close the same position this cycle.
+	existingClose := make(map[string]bool, len(decisions))
+	for _, d := range decisions {
+		if d.Action == "close_long" {
+			existingClose[d.Symbol+"_LONG"] = true
+		} else if d.Action == "close_short" {
+			existingClose[d.Symbol+"_SHORT"] = true
+		}
+	}
+
+	now := time.Now().UTC()
+	for _, pos := range ctx.Positions {
+		if pos.Side == "" {
+			continue
+		}
+		side := strings.ToUpper(pos.Side)
+		posKey := pos.Symbol + "_" + side
+
+		dbPos, _ := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, side)
+		peakPct := pos.PeakPnLPct
+		trailingTriggered := false
+		timeTriggered := false
+		if dbPos != nil {
+			if dbPos.PeakUnrealizedPnLPct > peakPct {
+				peakPct = dbPos.PeakUnrealizedPnLPct
+			}
+			trailingTriggered = dbPos.TrailingStopTriggered
+			timeTriggered = dbPos.TimeStopTriggered
+		}
+
+		// Trailing stop: update peak and fire on retracement.
+		if tsCfg != nil && tsCfg.Enabled {
+			trigger, newPeak, reason := CheckTrailingStop(pos, peakPct, tsCfg)
+			if newPeak > peakPct {
+				peakPct = newPeak
+				if err := at.store.Position().UpdatePeakUnrealizedPnLPct(at.id, pos.Symbol, side, peakPct); err != nil {
+					logger.Warnf("⚠️ [%s] failed to persist peak PnL for %s: %v", at.name, posKey, err)
+				}
+				at.peakPnLCacheMutex.Lock()
+				at.peakPnLCache[posKey] = peakPct
+				at.peakPnLCacheMutex.Unlock()
+			}
+			if trigger && !trailingTriggered {
+				trailingTriggered = true
+				if !existingClose[posKey] {
+					decisions = append(decisions, BuildLifecycleCloseDecision(pos, store.GuardEventTypeLifecycleExit, reason, nil))
+				}
+				emitLifecycleExitEvent(gc, store.GuardEventTypeLifecycleExit, store.GuardEventActionReduce, reason, pos)
+				if err := at.store.Position().UpdateLifecycleExitFlags(at.id, pos.Symbol, side, true, false); err != nil {
+					logger.Warnf("⚠️ [%s] failed to persist trailing_stop flag for %s: %v", at.name, posKey, err)
+				}
+			}
+		}
+
+		// Time stop: force an exit review after MaxBars * BarInterval.
+		if tmCfg != nil && tmCfg.Enabled && !timeTriggered {
+			trigger, reason := CheckTimeStop(pos, tmCfg, now)
+			if trigger {
+				timeTriggered = true
+				action := store.GuardEventActionReduce
+				if tmCfg.CloseImmediately {
+					action = store.GuardEventActionBlock
+				}
+				if !existingClose[posKey] {
+					decisions = append(decisions, BuildLifecycleCloseDecision(pos, store.GuardEventTypeLifecycleExit, reason, tmCfg))
+				}
+				emitLifecycleExitEvent(gc, store.GuardEventTypeLifecycleExit, action, reason, pos)
+				if err := at.store.Position().UpdateLifecycleExitFlags(at.id, pos.Symbol, side, false, true); err != nil {
+					logger.Warnf("⚠️ [%s] failed to persist time_stop flag for %s: %v", at.name, posKey, err)
+				}
+			}
+		}
+	}
+	return decisions
 }
 
 // sortDecisionsByPriority sorts decisions: close positions first, then open positions, finally hold/wait
