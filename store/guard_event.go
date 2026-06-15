@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
@@ -78,7 +79,9 @@ func (s *GuardEventStore) initTables() error {
 		if tableExists > 0 {
 			s.db.Exec(`ALTER TABLE guard_events ADD COLUMN IF NOT EXISTS ai_assessment JSONB`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_guard_events_type_time ON guard_events (guard_type, action, triggered_at DESC)`)
-			return nil
+			// Run AutoMigrate as well so any future struct columns are
+			// also added to existing tables.
+			return s.db.AutoMigrate(&GuardEvent{})
 		}
 	}
 	if err := s.db.AutoMigrate(&GuardEvent{}); err != nil {
@@ -305,6 +308,9 @@ func (s *GuardEventStore) AIAgreement(traderID string, since time.Time) (AIAgree
 			stats.CodeOnly++
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return stats, err
+	}
 	if stats.Total > 0 {
 		stats.Rate = float64(stats.Agreed) / float64(stats.Total)
 	}
@@ -331,40 +337,9 @@ func extractAIHardBlockExpected(raw []byte) (bool, bool) {
 	// The zero value of bool is false, so we can't tell "explicitly
 	// false" from "field missing" by looking at the struct alone.
 	// Instead, peek at the raw JSON to detect a real key.
-	if !hasJSONKey(raw, "hard_block_expected") {
+	needle := []byte(`"hard_block_expected"`)
+	if !bytes.Contains(raw, needle) {
 		return false, false
 	}
 	return outer.AISelfCheck.HardBlockExpected, true
-}
-
-// hasJSONKey does a cheap string scan for the key. False positives
-// (key inside a string) are theoretically possible but irrelevant for
-// the structured payloads we produce.
-func hasJSONKey(raw []byte, key string) bool {
-	needle := []byte(`"` + key + `"`)
-	return bytesContains(raw, needle)
-}
-
-// bytesContains is a tiny wrapper around bytes.Contains so the
-// helper file doesn't need to import "bytes" at the top.
-func bytesContains(haystack, needle []byte) bool {
-	if len(needle) == 0 {
-		return true
-	}
-	if len(needle) > len(haystack) {
-		return false
-	}
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		match := true
-		for j := 0; j < len(needle); j++ {
-			if haystack[i+j] != needle[j] {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
 }

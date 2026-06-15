@@ -12,7 +12,13 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { AlertTriangle, ShieldCheck, ShieldX, Activity, BarChart3 } from 'lucide-react'
+import {
+  AlertTriangle,
+  ShieldCheck,
+  ShieldX,
+  Activity,
+  BarChart3,
+} from 'lucide-react'
 
 // ----------------------------------------------------------------------
 // Phase 6: Risk Audit dashboard. Surfaces Phase 1 telemetry to humans:
@@ -142,20 +148,19 @@ export function RiskAuditPage() {
   // guard_type (not per guard_type×action, which would be too dense
   // for a first cut). Color is taken from the palette.
   const bars =
-    stats?.by_type.reduce<Record<string, { name: string; count: number; color: string }>>(
-      (acc, row) => {
-        if (!acc[row.guard_type]) {
-          acc[row.guard_type] = {
-            name: row.guard_type,
-            count: 0,
-            color: GUARD_TYPE_COLORS[row.guard_type] || FALLBACK_COLOR,
-          }
+    stats?.by_type.reduce<
+      Record<string, { name: string; count: number; color: string }>
+    >((acc, row) => {
+      if (!acc[row.guard_type]) {
+        acc[row.guard_type] = {
+          name: row.guard_type,
+          count: 0,
+          color: GUARD_TYPE_COLORS[row.guard_type] || FALLBACK_COLOR,
         }
-        acc[row.guard_type].count += row.count
-        return acc
-      },
-      {}
-    ) ?? {}
+      }
+      acc[row.guard_type].count += row.count
+      return acc
+    }, {}) ?? {}
   const barData = Object.values(bars).sort((a, b) => b.count - a.count)
 
   const agreement = stats?.ai_agreement
@@ -241,16 +246,16 @@ export function RiskAuditPage() {
               icon={<BarChart3 size={18} className="text-blue-400" />}
               label={ts(riskAuditI18n.totalEvents, language)}
               value={
-                stats.totals.block +
-                stats.totals.reduce +
-                stats.totals.allow
+                stats.totals.block + stats.totals.reduce + stats.totals.allow
               }
             />
             <SummaryCard
               icon={
-                agreement && agreement.rate >= 0.8
-                  ? <ShieldCheck size={18} className="text-emerald-400" />
-                  : <AlertTriangle size={18} className="text-amber-400" />
+                agreement && agreement.rate >= 0.8 ? (
+                  <ShieldCheck size={18} className="text-emerald-400" />
+                ) : (
+                  <AlertTriangle size={18} className="text-amber-400" />
+                )
               }
               label={ts(riskAuditI18n.aiAgreement, language)}
               value={
@@ -286,7 +291,11 @@ export function RiskAuditPage() {
                       textAnchor="end"
                       height={50}
                     />
-                    <YAxis stroke="#848e9c" fontSize={11} allowDecimals={false} />
+                    <YAxis
+                      stroke="#848e9c"
+                      fontSize={11}
+                      allowDecimals={false}
+                    />
                     <Tooltip
                       contentStyle={{
                         background: '#1a1d24',
@@ -325,7 +334,10 @@ export function RiskAuditPage() {
                   </thead>
                   <tbody>
                     {stats.top_blocked_symbols.map((s) => (
-                      <tr key={s.symbol} className="border-t border-nofx-border/40">
+                      <tr
+                        key={s.symbol}
+                        className="border-t border-nofx-border/40"
+                      >
                         <td className="py-1.5 font-mono">{s.symbol}</td>
                         <td className="py-1.5 text-right">{s.count}</td>
                       </tr>
@@ -415,9 +427,7 @@ function SummaryCard({
       <div className="mt-1.5 text-2xl font-semibold text-nofx-text-primary">
         {value}
       </div>
-      {hint && (
-        <div className="mt-1 text-xs text-nofx-text-muted">{hint}</div>
-      )}
+      {hint && <div className="mt-1 text-xs text-nofx-text-muted">{hint}</div>}
     </div>
   )
 }
