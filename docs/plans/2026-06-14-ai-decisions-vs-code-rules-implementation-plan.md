@@ -590,3 +590,130 @@ type TimeStopConfig struct {
 2. **Prompt 改造要渐进**：先要求 AI 输出 `<guard_assessment>`，但不强制；等模型稳定后再强制。
 3. **候选池 ranking 不要一开始就 enforce**：先观察几周，确认 score 与后续表现相关后再开启 `Enforce`。
 4. **避免过度拟合**：每新增一个 guard，都要在 paper trading 跑至少 50~100 个样本后再全量开启。
+
+---
+
+## 十三、Phase 1~6 完成状态 & 后续迭代
+
+> 更新时间：2026-06-15
+
+| Phase | 状态 | 备注 |
+|---|---|---|
+| Phase 1 规则命中遥测 | ✅ 已完成 | `guard_events` 表 + 写入 + API + 测试 |
+| Phase 2 Prompt 结构化输出 | ✅ 已完成 | `<guard_assessment>` 解析 + `decision_records.guard_assessment` + AI override 告警 |
+| Phase 3 候选池 ranking 约束 | ✅ 已完成 | `ranking_filter` + score + enforce + normalize + 方向中性评分 |
+| Phase 4 TP 锚点 soft guard | ✅ 已完成 | `TakeProfitGuardMode` + 粗细锚点 + 前端控件 |
+| Phase 5 退出纪律代码化 | ✅ 已完成 | `trailing_stop` / `time_stop` 已在 lifecycle plan 中实现 |
+| Phase 6 风控看板 | ✅ 已完成（MVP） | `/risk-audit` 页面 + `/guard-stats` + AI agreement + top blocked symbols |
+
+以下事项**不在 Phase 1~6 范围内**，建议作为后续独立任务交给其他同学继续迭代。
+
+### 13.1 看板进阶指标（优先级高）
+
+**目标**：在现有 `/risk-audit` 页面补上误杀率、漏杀率，让运营能判断规则是太严还是太松。
+
+**需要的数据**：
+- `guard_events`（block/reduce 事件，含 symbol、side、entry_price、stop_loss、take_profit、triggered_at）
+- `trader_positions`（被 block 后实际有没有开仓？盈亏如何？）
+- post-block 4h/24h 价格（复用 `market.Data` 或 `market/api_client.go` 的历史 K 线）
+
+**指标口径**：
+- 误杀率：被 block/reduce 后，4h/24h 内价格向有利方向移动超过 1R 的事件占比。
+- 漏杀率：未被 block 但最终亏损（`realized_pnl < 0`）的交易占比。
+- 参数敏感性：同一 guard 在不同阈值下的命中次数对比（可先用配置历史快照 + guard_events 做离线分析）。
+
+**涉及文件**：
+- `store/guard_event.go`：新增误杀/漏杀计算函数。
+- `api/handler_guard.go`：新增 `/traders/:id/guard-insights` 接口。
+- `web/src/pages/RiskAuditPage.tsx`：新增误杀/漏杀卡片和趋势图。
+
+**验收标准**：
+- [ ] `/risk-audit` 能看到过去 24h 的误杀率 / 漏杀率。
+- [ ] 点击某个被 block 的 symbol 能下钻到该事件后续走势。
+
+### 13.2 `allow` 事件记录开关（优先级中）
+
+**目标**：当前 `guard_events` 只记录 block/reduce。算 allow 占比和漏杀率时，分母需要从 `decision_records` 反推，比较麻烦。
+
+**方案**：在 `EntryRiskGuardConfig` 增加 `TelemetryRecordAllow bool`（默认 `false`，避免数据爆炸）。开启后，每个通过所有 guard 的 open decision 也写入一条 `action=allow` 的 `guard_event`。
+
+**涉及文件**：
+- `store/strategy.go`
+- `kernel/engine_position.go`
+- `store/guard_event.go`
+
+### 13.3 按 guard 类型记录配置快照（优先级中）
+
+**目标**：当前 `guard_events.config_snapshot` 只保存 `EntryRiskGuardConfig`。lifecycle_exit、cooldown、consecutive_loss_brake 等事件需要把对应配置也拍下来，方便复盘。
+
+**方案**：把 `config_snapshot` 从单一 JSON 改成 `{guard_type: config_json}`，或新增 `guard_config JSONB` 字段按类型存。
+
+**涉及文件**：
+- `store/guard_event.go`
+- `kernel/guard_logger.go`
+- `trader/brake.go`、`trader/trend_end_watch.go` 等生命周期 hook
+
+### 13.4 funding rate 排名因子真正落地（优先级中）
+
+**目标**：Phase 3 的 `use_funding_rate` 目前是占位符，后端固定返回 0。
+
+**依赖**：需要 nofxos 提供 funding-rate ranking 端点，或从现有 `market/indicator_engine` 取资金费率数据。
+
+**涉及文件**：
+- `provider/nofxos/funding.go`（如新增）
+- `kernel/candidate_ranking.go`
+- `web/src/components/strategy/CoinSourceEditor.tsx`（启用 checkbox）
+
+### 13.5 策略配置变更审计日志（优先级中）
+
+**目标**：当策略的 `entry_risk_guard`、`risk_control` 等关键配置被修改时，记录谁、何时、改了什么，便于追踪误配置。
+
+**方案**：新增 `strategy_config_audit` 表，保存 `(strategy_id, user_id, changed_at, diff_json)`。
+
+**涉及文件**：
+- `store/strategy_audit.go`（新增）
+- `api/handler_strategy.go`：在更新策略配置接口里写审计记录。
+
+### 13.6 AI 质量监控告警（优先级低）
+
+**目标**：当 AI 出现系统性偏差时自动告警。
+
+**触发条件**：
+- 过去 24h `AI agreement rate` 低于 60%。
+- AI `override_suggested=true` 次数突增。
+- 某个 symbol 被连续 block 超过 N 次。
+
+**方案**：在 `RiskAuditPage` 加告警 banner，或对接 telegram bot。
+
+### 13.7 Prompt A/B 测试框架（优先级低）
+
+**目标**：对比不同 prompt 版本下的 `guard_events` 和 AI agreement 指标。
+
+**方案**：给 `decision_records` 增加 `prompt_version` 字段，看板支持按版本筛选。
+
+### 13.8 TP 锚点 Phase 2：结构位服务（优先级低）
+
+**目标**：当本地有 support/resistance/swing high/low 服务后，把 `tp_rationale.anchor_type` 扩展到 `support_resistance`，并允许更精确的 hard_block。
+
+**涉及文件**：
+- `kernel/engine_position.go`
+- `kernel/engine_prompt.go`
+
+---
+
+## 十四、文件清单（完整版）
+
+| 文件 | 改动 |
+|---|---|
+| `store/guard_event.go` | 新增 / 后续迭代主要扩展点 |
+| `store/decision.go` | 新增 `GuardAssessment` 字段 |
+| `kernel/engine_position.go` | 返回 guard events；硬安全/entry/TP/R:R 命中写事件 |
+| `kernel/engine_analysis.go` | 解析 `<guard_assessment>`，批量写 guard events |
+| `kernel/engine.go` | `FullDecision` 加字段；`CandidateCoin` 加 score；`GetCandidateCoins` 加 ranking |
+| `kernel/engine_prompt.go` | 增加 guard assessment 输出要求、候选池 score 展示 |
+| `store/strategy.go` | `CoinSourceConfig` 新增 `RankingFilter`；`EntryRiskGuardConfig` 新增 TP/R:R 配置 |
+| `api/handler_guard.go` | guard event 查询 + guard-stats 聚合接口 |
+| `web/src/pages/RiskAuditPage.tsx` | Phase 6 风控看板 |
+| `web/src/components/common/HeaderBar.tsx` | Risk Audit 导航入口 |
+| `web/src/components/strategy/CoinSourceEditor.tsx` | 新增 ranking filter / TP guard mode / reduce pct UI |
+| `web/src/i18n/strategy-translations.ts` | 新增 i18n key |
