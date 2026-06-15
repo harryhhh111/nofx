@@ -602,8 +602,8 @@ type TimeStopConfig struct {
 | Phase 1 规则命中遥测 | ✅ 已完成 | `guard_events` 表 + 写入 + API + 测试 |
 | Phase 2 Prompt 结构化输出 | ✅ 已完成 | `<guard_assessment>` 解析 + `decision_records.guard_assessment` + AI override 告警 |
 | Phase 3 候选池 ranking 约束 | ✅ 已完成 | `ranking_filter` + score + enforce + normalize + 方向中性评分 |
-| Phase 4 TP 锚点 soft guard | ✅ 已完成 | `TakeProfitGuardMode` + 粗细锚点 + 前端控件 |
-| Phase 5 退出纪律代码化 | ✅ 已完成 | `trailing_stop` / `time_stop` 已在 lifecycle plan 中实现 |
+| Phase 4 TP 锚点 soft guard | ⚠️ 部分完成 | (1) `TakeProfitGuardMode` + 粗细锚点 + 前端控件 ✅；(2) **AI `tp_rationale.anchor_type` 与代码判定 diff 标记未做** |
+| Phase 5 退出纪律代码化 | ❌ 未实现 | `trailing_stop` / `time_stop` 的 struct、DB 字段、执行逻辑、前端控件均未落地 |
 | Phase 6 风控看板 | ✅ 已完成（MVP） | `/risk-audit` 页面 + `/guard-stats` + AI agreement + top blocked symbols |
 
 以下事项**不在 Phase 1~6 范围内**，建议作为后续独立任务交给其他同学继续迭代。
