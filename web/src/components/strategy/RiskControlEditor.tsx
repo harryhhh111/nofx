@@ -426,8 +426,8 @@ export function RiskControlEditor({
         </div>
         <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
           {language === 'zh'
-            ? '止损价与支撑/阻力位之间的缓冲空间（ATR14倍数），防止正常波动假突破扫掉止损。0 = 按交易模式自动取默认值'
-            : 'Buffer between stop-loss and support/resistance level (ATR14 multiplier), prevents false breakout sweeps. 0 = auto default by trading mode'}
+            ? '止损价与支撑/阻力位之间的缓冲空间（ATR14倍数），防止正常波动假突破扫掉止损。0 = 使用系统默认 2.0'
+            : 'Buffer between stop-loss and support/resistance level (ATR14 multiplier), prevents false breakout sweeps. 0 = product default 2.0'}
         </p>
         <div className="flex items-center gap-3">
           <input

@@ -65,14 +65,17 @@ type StrategyCompiler interface {
 
 // SignalRequest is the deterministic input to the signal engine.
 type SignalRequest struct {
-	Account        AccountInfo                       `json:"account"`
-	Positions      []PositionInfo                    `json:"positions"`
-	Candidates     []CandidateCoin                   `json:"candidates"`
-	Rules          []StrategyRule                    `json:"rules"`
-	Scoring        *ScoringStrategy                  `json:"scoring,omitempty"`
-	PositionSizing *PositionSizingConfig             `json:"position_sizing,omitempty"`
-	FactorSnapshot map[string]*market.FactorSnapshot `json:"factor_snapshot"`
-	Now            time.Time                         `json:"now"`
+	Account        AccountInfo           `json:"account"`
+	Positions      []PositionInfo        `json:"positions"`
+	Candidates     []CandidateCoin       `json:"candidates"`
+	Rules          []StrategyRule        `json:"rules"`
+	Scoring        *ScoringStrategy      `json:"scoring,omitempty"`
+	PositionSizing *PositionSizingConfig `json:"position_sizing,omitempty"`
+	// ProtectiveATRBuffer controls stop-loss distance as ATR14 multiples.
+	// When unset, signal generation uses the product default.
+	ProtectiveATRBuffer float64                           `json:"protective_atr_buffer,omitempty"`
+	FactorSnapshot      map[string]*market.FactorSnapshot `json:"factor_snapshot"`
+	Now                 time.Time                         `json:"now"`
 }
 
 type PositionSizingConfig struct {

@@ -28,6 +28,8 @@ const (
 	DefaultMinRiskRewardRatio = 2.5
 	DefaultRiskPerTradePct    = 1.0
 	DefaultMinPositionSize    = 12.0
+	DefaultStopLossATRBuffer  = 2.0
+	MaxStopLossATRBuffer      = 3.0
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -145,6 +147,12 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.RiskControl.MinRiskRewardRatio <= 0 {
 		c.RiskControl.MinRiskRewardRatio = DefaultMinRiskRewardRatio
+	}
+	if c.RiskControl.StopLossATRBuffer < 0 {
+		c.RiskControl.StopLossATRBuffer = 0
+	}
+	if c.RiskControl.StopLossATRBuffer > MaxStopLossATRBuffer {
+		c.RiskControl.StopLossATRBuffer = MaxStopLossATRBuffer
 	}
 
 	// Clamp AI confidence thresholds to safe product ranges.
@@ -1032,9 +1040,9 @@ type RiskControlConfig struct {
 	// Min AI confidence to proactively close before exchange SL/TP triggers (AI guided)
 	MinCloseConfidence int `json:"min_close_confidence"`
 
-	// Stop loss ATR buffer multiplier (AI guided)
-	// Stop loss = support - (ATR14 脳 this value) for longs, resistance + (ATR14 脳 this value) for shorts
-	// 0 means use mode default: Conservative=1.5, Balanced=1.0, Aggressive=0.5, Scalping=0.3
+	// Stop loss ATR buffer multiplier.
+	// Long stops use support - ATR14 * this value; shorts use resistance + ATR14 * this value.
+	// 0 means the signal engine uses the product default.
 	StopLossATRBuffer float64 `json:"stop_loss_atr_buffer"`
 
 	// 鈹€鈹€ Drawdown-based position close (risk monitor, runs every minute) 鈹€鈹€鈹€鈹€鈹€鈹€
@@ -1162,6 +1170,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinRiskRewardRatio:           DefaultMinRiskRewardRatio, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits
+			StopLossATRBuffer:            DefaultStopLossATRBuffer,
 		},
 	}
 	config.ClampLimits()

@@ -131,14 +131,15 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	aiCallStart := time.Now()
 	signalRequest := SignalRequest{
-		Account:        ctx.Account,
-		Positions:      ctx.Positions,
-		Candidates:     ctx.CandidateCoins,
-		Rules:          rules,
-		Scoring:        scoring,
-		PositionSizing: positionSizingFromRiskControl(riskConfig),
-		FactorSnapshot: factorSnapshots,
-		Now:            time.Now().UTC(),
+		Account:             ctx.Account,
+		Positions:           ctx.Positions,
+		Candidates:          ctx.CandidateCoins,
+		Rules:               rules,
+		Scoring:             scoring,
+		PositionSizing:      positionSizingFromRiskControl(riskConfig),
+		ProtectiveATRBuffer: riskConfig.StopLossATRBuffer,
+		FactorSnapshot:      factorSnapshots,
+		Now:                 time.Now().UTC(),
 	}
 	result, err := tradingEngine.Evaluate(context.Background(), TradingEngineRequest{
 		SignalRequest: signalRequest,
@@ -766,8 +767,8 @@ func preferredATR14(data *market.Data, config *store.StrategyConfig) float64 {
 		}
 	}
 	if config != nil {
-		add(config.Indicators.Klines.EntryTimeframe)
 		add(config.Indicators.Klines.PrimaryTimeframe)
+		add(config.Indicators.Klines.EntryTimeframe)
 		for _, tf := range config.Indicators.Klines.ConfirmationTimeframes {
 			add(tf)
 		}

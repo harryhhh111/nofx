@@ -271,7 +271,7 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
   const riskPerTradePct = risk.risk_per_trade_pct || 1
   const leverage = Math.min(risk.btc_eth_max_leverage || 2, risk.altcoin_max_leverage || risk.btc_eth_max_leverage || 2)
   const minConfidence = risk.min_confidence || 70
-  const minRiskReward = risk.min_risk_reward_ratio || 2
+  const minRiskReward = risk.min_risk_reward_ratio || 2.5
 
   if (language === 'zh') {
     return [
