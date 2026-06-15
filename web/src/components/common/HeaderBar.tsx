@@ -18,6 +18,7 @@ type Page =
   | 'strategy'
   | 'strategy-market'
   | 'data'
+  | 'risk-audit'
   | 'faq'
   | 'login'
   | 'register'
@@ -113,6 +114,7 @@ export default function HeaderBar({
               // Define all navigation tabs
               const navTabs: { page: Page; path: string; label: string; requiresAuth: boolean }[] = [
                 { page: 'data', path: '/data', label: language === 'zh' ? '数据' : language === 'id' ? 'Data' : 'Data', requiresAuth: false },
+                { page: 'risk-audit', path: '/risk-audit', label: language === 'zh' ? '风控审查' : 'Risk Audit', requiresAuth: true },
                 { page: 'strategy-market', path: '/strategy-market', label: language === 'zh' ? '策略市场' : language === 'id' ? 'Pasar' : 'Market', requiresAuth: true },
                 { page: 'traders', path: '/traders', label: t('configNav', language), requiresAuth: true },
                 { page: 'trader', path: '/dashboard', label: t('dashboardNav', language), requiresAuth: true },

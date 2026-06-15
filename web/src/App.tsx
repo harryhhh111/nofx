@@ -13,6 +13,7 @@ import { CompetitionPage } from './components/trader/CompetitionPage'
 import { LandingPage } from './pages/LandingPage'
 import { FAQPage } from './pages/FAQPage'
 import { StrategyStudioPage } from './pages/StrategyStudioPage'
+import { RiskAuditPage } from './pages/RiskAuditPage'
 import { StrategyMarketPage } from './pages/StrategyMarketPage'
 import { DataPage } from './pages/DataPage'
 import { BeginnerOnboardingPage } from './pages/BeginnerOnboardingPage'
@@ -44,6 +45,7 @@ type Page =
   | 'strategy-market'
   | 'data'
   | 'faq'
+  | 'risk-audit'
   | 'login'
   | 'register'
 
@@ -65,6 +67,7 @@ function App() {
     if (path === '/strategy' || hash === 'strategy') return 'strategy'
     if (path === '/strategy-market' || hash === 'strategy-market') return 'strategy-market'
     if (path === '/data' || hash === 'data') return 'data'
+    if (path === '/risk-audit' || hash === 'risk-audit') return 'risk-audit'
     if (path === '/dashboard' || hash === 'trader' || hash === 'details')
       return 'trader'
     return 'competition' // 默认为竞赛页面
@@ -88,6 +91,7 @@ function App() {
       'traders': '/traders',
       'trader': '/dashboard',
       'strategy': '/strategy',
+      'risk-audit': '/risk-audit',
       'faq': '/faq',
       'login': '/login',
       'register': '/register',
@@ -344,6 +348,8 @@ function App() {
       setCurrentPage('traders')
     } else if (route === '/dashboard') {
       setCurrentPage('trader')
+    } else if (route === '/risk-audit') {
+      setCurrentPage('risk-audit')
     }
   }, [route])
 
@@ -539,6 +545,8 @@ function App() {
               />
             ) : currentPage === 'strategy' ? (
               <StrategyStudioPage />
+            ) : currentPage === 'risk-audit' ? (
+              <RiskAuditPage />
             ) : (
               <TraderDashboardPage
                 selectedTrader={selectedTrader}

@@ -197,6 +197,14 @@ Query: ?trader_id=&limit=100&guard_type=&action=&symbol=&since_hours=24
 Returns: {"events":[GuardEvent...],"count":N,"stats":[{guard_type,action,count}]}
 GuardEvent: {trader_id, decision_record_id, cycle_number, strategy_id, guard_type, action, reason, symbol, side, entry_price, stop_loss, take_profit, position_size_before, position_size_after, config_snapshot, triggered_at}`,
 				s.handleGuardEvents)
+			s.routeWithSchema(protected, "GET", "/traders/:id/guard-stats", "Get aggregated guard-event stats over a sliding window for the Risk Audit dashboard",
+				`:id = trader_id from GET /api/my-traders.
+Query: ?trader_id=&window=4h|24h|7d (default 24h)&top_limit=10
+Returns: {trader_id, window_hours, since, until, totals:{block,reduce,allow},
+         by_type:[{guard_type,action,count}], hourly:[{hour_start,guard_type,action,count}],
+         top_blocked_symbols:[{symbol,count}],
+         ai_agreement:{total,agreed,rate,ai_blocked,code_blocked,both_block,ai_only,code_only}}`,
+				s.handleGuardStats)
 
 			// AI cost tracking
 			s.route(protected, "GET", "/ai-costs", "Get AI call costs for a trader (?trader_id=xxx&period=today)", s.handleGetAICosts)

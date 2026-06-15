@@ -171,6 +171,82 @@ export const rankingFilter = {
 }
 
 // ============================================================================
+// RISK AUDIT DASHBOARD TRANSLATIONS (Phase 6)
+// ============================================================================
+export const riskAuditI18n = {
+  title: {
+    zh: '风控审查',
+    en: 'Risk Audit',
+    es: 'Auditoría de Riesgo',
+  },
+  subtitle: {
+    zh: '查看代码规则命中、AI/代码一致性、被阻断最多的币种与最近的阻断事件。',
+    en: 'Inspect code rule hits, AI/code agreement, top blocked symbols, and recent block events.',
+    es: 'Inspecciona los hits de reglas, el acuerdo IA/código, los símbolos más bloqueados y los eventos recientes.',
+  },
+  traderIdPlaceholder: {
+    zh: 'trader_id（?trader=）',
+    en: 'trader_id (?trader=)',
+    es: 'trader_id (?trader=)',
+  },
+  refresh: {
+    zh: '刷新',
+    en: 'Refresh',
+    es: 'Actualizar',
+  },
+  noTraderHint: {
+    zh: '从交易员面板点"风控审查"按钮或在此填入 trader_id 后开始。',
+    en: 'Open from a trader\'s dashboard via "Risk Audit" or enter a trader_id above to begin.',
+    es: 'Abre desde el panel de un trader o ingresa un trader_id para comenzar.',
+  },
+  totalBlocks: {
+    zh: '硬阻断',
+    en: 'Hard blocks',
+    es: 'Bloqueos duros',
+  },
+  totalReduces: {
+    zh: '降级',
+    en: 'Reduces',
+    es: 'Reducciones',
+  },
+  totalEvents: {
+    zh: '总命中',
+    en: 'Total events',
+    es: 'Eventos totales',
+  },
+  aiAgreement: {
+    zh: 'AI/代码一致',
+    en: 'AI/Code agreement',
+    es: 'Acuerdo IA/Código',
+  },
+  aiAgreementHint: {
+    zh: '双方阻断 {both} · AI 预测但代码未阻断 {ai} · 代码阻断但 AI 未预测 {code}',
+    en: 'Both blocked {both} · AI predicted but code did not {ai} · code blocked but AI did not {code}',
+    es: 'Ambos {both} · IA predijo pero no se bloqueó {ai} · código bloqueó pero IA no {code}',
+  },
+  hitsByGuardType: {
+    zh: '各规则命中次数',
+    en: 'Hits by guard type',
+    es: 'Hits por tipo de regla',
+  },
+  topBlockedSymbols: {
+    zh: '被阻断最多的币种',
+    en: 'Top blocked symbols',
+    es: 'Símbolos más bloqueados',
+  },
+  recentBlocks: {
+    zh: '最近的阻断事件',
+    en: 'Recent block events',
+    es: 'Eventos de bloqueo recientes',
+  },
+  noData: {
+    zh: '该时间窗内暂无数据。',
+    en: 'No data in this window.',
+    es: 'Sin datos en esta ventana.',
+  },
+}
+
+// ============================================================================
 // GRID CONFIG TRANSLATIONS (60+ keys)
 // ============================================================================
 export const gridConfig = {
