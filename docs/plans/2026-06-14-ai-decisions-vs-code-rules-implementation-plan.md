@@ -595,15 +595,15 @@ type TimeStopConfig struct {
 
 ## 十三、Phase 1~6 完成状态 & 后续迭代
 
-> 更新时间：2026-06-15
+> 更新时间：2026-06-16
 
 | Phase | 状态 | 备注 |
 |---|---|---|
 | Phase 1 规则命中遥测 | ✅ 已完成 | `guard_events` 表 + 写入 + API + 测试 |
 | Phase 2 Prompt 结构化输出 | ✅ 已完成 | `<guard_assessment>` 解析 + `decision_records.guard_assessment` + AI override 告警 |
 | Phase 3 候选池 ranking 约束 | ✅ 已完成 | `ranking_filter` + score + enforce + normalize + 方向中性评分 |
-| Phase 4 TP 锚点 soft guard | ⚠️ 部分完成 | (1) `TakeProfitGuardMode` + 粗细锚点 + 前端控件 ✅；(2) **AI `tp_rationale.anchor_type` 与代码判定 diff 标记未做** |
-| Phase 5 退出纪律代码化 | ❌ 未实现 | `trailing_stop` / `time_stop` 的 struct、DB 字段、执行逻辑、前端控件均未落地 |
+| Phase 4 TP 锚点 soft guard | ✅ 已完成 | `TakeProfitGuardMode` + 粗细锚点 + 前端控件 + AI `tp_rationale.anchor_type` vs 代码判定 diff（reason 末尾加 `[ai-code-diff: ai=X code=Y]`） |
+| Phase 5 退出纪律代码化 | ✅ 已完成 | `TrailingStopConfig` + `TimeStopConfig` + 每轮 `CheckTrailingStop` / `CheckTimeStop` + 触发注入 `close_*` decision + `guard_type=lifecycle_exit` 事件 |
 | Phase 6 风控看板 | ✅ 已完成（MVP） | `/risk-audit` 页面 + `/guard-stats` + AI agreement + top blocked symbols |
 
 以下事项**不在 Phase 1~6 范围内**，建议作为后续独立任务交给其他同学继续迭代。
