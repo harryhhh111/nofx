@@ -605,6 +605,31 @@ export const riskControl = {
     en: 'Default "warn + reduce" — does not reject the entry.',
     es: 'Por defecto "avisar + reducir", no rechaza.',
   },
+  entryRiskGuardTPMode: {
+    zh: 'TP 外推处理模式',
+    en: 'TP Extension Mode',
+    es: 'Modo de extensión de TP',
+  },
+  entryRiskGuardTPModeInherit: {
+    zh: '继承全局模式',
+    en: 'Inherit global mode',
+    es: 'Heredar modo global',
+  },
+  entryRiskGuardTPModeHardBlock: {
+    zh: '直接拒绝开仓',
+    en: 'Hard block',
+    es: 'Bloqueo duro',
+  },
+  entryRiskGuardTPModeWarnReduce: {
+    zh: '提示并降仓',
+    en: 'Warn + reduce',
+    es: 'Avisar + reducir',
+  },
+  entryRiskGuardReducePct: {
+    zh: '触发提示时的降仓比例',
+    en: 'Position reduction on warn',
+    es: 'Reducción de posición al avisar',
+  },
   entryRiskGuardLowRR: {
     zh: '低 R:R 保护',
     en: 'Low R/R Protection',

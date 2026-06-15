@@ -659,6 +659,45 @@ export function RiskControlEditor({
             {ts(riskControl.entryRiskGuardTPModeNote, language)}
           </p>
 
+          {/* TP extension guard mode override */}
+          <div
+            className="mt-4 p-3 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label className="block text-sm mb-2" style={{ color: '#EAECEF' }}>
+              {ts(riskControl.entryRiskGuardTPMode, language)}
+            </label>
+            <select
+              value={config.entry_risk_guard?.take_profit_guard_mode ?? ''}
+              onChange={(e) =>
+                !disabled &&
+                updateField('entry_risk_guard', {
+                  ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                  take_profit_guard_mode: e.target.value as
+                    | ''
+                    | 'hard_block'
+                    | 'warn_reduce',
+                })
+              }
+              disabled={
+                disabled ||
+                !(config.entry_risk_guard?.block_extended_take_profit ?? true)
+              }
+              className="w-full text-sm p-2 rounded-lg bg-[#0B0E11] border border-[#2B3139]"
+              style={{ color: '#EAECEF' }}
+            >
+              <option value="">
+                {ts(riskControl.entryRiskGuardTPModeInherit, language)}
+              </option>
+              <option value="hard_block">
+                {ts(riskControl.entryRiskGuardTPModeHardBlock, language)}
+              </option>
+              <option value="warn_reduce">
+                {ts(riskControl.entryRiskGuardTPModeWarnReduce, language)}
+              </option>
+            </select>
+          </div>
+
           {/* Low R:R protection: tiered soft/hard floor */}
           <div
             className="mt-4 p-3 rounded-lg"
@@ -725,6 +764,43 @@ export function RiskControlEditor({
                   ).toFixed(2)}
                 </span>
               </div>
+            </div>
+          </div>
+
+          {/* Global warn+reduce position size reduction */}
+          <div
+            className="mt-4 p-3 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: '#848E9C' }}>
+                {ts(riskControl.entryRiskGuardReducePct, language)}
+              </span>
+              <input
+                type="range"
+                value={config.entry_risk_guard?.reduce_position_pct ?? 0.5}
+                onChange={(e) =>
+                  updateField('entry_risk_guard', {
+                    ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                    reduce_position_pct: parseFloat(e.target.value),
+                  })
+                }
+                disabled={disabled}
+                min={0.1}
+                max={1}
+                step={0.05}
+                className="flex-1"
+                style={{ accentColor: '#F0B90B' }}
+              />
+              <span
+                className="w-12 text-center font-mono text-xs"
+                style={{ color: '#F0B90B' }}
+              >
+                {(
+                  (config.entry_risk_guard?.reduce_position_pct ?? 0.5) * 100
+                ).toFixed(0)}
+                %
+              </span>
             </div>
           </div>
         </div>
