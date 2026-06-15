@@ -309,6 +309,16 @@ func parseFullDecisionResponse(aiResponse string, accountEquity float64, btcEthL
 	cotSummary := extractCoTSummary(aiResponse, cotTrace)
 	guardAssessment := extractGuardAssessment(aiResponse)
 
+	if guardAssessment != "" {
+		if override, reason := aiSelfCheckHasOverride(guardAssessment); override {
+			traderID := ""
+			if gc != nil {
+				traderID = gc.TraderID
+			}
+			logger.Warnf("⚠️ AI requested override for trader=%s: reason=%q", traderID, reason)
+		}
+	}
+
 	decisions, err := extractDecisions(aiResponse)
 	if err != nil {
 		return &FullDecision{

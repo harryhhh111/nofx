@@ -115,6 +115,25 @@ func configSnapshotJSON(cfg any) []byte {
 //
 // Returns nil if the input is empty / not JSON / has no ai_self_check
 // field — callers must not treat this as an error.
+// aiSelfCheckHasOverride returns true if the AI explicitly requested an
+// override. Used to surface model drift in logs without affecting the
+// hard-block outcome.
+func aiSelfCheckHasOverride(guardAssessment string) (bool, string) {
+	if guardAssessment == "" {
+		return false, ""
+	}
+	var raw struct {
+		AISelfCheck struct {
+			OverrideSuggested bool   `json:"override_suggested"`
+			OverrideReason    string `json:"override_reason"`
+		} `json:"ai_self_check"`
+	}
+	if err := json.Unmarshal([]byte(guardAssessment), &raw); err != nil {
+		return false, ""
+	}
+	return raw.AISelfCheck.OverrideSuggested, raw.AISelfCheck.OverrideReason
+}
+
 func aiSelfCheckSubset(guardAssessment string) []byte {
 	if guardAssessment == "" {
 		return nil
