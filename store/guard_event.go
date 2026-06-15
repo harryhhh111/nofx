@@ -39,7 +39,7 @@ const (
 type GuardEvent struct {
 	ID                 int64           `gorm:"primaryKey;autoIncrement" json:"id"`
 	TraderID           string          `gorm:"column:trader_id;not null;index:idx_guard_events_trader_time" json:"trader_id"`
-	DecisionRecordID   *int64          `gorm:"column:decision_record_id" json:"decision_record_id"`
+	DecisionRecordID   *int64          `gorm:"column:decision_record_id;index:idx_guard_events_decision" json:"decision_record_id"`
 	CycleNumber        int             `gorm:"column:cycle_number;not null" json:"cycle_number"`
 	StrategyID         string          `gorm:"column:strategy_id" json:"strategy_id"`
 	GuardType          string          `gorm:"column:guard_type;not null;index:idx_guard_events_type_time" json:"guard_type"`
@@ -78,6 +78,7 @@ func (s *GuardEventStore) initTables() error {
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'guard_events'`).Scan(&tableExists)
 		if tableExists > 0 {
 			s.db.Exec(`ALTER TABLE guard_events ADD COLUMN IF NOT EXISTS ai_assessment JSONB`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_guard_events_decision ON guard_events (decision_record_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_guard_events_type_time ON guard_events (guard_type, action, triggered_at DESC)`)
 			// Run AutoMigrate as well so any future struct columns are
 			// also added to existing tables.
