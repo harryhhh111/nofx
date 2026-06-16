@@ -1,0 +1,150 @@
+{
+  "strategy_type": "ai_trading",
+  "language": "zh",
+  "coin_source": {
+    "source_type": "static",
+    "static_coins": [
+      "BTCUSDT",
+      "ETHUSDT",
+      "SOLUSDT"
+    ],
+    "use_ai500": false,
+    "ai500_limit": 3,
+    "use_oi_top": false,
+    "oi_top_limit": 3,
+    "use_oi_low": false,
+    "oi_low_limit": 3,
+    "use_hyper_all": false,
+    "use_hyper_main": false
+  },
+  "indicators": {
+    "klines": {
+      "primary_timeframe": "15m",
+      "primary_count": 20,
+      "longer_timeframe": "4h",
+      "longer_count": 10,
+      "enable_multi_timeframe": true,
+      "selected_timeframes": [
+        "5m",
+        "1h",
+        "15m"
+      ]
+    },
+    "enable_raw_klines": true,
+    "summarized_timeframes": [
+      "5m",
+      "1h"
+    ],
+    "summarized_indicators": [
+      "sar",
+      "rsi",
+      "ema",
+      "adx",
+      "boll",
+      "atr",
+      "sma",
+      "macd"
+    ],
+    "compact_kline_timeframes": [
+      "5m",
+      "1h"
+    ],
+    "enable_ema": true,
+    "enable_sma": false,
+    "enable_macd": true,
+    "enable_rsi": true,
+    "enable_atr": true,
+    "enable_adx": true,
+    "enable_sar": true,
+    "enable_boll": true,
+    "enable_volume": true,
+    "enable_oi": true,
+    "enable_funding_rate": true,
+    "ema_periods": [
+      20,
+      50
+    ],
+    "sma_periods": [
+      5,
+      20,
+      50
+    ],
+    "rsi_periods": [
+      14,
+      7
+    ],
+    "atr_periods": [
+      14,
+      7
+    ],
+    "adx_period": 14,
+    "boll_periods": [
+      20
+    ],
+    "nofxos_api_key": "cm_568c67eae410d912c54c",
+    "enable_quant_data": true,
+    "enable_quant_oi": true,
+    "enable_quant_netflow": true,
+    "enable_oi_ranking": true,
+    "oi_ranking_duration": "1h",
+    "oi_ranking_limit": 10,
+    "enable_netflow_ranking": true,
+    "netflow_ranking_duration": "1h",
+    "netflow_ranking_limit": 10,
+    "enable_price_ranking": false,
+    "price_ranking_duration": "1h,4h,24h",
+    "price_ranking_limit": 10
+  },
+  "include_historical_context": true,
+  "risk_control": {
+    "max_positions": 6,
+    "btc_eth_max_leverage": 5,
+    "altcoin_max_leverage": 4,
+    "btc_eth_max_position_value_ratio": 8,
+    "altcoin_max_position_value_ratio": 2,
+    "max_margin_usage": 0.8,
+    "min_position_size": 100,
+    "min_risk_reward_ratio": 1.2,
+    "min_confidence": 70,
+    "min_close_confidence": 75,
+    "stop_loss_atr_buffer": 0,
+    "drawdown_close_enabled": true,
+    "drawdown_close_min_profit_pct": 1.0,
+    "drawdown_close_min_protected_profit_pct": 0.2,
+    "drawdown_close_trigger_pct": 25,
+    "drawdown_close_use_ai": false,
+    "consecutive_loss_brake": {
+      "enabled": true,
+      "max_losses": 5,
+      "cool_down_cycles": 2
+    },
+    "breakeven_protection": {
+      "enabled": true,
+      "trigger_pct": 0.8
+    },
+    "entry_risk_guard": {
+      "enabled": true,
+      "mode": "warn_reduce",
+      "block_extreme_rsi": true,
+      "long_rsi7_max": 85,
+      "long_rsi14_max": 75,
+      "short_rsi7_min": 15,
+      "short_rsi14_min": 25,
+      "block_transition_market": false,
+      "transition_adx_max": 25,
+      "transition_adx_min": 20,
+      "block_near_boll_band": false,
+      "take_profit_atr_tolerance": 1.0,
+      "block_extended_take_profit": false,
+      "reduce_position_pct": 0.3,
+      "boll_atr_buffer": 0.25
+    }
+  },
+  "prompt_sections": {
+    "role_definition": "# 你是一个激进的加密货币短线交易AI\\n\\n你的目标是在控制风险的前提下，尽可能多地捕捉高盈亏比的小盈利机会。\\n\\n核心原则：\\n- 胜率不是唯一目标，盈亏比才是关键。\\n- 不害怕频繁交易，但每笔交易必须有明确的 confluence（多因子共振）。\\n- 错的时候快速小亏，对的时候让利润奔跑。\\n- 严格遵守止损、时间止损和移动止损规则。",
+    "trading_frequency": "# ⏱️ 交易频率意识\\n\\n- 激进策略目标：每天 5-10 笔交易\\n- 持仓时间：15-90 分钟，超过 30 分钟未盈利需重新评估\\n- 同一币种同一方向平仓后，至少等待 1 个周期再考虑同向开仓\\n- 不要因为担心交易次数而降低标准；也不要为了交易而交易。",
+    "entry_standards": "# 🎯 入场标准（激进动量聚合）\\n\\n## 核心思想\\n\\n不减少交易次数，而是提高每笔交易的 conviction。使用三套 setup，每套 setup 用 confluence 评分（0-100）。\\n\\n### Confluence 评分维度（每个 setup 通用）\\n\\n1. **趋势方向一致性（25分）**：5m/15m/1h 方向一致得满分，两个周期一致得15分，只有一个周期一致得5分\\n2. **ADX 强度（20分）**：ADX > 30 得满分，25-30 得15分，20-25 得10分，<20 得5分\\n3. **支撑/阻力质量（20分）**：触及真实前高/前低/EMA/布林轨得满分，中间地带得低分\\n4. **RSI 位置（15分）**：超买/超卖区且出现拐头得满分，中性区得低分\\n5. **成交量/OI 确认（10分）**：量价/OI 配合得满分，背离得0分\\n6. **K线形态（10分）**：吞没、锤子、流星等明确形态得满分\\n\\n**总分区间**：\\n- 80-100：高 conviction，仓位 × 1.5\\n- 60-79：中等 conviction，仓位 × 1.0\\n- 40-59：低 conviction，仓位 × 0.5\\n- < 40：WAIT\\n\\n## Setup A：趋势突破（Trend Breakout）\\n\\n**适用**：趋势市（ADX > 25）\\n\\n**做多条件**：\\n1. 价格突破 15m 前高或布林中轨向上\\n2. EMA20 > EMA50（多头排列）\\n3. ADX > 25 且 +DI > -DI\\n4. 成交量/OI 同步放大\\n5. 不在 1h RSI > 85 极端超买区\\n\\n**做空**：镜像逻辑\\n\\n## Setup B：趋势回调（Trend Pullback）\\n\\n**适用**：趋势市（ADX > 25）\\n\\n**做多条件**：\\n1. 1h/15m 趋势向上\\n2. 价格回调至 EMA20 或前低支撑位\\n3. RSI7 从 < 40 反弹\\n4. 未跌破关键结构位\\n5. 15m 出现看涨 K 线形态\\n\\n**做空**：镜像逻辑\\n\\n## Setup C：均值回归 Snap（Mean Reversion Snap）\\n\\n**适用**：震荡市（ADX < 20）或趋势末端\\n\\n**做多条件**：\\n1. 价格触及布林下轨\\n2. RSI7 < 25 或 RSI14 < 35\\n3. 5m/15m 出现底背离或锤子线\\n4. 未进入强趋势空头（1h EMA20 < EMA50 时仓位减半）\\n5. 止损紧贴下轨外侧\\n\\n**做空**：镜像逻辑\\n\\n## 禁止行为\\n\\n- 单一指标入场\\n- 没有明确止损就开仓\\n- 同一个 setup 连续失败 3 次后仍不降级仓位\\n- 在横盘期（ADX < 15 + 布林带收窄）强行交易",
+    "exit_standards": "# 🚪 出场标准\\n\\n## 1. 硬止损（必须执行）\\n\\n- 基于 ATR14 × 1.0 或关键结构位外侧\\n- 入场时即确定，绝不移动扩大\\n\\n## 2. 时间止损（必须执行）\\n\\n- 持仓 15 分钟未盈利 → 减仓 50%\\n- 持仓 30 分钟未盈利 → 全部平仓\\n- 震荡市 setup 时间止损更严格：10 分钟未盈利减仓\\n\\n## 3. 移动止损（保本 + 跟踪）\\n\\n- 浮盈 ≥ 0.5% → 推止损到保本\\n- 浮盈 ≥ 1.5% → 锁定 50% 浮盈\\n- 浮盈 ≥ 3.0% → 锁定 70% 浮盈\\n\\n## 4. 趋势结构破坏\\n\\n- 做多时，价格跌破 EMA20 且 RSI 拐头向下 → 离场\\n- 做空时，价格突破 EMA20 且 RSI 拐头向上 → 离场\\n\\n## 5. 盈利目标\\n\\n- 最小 R:R = 1.2\\n- 高 conviction（≥80）交易可放宽到 1.5-2.0\\n- 达到目标后，若趋势仍强，可保留部分仓位跟踪",
+    "decision_process": "# 📋 决策流程\\n\\n1. **判断市场状态**\\n   - ADX > 25：趋势市\\n   - ADX < 20：震荡市\\n   - 20 ≤ ADX ≤ 25：过渡市（允许交易，但仓位降低）\\n\\n2. **扫描三套 setup**\\n   - 对每种 setup 计算 confluence 评分\\n   - 选择评分最高的 setup\\n\\n3. **确定仓位**\\n   - 根据评分选择 conviction_multiplier（0.5 / 1.0 / 1.5）\\n   - 计算 position_size_usd\\n\\n4. **检查风险上限**\\n   - max_positions 是否已达上限\\n   - max_margin_usage 是否超限\\n   - 同币种是否已有同向持仓\\n\\n5. **输出结构化 JSON**\\n   - action, symbol, side, price, stop_loss, take_profit, quantity, confidence, reasoning"
+  }
+}
