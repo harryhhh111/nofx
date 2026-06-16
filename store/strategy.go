@@ -354,6 +354,9 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	c.Indicators.RSIPeriods = sanitizeIndicatorPeriods(c.Indicators.RSIPeriods, []int{7, 14})
 	c.Indicators.ATRPeriods = sanitizeIndicatorPeriods(c.Indicators.ATRPeriods, []int{14})
 	c.Indicators.BOLLPeriods = sanitizeIndicatorPeriods(c.Indicators.BOLLPeriods, []int{20})
+	if c.Indicators.BOLLMultiplier <= 0 {
+		c.Indicators.BOLLMultiplier = 2.0
+	}
 	c.Indicators.VolumePeriods = sanitizeIndicatorPeriods(c.Indicators.VolumePeriods, []int{20})
 	if c.Indicators.VolumeSpikeMultiplier <= 0 {
 		c.Indicators.VolumeSpikeMultiplier = 4.0
@@ -943,8 +946,9 @@ type IndicatorConfig struct {
 	ATRPeriods []int `json:"atr_periods,omitempty"` // default [14]
 	// ADX period configuration
 	ADXPeriod int `json:"adx_period,omitempty"` // default 14
-	// BOLL period configuration (period, standard deviation multiplier is fixed at 2)
-	BOLLPeriods []int `json:"boll_periods,omitempty"` // default [20] - can select multiple timeframes
+	// BOLL period configuration
+	BOLLPeriods    []int   `json:"boll_periods,omitempty"`    // default [20] - can select multiple timeframes
+	BOLLMultiplier float64 `json:"boll_multiplier,omitempty"` // default 2.0 - standard deviation multiplier
 	// MACD period configuration
 	MACDFastPeriod   int `json:"macd_fast_period,omitempty"`   // default 12
 	MACDSlowPeriod   int `json:"macd_slow_period,omitempty"`   // default 26

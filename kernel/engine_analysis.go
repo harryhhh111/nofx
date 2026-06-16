@@ -593,8 +593,12 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 		req.SAR = &market.SARSpec{Enabled: true}
 	}
 	if indicators.EnableBOLL {
+		multiplier := indicators.BOLLMultiplier
+		if multiplier <= 0 {
+			multiplier = 2.0
+		}
 		for _, period := range indicators.BOLLPeriods {
-			req.BOLLPeriods = append(req.BOLLPeriods, market.BOLLSpec{Period: period, Multiplier: 2})
+			req.BOLLPeriods = append(req.BOLLPeriods, market.BOLLSpec{Period: period, Multiplier: multiplier})
 		}
 	}
 	if indicators.EnableMACD {
