@@ -25,6 +25,17 @@ export const configApi = {
     return result.data!
   },
 
+  async testModelConnectivity(modelId: string): Promise<{ model_id: string; valid: boolean; error?: string }> {
+    const result = await httpClient.post<{ model_id: string; valid: boolean; error?: string }>(
+      `${API_BASE}/models/test`,
+      { model_id: modelId }
+    )
+    if (!result.success || !result.data) {
+      throw new Error(result.message || 'Failed to test model connectivity')
+    }
+    return result.data
+  },
+
   async updateModelConfigs(request: UpdateModelConfigRequest): Promise<void> {
     // Check if transport encryption is enabled
     const config = await CryptoService.fetchCryptoConfig()

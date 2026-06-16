@@ -5,7 +5,10 @@ import {
   EyeOff,
   Copy,
   Check,
+  Play,
+  Loader2,
 } from 'lucide-react'
+import { useState } from 'react'
 import type { AIModel, Exchange, ExchangeAccountState } from '../../types'
 import type { Language } from '../../i18n/translations'
 import { t } from '../../i18n/translations'
@@ -38,6 +41,7 @@ interface ConfigStatusGridProps {
   onExchangeClick: (exchangeId: string) => void
   onToggleExchangeAddress: (exchangeId: string) => void
   onCopyAddress: (id: string, address: string) => void
+  onTestModel?: (modelId: string) => Promise<void>
 }
 
 export function ConfigStatusGrid({
@@ -56,7 +60,9 @@ export function ConfigStatusGrid({
   onExchangeClick,
   onToggleExchangeAddress,
   onCopyAddress,
+  onTestModel,
 }: ConfigStatusGridProps) {
+  const [testingModelId, setTestingModelId] = useState<string | null>(null)
   const getExchangeStateMeta = (state: ExchangeAccountState | undefined) => {
     if (!state) {
       return {
@@ -155,7 +161,7 @@ export function ConfigStatusGrid({
                   </div>
                 </div>
 
-                <div className="text-right">
+                <div className="text-right flex items-center gap-2">
                   {usageInfo.totalCount > 0 ? (
                     <span className={`text-[10px] font-mono px-2 py-1 rounded border ${usageInfo.runningCount > 0
                       ? 'bg-green-500/10 border-green-500/30 text-green-400'
@@ -167,6 +173,30 @@ export function ConfigStatusGrid({
                     <span className="text-[10px] font-mono text-zinc-600 uppercase tracking-wider">
                       {language === 'zh' ? '就绪' : 'STANDBY'}
                     </span>
+                  )}
+                  {onTestModel && model.provider !== 'claw402' && (
+                    <button
+                      type="button"
+                      disabled={testingModelId === model.id}
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        setTestingModelId(model.id)
+                        try {
+                          await onTestModel(model.id)
+                        } finally {
+                          setTestingModelId(null)
+                        }
+                      }}
+                      className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono border border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title={language === 'zh' ? '测试连通性' : 'Test connectivity'}
+                    >
+                      {testingModelId === model.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Play className="w-3 h-3" />
+                      )}
+                      {language === 'zh' ? '测试' : 'TEST'}
+                    </button>
                   )}
                 </div>
               </div>
