@@ -40,6 +40,8 @@ const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
   { key: 'enable_sar', label: 'sar', desc: 'sarDesc', color: '#06b6d4' },
   { key: 'enable_boll', label: 'boll', desc: 'bollDesc', color: '#ec4899', period_key: 'boll_periods', default_periods: [20] },
   { key: 'enable_session', label: 'session', desc: 'sessionDesc', color: '#84cc16' },
+  { key: 'enable_opening_range', label: 'opening_range', desc: 'openingRangeDesc', color: '#38bdf8', period_key: 'opening_range_minutes' },
+  { key: 'enable_rbreaker', label: 'rbreaker', desc: 'rbreakerDesc', color: '#fb923c' },
 ]
 
 const marketDataSources = [
@@ -690,22 +692,38 @@ export function IndicatorEditor({
                 </div>
                 <p className="text-[10px] mb-1.5" style={{ color: '#5E6673' }}>{ts(indicator[desc as keyof typeof indicator], language)}</p>
                 {periodKey && config[key as keyof IndicatorConfig] && (
-                  <input
-                    type="text"
-                    value={(config[periodKey as keyof IndicatorConfig] as number[])?.join(',') || defaultPeriods?.join(',') || ''}
-                    onChange={(e) => {
-                      if (disabled) return
-                      const periods = e.target.value
-                        .split(',')
-                        .map((s) => parseInt(s.trim()))
-                        .filter((n) => !isNaN(n) && n > 0)
-                      onChange({ ...config, [periodKey]: periods })
-                    }}
-                    disabled={disabled}
-                    placeholder={defaultPeriods?.join(',') || ''}
-                    className="w-full px-2 py-1 rounded text-[10px] text-center"
-                    style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
-                  />
+                  Array.isArray(config[periodKey as keyof IndicatorConfig]) ? (
+                    <input
+                      type="text"
+                      value={(config[periodKey as keyof IndicatorConfig] as number[])?.join(',') || defaultPeriods?.join(',') || ''}
+                      onChange={(e) => {
+                        if (disabled) return
+                        const periods = e.target.value
+                          .split(',')
+                          .map((s) => parseInt(s.trim()))
+                          .filter((n) => !isNaN(n) && n > 0)
+                        onChange({ ...config, [periodKey]: periods })
+                      }}
+                      disabled={disabled}
+                      placeholder={defaultPeriods?.join(',') || ''}
+                      className="w-full px-2 py-1 rounded text-[10px] text-center"
+                      style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      value={(config[periodKey as keyof IndicatorConfig] as number) || defaultPeriods?.[0] || ''}
+                      onChange={(e) => {
+                        if (disabled) return
+                        const val = parseInt(e.target.value)
+                        onChange({ ...config, [periodKey]: isNaN(val) || val <= 0 ? defaultPeriods?.[0] || 0 : val })
+                      }}
+                      disabled={disabled}
+                      placeholder={String(defaultPeriods?.[0] || '')}
+                      className="w-full px-2 py-1 rounded text-[10px] text-center"
+                      style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+                    />
+                  )
                 )}
               </div>
             ))}

@@ -18,6 +18,14 @@ func SupportedIndicatorOperands() []string {
 		"bars_since_session_open",
 		"prev_session_high", "prev_session_low", "prev_session_close", "prev_session_volume",
 		"break_above_prev_session_high", "break_below_prev_session_low",
+		"opening_range_high", "opening_range_low", "opening_range_mid",
+		"opening_range_width_pct", "opening_range_ready",
+		"break_opening_range_high", "break_opening_range_low",
+		"rbreaker_pivot", "rbreaker_break_buy", "rbreaker_setup_sell",
+		"rbreaker_reverse_sell", "rbreaker_reverse_buy", "rbreaker_setup_buy", "rbreaker_break_sell",
+		"rbreaker_breakout_long", "rbreaker_breakout_short",
+		"rbreaker_reverse_to_long", "rbreaker_reverse_to_short",
+		"rbreaker_setup_sell_hit", "rbreaker_setup_buy_hit",
 	}
 }
 

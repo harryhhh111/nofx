@@ -296,6 +296,8 @@ export interface IndicatorConfig {
   enable_sar: boolean;
   enable_boll: boolean;
   enable_session: boolean;
+  enable_opening_range: boolean;
+  enable_rbreaker: boolean;
   enable_volume: boolean;
   enable_oi: boolean;
   enable_funding_rate: boolean;
@@ -312,6 +314,7 @@ export interface IndicatorConfig {
   donchian_periods?: number[];
   realized_vol_periods?: number[];
   price_change_windows?: number[];
+  opening_range_minutes?: number;
   sessions?: SessionSpec[];
   external_data_sources?: ExternalDataSource[];
 
