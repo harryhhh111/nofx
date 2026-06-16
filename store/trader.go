@@ -70,6 +70,16 @@ func (s *TraderStore) initTables() error {
 	return nil
 }
 
+// Get retrieves a trader by ID for a specific user.
+func (s *TraderStore) Get(userID, id string) (*Trader, error) {
+	var trader Trader
+	err := s.db.Where("id = ? AND user_id = ?", id, userID).First(&trader).Error
+	if err != nil {
+		return nil, err
+	}
+	return &trader, nil
+}
+
 // GetByName retrieves a trader by name for a specific user
 func (s *TraderStore) GetByName(userID, name string) (*Trader, error) {
 	var trader Trader

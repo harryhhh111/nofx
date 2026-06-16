@@ -231,8 +231,9 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 	c.JSON(http.StatusOK, supportedModels)
 }
 
-// handleTestModelConnectivity tests AI model connectivity using the stored API key.
-// It does NOT expose the key; it only returns whether the provider is reachable.
+// handleTestModelConnectivity tests the AI model connectivity using the stored API key.
+// Accepts either trader_id (tests the model bound to that trader) or model_id (tests the model directly).
+// It does NOT expose the key.
 func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if userID == "" {
@@ -241,20 +242,44 @@ func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 	}
 
 	var req struct {
-		ModelID string `json:"model_id" binding:"required"`
+		TraderID string `json:"trader_id"`
+		ModelID  string `json:"model_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "model_id is required")
+		SafeBadRequest(c, "invalid request")
 		return
 	}
 
-	aiClient, err := s.createAIClientForModel(userID, req.ModelID)
+	if req.TraderID == "" && req.ModelID == "" {
+		SafeBadRequest(c, "trader_id or model_id is required")
+		return
+	}
+
+	modelID := req.ModelID
+	if req.TraderID != "" {
+		trader, err := s.store.Trader().Get(userID, req.TraderID)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"trader_id": req.TraderID,
+				"valid":     false,
+				"error":     fmt.Sprintf("failed to get trader: %v", err),
+			})
+			return
+		}
+		modelID = trader.AIModelID
+	}
+
+	aiClient, err := s.createAIClientForModel(userID, modelID)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"model_id": req.ModelID,
+		resp := gin.H{
+			"model_id": modelID,
 			"valid":    false,
 			"error":    err.Error(),
-		})
+		}
+		if req.TraderID != "" {
+			resp["trader_id"] = req.TraderID
+		}
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 
@@ -263,16 +288,24 @@ func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 
 	_, err = aiClient.CallWithMessages("", "Respond with exactly: OK")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"model_id": req.ModelID,
+		resp := gin.H{
+			"model_id": modelID,
 			"valid":    false,
 			"error":    fmt.Sprintf("connectivity test failed: %v", err),
-		})
+		}
+		if req.TraderID != "" {
+			resp["trader_id"] = req.TraderID
+		}
+		c.JSON(http.StatusOK, resp)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"model_id": req.ModelID,
+	resp := gin.H{
+		"model_id": modelID,
 		"valid":    true,
-	})
+	}
+	if req.TraderID != "" {
+		resp["trader_id"] = req.TraderID
+	}
+	c.JSON(http.StatusOK, resp)
 }

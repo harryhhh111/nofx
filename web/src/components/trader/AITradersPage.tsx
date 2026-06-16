@@ -574,6 +574,34 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
     }
   }
 
+  const handleTestModel = async (modelId: string) => {
+    const model = allModels.find((m) => m.id === modelId)
+    const modelName = model?.name || modelId
+    try {
+      const result = await api.testModelConnectivity(modelId)
+      if (result.valid) {
+        toast.success(
+          language === 'zh'
+            ? `AI 模型「${modelName}」连通性测试通过`
+            : `AI model "${modelName}" connectivity test passed`
+        )
+      } else {
+        toast.error(
+          language === 'zh'
+            ? `AI 模型「${modelName}」测试失败：${result.error || '未知错误'}`
+            : `AI model "${modelName}" test failed: ${result.error || 'Unknown error'}`
+        )
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      toast.error(
+        language === 'zh'
+          ? `AI 模型「${modelName}」测试失败：${message}`
+          : `AI model "${modelName}" test failed: ${message}`
+      )
+    }
+  }
+
   const handleExchangeClick = (exchangeId: string) => {
     if (!isExchangeInUse(exchangeId)) {
       setEditingExchange(exchangeId)
@@ -1043,6 +1071,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
           onExchangeClick={handleExchangeClick}
           onToggleExchangeAddress={toggleExchangeAddressVisibility}
           onCopyAddress={handleCopyAddress}
+          onTestModel={handleTestModel}
         />
 
         {/* Traders List */}
