@@ -315,6 +315,7 @@ export interface IndicatorConfig {
   donchian_periods?: number[];
   realized_vol_periods?: number[];
   price_change_windows?: number[];
+  price_change_named_windows?: string[];
   opening_range_minutes?: number;
   sessions?: SessionSpec[];
   external_data_sources?: ExternalDataSource[];

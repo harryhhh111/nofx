@@ -477,6 +477,7 @@ func requiredCalculationLookback(config *store.StrategyConfig) int {
 	required = maxInt(required, maxIntSlice(indicators.DonchianPeriods))
 	required = maxInt(required, maxIntSlice(indicators.RealizedVolPeriods)+1)
 	required = maxInt(required, maxIntSlice(indicators.PriceChangeWindows)+1)
+	required = maxInt(required, maxNamedWindowBars(indicators.PriceChangeNamedWindows)+1)
 	if config.Structure.EnableFibonacci {
 		required = maxInt(required, config.Structure.Fibonacci.Lookback)
 	}
@@ -494,6 +495,30 @@ func maxIntSlice(values []int) int {
 		}
 	}
 	return max
+}
+
+// maxNamedWindowBars returns the largest bar count required by the given named
+// price-change windows, assuming the smallest supported timeframe (1m). The
+// result is capped to store.MaxComputeLookback; modules skip windows that still
+// exceed the available bars for a given timeframe.
+func maxNamedWindowBars(windows []string) int {
+	maxBars := 0
+	for _, w := range windows {
+		switch w {
+		case "1h":
+			maxBars = maxInt(maxBars, 60)
+		case "4h":
+			maxBars = maxInt(maxBars, 240)
+		case "24h":
+			maxBars = maxInt(maxBars, 1440)
+		case "3d":
+			maxBars = maxInt(maxBars, 4320)
+		}
+	}
+	if maxBars > store.MaxComputeLookback {
+		return store.MaxComputeLookback
+	}
+	return maxBars
 }
 
 func maxInt(a, b int) int {
@@ -582,6 +607,7 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 	req.DonchianPeriods = indicators.DonchianPeriods
 	req.RealizedVolPeriods = indicators.RealizedVolPeriods
 	req.PriceChangeWindows = indicators.PriceChangeWindows
+	req.PriceChangeNamedWindows = indicators.PriceChangeNamedWindows
 	if config.ScoringConfig != nil && config.ScoringConfig.Enabled {
 		for _, factor := range config.ScoringConfig.SelectedFactors {
 			switch factor {

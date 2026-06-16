@@ -24,8 +24,9 @@ type IndicatorRequest struct {
 	VWAPPeriods        []int         `json:"vwap_periods,omitempty"`
 	VolumePeriods      []int         `json:"volume_periods,omitempty"`
 	DonchianPeriods    []int              `json:"donchian_periods,omitempty"`
-	RealizedVolPeriods []int              `json:"realized_vol_periods,omitempty"`
-	PriceChangeWindows []int              `json:"price_change_windows,omitempty"`
+	RealizedVolPeriods      []int              `json:"realized_vol_periods,omitempty"`
+	PriceChangeWindows      []int              `json:"price_change_windows,omitempty"`
+	PriceChangeNamedWindows []string           `json:"price_change_named_windows,omitempty"`
 	Sessions           []SessionSpec      `json:"sessions,omitempty"`
 	OpeningRange       *OpeningRangeSpec  `json:"opening_range,omitempty"`
 	EnableRBreaker     bool               `json:"enable_rbreaker,omitempty"`

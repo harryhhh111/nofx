@@ -89,6 +89,37 @@ func TestMTSIIndicatorsAddressable(t *testing.T) {
 	mustGet("close_below_vwap", 20)
 }
 
+// TestPriceChangeNamedWindowsAddressable verifies that named-window returns and
+// first-cross signals are stored under their own names.
+func TestPriceChangeNamedWindowsAddressable(t *testing.T) {
+	klines := syntheticTrend(160)
+	input := MarketInput{
+		Symbol:     "TESTUSDT",
+		Timeframes: map[string][]Kline{"15m": klines},
+		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
+	}
+	req := IndicatorRequest{
+		PriceChangeWindows:      []int{12},
+		PriceChangeNamedWindows: []string{"1h", "4h"},
+	}
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mustGet := func(name string, period int) float64 {
+		v, ok := snap.IndicatorValue(name, "15m", period)
+		if !ok {
+			t.Fatalf("indicator %q (period %d) is not addressable by name", name, period)
+		}
+		return v
+	}
+
+	mustGet("price_change", 12)
+	mustGet("return_1h", 4)  // 60/15
+	mustGet("return_4h", 16) // 240/15
+}
+
 // syntheticTrend builds n ascending bars with intrabar range, enough for ADX(14)
 // and MACD(26,9) to be well-defined.
 func syntheticTrend(n int) []Kline {

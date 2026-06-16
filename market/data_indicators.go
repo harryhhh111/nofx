@@ -252,6 +252,27 @@ func calculatePriceChangeWindow(klines []Kline, bars int) float64 {
 	return (current - base) / base * 100
 }
 
+// detectFirstCross checks whether the current bar just crossed above a return
+// threshold for the first time. Returns (1, true) if current return >= threshold
+// and previous return < threshold; (0, true) if not; (0, false) if insufficient data.
+func detectFirstCross(klines []Kline, bars int, threshold float64) (float64, bool) {
+	if bars <= 0 || len(klines) <= bars+1 {
+		return 0, false
+	}
+	current := klines[len(klines)-1].Close
+	base0 := klines[len(klines)-1-bars].Close
+	base1 := klines[len(klines)-2-bars].Close
+	if base0 <= 0 || base1 <= 0 {
+		return 0, false
+	}
+	currentReturn := (current - base0) / base0
+	prevReturn := (klines[len(klines)-2].Close - base1) / base1
+	if currentReturn >= threshold && prevReturn < threshold {
+		return 1, true
+	}
+	return 0, true
+}
+
 func calculateRealizedVol(klines []Kline, period int) float64 {
 	if len(klines) <= period || period <= 1 {
 		return 0

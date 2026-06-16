@@ -89,6 +89,27 @@ func hasEnoughBars(klines []Kline, need int) bool {
 	return len(klines) > need
 }
 
+// namedWindowToBars converts a human-readable named window to the number of
+// bars on the given timeframe. Returns 0 for unsupported window strings.
+func namedWindowToBars(window, timeframe string) int {
+	minutes := timeframeToMinutes(timeframe)
+	if minutes <= 0 {
+		return 0
+	}
+	switch window {
+	case "1h":
+		return 60 / minutes
+	case "4h":
+		return 240 / minutes
+	case "24h":
+		return 1440 / minutes
+	case "3d":
+		return 4320 / minutes
+	default:
+		return 0
+	}
+}
+
 func addTechnicalToSnapshot(s *FactorSnapshot, name string, point IndicatorPoint) {
 	if s.Technical == nil {
 		s.Technical = map[string][]IndicatorPoint{}

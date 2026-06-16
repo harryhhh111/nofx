@@ -359,6 +359,9 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	c.Indicators.DonchianPeriods = sanitizeIndicatorPeriods(c.Indicators.DonchianPeriods, []int{20})
 	c.Indicators.RealizedVolPeriods = sanitizeIndicatorPeriods(c.Indicators.RealizedVolPeriods, []int{20})
 	c.Indicators.PriceChangeWindows = sanitizeIndicatorPeriods(c.Indicators.PriceChangeWindows, []int{12, 48})
+	if len(c.Indicators.PriceChangeNamedWindows) == 0 {
+		c.Indicators.PriceChangeNamedWindows = []string{"1h", "4h", "24h"}
+	}
 
 	if c.Indicators.MACDFastPeriod <= 0 {
 		c.Indicators.MACDFastPeriod = 12
@@ -404,6 +407,30 @@ func sanitizeIndicatorPeriods(values []int, defaults []int) []int {
 	return out
 }
 
+// maxNamedWindowBars returns the largest bar count required by the given named
+// price-change windows, assuming the smallest supported timeframe (1m). The
+// result is capped to MaxComputeLookback; individual timeframes that need more
+// bars will be skipped by the module rather than aborting the snapshot.
+func maxNamedWindowBars(windows []string) int {
+	maxBars := 0
+	for _, w := range windows {
+		switch w {
+		case "1h":
+			maxBars = maxInt(maxBars, 60)
+		case "4h":
+			maxBars = maxInt(maxBars, 240)
+		case "24h":
+			maxBars = maxInt(maxBars, 1440)
+		case "3d":
+			maxBars = maxInt(maxBars, 4320)
+		}
+	}
+	if maxBars > MaxComputeLookback {
+		return MaxComputeLookback
+	}
+	return maxBars
+}
+
 func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
 	required := c.Indicators.Klines.ComputeLookback
 	required = maxInt(required, maxPeriod(c.Indicators.EMAPeriods))
@@ -417,6 +444,7 @@ func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
 	required = maxInt(required, maxPeriod(c.Indicators.DonchianPeriods))
 	required = maxInt(required, maxPeriod(c.Indicators.RealizedVolPeriods)+1)
 	required = maxInt(required, maxPeriod(c.Indicators.PriceChangeWindows)+1)
+	required = maxInt(required, maxNamedWindowBars(c.Indicators.PriceChangeNamedWindows)+1)
 	required = maxInt(required, c.Indicators.MACDSlowPeriod+c.Indicators.MACDSignalPeriod)
 
 	if c.Structure.EnableFibonacci {
@@ -922,8 +950,9 @@ type IndicatorConfig struct {
 	VolumePeriods      []int `json:"volume_periods,omitempty"`       // default [20]
 	VWAPPeriods        []int `json:"vwap_periods,omitempty"`         // default [20]
 	DonchianPeriods    []int `json:"donchian_periods,omitempty"`     // default [20]
-	RealizedVolPeriods []int `json:"realized_vol_periods,omitempty"` // default [20]
-	PriceChangeWindows []int `json:"price_change_windows,omitempty"` // default [12, 48], bar windows
+	RealizedVolPeriods      []int    `json:"realized_vol_periods,omitempty"`       // default [20]
+	PriceChangeWindows      []int    `json:"price_change_windows,omitempty"`       // default [12, 48], bar windows
+	PriceChangeNamedWindows []string `json:"price_change_named_windows,omitempty"` // default ["1h","4h","24h"]
 	// Session configuration (Phase 1: UTC day only)
 	Sessions []SessionSpec `json:"sessions,omitempty"`
 	// Opening Range configuration (shares session definition with SessionModule)

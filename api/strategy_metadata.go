@@ -178,7 +178,10 @@ func indicatorGroup(name string) string {
 	case "mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap":
 		return "mtsi"
 	case "vwap", "donchian_upper", "donchian_lower", "donchian_middle",
-		"break_above_donchian", "break_below_donchian", "price_change", "realized_vol":
+		"break_above_donchian", "break_below_donchian", "price_change",
+		"return_1h", "return_4h", "return_24h", "return_3d",
+		"first_cross_20pct_3d", "first_cross_25pct_3d",
+		"realized_vol":
 		return "always"
 	default:
 		return ""
