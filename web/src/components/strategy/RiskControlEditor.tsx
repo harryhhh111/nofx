@@ -823,6 +823,35 @@ export function RiskControlEditor({
               </span>
             </div>
           </div>
+
+          {/* Telemetry: record allow events */}
+          <div
+            className="mt-4 p-3 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
+            <label
+              className="flex items-center gap-2 text-sm"
+              style={{ color: '#EAECEF' }}
+            >
+              <input
+                type="checkbox"
+                checked={config.entry_risk_guard?.record_allow_events ?? false}
+                onChange={(e) =>
+                  !disabled &&
+                  updateField('entry_risk_guard', {
+                    ...(config.entry_risk_guard || defaultEntryRiskGuard),
+                    record_allow_events: e.target.checked,
+                  })
+                }
+                disabled={disabled}
+                className="accent-yellow-500"
+              />
+              {ts(riskControl.entryRiskGuardRecordAllowEvents, language)}
+            </label>
+            <p className="text-xs mt-1" style={{ color: '#5E6673' }}>
+              {ts(riskControl.entryRiskGuardRecordAllowEventsHint, language)}
+            </p>
+          </div>
         </div>
       </div>
 

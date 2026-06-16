@@ -256,3 +256,55 @@ func TestApplyEntryRiskGuard_TPAnchorDiffInReason(t *testing.T) {
 		t.Fatalf("expected ai-code-diff marker in reason, got %q", got.Reason)
 	}
 }
+
+func TestApplyEntryRiskGuard_RecordAllowEvents(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	cfg := store.DefaultEntryRiskGuardConfig()
+	cfg.RecordAllowEvents = true
+	cfg.BlockLowRiskReward = false
+	// Make every soft guard trivially pass while still being "enabled".
+	cfg.LongRSI7Max = 100
+	cfg.LongRSI14Max = 100
+	cfg.BollATRBuffer = 100
+	cfg.TransitionADXMin = 100
+	cfg.TransitionADXMax = 200
+
+	// TP inside recent range, R/R > minRiskRewardRatio=0.5.
+	d := Decision{Symbol: "BTCUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000, StopLoss: 64000, TakeProfit: 65700}
+	err := applyEntryRiskGuard(&d, cfg, map[string]*market.Data{
+		"BTCUSDT": {Symbol: "BTCUSDT", CurrentPrice: 65000, TimeframeData: map[string]*market.TimeframeSeriesData{"15m": {Timeframe: "15m", ATR14: 100, Klines: makeKlines("BTCUSDT", 65000, 30, 0.005)}}},
+	}, map[string]float64{"BTCUSDT": 65000}, 0.5, gc)
+	if err != nil {
+		t.Fatalf("unexpected block: %v", err)
+	}
+	got := eventByType(gc, store.GuardEventTypeEntryRiskGuard)
+	if got == nil {
+		t.Fatalf("expected allow event")
+	}
+	if got.Action != store.GuardEventActionAllow {
+		t.Fatalf("expected action=allow, got %s", got.Action)
+	}
+}
+
+func TestApplyEntryRiskGuard_SkipAllowEventsWhenDisabled(t *testing.T) {
+	gc := &GuardContext{TraderID: "t1", CycleNumber: 1}
+	cfg := store.DefaultEntryRiskGuardConfig()
+	cfg.RecordAllowEvents = false
+	cfg.BlockLowRiskReward = false
+	cfg.LongRSI7Max = 100
+	cfg.LongRSI14Max = 100
+	cfg.BollATRBuffer = 100
+	cfg.TransitionADXMin = 100
+	cfg.TransitionADXMax = 200
+
+	d := Decision{Symbol: "BTCUSDT", Action: "open_long", Leverage: 3, PositionSizeUSD: 1000, StopLoss: 64000, TakeProfit: 65700}
+	err := applyEntryRiskGuard(&d, cfg, map[string]*market.Data{
+		"BTCUSDT": {Symbol: "BTCUSDT", CurrentPrice: 65000, TimeframeData: map[string]*market.TimeframeSeriesData{"15m": {Timeframe: "15m", ATR14: 100, Klines: makeKlines("BTCUSDT", 65000, 30, 0.005)}}},
+	}, map[string]float64{"BTCUSDT": 65000}, 0.5, gc)
+	if err != nil {
+		t.Fatalf("unexpected block: %v", err)
+	}
+	if len(gc.Events) != 0 {
+		t.Fatalf("expected no events when RecordAllowEvents=false, got %d", len(gc.Events))
+	}
+}

@@ -3,6 +3,8 @@ package store
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -316,6 +318,81 @@ func (s *GuardEventStore) AIAgreement(traderID string, since time.Time) (AIAgree
 		stats.Rate = float64(stats.Agreed) / float64(stats.Total)
 	}
 	return stats, nil
+}
+
+// GuardGroupedCount is the result of grouping guard events by one or more
+// dimensions (symbol, side, guard_type, action).
+type GuardGroupedCount struct {
+	Symbol    string `json:"symbol"`
+	Side      string `json:"side"`
+	GuardType string `json:"guard_type"`
+	Action    string `json:"action"`
+	Count     int64  `json:"count"`
+}
+
+// GroupedStats returns event counts grouped by the requested dimensions.
+// Valid dimensions: "symbol", "side", "guard_type", "action". Unknown
+// dimensions are ignored. The order of groupBy determines the SELECT and
+// GROUP BY order.
+func (s *GuardEventStore) GroupedStats(traderID string, since time.Time, groupBy []string) ([]*GuardGroupedCount, error) {
+	allowed := map[string]bool{"symbol": true, "side": true, "guard_type": true, "action": true}
+	cols := []string{}
+	for _, dim := range groupBy {
+		dim = strings.ToLower(strings.TrimSpace(dim))
+		if allowed[dim] {
+			cols = append(cols, dim)
+		}
+	}
+	if len(cols) == 0 {
+		// Default grouping: guard_type + action.
+		cols = []string{"guard_type", "action"}
+	}
+
+	var selectCols []string
+	for _, c := range cols {
+		selectCols = append(selectCols, c)
+	}
+	groupSQL := strings.Join(selectCols, ", ")
+	selectSQL := groupSQL + ", COUNT(*) as count"
+
+	query := fmt.Sprintf(
+		"SELECT %s FROM guard_events WHERE trader_id = ? AND triggered_at >= ? GROUP BY %s ORDER BY count DESC",
+		selectSQL, groupSQL,
+	)
+
+	rows, err := s.db.Raw(query, traderID, since).Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []*GuardGroupedCount
+	for rows.Next() {
+		var r GuardGroupedCount
+		scanArgs := make([]interface{}, len(cols)+1)
+		// Build scan pointers dynamically based on column order.
+		for i, c := range cols {
+			switch c {
+			case "symbol":
+				scanArgs[i] = &r.Symbol
+			case "side":
+				scanArgs[i] = &r.Side
+			case "guard_type":
+				scanArgs[i] = &r.GuardType
+			case "action":
+				scanArgs[i] = &r.Action
+			}
+		}
+		scanArgs[len(cols)] = &r.Count
+		if err := rows.Scan(scanArgs...); err != nil {
+			return nil, err
+		}
+		out = append(out, &r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // extractAIHardBlockExpected parses an ai_assessment JSON blob and

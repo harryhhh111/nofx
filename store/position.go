@@ -276,6 +276,18 @@ func (s *PositionStore) UpdateLifecycleExitFlags(traderID, symbol, side string, 
 		Updates(updates).Error
 }
 
+// GetClosedPositionsBySymbolAndTimeRange returns closed positions for a
+// trader/symbol/side whose entry time falls within [start, end]. Used to
+// evaluate false-negative guard events (allow → losing trade).
+func (s *PositionStore) GetClosedPositionsBySymbolAndTimeRange(traderID, symbol, side string, start, end time.Time) ([]*TraderPosition, error) {
+	var out []*TraderPosition
+	err := s.db.Where(
+		"trader_id = ? AND symbol = ? AND side = ? AND status = ? AND created_at >= ? AND created_at <= ?",
+		traderID, symbol, side, "CLOSED", start.UnixMilli(), end.UnixMilli(),
+	).Find(&out).Error
+	return out, err
+}
+
 // effectiveCloseReasonFromPending picks close_reason when pending matches this fill.
 // Some exchange trade APIs return a fill/trade id here instead of the order id
 // that was returned by CloseLong/CloseShort. Keep a recent pending attribution in

@@ -345,6 +345,9 @@ func applyEntryRiskGuard(d *Decision, cfg *store.EntryRiskGuardConfig, marketDat
 	}
 	allReasons, tpReasons, otherReasons, tpAnchorType := evaluateEntryRiskGuardSplit(d, &guard, md)
 	if len(allReasons) == 0 {
+		if guard.RecordAllowEvents {
+			gc.append(gc.newGuardEvent(store.GuardEventTypeEntryRiskGuard, store.GuardEventActionAllow, "all entry risk guard checks passed", d))
+		}
 		return nil
 	}
 

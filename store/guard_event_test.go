@@ -287,3 +287,37 @@ func TestExtractAIHardBlockExpected(t *testing.T) {
 		}
 	}
 }
+
+func TestGuardEventStore_GroupedStats(t *testing.T) {
+	s := newTestGuardEventStore(t)
+	now := time.Now().UTC()
+	cutoff := now.Add(-24 * time.Hour)
+	events := []*GuardEvent{
+		{TraderID: "T1", GuardType: GuardEventTypeEntryRiskGuard, Action: GuardEventActionBlock, Symbol: "BTCUSDT", Side: "LONG", TriggeredAt: now},
+		{TraderID: "T1", GuardType: GuardEventTypeEntryRiskGuard, Action: GuardEventActionBlock, Symbol: "BTCUSDT", Side: "LONG", TriggeredAt: now},
+		{TraderID: "T1", GuardType: GuardEventTypeEntryRiskGuard, Action: GuardEventActionReduce, Symbol: "BTCUSDT", Side: "SHORT", TriggeredAt: now},
+		{TraderID: "T1", GuardType: GuardEventTypeTPAnchor, Action: GuardEventActionBlock, Symbol: "ETHUSDT", Side: "LONG", TriggeredAt: now},
+		// Outside window.
+		{TraderID: "T1", GuardType: GuardEventTypeEntryRiskGuard, Action: GuardEventActionBlock, Symbol: "BTCUSDT", Side: "LONG", TriggeredAt: now.Add(-48 * time.Hour)},
+	}
+	if err := s.BulkInsert(events); err != nil {
+		t.Fatalf("bulk insert: %v", err)
+	}
+
+	groups, err := s.GroupedStats("T1", cutoff, []string{"symbol", "side", "guard_type"})
+	if err != nil {
+		t.Fatalf("grouped stats: %v", err)
+	}
+	if len(groups) != 3 {
+		t.Fatalf("expected 3 groups, got %d (%+v)", len(groups), groups)
+	}
+
+	// Default grouping falls back to guard_type + action.
+	groups2, err := s.GroupedStats("T1", cutoff, []string{})
+	if err != nil {
+		t.Fatalf("default grouped stats: %v", err)
+	}
+	if len(groups2) != 3 { // entry/block, entry/reduce, tp_anchor/block
+		t.Fatalf("expected 3 default groups, got %d (%+v)", len(groups2), groups2)
+	}
+}

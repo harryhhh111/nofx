@@ -205,6 +205,16 @@ Returns: {trader_id, window_hours, since, until, totals:{block,reduce,allow},
          top_blocked_symbols:[{symbol,count}],
          ai_agreement:{total,agreed,rate,ai_blocked,code_blocked,both_block,ai_only,code_only}}`,
 				s.handleGuardStats)
+			s.routeWithSchema(protected, "GET", "/traders/:id/guard-groups", "Get guard-event counts grouped by symbol/side/guard_type/action",
+				`:id = trader_id from GET /api/my-traders.
+Query: ?window=4h|24h|7d (default 24h)&group_by=symbol,side,guard_type (default guard_type,action)
+Returns: {trader_id, window_hours, group_by, groups:[{symbol,side,guard_type,action,count}]}`,
+				s.handleGuardGroups)
+			s.routeWithSchema(protected, "GET", "/traders/:id/guard-insights", "Get false-positive/negative guard insights",
+				`:id = trader_id from GET /api/my-traders.
+Query: ?window=4h|24h|7d (default 24h)&horizon=4h|24h (default 24h)
+Returns: {trader_id, window_hours, horizon_hours, false_positive:{count,total,rate}, false_negative:{count,total,rate}}`,
+				s.handleGuardInsights)
 
 			// AI cost tracking
 			s.route(protected, "GET", "/ai-costs", "Get AI call costs for a trader (?trader_id=xxx&period=today)", s.handleGetAICosts)

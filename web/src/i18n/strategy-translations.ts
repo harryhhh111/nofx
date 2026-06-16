@@ -229,6 +229,21 @@ export const riskAuditI18n = {
     en: 'Hits by guard type',
     es: 'Hits por tipo de regla',
   },
+  groupedStats: {
+    zh: '分组统计',
+    en: 'Grouped stats',
+    es: 'Estadísticas agrupadas',
+  },
+  falsePositive: {
+    zh: '误杀率（被拦截后价格走对）',
+    en: 'False positive rate',
+    es: 'Tasa de falsos positivos',
+  },
+  falseNegative: {
+    zh: '漏杀率（放行后亏损）',
+    en: 'False negative rate',
+    es: 'Tasa de falsos negativos',
+  },
   topBlockedSymbols: {
     zh: '被阻断最多的币种',
     en: 'Top blocked symbols',
@@ -705,6 +720,16 @@ export const riskControl = {
     zh: '触发提示时的降仓比例',
     en: 'Position reduction on warn',
     es: 'Reducción de posición al avisar',
+  },
+  entryRiskGuardRecordAllowEvents: {
+    zh: '记录通过事件（allow）',
+    en: 'Record allow events',
+    es: 'Registrar eventos allow',
+  },
+  entryRiskGuardRecordAllowEventsHint: {
+    zh: '开启后会为每个通过 entry guard 的开仓决策写入 allow 事件，便于计算误杀/漏杀率，但会增加数据量。',
+    en: 'Writes an allow event for every entry guard pass. Useful for false-positive/negative analysis but increases table size.',
+    es: 'Escribe un evento allow por cada decisión que pase el guard. Útil para análisis de falsos positivos/negativos pero aumenta el tamaño de la tabla.',
   },
   trailingStop: {
     zh: '移动止盈',

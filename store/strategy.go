@@ -648,6 +648,12 @@ type EntryRiskGuardConfig struct {
 	TakeProfitATRTolerance float64 `json:"take_profit_atr_tolerance"` // default 0.5 ATR beyond recent high/low
 	ReducePositionPct      float64 `json:"reduce_position_pct"`       // default 0.5 when mode=warn_reduce
 
+	// RecordAllowEvents emits a guard_event with action=allow for every
+	// open decision that passes all entry-risk-guard checks. This makes
+	// allow-ratio and false-negative analysis easier but increases table
+	// size. Default false.
+	RecordAllowEvents bool `json:"record_allow_events"`
+
 	// TakeProfitGuardMode overrides the global Mode ONLY for the
 	// extended-take-profit reason. Valid values:
 	//   - "hard_block"  : convert to wait (preserve old behavior)
@@ -680,6 +686,7 @@ func DefaultEntryRiskGuardConfig() *EntryRiskGuardConfig {
 		BollATRBuffer:           0.25,
 		TakeProfitATRTolerance:  0.5,
 		ReducePositionPct:       0.5,
+		RecordAllowEvents:       false,
 	}
 }
 

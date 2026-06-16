@@ -226,6 +226,7 @@ export interface RiskControlConfig {
     // instead of hard_block. Disable to restore the legacy hard-floor.
     block_low_risk_reward?: boolean
     risk_reward_soft_floor?: number // default 0.8, range 0.5-1.0
+    record_allow_events?: boolean // default false; emits action=allow guard events
   }
 
   // Drawdown-based position close (risk monitor, runs every minute)

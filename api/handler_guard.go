@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -179,5 +180,67 @@ func (s *Server) handleGuardStats(c *gin.Context) {
 		"hourly":              hourly,
 		"top_blocked_symbols": topBlocked,
 		"ai_agreement":        agreement,
+	})
+}
+
+// handleGuardGroups returns guard-event counts grouped by arbitrary
+// dimensions. Supported dimensions: symbol, side, guard_type, action.
+//
+// Query params:
+//
+//	window    (4h|24h|7d, default 24h): sliding window length
+//	group_by  (comma-separated, default guard_type,action)
+//
+// Response shape:
+//
+//	{
+//	  "trader_id": "...",
+//	  "window_hours": 24,
+//	  "group_by": ["symbol", "side", "guard_type"],
+//	  "groups": [
+//	    { "symbol": "BTCUSDT", "side": "LONG", "guard_type": "entry_risk_guard", "action": "block", "count": 7 },
+//	    ...
+//	  ]
+//	}
+func (s *Server) handleGuardGroups(c *gin.Context) {
+	_, traderID, err := s.getTraderFromQuery(c)
+	if err != nil {
+		SafeBadRequest(c, "Invalid trader ID")
+		return
+	}
+
+	hours := 24
+	switch c.Query("window") {
+	case "4h":
+		hours = 4
+	case "7d":
+		hours = 24 * 7
+	case "24h", "":
+		hours = 24
+	default:
+		if parsed, err := strconv.Atoi(c.Query("window")); err == nil && parsed > 0 && parsed <= 24*30 {
+			hours = parsed
+		}
+	}
+
+	groupBy := []string{"guard_type", "action"}
+	if gb := c.Query("group_by"); gb != "" {
+		groupBy = strings.Split(gb, ",")
+	}
+
+	now := time.Now().UTC()
+	since := now.Add(-time.Duration(hours) * time.Hour)
+
+	groups, err := s.store.GuardEvent().GroupedStats(traderID, since, groupBy)
+	if err != nil {
+		SafeInternalError(c, "Get guard groups", err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"trader_id":    traderID,
+		"window_hours": hours,
+		"group_by":     groupBy,
+		"groups":       groups,
 	})
 }

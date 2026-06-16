@@ -74,6 +74,31 @@ interface GuardEventsResponse {
   events: GuardEventRow[]
   count: number
 }
+interface GuardGroupRow {
+  symbol: string
+  side: string
+  guard_type: string
+  action: string
+  count: number
+}
+interface GuardGroupsResponse {
+  trader_id: string
+  window_hours: number
+  group_by: string[]
+  groups: GuardGroupRow[]
+}
+interface InsightBucket {
+  count: number
+  total: number
+  rate: number
+}
+interface GuardInsightsResponse {
+  trader_id: string
+  window_hours: number
+  horizon_hours: number
+  false_positive: InsightBucket
+  false_negative: InsightBucket
+}
 
 // Color palette for guard_type bars. Defined once here so the bar
 // chart and the legend are guaranteed to match.
@@ -96,6 +121,9 @@ export function RiskAuditPage() {
   const [windowSel, setWindowSel] = useState<Window>('24h')
   const [stats, setStats] = useState<GuardStatsResponse | null>(null)
   const [events, setEvents] = useState<GuardEventRow[]>([])
+  const [groups, setGroups] = useState<GuardGroupRow[]>([])
+  const [insights, setInsights] = useState<GuardInsightsResponse | null>(null)
+  const [groupBy, setGroupBy] = useState<string>('symbol,side,guard_type')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -113,30 +141,44 @@ export function RiskAuditPage() {
     try {
       const headers: Record<string, string> = {}
       if (token) headers.Authorization = `Bearer ${token}`
-      const [statsRes, eventsRes] = await Promise.all([
+      const hours = windowSel === '4h' ? 4 : windowSel === '7d' ? 168 : 24
+      const [statsRes, eventsRes, groupsRes, insightsRes] = await Promise.all([
         fetch(
           `/api/traders/${encodeURIComponent(traderId)}/guard-stats?window=${windowSel}&top_limit=10`,
           { headers }
         ),
         fetch(
-          `/api/traders/${encodeURIComponent(traderId)}/guard-events?limit=50&action=block&since_hours=${
-            windowSel === '4h' ? 4 : windowSel === '7d' ? 168 : 24
-          }`,
+          `/api/traders/${encodeURIComponent(traderId)}/guard-events?limit=50&action=block&since_hours=${hours}`,
+          { headers }
+        ),
+        fetch(
+          `/api/traders/${encodeURIComponent(traderId)}/guard-groups?window=${windowSel}&group_by=${encodeURIComponent(groupBy)}`,
+          { headers }
+        ),
+        fetch(
+          `/api/traders/${encodeURIComponent(traderId)}/guard-insights?window=${windowSel}&horizon=${windowSel}`,
           { headers }
         ),
       ])
       if (!statsRes.ok) throw new Error(`stats HTTP ${statsRes.status}`)
       if (!eventsRes.ok) throw new Error(`events HTTP ${eventsRes.status}`)
+      if (!groupsRes.ok) throw new Error(`groups HTTP ${groupsRes.status}`)
+      if (!insightsRes.ok)
+        throw new Error(`insights HTTP ${insightsRes.status}`)
       const statsJson: GuardStatsResponse = await statsRes.json()
       const eventsJson: GuardEventsResponse = await eventsRes.json()
+      const groupsJson: GuardGroupsResponse = await groupsRes.json()
+      const insightsJson: GuardInsightsResponse = await insightsRes.json()
       setStats(statsJson)
       setEvents(eventsJson.events || [])
+      setGroups(groupsJson.groups || [])
+      setInsights(insightsJson)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
-  }, [traderId, windowSel, token])
+  }, [traderId, windowSel, groupBy, token])
 
   useEffect(() => {
     fetchAll()
@@ -231,7 +273,7 @@ export function RiskAuditPage() {
       {traderId && stats && (
         <>
           {/* Summary cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-6">
             <SummaryCard
               icon={<ShieldX size={18} className="text-red-400" />}
               label={ts(riskAuditI18n.totalBlocks, language)}
@@ -264,6 +306,34 @@ export function RiskAuditPage() {
                   : '—'
               }
               hint={agreementHint}
+            />
+            <SummaryCard
+              icon={<AlertTriangle size={18} className="text-rose-400" />}
+              label={ts(riskAuditI18n.falsePositive, language)}
+              value={
+                insights
+                  ? `${(insights.false_positive.rate * 100).toFixed(1)}%`
+                  : '—'
+              }
+              hint={
+                insights
+                  ? `${insights.false_positive.count}/${insights.false_positive.total}`
+                  : undefined
+              }
+            />
+            <SummaryCard
+              icon={<AlertTriangle size={18} className="text-orange-400" />}
+              label={ts(riskAuditI18n.falseNegative, language)}
+              value={
+                insights
+                  ? `${(insights.false_negative.rate * 100).toFixed(1)}%`
+                  : '—'
+              }
+              hint={
+                insights
+                  ? `${insights.false_negative.count}/${insights.false_negative.total}`
+                  : undefined
+              }
             />
           </div>
 
@@ -310,6 +380,67 @@ export function RiskAuditPage() {
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            )}
+          </section>
+
+          {/* Grouped stats */}
+          <section className="mb-6 p-4 rounded border border-nofx-border bg-nofx-bg-secondary">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-medium text-nofx-text-primary flex items-center gap-2">
+                <BarChart3 size={16} />
+                {ts(riskAuditI18n.groupedStats, language)}
+              </h2>
+              <select
+                value={groupBy}
+                onChange={(e) => setGroupBy(e.target.value)}
+                className="text-xs p-1.5 rounded bg-nofx-bg-primary border border-nofx-border text-nofx-text-primary"
+              >
+                <option value="symbol,side,guard_type">
+                  Symbol / Side / Guard
+                </option>
+                <option value="symbol,guard_type">Symbol / Guard</option>
+                <option value="side,guard_type">Side / Guard</option>
+                <option value="guard_type,action">Guard / Action</option>
+                <option value="symbol,action">Symbol / Action</option>
+              </select>
+            </div>
+            {groups.length === 0 ? (
+              <div className="text-nofx-text-muted text-sm">
+                {ts(riskAuditI18n.noData, language)}
+              </div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-nofx-text-muted text-xs uppercase">
+                      {groupBy.split(',').map((dim) => (
+                        <th key={dim} className="text-left py-1 pr-2">
+                          {dim.trim()}
+                        </th>
+                      ))}
+                      <th className="text-right py-1">Count</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groups.map((g, idx) => (
+                      <tr key={idx} className="border-t border-nofx-border/40">
+                        {groupBy.split(',').map((dim) => {
+                          const key = dim.trim() as keyof GuardGroupRow
+                          return (
+                            <td
+                              key={dim}
+                              className="py-1.5 pr-2 font-mono text-xs"
+                            >
+                              {g[key] || '—'}
+                            </td>
+                          )
+                        })}
+                        <td className="py-1.5 text-right">{g.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>

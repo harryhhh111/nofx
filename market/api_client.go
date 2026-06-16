@@ -57,6 +57,13 @@ func (c *APIClient) GetExchangeInfo() (*ExchangeInfo, error) {
 }
 
 func (c *APIClient) GetKlines(symbol, interval string, limit int) ([]Kline, error) {
+	return c.GetKlinesRange(symbol, interval, time.Time{}, time.Time{}, limit)
+}
+
+// GetKlinesRange fetches klines between startTime and endTime. Either bound
+// may be zero to leave it open. limit caps the number of bars returned by
+// Binance (max 1500).
+func (c *APIClient) GetKlinesRange(symbol, interval string, startTime, endTime time.Time, limit int) ([]Kline, error) {
 	url := fmt.Sprintf("%s/fapi/v1/klines", baseURL)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -67,6 +74,12 @@ func (c *APIClient) GetKlines(symbol, interval string, limit int) ([]Kline, erro
 	q.Add("symbol", symbol)
 	q.Add("interval", interval)
 	q.Add("limit", strconv.Itoa(limit))
+	if !startTime.IsZero() {
+		q.Add("startTime", strconv.FormatInt(startTime.UnixMilli(), 10))
+	}
+	if !endTime.IsZero() {
+		q.Add("endTime", strconv.FormatInt(endTime.UnixMilli(), 10))
+	}
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := c.client.Do(req)
