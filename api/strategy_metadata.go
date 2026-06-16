@@ -46,6 +46,7 @@ func (s *Server) handleStrategyMetadata(c *gin.Context) {
 			{"key": "enable_opening_range", "label": "opening_range", "desc": "openingRangeDesc", "color": "#38bdf8", "period_key": "opening_range_minutes", "operands": []string{"opening_range_high", "opening_range_low", "opening_range_mid", "opening_range_width_pct", "opening_range_ready", "break_opening_range_high", "break_opening_range_low"}},
 			{"key": "enable_rbreaker", "label": "rbreaker", "desc": "rbreakerDesc", "color": "#fb923c", "operands": []string{"rbreaker_pivot", "rbreaker_break_buy", "rbreaker_setup_sell", "rbreaker_reverse_sell", "rbreaker_reverse_buy", "rbreaker_setup_buy", "rbreaker_break_sell", "rbreaker_breakout_long", "rbreaker_breakout_short", "rbreaker_reverse_to_long", "rbreaker_reverse_to_short", "rbreaker_setup_sell_hit", "rbreaker_setup_buy_hit"}},
 			{"key": "enable_mtsi", "label": "mtsi", "desc": "mtsiDesc", "color": "#c084fc", "operands": []string{"mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap"}},
+			{"key": "enable_volume", "label": "volume", "desc": "volumeDesc", "color": "#8b5cf6", "period_key": "volume_periods", "default_periods": []int{20}, "operands": []string{"volume", "volume_avg", "volume_ratio", "volume_spike", "last_volume_spike_high", "break_last_volume_spike_high"}},
 		},
 		"always_calculated_indicators": []string{"price", "vwap", "donchian", "price_change", "realized_vol"},
 		"indicator_operands":           kernel.SupportedIndicatorOperands(),
@@ -159,7 +160,8 @@ func indicatorGroup(name string) string {
 		return "boll"
 	case "macd", "macd_signal", "macd_histogram":
 		return "macd"
-	case "volume", "volume_avg", "volume_ratio":
+	case "volume", "volume_avg", "volume_ratio",
+		"volume_spike", "last_volume_spike_high", "break_last_volume_spike_high":
 		return "volume"
 	case "session_open", "session_high", "session_low", "session_close", "session_volume",
 		"bars_since_session_open", "prev_session_high", "prev_session_low", "prev_session_close",

@@ -240,6 +240,29 @@ func calculateAverageVolume(klines []Kline, period int) float64 {
 	return sum / float64(period)
 }
 
+// findLastVolumeSpikeHigh scans klines backwards (excluding the current bar)
+// for the most recent bar where the volume ratio over period bars exceeds the
+// multiplier. Returns (highPrice, true) if found, or (0, false) if no spike
+// exists in the lookback window.
+func findLastVolumeSpikeHigh(klines []Kline, period int, multiplier float64) (float64, bool) {
+	n := len(klines)
+	if n < period+1 || period <= 0 || multiplier <= 0 {
+		return 0, false
+	}
+	// Scan backwards from len-2 (exclude current bar).
+	for i := n - 2; i >= period; i-- {
+		avg := 0.0
+		for j := i - period + 1; j <= i; j++ {
+			avg += klines[j].Volume
+		}
+		avg /= float64(period)
+		if avg > 0 && klines[i].Volume/avg >= multiplier {
+			return klines[i].High, true
+		}
+	}
+	return 0, false
+}
+
 func calculatePriceChangeWindow(klines []Kline, bars int) float64 {
 	if bars <= 0 || len(klines) <= bars {
 		return 0

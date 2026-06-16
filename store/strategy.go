@@ -355,6 +355,9 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	c.Indicators.ATRPeriods = sanitizeIndicatorPeriods(c.Indicators.ATRPeriods, []int{14})
 	c.Indicators.BOLLPeriods = sanitizeIndicatorPeriods(c.Indicators.BOLLPeriods, []int{20})
 	c.Indicators.VolumePeriods = sanitizeIndicatorPeriods(c.Indicators.VolumePeriods, []int{20})
+	if c.Indicators.VolumeSpikeMultiplier <= 0 {
+		c.Indicators.VolumeSpikeMultiplier = 4.0
+	}
 	c.Indicators.VWAPPeriods = sanitizeIndicatorPeriods(c.Indicators.VWAPPeriods, []int{20})
 	c.Indicators.DonchianPeriods = sanitizeIndicatorPeriods(c.Indicators.DonchianPeriods, []int{20})
 	c.Indicators.RealizedVolPeriods = sanitizeIndicatorPeriods(c.Indicators.RealizedVolPeriods, []int{20})
@@ -947,8 +950,9 @@ type IndicatorConfig struct {
 	MACDSlowPeriod   int `json:"macd_slow_period,omitempty"`   // default 26
 	MACDSignalPeriod int `json:"macd_signal_period,omitempty"` // default 9
 	// Additional K-line derived indicator period configuration.
-	VolumePeriods      []int `json:"volume_periods,omitempty"`       // default [20]
-	VWAPPeriods        []int `json:"vwap_periods,omitempty"`         // default [20]
+	VolumePeriods         []int   `json:"volume_periods,omitempty"`          // default [20]
+	VolumeSpikeMultiplier float64 `json:"volume_spike_multiplier,omitempty"` // default 4.0
+	VWAPPeriods           []int   `json:"vwap_periods,omitempty"`            // default [20]
 	DonchianPeriods    []int `json:"donchian_periods,omitempty"`     // default [20]
 	RealizedVolPeriods      []int    `json:"realized_vol_periods,omitempty"`       // default [20]
 	PriceChangeWindows      []int    `json:"price_change_windows,omitempty"`       // default [12, 48], bar windows

@@ -311,6 +311,7 @@ export interface IndicatorConfig {
   macd_slow_period?: number;
   macd_signal_period?: number;
   volume_periods?: number[];
+  volume_spike_multiplier?: number;
   vwap_periods?: number[];
   donchian_periods?: number[];
   realized_vol_periods?: number[];

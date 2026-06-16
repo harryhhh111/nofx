@@ -602,6 +602,7 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 	}
 	if indicators.EnableVolume {
 		req.VolumePeriods = indicators.VolumePeriods
+		req.VolumeSpikeMultiplier = indicators.VolumeSpikeMultiplier
 	}
 	req.VWAPPeriods = indicators.VWAPPeriods
 	req.DonchianPeriods = indicators.DonchianPeriods

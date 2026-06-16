@@ -10,6 +10,7 @@ func SupportedIndicatorOperands() []string {
 		"boll_upper", "boll_middle", "boll_lower",
 		"macd", "macd_signal", "macd_histogram",
 		"volume", "volume_avg", "volume_ratio",
+		"volume_spike", "last_volume_spike_high", "break_last_volume_spike_high",
 		"vwap",
 		"donchian_upper", "donchian_lower", "donchian_middle",
 		"break_above_donchian", "break_below_donchian",

@@ -43,6 +43,7 @@ const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
   { key: 'enable_opening_range', label: 'opening_range', desc: 'openingRangeDesc', color: '#38bdf8', period_key: 'opening_range_minutes' },
   { key: 'enable_rbreaker', label: 'rbreaker', desc: 'rbreakerDesc', color: '#fb923c' },
   { key: 'enable_mtsi', label: 'mtsi', desc: 'mtsiDesc', color: '#c084fc' },
+  { key: 'enable_volume', label: 'volume', desc: 'volumeDesc', color: '#8b5cf6', period_key: 'volume_periods', default_periods: [20] },
 ]
 
 const marketDataSources = [

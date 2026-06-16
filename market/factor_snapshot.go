@@ -21,8 +21,9 @@ type IndicatorRequest struct {
 	SAR                *SARSpec      `json:"sar,omitempty"`
 	BOLLPeriods        []BOLLSpec    `json:"boll_periods,omitempty"`
 	MACD               *MACDSpec     `json:"macd,omitempty"`
-	VWAPPeriods        []int         `json:"vwap_periods,omitempty"`
-	VolumePeriods      []int         `json:"volume_periods,omitempty"`
+	VWAPPeriods           []int         `json:"vwap_periods,omitempty"`
+	VolumePeriods         []int         `json:"volume_periods,omitempty"`
+	VolumeSpikeMultiplier float64       `json:"volume_spike_multiplier,omitempty"`
 	DonchianPeriods    []int              `json:"donchian_periods,omitempty"`
 	RealizedVolPeriods      []int              `json:"realized_vol_periods,omitempty"`
 	PriceChangeWindows      []int              `json:"price_change_windows,omitempty"`

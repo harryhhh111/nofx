@@ -56,6 +56,51 @@ func TestMultiOutputIndicatorsAddressable(t *testing.T) {
 	_ = hist
 }
 
+// TestVolumeSpikeIndicatorsAddressable verifies that volume spike outputs are
+// stored under their own indicator names and can be retrieved independently.
+func TestVolumeSpikeIndicatorsAddressable(t *testing.T) {
+	klines := syntheticTrend(160)
+	// Inject a past volume spike so last_volume_spike_high is defined.
+	// findLastVolumeSpikeHigh excludes the current bar, so the spike must be
+	// before the final bar.
+	pastSpikeIdx := len(klines) - 5
+	klines[pastSpikeIdx].Volume = 100000
+	klines[pastSpikeIdx].High = 999.0
+	// Inject a current volume spike so volume_spike triggers.
+	klines[len(klines)-1].Volume = 100000
+	input := MarketInput{
+		Symbol:     "TESTUSDT",
+		Timeframes: map[string][]Kline{"15m": klines},
+		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
+	}
+	req := IndicatorRequest{
+		VolumePeriods:         []int{20},
+		VolumeSpikeMultiplier: 4.0,
+	}
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mustGet := func(name string, period int) float64 {
+		v, ok := snap.IndicatorValue(name, "15m", period)
+		if !ok {
+			t.Fatalf("indicator %q (period %d) is not addressable by name", name, period)
+		}
+		return v
+	}
+
+	mustGet("volume", 0)
+	mustGet("volume_avg", 20)
+	mustGet("volume_ratio", 20)
+	mustGet("volume_spike", 20)
+	spikeHigh := mustGet("last_volume_spike_high", 20)
+	if math.Abs(spikeHigh-999.0) > 1e-9 {
+		t.Fatalf("expected last_volume_spike_high=999.0, got %v", spikeHigh)
+	}
+	mustGet("break_last_volume_spike_high", 20)
+}
+
 // TestMTSIIndicatorsAddressable verifies that MTSI sub-outputs are stored under
 // their own names and can be retrieved independently.
 func TestMTSIIndicatorsAddressable(t *testing.T) {
