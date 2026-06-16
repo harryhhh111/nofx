@@ -281,6 +281,50 @@ func calculateRealizedVol(klines []Kline, period int) float64 {
 	return math.Sqrt(variance/float64(len(returns)-1)) * 100
 }
 
+// calculateRollingPercentile returns the percentile rank (0-100) of the last
+// value in series against its trailing window. Returns (0, false) when the
+// window cannot be satisfied — callers must skip output, never emit NaN.
+func calculateRollingPercentile(series []float64, window int) (float64, bool) {
+	n := len(series)
+	if n < window || window <= 0 {
+		return 0, false
+	}
+	last := series[n-1]
+	count := 0
+	for i := n - window; i < n; i++ {
+		if series[i] <= last {
+			count++
+		}
+	}
+	return float64(count) / float64(window) * 100, true
+}
+
+// calculateZScore returns the z-score of the last value in series against its
+// trailing window. Returns (0, false) when the window cannot be satisfied or
+// the standard deviation is zero — callers must skip output, never emit NaN.
+func calculateZScore(series []float64, window int) (float64, bool) {
+	n := len(series)
+	if n < window || window <= 1 {
+		return 0, false
+	}
+	start := n - window
+	mean := 0.0
+	for i := start; i < n; i++ {
+		mean += series[i]
+	}
+	mean /= float64(window)
+	variance := 0.0
+	for i := start; i < n; i++ {
+		diff := series[i] - mean
+		variance += diff * diff
+	}
+	variance /= float64(window)
+	if variance == 0 {
+		return 0, false
+	}
+	return (series[n-1] - mean) / math.Sqrt(variance), true
+}
+
 // Box period constants (in 1h candles)
 const (
 	ShortBoxPeriod = 72  // 3 days of 1h candles
