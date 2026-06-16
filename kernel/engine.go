@@ -302,7 +302,28 @@ type FullDecision struct {
 	Reviews             []AIReviewDecision        `json:"reviews,omitempty"`
 	Risk                *RiskGateResult           `json:"risk,omitempty"`
 	InputAudit          *TradingInputAudit        `json:"input_audit,omitempty"`
+	UserDecisionSummary *UserDecisionSummary      `json:"user_decision_summary,omitempty"`
 	CalibrationSamples  []SignalCalibrationSample `json:"-"`
+}
+
+type UserDecisionSummary struct {
+	Status   string                      `json:"status"`
+	Headline string                      `json:"headline"`
+	Steps    []UserDecisionSummaryStep   `json:"steps,omitempty"`
+	Symbols  []UserDecisionSymbolSummary `json:"symbols,omitempty"`
+}
+
+type UserDecisionSummaryStep struct {
+	Title   string `json:"title"`
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+}
+
+type UserDecisionSymbolSummary struct {
+	Symbol   string   `json:"symbol"`
+	Decision string   `json:"decision"`
+	Reason   string   `json:"reason"`
+	Details  []string `json:"details,omitempty"`
 }
 
 type TradingInputAudit struct {

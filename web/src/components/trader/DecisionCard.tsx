@@ -66,6 +66,27 @@ function getArray(value: unknown): any[] {
   return Array.isArray(value) ? value : []
 }
 
+function getObject(value: unknown): Record<string, any> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, any> : null
+}
+
+function summaryStepColor(status: unknown): string {
+  switch (String(status || '').toLowerCase()) {
+    case 'ok':
+    case 'trade':
+      return '#0ECB81'
+    case 'warn':
+    case 'reviewed':
+      return '#F0B90B'
+    case 'reject':
+    case 'rejected':
+    case 'error':
+      return '#F6465D'
+    default:
+      return '#A7B0BC'
+  }
+}
+
 function formatScore(value: unknown): string {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-'
 }
@@ -528,6 +549,10 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
   const reviews = useMemo(() => getArray(parsedDecision?.reviews), [parsedDecision])
   const riskRejected = useMemo(() => getArray(parsedDecision?.risk?.rejected), [parsedDecision])
   const riskApproved = useMemo(() => getArray(parsedDecision?.risk?.approved), [parsedDecision])
+  const userDecisionSummary = useMemo(
+    () => getObject(parsedDecision?.user_decision_summary) || getObject(decision.user_decision_summary),
+    [parsedDecision, decision.user_decision_summary]
+  )
   const inputAudit = parsedDecision?.input_audit && typeof parsedDecision.input_audit === 'object' ? parsedDecision.input_audit : null
   const marketContext = parsedDecision?.market_context && typeof parsedDecision.market_context === 'object' ? parsedDecision.market_context : null
   const signalCount = getArrayLength(parsedDecision?.signals)
@@ -607,6 +632,55 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
           <div className="font-mono font-semibold" style={{ color: actionCount > 0 ? '#0ECB81' : '#A7B0BC' }}>{actionCount}</div>
         </div>
       </div>
+
+      {userDecisionSummary && (
+        <div
+          className="rounded-lg p-3 mb-4"
+          style={{ background: 'rgba(14, 203, 129, 0.06)', border: '1px solid rgba(14, 203, 129, 0.18)' }}
+        >
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div className="text-xs font-semibold" style={{ color: '#EAECEF' }}>
+              {language === 'zh' ? '决策摘要' : 'Decision Summary'}
+            </div>
+            <span className="rounded px-2 py-0.5 text-[10px] font-mono" style={{ color: summaryStepColor(userDecisionSummary.status), background: 'rgba(255,255,255,0.05)' }}>
+              {String(userDecisionSummary.status || '-')}
+            </span>
+          </div>
+          {typeof userDecisionSummary.headline === 'string' && userDecisionSummary.headline && (
+            <div className="mb-3 text-sm leading-relaxed" style={{ color: '#EAECEF' }}>
+              {userDecisionSummary.headline}
+            </div>
+          )}
+          {getArray(userDecisionSummary.steps).length > 0 && (
+            <div className="space-y-2">
+              {getArray(userDecisionSummary.steps).slice(0, 4).map((step: any, index: number) => (
+                <div key={`${String(step?.title || 'step')}-${index}`} className="rounded-md px-2 py-1.5" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                  <div className="mb-0.5 flex items-center gap-2 text-[11px]">
+                    <span className="font-semibold" style={{ color: summaryStepColor(step?.status) }}>
+                      {String(step?.title || '-')}
+                    </span>
+                    <span className="font-mono" style={{ color: '#848E9C' }}>{String(step?.status || '')}</span>
+                  </div>
+                  <div className="text-[11px] leading-relaxed" style={{ color: '#A7B0BC' }}>
+                    {String(step?.summary || '-')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {getArray(userDecisionSummary.symbols).length > 0 && (
+            <div className="mt-3 space-y-1">
+              {getArray(userDecisionSummary.symbols).slice(0, 3).map((item: any) => (
+                <div key={String(item?.symbol || item?.reason)} className="text-[11px] leading-relaxed" style={{ color: '#A7B0BC' }}>
+                  <span className="font-mono" style={{ color: '#EAECEF' }}>{String(item?.symbol || '-')}</span>
+                  <span className="mx-1" style={{ color: summaryStepColor(item?.decision) }}>{String(item?.decision || '-')}</span>
+                  <span>{String(item?.reason || '')}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {decision.success && actionCount === 0 && (
         <div

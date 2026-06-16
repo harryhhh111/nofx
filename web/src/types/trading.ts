@@ -98,6 +98,7 @@ export interface DecisionRecord {
   system_prompt: string
   input_prompt: string
   cot_trace: string
+  user_decision_summary?: UserDecisionSummary
   decision_json: string
   account_state: AccountSnapshot
   positions: any[]
@@ -106,6 +107,26 @@ export interface DecisionRecord {
   execution_log: string[]
   success: boolean
   error_message?: string
+}
+
+export interface UserDecisionSummary {
+  status: string
+  headline: string
+  steps?: UserDecisionSummaryStep[]
+  symbols?: UserDecisionSymbolSummary[]
+}
+
+export interface UserDecisionSummaryStep {
+  title: string
+  status: string
+  summary: string
+}
+
+export interface UserDecisionSymbolSummary {
+  symbol: string
+  decision: string
+  reason: string
+  details?: string[]
 }
 
 export interface Statistics {

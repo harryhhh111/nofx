@@ -162,6 +162,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		Reviews:             result.Reviews,
 		Risk:                result.Risk,
 		InputAudit:          buildTradingInputAudit(ctx, engineConfig),
+		UserDecisionSummary: buildUserDecisionSummary(result),
 		CalibrationSamples:  BuildSignalCalibrationSamples(signalRequest, result),
 	}
 	if len(result.Signals) > 0 {
@@ -826,6 +827,200 @@ func tradingResultSummary(result *TradingEngineResult, ruleCount int) string {
 		approved,
 		rejected,
 	)
+}
+
+func buildUserDecisionSummary(result *TradingEngineResult) *UserDecisionSummary {
+	if result == nil {
+		return &UserDecisionSummary{
+			Status:   "error",
+			Headline: "本轮没有可用的交易评估结果。",
+		}
+	}
+
+	approved := 0
+	rejected := 0
+	if result.Risk != nil {
+		approved = len(result.Risk.Approved)
+		rejected = len(result.Risk.Rejected)
+	}
+
+	status := "no_trade"
+	headline := "本轮没有产生可执行交易。"
+	switch {
+	case approved > 0:
+		status = "trade"
+		headline = fmt.Sprintf("本轮通过风控，生成 %d 个可执行交易动作。", approved)
+	case len(result.Signals) > 0 && rejected > 0:
+		status = "rejected"
+		headline = fmt.Sprintf("本轮识别到 %d 个候选信号，但未通过最终复核或风控。", len(result.Signals))
+	case len(result.Signals) > 0:
+		status = "reviewed"
+		headline = fmt.Sprintf("本轮识别到 %d 个候选信号，但没有形成可执行动作。", len(result.Signals))
+	case len(result.SetupEvaluations) > 0:
+		headline = "本轮完成市场评估，但没有满足开仓条件的信号。"
+	}
+
+	steps := []UserDecisionSummaryStep{
+		{
+			Title:   "数据与候选",
+			Status:  "ok",
+			Summary: fmt.Sprintf("完成 %d 个交易对象的代码评估。", maxInt(len(result.SetupEvaluations), len(result.Signals))),
+		},
+	}
+	if len(result.Signals) == 0 {
+		steps = append(steps, UserDecisionSummaryStep{
+			Title:   "机会识别",
+			Status:  "skip",
+			Summary: "代码没有生成可执行开仓或平仓候选信号，因此没有进入 AI 复核和下单流程。",
+		})
+	} else {
+		steps = append(steps, UserDecisionSummaryStep{
+			Title:   "机会识别",
+			Status:  "ok",
+			Summary: fmt.Sprintf("代码生成 %d 个候选信号，后续进入 AI 复核和风控校验。", len(result.Signals)),
+		})
+	}
+
+	if len(result.Reviews) > 0 {
+		pass, warn, reject := reviewStatusCounts(result.Reviews)
+		steps = append(steps, UserDecisionSummaryStep{
+			Title:   "AI 复核",
+			Status:  reviewStepStatus(pass, warn, reject),
+			Summary: fmt.Sprintf("AI 复核结果：通过 %d，警告 %d，拒绝 %d。", pass, warn, reject),
+		})
+	}
+
+	if result.Risk != nil {
+		riskStatus := "ok"
+		if approved == 0 && rejected > 0 {
+			riskStatus = "reject"
+		} else if approved == 0 {
+			riskStatus = "skip"
+		}
+		steps = append(steps, UserDecisionSummaryStep{
+			Title:   "风控结果",
+			Status:  riskStatus,
+			Summary: fmt.Sprintf("风控通过 %d 个信号，拒绝 %d 个信号。", approved, rejected),
+		})
+	}
+
+	return &UserDecisionSummary{
+		Status:   status,
+		Headline: headline,
+		Steps:    steps,
+		Symbols:  buildUserDecisionSymbolSummaries(result),
+	}
+}
+
+func reviewStatusCounts(reviews []AIReviewDecision) (pass, warn, reject int) {
+	for _, review := range reviews {
+		switch strings.ToLower(strings.TrimSpace(review.Status)) {
+		case "pass":
+			pass++
+		case "reject":
+			reject++
+		default:
+			warn++
+		}
+	}
+	return pass, warn, reject
+}
+
+func reviewStepStatus(pass, warn, reject int) string {
+	switch {
+	case reject > 0:
+		return "reject"
+	case warn > 0:
+		return "warn"
+	case pass > 0:
+		return "ok"
+	default:
+		return "skip"
+	}
+}
+
+func buildUserDecisionSymbolSummaries(result *TradingEngineResult) []UserDecisionSymbolSummary {
+	if result == nil {
+		return nil
+	}
+	signalByID := map[string]CandidateSignal{}
+	for _, signal := range result.Signals {
+		signalByID[signal.ID] = signal
+	}
+	approved := map[string]bool{}
+	rejected := map[string]string{}
+	if result.Risk != nil {
+		for _, signal := range result.Risk.Approved {
+			approved[signal.ID] = true
+		}
+		for _, item := range result.Risk.Rejected {
+			rejected[item.SignalID] = item.Reason
+		}
+	}
+
+	out := make([]UserDecisionSymbolSummary, 0, len(result.Signals)+len(result.SetupEvaluations))
+	seen := map[string]bool{}
+	for _, signal := range result.Signals {
+		seen[signal.Symbol] = true
+		decision := "review"
+		reason := signal.TriggerReason
+		if approved[signal.ID] {
+			decision = signal.Action
+			reason = "通过 AI 复核和风控校验"
+		} else if rejectReason := rejected[signal.ID]; rejectReason != "" {
+			decision = "skip"
+			reason = rejectReason
+		}
+		out = append(out, UserDecisionSymbolSummary{
+			Symbol:   signal.Symbol,
+			Decision: decision,
+			Reason:   reason,
+			Details:  signalUserDetails(signal),
+		})
+	}
+	for _, trace := range result.SetupEvaluations {
+		if trace.Symbol == "" || seen[trace.Symbol] {
+			continue
+		}
+		seen[trace.Symbol] = true
+		out = append(out, UserDecisionSymbolSummary{
+			Symbol:   trace.Symbol,
+			Decision: "skip",
+			Reason:   trace.Reason,
+			Details: []string{
+				fmt.Sprintf("主周期评分 %.1f，入场周期评分 %.1f", trace.Primary.Score, trace.Entry.Score),
+				fmt.Sprintf("场景：%s", emptyAs(trace.Setup, "未满足交易场景")),
+			},
+		})
+	}
+	return out
+}
+
+func signalUserDetails(signal CandidateSignal) []string {
+	details := []string{}
+	if signal.Setup != "" {
+		details = append(details, "交易场景："+signal.Setup)
+	}
+	if signal.EntryPrice > 0 {
+		details = append(details, fmt.Sprintf("入场参考 %.4f", signal.EntryPrice))
+	}
+	if signal.StopLoss > 0 {
+		details = append(details, fmt.Sprintf("止损 %.4f", signal.StopLoss))
+	}
+	if signal.TakeProfit > 0 {
+		details = append(details, fmt.Sprintf("止盈 %.4f", signal.TakeProfit))
+	}
+	if levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace); ok {
+		details = append(details, fmt.Sprintf("止损来源：%s，止盈来源：%s，实际盈亏比 %.2f", levels.StopSource, levels.TargetSource, levels.RiskReward))
+	}
+	return details
+}
+
+func emptyAs(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 // ============================================================================
