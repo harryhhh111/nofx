@@ -126,27 +126,32 @@ func (at *AutoTrader) runCycle() error {
 		record.InputPrompt = aiDecision.UserPrompt
 		record.CoTTrace = aiDecision.CoTTrace
 		record.CotSummary = aiDecision.CoTSummary
+		if aiDecision.UserDecisionSummary != nil && aiDecision.UserDecisionSummary.Headline != "" {
+			record.CotSummary = aiDecision.UserDecisionSummary.Headline
+		}
 		record.RawResponse = aiDecision.RawResponse // Save raw AI response for debugging
 		flowTrace := struct {
-			Decisions          []kernel.Decision               `json:"decisions"`
-			Signals            []kernel.CandidateSignal        `json:"signals"`
-			SetupEvaluations   []kernel.SetupEvaluationTrace   `json:"setup_evaluations"`
-			ScoringEvaluations []kernel.ScoringEvaluationTrace `json:"scoring_evaluations"`
-			RuleEvaluations    []kernel.RuleEvaluationTrace    `json:"rule_evaluations"`
-			Reviews            []kernel.AIReviewDecision       `json:"reviews,omitempty"`
-			Risk               *kernel.RiskGateResult          `json:"risk,omitempty"`
-			MarketContext      *kernel.MarketContext           `json:"market_context,omitempty"`
-			InputAudit         *kernel.TradingInputAudit       `json:"input_audit,omitempty"`
+			Decisions           []kernel.Decision               `json:"decisions"`
+			Signals             []kernel.CandidateSignal        `json:"signals"`
+			SetupEvaluations    []kernel.SetupEvaluationTrace   `json:"setup_evaluations"`
+			ScoringEvaluations  []kernel.ScoringEvaluationTrace `json:"scoring_evaluations"`
+			RuleEvaluations     []kernel.RuleEvaluationTrace    `json:"rule_evaluations"`
+			Reviews             []kernel.AIReviewDecision       `json:"reviews,omitempty"`
+			Risk                *kernel.RiskGateResult          `json:"risk,omitempty"`
+			MarketContext       *kernel.MarketContext           `json:"market_context,omitempty"`
+			InputAudit          *kernel.TradingInputAudit       `json:"input_audit,omitempty"`
+			UserDecisionSummary *kernel.UserDecisionSummary     `json:"user_decision_summary,omitempty"`
 		}{
-			Decisions:          aiDecision.Decisions,
-			Signals:            aiDecision.Signals,
-			SetupEvaluations:   aiDecision.SetupEvaluations,
-			ScoringEvaluations: aiDecision.ScoringEvaluations,
-			RuleEvaluations:    aiDecision.RuleEvaluations,
-			Reviews:            aiDecision.Reviews,
-			Risk:               aiDecision.Risk,
-			MarketContext:      aiDecision.MarketContext,
-			InputAudit:         aiDecision.InputAudit,
+			Decisions:           aiDecision.Decisions,
+			Signals:             aiDecision.Signals,
+			SetupEvaluations:    aiDecision.SetupEvaluations,
+			ScoringEvaluations:  aiDecision.ScoringEvaluations,
+			RuleEvaluations:     aiDecision.RuleEvaluations,
+			Reviews:             aiDecision.Reviews,
+			Risk:                aiDecision.Risk,
+			MarketContext:       aiDecision.MarketContext,
+			InputAudit:          aiDecision.InputAudit,
+			UserDecisionSummary: aiDecision.UserDecisionSummary,
 		}
 		if decisionJSON, jsonErr := json.MarshalIndent(flowTrace, "", "  "); jsonErr == nil {
 			record.DecisionJSON = string(decisionJSON)
