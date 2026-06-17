@@ -298,6 +298,7 @@ export interface IndicatorConfig {
   enable_session: boolean;
   enable_opening_range: boolean;
   enable_rbreaker: boolean;
+  enable_mtsi: boolean;
   enable_volume: boolean;
   enable_oi: boolean;
   enable_funding_rate: boolean;

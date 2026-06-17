@@ -81,6 +81,14 @@ func requireBarsExclusive(symbol, name string, have, need int) error {
 	return nil
 }
 
+// hasEnoughBars returns true when there are at least need bars available.
+// Unlike requireBars/requireBarsExclusive, it does not return an error —
+// use this for scenarios where insufficient data should be silently skipped
+// rather than aborting the whole snapshot.
+func hasEnoughBars(klines []Kline, need int) bool {
+	return len(klines) > need
+}
+
 func addTechnicalToSnapshot(s *FactorSnapshot, name string, point IndicatorPoint) {
 	if s.Technical == nil {
 		s.Technical = map[string][]IndicatorPoint{}

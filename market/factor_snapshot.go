@@ -29,6 +29,7 @@ type IndicatorRequest struct {
 	Sessions           []SessionSpec      `json:"sessions,omitempty"`
 	OpeningRange       *OpeningRangeSpec  `json:"opening_range,omitempty"`
 	EnableRBreaker     bool               `json:"enable_rbreaker,omitempty"`
+	EnableMTSI         bool               `json:"enable_mtsi,omitempty"`
 }
 
 type ADXSpec struct {

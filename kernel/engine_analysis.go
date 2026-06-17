@@ -620,6 +620,7 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 		}
 	}
 	req.EnableRBreaker = indicators.EnableRBreaker
+	req.EnableMTSI = indicators.EnableMTSI
 	if indicators.EnableRBreaker && len(req.Sessions) == 0 {
 		// R-Breaker also needs session definition
 		req.Sessions = []market.SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}}

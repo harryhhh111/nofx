@@ -26,6 +26,7 @@ func SupportedIndicatorOperands() []string {
 		"rbreaker_breakout_long", "rbreaker_breakout_short",
 		"rbreaker_reverse_to_long", "rbreaker_reverse_to_short",
 		"rbreaker_setup_sell_hit", "rbreaker_setup_buy_hit",
+		"mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap",
 	}
 }
 

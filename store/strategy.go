@@ -898,6 +898,7 @@ type IndicatorConfig struct {
 	EnableSession      bool `json:"enable_session"`       // Previous session OHLCV
 	EnableOpeningRange bool `json:"enable_opening_range"` // Opening Range (first N minutes of session)
 	EnableRBreaker     bool `json:"enable_rbreaker"`      // R-Breaker pivot levels
+	EnableMTSI         bool `json:"enable_mtsi"`          // MTSI (log-ratio to VWAP)
 	EnableVolume       bool `json:"enable_volume"`
 	EnableOI           bool `json:"enable_oi"`           // open interest
 	EnableFundingRate  bool `json:"enable_funding_rate"` // funding rate

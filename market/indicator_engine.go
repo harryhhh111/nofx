@@ -39,6 +39,7 @@ func NewDefaultIndicatorEngine() *DefaultIndicatorEngine {
 			&SessionModule{},
 			&OpeningRangeModule{},
 			&RBreakerModule{},
+			&MTSIModule{},
 		},
 	}
 }

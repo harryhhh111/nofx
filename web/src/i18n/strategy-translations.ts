@@ -252,6 +252,8 @@ export const indicator = {
   openingRangeDesc: { zh: '开盘后 N 分钟高低区间', en: 'High/low range for first N minutes', es: 'Rango alto/bajo de los primeros minutos' },
   rbreaker: { zh: 'R-Breaker', en: 'R-Breaker', es: 'R-Breaker' },
   rbreakerDesc: { zh: 'R-Breaker 支撑阻力枢轴', en: 'R-Breaker pivot levels', es: 'Niveles pivot R-Breaker' },
+  mtsi: { zh: 'MTSI', en: 'MTSI', es: 'MTSI' },
+  mtsiDesc: { zh: '收盘价与 VWAP 的 log-ratio 及衍生信号', en: 'Log-ratio of close to VWAP and derived signals', es: 'Log-ratio del cierre respecto a VWAP' },
   volume: { zh: '成交量', en: 'Volume', es: 'Volumen' },
   volumeDesc: { zh: '交易量分析', en: 'Trading volume analysis', es: 'Análisis de volumen' },
   oi: { zh: '持仓量', en: 'Open Interest', es: 'Interés Abierto' },

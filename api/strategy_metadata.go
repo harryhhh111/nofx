@@ -45,6 +45,7 @@ func (s *Server) handleStrategyMetadata(c *gin.Context) {
 			{"key": "enable_session", "label": "session", "desc": "sessionDesc", "color": "#84cc16", "operands": []string{"session_open", "session_high", "session_low", "session_close", "session_volume", "bars_since_session_open", "prev_session_high", "prev_session_low", "prev_session_close", "prev_session_volume", "break_above_prev_session_high", "break_below_prev_session_low"}},
 			{"key": "enable_opening_range", "label": "opening_range", "desc": "openingRangeDesc", "color": "#38bdf8", "period_key": "opening_range_minutes", "operands": []string{"opening_range_high", "opening_range_low", "opening_range_mid", "opening_range_width_pct", "opening_range_ready", "break_opening_range_high", "break_opening_range_low"}},
 			{"key": "enable_rbreaker", "label": "rbreaker", "desc": "rbreakerDesc", "color": "#fb923c", "operands": []string{"rbreaker_pivot", "rbreaker_break_buy", "rbreaker_setup_sell", "rbreaker_reverse_sell", "rbreaker_reverse_buy", "rbreaker_setup_buy", "rbreaker_break_sell", "rbreaker_breakout_long", "rbreaker_breakout_short", "rbreaker_reverse_to_long", "rbreaker_reverse_to_short", "rbreaker_setup_sell_hit", "rbreaker_setup_buy_hit"}},
+			{"key": "enable_mtsi", "label": "mtsi", "desc": "mtsiDesc", "color": "#c084fc", "operands": []string{"mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap"}},
 		},
 		"always_calculated_indicators": []string{"price", "vwap", "donchian", "price_change", "realized_vol"},
 		"indicator_operands":           kernel.SupportedIndicatorOperands(),
@@ -131,6 +132,8 @@ func indicatorAvailableInConfig(config *store.StrategyConfig, operand store.Comp
 		return indicators.EnableOpeningRange
 	case "rbreaker":
 		return indicators.EnableRBreaker
+	case "mtsi":
+		return indicators.EnableMTSI
 	case "always":
 		return true
 	default:
@@ -172,6 +175,8 @@ func indicatorGroup(name string) string {
 		"rbreaker_reverse_to_long", "rbreaker_reverse_to_short",
 		"rbreaker_setup_sell_hit", "rbreaker_setup_buy_hit":
 		return "rbreaker"
+	case "mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap":
+		return "mtsi"
 	case "vwap", "donchian_upper", "donchian_lower", "donchian_middle",
 		"break_above_donchian", "break_below_donchian", "price_change", "realized_vol":
 		return "always"

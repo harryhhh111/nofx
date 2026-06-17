@@ -42,6 +42,7 @@ const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
   { key: 'enable_session', label: 'session', desc: 'sessionDesc', color: '#84cc16' },
   { key: 'enable_opening_range', label: 'opening_range', desc: 'openingRangeDesc', color: '#38bdf8', period_key: 'opening_range_minutes' },
   { key: 'enable_rbreaker', label: 'rbreaker', desc: 'rbreakerDesc', color: '#fb923c' },
+  { key: 'enable_mtsi', label: 'mtsi', desc: 'mtsiDesc', color: '#c084fc' },
 ]
 
 const marketDataSources = [
