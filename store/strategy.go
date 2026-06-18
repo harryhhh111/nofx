@@ -365,9 +365,9 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	c.Indicators.DonchianPeriods = sanitizeIndicatorPeriods(c.Indicators.DonchianPeriods, []int{20})
 	c.Indicators.RealizedVolPeriods = sanitizeIndicatorPeriods(c.Indicators.RealizedVolPeriods, []int{20})
 	c.Indicators.PriceChangeWindows = sanitizeIndicatorPeriods(c.Indicators.PriceChangeWindows, []int{12, 48})
-	if len(c.Indicators.PriceChangeNamedWindows) == 0 {
-		c.Indicators.PriceChangeNamedWindows = []string{"1h", "4h", "24h"}
-	}
+	// PriceChangeNamedWindows defaults to empty so that named-window returns and
+	// first-cross signals are opt-in only. Existing strategies without this field
+	// will not suddenly start computing extra windows.
 
 	if c.Indicators.MACDFastPeriod <= 0 {
 		c.Indicators.MACDFastPeriod = 12
