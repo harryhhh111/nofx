@@ -1164,7 +1164,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			EnableOpeningRange:     false,
 			OpeningRangeMinutes:    30,
 			EnableRBreaker:         false,
-			EnableVolume:           true,
+			EnableVolume:           false,
 			EnableOI:               true,
 			EnableFundingRate:      true,
 			EMAPeriods:             []int{20, 50},
