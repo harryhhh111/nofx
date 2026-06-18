@@ -467,14 +467,21 @@ func requiredCalculationLookback(config *store.StrategyConfig) int {
 	if indicators.EnableBOLL {
 		required = maxInt(required, maxIntSlice(indicators.BOLLPeriods))
 	}
-	if indicators.EnableVolume {
+	if indicators.EnableVolume || indicators.EnableVolumeSpike {
 		required = maxInt(required, maxIntSlice(indicators.VolumePeriods))
 	}
 	if indicators.EnableMACD {
 		required = maxInt(required, indicators.MACDSlowPeriod+indicators.MACDSignalPeriod)
 	}
-	required = maxInt(required, maxIntSlice(indicators.VWAPPeriods))
-	required = maxInt(required, maxIntSlice(indicators.DonchianPeriods))
+	if indicators.EnableVWAP {
+		required = maxInt(required, maxIntSlice(indicators.VWAPPeriods))
+	}
+	if indicators.EnableDonchian {
+		required = maxInt(required, maxIntSlice(indicators.DonchianPeriods))
+	}
+	if indicators.EnableRollingPercentile {
+		required = maxInt(required, maxIntSlice(indicators.RollingPercentilePeriods))
+	}
 	required = maxInt(required, maxIntSlice(indicators.RealizedVolPeriods)+1)
 	required = maxInt(required, maxIntSlice(indicators.PriceChangeWindows)+1)
 	required = maxInt(required, maxNamedWindowBars(indicators.PriceChangeNamedWindows)+1)
@@ -604,12 +611,23 @@ func IndicatorRequestFromStrategyConfig(config *store.StrategyConfig) market.Ind
 	if indicators.EnableMACD {
 		req.MACD = &market.MACDSpec{Fast: indicators.MACDFastPeriod, Slow: indicators.MACDSlowPeriod, Signal: indicators.MACDSignalPeriod}
 	}
-	if indicators.EnableVolume {
+	if indicators.EnableVolume || indicators.EnableVolumeSpike {
 		req.VolumePeriods = indicators.VolumePeriods
+	}
+	req.EnableVolume = indicators.EnableVolume
+	if indicators.EnableVolumeSpike {
+		req.EnableVolumeSpike = true
 		req.VolumeSpikeMultiplier = indicators.VolumeSpikeMultiplier
 	}
-	req.VWAPPeriods = indicators.VWAPPeriods
-	req.DonchianPeriods = indicators.DonchianPeriods
+	if indicators.EnableVWAP {
+		req.VWAPPeriods = indicators.VWAPPeriods
+	}
+	if indicators.EnableDonchian {
+		req.DonchianPeriods = indicators.DonchianPeriods
+	}
+	if indicators.EnableRollingPercentile {
+		req.RollingPercentilePeriods = indicators.RollingPercentilePeriods
+	}
 	req.RealizedVolPeriods = indicators.RealizedVolPeriods
 	req.PriceChangeWindows = indicators.PriceChangeWindows
 	req.PriceChangeNamedWindows = indicators.PriceChangeNamedWindows

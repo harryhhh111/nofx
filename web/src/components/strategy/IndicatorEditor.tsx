@@ -43,7 +43,11 @@ const fallbackTechnicalIndicators: StrategyMetadataIndicator[] = [
   { key: 'enable_opening_range', label: 'opening_range', desc: 'openingRangeDesc', color: '#38bdf8', period_key: 'opening_range_minutes' },
   { key: 'enable_rbreaker', label: 'rbreaker', desc: 'rbreakerDesc', color: '#fb923c' },
   { key: 'enable_mtsi', label: 'mtsi', desc: 'mtsiDesc', color: '#c084fc' },
+  { key: 'enable_vwap', label: 'vwap', desc: 'vwapDesc', color: '#22d3ee', period_key: 'vwap_periods', default_periods: [20] },
+  { key: 'enable_donchian', label: 'donchian', desc: 'donchianDesc', color: '#f472b6', period_key: 'donchian_periods', default_periods: [20] },
   { key: 'enable_volume', label: 'volume', desc: 'volumeDesc', color: '#8b5cf6', period_key: 'volume_periods', default_periods: [20] },
+  { key: 'enable_volume_spike', label: 'volume_spike', desc: 'volumeSpikeDesc', color: '#a78bfa', period_key: 'volume_periods', default_periods: [20] },
+  { key: 'enable_rolling_percentile', label: 'rolling_percentile', desc: 'rollingPercentileDesc', color: '#34d399', period_key: 'rolling_percentile_periods', default_periods: [20] },
 ]
 
 const marketDataSources = [

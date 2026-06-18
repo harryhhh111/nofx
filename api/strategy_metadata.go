@@ -46,9 +46,13 @@ func (s *Server) handleStrategyMetadata(c *gin.Context) {
 			{"key": "enable_opening_range", "label": "opening_range", "desc": "openingRangeDesc", "color": "#38bdf8", "period_key": "opening_range_minutes", "operands": []string{"opening_range_high", "opening_range_low", "opening_range_mid", "opening_range_width_pct", "opening_range_ready", "break_opening_range_high", "break_opening_range_low"}},
 			{"key": "enable_rbreaker", "label": "rbreaker", "desc": "rbreakerDesc", "color": "#fb923c", "operands": []string{"rbreaker_pivot", "rbreaker_break_buy", "rbreaker_setup_sell", "rbreaker_reverse_sell", "rbreaker_reverse_buy", "rbreaker_setup_buy", "rbreaker_break_sell", "rbreaker_breakout_long", "rbreaker_breakout_short", "rbreaker_reverse_to_long", "rbreaker_reverse_to_short", "rbreaker_setup_sell_hit", "rbreaker_setup_buy_hit"}},
 			{"key": "enable_mtsi", "label": "mtsi", "desc": "mtsiDesc", "color": "#c084fc", "operands": []string{"mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap"}},
-			{"key": "enable_volume", "label": "volume", "desc": "volumeDesc", "color": "#8b5cf6", "period_key": "volume_periods", "default_periods": []int{20}, "operands": []string{"volume", "volume_avg", "volume_ratio", "volume_spike", "last_volume_spike_high", "break_last_volume_spike_high"}},
+			{"key": "enable_vwap", "label": "vwap", "desc": "vwapDesc", "color": "#22d3ee", "period_key": "vwap_periods", "default_periods": []int{20}, "operands": []string{"vwap"}},
+			{"key": "enable_donchian", "label": "donchian", "desc": "donchianDesc", "color": "#f472b6", "period_key": "donchian_periods", "default_periods": []int{20}, "operands": []string{"donchian_upper", "donchian_lower", "donchian_middle", "break_above_donchian", "break_below_donchian", "channel_width_pct"}},
+			{"key": "enable_volume", "label": "volume", "desc": "volumeDesc", "color": "#8b5cf6", "period_key": "volume_periods", "default_periods": []int{20}, "operands": []string{"volume", "volume_avg", "volume_ratio"}},
+			{"key": "enable_volume_spike", "label": "volume_spike", "desc": "volumeSpikeDesc", "color": "#a78bfa", "period_key": "volume_periods", "default_periods": []int{20}, "multiplier_key": "volume_spike_multiplier", "operands": []string{"volume_spike", "last_volume_spike_high", "break_last_volume_spike_high"}},
+			{"key": "enable_rolling_percentile", "label": "rolling_percentile", "desc": "rollingPercentileDesc", "color": "#34d399", "period_key": "rolling_percentile_periods", "default_periods": []int{20}, "operands": []string{"rolling_percentile", "z_score"}},
 		},
-		"always_calculated_indicators": []string{"price", "vwap", "donchian", "price_change", "realized_vol"},
+		"always_calculated_indicators": []string{"price", "price_change", "realized_vol"},
 		"indicator_operands":           kernel.SupportedIndicatorOperands(),
 		"structure_operands":           kernel.SupportedStructureOperands(),
 		"external_factors":             kernel.SupportedExternalFactors(),
@@ -127,6 +131,14 @@ func indicatorAvailableInConfig(config *store.StrategyConfig, operand store.Comp
 		return indicators.EnableMACD
 	case "volume":
 		return indicators.EnableVolume
+	case "volume_spike":
+		return indicators.EnableVolumeSpike
+	case "vwap":
+		return indicators.EnableVWAP
+	case "donchian":
+		return indicators.EnableDonchian
+	case "rolling_percentile":
+		return indicators.EnableRollingPercentile
 	case "session":
 		return indicators.EnableSession
 	case "opening_range":
@@ -160,9 +172,10 @@ func indicatorGroup(name string) string {
 		return "boll"
 	case "macd", "macd_signal", "macd_histogram":
 		return "macd"
-	case "volume", "volume_avg", "volume_ratio",
-		"volume_spike", "last_volume_spike_high", "break_last_volume_spike_high":
+	case "volume", "volume_avg", "volume_ratio":
 		return "volume"
+	case "volume_spike", "last_volume_spike_high", "break_last_volume_spike_high":
+		return "volume_spike"
 	case "session_open", "session_high", "session_low", "session_close", "session_volume",
 		"bars_since_session_open", "prev_session_high", "prev_session_low", "prev_session_close",
 		"prev_session_volume", "break_above_prev_session_high", "break_below_prev_session_low":
@@ -179,8 +192,14 @@ func indicatorGroup(name string) string {
 		return "rbreaker"
 	case "mtsi", "mtsi_abs", "close_vwap_distance_pct", "close_above_vwap", "close_below_vwap":
 		return "mtsi"
-	case "vwap", "donchian_upper", "donchian_lower", "donchian_middle",
-		"break_above_donchian", "break_below_donchian", "price_change",
+	case "vwap":
+		return "vwap"
+	case "donchian_upper", "donchian_lower", "donchian_middle",
+		"break_above_donchian", "break_below_donchian", "channel_width_pct":
+		return "donchian"
+	case "rolling_percentile", "z_score":
+		return "rolling_percentile"
+	case "price_change",
 		"return_1h", "return_4h", "return_24h", "return_3d",
 		"first_cross_20pct_3d", "first_cross_25pct_3d",
 		"realized_vol":

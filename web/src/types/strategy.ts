@@ -299,7 +299,11 @@ export interface IndicatorConfig {
   enable_opening_range: boolean;
   enable_rbreaker: boolean;
   enable_mtsi: boolean;
+  enable_vwap: boolean;
+  enable_donchian: boolean;
   enable_volume: boolean;
+  enable_volume_spike: boolean;
+  enable_rolling_percentile: boolean;
   enable_oi: boolean;
   enable_funding_rate: boolean;
   ema_periods?: number[];
@@ -318,6 +322,7 @@ export interface IndicatorConfig {
   price_change_windows?: number[];
   price_change_named_windows?: string[];
   opening_range_minutes?: number;
+  rolling_percentile_periods?: number[];
   sessions?: SessionSpec[];
   external_data_sources?: ExternalDataSource[];
 

@@ -40,6 +40,7 @@ func NewDefaultIndicatorEngine() *DefaultIndicatorEngine {
 			&OpeningRangeModule{},
 			&RBreakerModule{},
 			&MTSIModule{},
+			&RollingPercentileModule{},
 		},
 	}
 }

@@ -21,17 +21,23 @@ type IndicatorRequest struct {
 	SAR                *SARSpec      `json:"sar,omitempty"`
 	BOLLPeriods        []BOLLSpec    `json:"boll_periods,omitempty"`
 	MACD               *MACDSpec     `json:"macd,omitempty"`
-	VWAPPeriods           []int         `json:"vwap_periods,omitempty"`
-	VolumePeriods         []int         `json:"volume_periods,omitempty"`
-	VolumeSpikeMultiplier float64       `json:"volume_spike_multiplier,omitempty"`
-	DonchianPeriods    []int              `json:"donchian_periods,omitempty"`
-	RealizedVolPeriods      []int              `json:"realized_vol_periods,omitempty"`
-	PriceChangeWindows      []int              `json:"price_change_windows,omitempty"`
-	PriceChangeNamedWindows []string           `json:"price_change_named_windows,omitempty"`
-	Sessions           []SessionSpec      `json:"sessions,omitempty"`
-	OpeningRange       *OpeningRangeSpec  `json:"opening_range,omitempty"`
-	EnableRBreaker     bool               `json:"enable_rbreaker,omitempty"`
-	EnableMTSI         bool               `json:"enable_mtsi,omitempty"`
+	VWAPPeriods              []int         `json:"vwap_periods,omitempty"`
+	EnableVolume             bool          `json:"enable_volume,omitempty"`
+	VolumePeriods            []int         `json:"volume_periods,omitempty"`
+	VolumeSpikeMultiplier    float64       `json:"volume_spike_multiplier,omitempty"`
+	DonchianPeriods          []int         `json:"donchian_periods,omitempty"`
+	RollingPercentilePeriods []int         `json:"rolling_percentile_periods,omitempty"`
+	RealizedVolPeriods       []int         `json:"realized_vol_periods,omitempty"`
+	PriceChangeWindows       []int         `json:"price_change_windows,omitempty"`
+	PriceChangeNamedWindows  []string      `json:"price_change_named_windows,omitempty"`
+	Sessions                 []SessionSpec `json:"sessions,omitempty"`
+	OpeningRange             *OpeningRangeSpec `json:"opening_range,omitempty"`
+	EnableRBreaker           bool          `json:"enable_rbreaker,omitempty"`
+	EnableMTSI               bool          `json:"enable_mtsi,omitempty"`
+	EnableVolumeSpike        bool          `json:"enable_volume_spike,omitempty"`
+	EnableVWAP               bool          `json:"enable_vwap,omitempty"`
+	EnableDonchian           bool          `json:"enable_donchian,omitempty"`
+	EnableRollingPercentile  bool          `json:"enable_rolling_percentile,omitempty"`
 }
 
 type ADXSpec struct {

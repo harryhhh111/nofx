@@ -74,6 +74,8 @@ func TestVolumeSpikeIndicatorsAddressable(t *testing.T) {
 		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
 	}
 	req := IndicatorRequest{
+		EnableVolume:          true,
+		EnableVolumeSpike:     true,
 		VolumePeriods:         []int{20},
 		VolumeSpikeMultiplier: 4.0,
 	}
@@ -132,6 +134,76 @@ func TestMTSIIndicatorsAddressable(t *testing.T) {
 	mustGet("close_vwap_distance_pct", 20)
 	mustGet("close_above_vwap", 20)
 	mustGet("close_below_vwap", 20)
+}
+
+// TestVolumeSpikeGated verifies that spike outputs require EnableVolumeSpike
+// and basic volume outputs require EnableVolume.
+func TestVolumeSpikeGated(t *testing.T) {
+	klines := syntheticTrend(160)
+	klines[len(klines)-1].Volume = 100000
+	input := MarketInput{
+		Symbol:     "TESTUSDT",
+		Timeframes: map[string][]Kline{"15m": klines},
+		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
+	}
+
+	// Only EnableVolumeSpike: spike outputs exist, basic volume does not.
+	reqSpikeOnly := IndicatorRequest{
+		EnableVolumeSpike:     true,
+		VolumePeriods:         []int{20},
+		VolumeSpikeMultiplier: 4.0,
+	}
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, reqSpikeOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snap.IndicatorValue("volume", "15m", 0); ok {
+		t.Fatal("volume should not be emitted when only EnableVolumeSpike is set")
+	}
+	if _, ok := snap.IndicatorValue("volume_spike", "15m", 20); !ok {
+		t.Fatal("volume_spike should be emitted when EnableVolumeSpike is set")
+	}
+
+	// Only EnableVolume: basic outputs exist, spike outputs do not.
+	reqVolumeOnly := IndicatorRequest{
+		EnableVolume:  true,
+		VolumePeriods: []int{20},
+	}
+	snap, err = NewDefaultIndicatorEngine().Calculate(context.Background(), input, reqVolumeOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snap.IndicatorValue("volume", "15m", 0); !ok {
+		t.Fatal("volume should be emitted when EnableVolume is set")
+	}
+	if _, ok := snap.IndicatorValue("volume_spike", "15m", 20); ok {
+		t.Fatal("volume_spike should not be emitted when EnableVolumeSpike is not set")
+	}
+}
+
+// TestRollingPercentileIndicatorsAddressable verifies rolling percentile and
+// z-score outputs are stored under their own names.
+func TestRollingPercentileIndicatorsAddressable(t *testing.T) {
+	klines := syntheticTrend(160)
+	input := MarketInput{
+		Symbol:     "TESTUSDT",
+		Timeframes: map[string][]Kline{"15m": klines},
+		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
+	}
+	req := IndicatorRequest{
+		EnableRollingPercentile:  true,
+		RollingPercentilePeriods: []int{20},
+	}
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := snap.IndicatorValue("rolling_percentile", "15m", 20); !ok {
+		t.Fatal("rolling_percentile not addressable")
+	}
+	if _, ok := snap.IndicatorValue("z_score", "15m", 20); !ok {
+		t.Fatal("z_score not addressable")
+	}
 }
 
 // TestPriceChangeNamedWindowsAddressable verifies that named-window returns and

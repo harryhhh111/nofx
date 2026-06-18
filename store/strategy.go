@@ -445,9 +445,18 @@ func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
 	required = maxInt(required, maxPeriod(c.Indicators.ATRPeriods)+1)
 	required = maxInt(required, c.Indicators.ADXPeriod+1)
 	required = maxInt(required, maxPeriod(c.Indicators.BOLLPeriods))
-	required = maxInt(required, maxPeriod(c.Indicators.VolumePeriods))
-	required = maxInt(required, maxPeriod(c.Indicators.VWAPPeriods))
-	required = maxInt(required, maxPeriod(c.Indicators.DonchianPeriods))
+	if c.Indicators.EnableVolume || c.Indicators.EnableVolumeSpike {
+		required = maxInt(required, maxPeriod(c.Indicators.VolumePeriods))
+	}
+	if c.Indicators.EnableVWAP {
+		required = maxInt(required, maxPeriod(c.Indicators.VWAPPeriods))
+	}
+	if c.Indicators.EnableDonchian {
+		required = maxInt(required, maxPeriod(c.Indicators.DonchianPeriods))
+	}
+	if c.Indicators.EnableRollingPercentile {
+		required = maxInt(required, maxPeriod(c.Indicators.RollingPercentilePeriods))
+	}
 	required = maxInt(required, maxPeriod(c.Indicators.RealizedVolPeriods)+1)
 	required = maxInt(required, maxPeriod(c.Indicators.PriceChangeWindows)+1)
 	required = maxInt(required, maxNamedWindowBars(c.Indicators.PriceChangeNamedWindows)+1)
@@ -933,7 +942,11 @@ type IndicatorConfig struct {
 	EnableOpeningRange bool `json:"enable_opening_range"` // Opening Range (first N minutes of session)
 	EnableRBreaker     bool `json:"enable_rbreaker"`      // R-Breaker pivot levels
 	EnableMTSI         bool `json:"enable_mtsi"`          // MTSI (log-ratio to VWAP)
-	EnableVolume       bool `json:"enable_volume"`
+	EnableVolume       bool `json:"enable_volume"`        // volume, volume_avg, volume_ratio
+	EnableVolumeSpike  bool `json:"enable_volume_spike"`  // volume_spike and breakout signals
+	EnableVWAP         bool `json:"enable_vwap"`          // Volume Weighted Average Price
+	EnableDonchian     bool `json:"enable_donchian"`      // Donchian Channel
+	EnableRollingPercentile bool `json:"enable_rolling_percentile"` // rolling percentile / z-score
 	EnableOI           bool `json:"enable_oi"`           // open interest
 	EnableFundingRate  bool `json:"enable_funding_rate"` // funding rate
 	// EMA period configuration
@@ -957,10 +970,11 @@ type IndicatorConfig struct {
 	VolumePeriods         []int   `json:"volume_periods,omitempty"`          // default [20]
 	VolumeSpikeMultiplier float64 `json:"volume_spike_multiplier,omitempty"` // default 4.0
 	VWAPPeriods           []int   `json:"vwap_periods,omitempty"`            // default [20]
-	DonchianPeriods    []int `json:"donchian_periods,omitempty"`     // default [20]
+	DonchianPeriods       []int   `json:"donchian_periods,omitempty"`        // default [20]
+	RollingPercentilePeriods []int `json:"rolling_percentile_periods,omitempty"` // default [20]
 	RealizedVolPeriods      []int    `json:"realized_vol_periods,omitempty"`       // default [20]
 	PriceChangeWindows      []int    `json:"price_change_windows,omitempty"`       // default [12, 48], bar windows
-	PriceChangeNamedWindows []string `json:"price_change_named_windows,omitempty"` // default ["1h","4h","24h"]
+	PriceChangeNamedWindows []string `json:"price_change_named_windows,omitempty"` // default [] (opt-in)
 	// Session configuration (Phase 1: UTC day only)
 	Sessions []SessionSpec `json:"sessions,omitempty"`
 	// Opening Range configuration (shares session definition with SessionModule)
@@ -1165,6 +1179,10 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			OpeningRangeMinutes:    30,
 			EnableRBreaker:         false,
 			EnableVolume:           false,
+			EnableVolumeSpike:      false,
+			EnableVWAP:             false,
+			EnableDonchian:         false,
+			EnableRollingPercentile: false,
 			EnableOI:               true,
 			EnableFundingRate:      true,
 			EMAPeriods:             []int{20, 50},
