@@ -314,6 +314,8 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("generate signals: %w", err)
 	}
+	lifecycleSignals := GeneratePositionLifecycleSignals(req.SignalRequest, signals)
+	signals = mergePositionLifecycleSignals(signals, lifecycleSignals)
 	applyRiskBasedPositionSizing(signals, req.SignalRequest.Account, req.SignalRequest.PositionSizing)
 	setupEvaluations := TraceSetupEvaluations(req.SignalRequest)
 	ruleEvaluations := TraceRuleEvaluations(req.SignalRequest)

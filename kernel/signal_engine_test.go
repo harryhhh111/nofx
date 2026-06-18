@@ -173,6 +173,100 @@ func TestSetupSignalEngineGeneratesShortWhenTimeframesAlignBearish(t *testing.T)
 	}
 }
 
+func TestPositionLifecycleClosesLongBeforeOppositeSetup(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.SelectedFactors = []string{"trend", "momentum"}
+	scoring.FactorWeights = map[string]float64{"trend": 0.5, "momentum": 0.5}
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testBearishMultiTimeframeSetupSnapshot()
+	req := SignalRequest{
+		Positions: []PositionInfo{{
+			Symbol:     "BTCUSDT",
+			Side:       "long",
+			EntryPrice: 110,
+			MarkPrice:  100,
+		}},
+		Scoring: scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(5, 0).UTC(),
+	}
+
+	openSignals, err := NewSetupSignalEngine().Generate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if len(openSignals) != 1 || openSignals[0].Action != "open_short" {
+		t.Fatalf("expected opposite open_short setup before lifecycle merge, got %+v", openSignals)
+	}
+
+	lifecycleSignals := GeneratePositionLifecycleSignals(req, openSignals)
+	if len(lifecycleSignals) != 1 {
+		t.Fatalf("expected one lifecycle close signal, got %d", len(lifecycleSignals))
+	}
+	if lifecycleSignals[0].Action != "close_long" || lifecycleSignals[0].Setup != "opposite_setup" {
+		t.Fatalf("expected close_long opposite_setup signal, got %+v", lifecycleSignals[0])
+	}
+	trace, ok := lifecycleSignals[0].Evidence["position_lifecycle"].(PositionLifecycleTrace)
+	if !ok {
+		t.Fatalf("expected position lifecycle evidence, got %#v", lifecycleSignals[0].Evidence["position_lifecycle"])
+	}
+	if trace.PrimaryScore >= 0 || trace.EntryScore >= 0 || trace.OppositeSetup == "" {
+		t.Fatalf("unexpected lifecycle trace: %+v", trace)
+	}
+
+	merged := mergePositionLifecycleSignals(openSignals, lifecycleSignals)
+	if len(merged) != 1 || merged[0].Action != "close_long" {
+		t.Fatalf("expected lifecycle close to suppress same-cycle reverse open, got %+v", merged)
+	}
+}
+
+func TestPositionLifecycleDoesNotCloseWhenLongThesisStillAligned(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.SelectedFactors = []string{"trend", "momentum"}
+	scoring.FactorWeights = map[string]float64{"trend": 0.5, "momentum": 0.5}
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	req := SignalRequest{
+		Positions: []PositionInfo{{
+			Symbol:     "BTCUSDT",
+			Side:       "long",
+			EntryPrice: 90,
+			MarkPrice:  100,
+		}},
+		Scoring: scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": testMultiTimeframeSetupSnapshot(),
+		},
+		Now: time.Unix(6, 0).UTC(),
+	}
+
+	lifecycleSignals := GeneratePositionLifecycleSignals(req, nil)
+	if len(lifecycleSignals) != 0 {
+		t.Fatalf("expected no lifecycle close while long thesis is aligned, got %+v", lifecycleSignals)
+	}
+}
+
+func TestMergePositionLifecycleSignalsSuppressesOpenWhenAnyCloseExists(t *testing.T) {
+	signals := []CandidateSignal{
+		{ID: "close", Symbol: "BTCUSDT", Action: "close_long"},
+		{ID: "open", Symbol: "BTCUSDT", Action: "open_short"},
+		{ID: "other", Symbol: "ETHUSDT", Action: "open_short"},
+	}
+
+	merged := mergePositionLifecycleSignals(signals, nil)
+	if len(merged) != 2 {
+		t.Fatalf("expected close plus unrelated open, got %+v", merged)
+	}
+	if merged[0].ID != "close" || merged[1].ID != "other" {
+		t.Fatalf("expected same-symbol open to be suppressed when close exists, got %+v", merged)
+	}
+}
+
 func TestTraceSetupEvaluationsExplainsProtectiveFilter(t *testing.T) {
 	scoring := testScoringStrategy()
 	scoring.Timeframe = "15m"

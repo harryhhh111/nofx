@@ -83,6 +83,97 @@ func NewSetupSignalEngine() *SetupSignalEngine {
 	return &SetupSignalEngine{}
 }
 
+func GeneratePositionLifecycleSignals(req SignalRequest, existing []CandidateSignal) []CandidateSignal {
+	if req.Scoring == nil || !req.Scoring.Enabled || len(req.Positions) == 0 {
+		return nil
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	existingClose := existingCloseSignalKeys(existing)
+	out := []CandidateSignal{}
+	for _, pos := range req.Positions {
+		side := normalizedPositionSide(pos.Side)
+		if side == "" {
+			continue
+		}
+		symbol := market.Normalize(pos.Symbol)
+		if symbol == "" {
+			continue
+		}
+		closeAction := closeActionForPositionSide(side)
+		if existingClose[symbol+":"+closeAction] {
+			continue
+		}
+		snapshot := factorSnapshotForSymbol(req.FactorSnapshot, symbol)
+		if snapshot == nil {
+			continue
+		}
+		setupTrace := evaluateSetupSnapshot(req.Scoring, symbol, snapshot)
+		lifecycle, ok := evaluatePositionLifecycle(req.Scoring, pos, setupTrace)
+		if !ok {
+			continue
+		}
+		referencePrice := pos.MarkPrice
+		if referencePrice <= 0 {
+			referencePrice = pos.EntryPrice
+		}
+		if referencePrice <= 0 {
+			referencePrice, _ = snapshotPrice(setupTrace.Timeframes.Primary, snapshot)
+		}
+		confidence := lifecycleCloseConfidence(req.Scoring.MinConfidence, setupTrace)
+		signal := CandidateSignal{
+			ID:              fmt.Sprintf("position_lifecycle_%s:%s:%d", closeAction, symbol, now.UnixMilli()),
+			RuleID:          "position_lifecycle",
+			Setup:           lifecycle.State,
+			StrategyVersion: req.Scoring.Version,
+			Symbol:          symbol,
+			Action:          closeAction,
+			Timeframe:       setupTrace.Timeframes.Primary,
+			EntryPrice:      referencePrice,
+			Confidence:      confidence,
+			TriggerReason:   lifecycle.Reason,
+			Evidence: map[string]interface{}{
+				"position_lifecycle":       lifecycle,
+				"setup":                    setupTrace,
+				"primary_evaluation":       setupTrace.Primary,
+				"entry_evaluation":         setupTrace.Entry,
+				"confirmation_evaluations": setupTrace.Confirmations,
+			},
+			GeneratedAt: now,
+		}
+		out = append(out, signal)
+	}
+	return out
+}
+
+func mergePositionLifecycleSignals(signals, lifecycleSignals []CandidateSignal) []CandidateSignal {
+	closeBySymbol := map[string]bool{}
+	for _, signal := range lifecycleSignals {
+		if signal.Action == "close_long" || signal.Action == "close_short" {
+			closeBySymbol[market.Normalize(signal.Symbol)] = true
+		}
+	}
+	for _, signal := range signals {
+		if signal.Action == "close_long" || signal.Action == "close_short" {
+			closeBySymbol[market.Normalize(signal.Symbol)] = true
+		}
+	}
+	if len(closeBySymbol) == 0 && len(lifecycleSignals) == 0 {
+		return signals
+	}
+	merged := make([]CandidateSignal, 0, len(signals)+len(lifecycleSignals))
+	merged = append(merged, lifecycleSignals...)
+	for _, signal := range signals {
+		if closeBySymbol[market.Normalize(signal.Symbol)] && (signal.Action == "open_long" || signal.Action == "open_short") {
+			continue
+		}
+		merged = append(merged, signal)
+	}
+	return merged
+}
+
 type ScoringEvaluationTrace struct {
 	Symbol                  string                 `json:"symbol"`
 	Timeframe               string                 `json:"timeframe,omitempty"`
@@ -126,6 +217,24 @@ type ProtectiveLevelTrace struct {
 	ATRBuffer        float64 `json:"atr_buffer"`
 	TargetRiskReward float64 `json:"target_risk_reward"`
 	RiskReward       float64 `json:"risk_reward"`
+}
+
+type PositionLifecycleTrace struct {
+	Symbol             string                 `json:"symbol"`
+	Side               string                 `json:"side"`
+	State              string                 `json:"state"`
+	Action             string                 `json:"action"`
+	Reason             string                 `json:"reason"`
+	Timeframes         TimeframeRoleTrace     `json:"timeframes"`
+	PrimaryScore       float64                `json:"primary_score"`
+	EntryScore         float64                `json:"entry_score"`
+	ConfirmationScores map[string]float64     `json:"confirmation_scores,omitempty"`
+	OppositeSetup      string                 `json:"opposite_setup,omitempty"`
+	EntryPrice         float64                `json:"entry_price,omitempty"`
+	MarkPrice          float64                `json:"mark_price,omitempty"`
+	UnrealizedPnLPct   float64                `json:"unrealized_pnl_pct,omitempty"`
+	PrimaryEvaluation  ScoringEvaluationTrace `json:"primary_evaluation"`
+	EntryEvaluation    ScoringEvaluationTrace `json:"entry_evaluation"`
 }
 
 type SetupEvaluationTrace struct {
@@ -452,6 +561,147 @@ func TraceSetupEvaluations(req SignalRequest) []SetupEvaluationTrace {
 		traces = append(traces, trace)
 	}
 	return traces
+}
+
+func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace SetupEvaluationTrace) (PositionLifecycleTrace, bool) {
+	side := normalizedPositionSide(pos.Side)
+	if scoring == nil || side == "" {
+		return PositionLifecycleTrace{}, false
+	}
+	lifecycle := PositionLifecycleTrace{
+		Symbol:             market.Normalize(pos.Symbol),
+		Side:               side,
+		Timeframes:         trace.Timeframes,
+		PrimaryScore:       trace.Primary.Score,
+		EntryScore:         trace.Entry.Score,
+		ConfirmationScores: confirmationScoreMap(trace.Confirmations),
+		EntryPrice:         pos.EntryPrice,
+		MarkPrice:          pos.MarkPrice,
+		UnrealizedPnLPct:   pos.UnrealizedPnLPct,
+		PrimaryEvaluation:  trace.Primary,
+		EntryEvaluation:    trace.Entry,
+	}
+	if !trace.Primary.Eligible || !trace.Entry.Eligible {
+		return PositionLifecycleTrace{}, false
+	}
+
+	closeAction := closeActionForPositionSide(side)
+	oppositeOpenAction := oppositeOpenActionForPositionSide(side)
+	if trace.Eligible && trace.Action == oppositeOpenAction {
+		lifecycle.State = "opposite_setup"
+		lifecycle.Action = closeAction
+		lifecycle.OppositeSetup = trace.Setup
+		lifecycle.Reason = fmt.Sprintf("position lifecycle: existing %s thesis is invalidated by opposite setup %s; close first, do not reverse in the same cycle", side, trace.Setup)
+		return lifecycle, true
+	}
+
+	longConfirmOK, shortConfirmOK, confirmReason := confirmationDirection(trace.Confirmations)
+	switch side {
+	case "long":
+		if trace.Primary.Score <= scoring.ShortThreshold && trace.Entry.Score <= 0 && shortConfirmOK {
+			lifecycle.State = "thesis_invalidated"
+			lifecycle.Action = closeAction
+			lifecycle.Reason = fmt.Sprintf("position lifecycle: existing long thesis invalidated; primary score %.2f crossed short threshold %.2f, entry score %.2f no longer supports long, %s", trace.Primary.Score, scoring.ShortThreshold, trace.Entry.Score, confirmReason)
+			return lifecycle, true
+		}
+	case "short":
+		if trace.Primary.Score >= scoring.LongThreshold && trace.Entry.Score >= 0 && longConfirmOK {
+			lifecycle.State = "thesis_invalidated"
+			lifecycle.Action = closeAction
+			lifecycle.Reason = fmt.Sprintf("position lifecycle: existing short thesis invalidated; primary score %.2f crossed long threshold %.2f, entry score %.2f no longer supports short, %s", trace.Primary.Score, scoring.LongThreshold, trace.Entry.Score, confirmReason)
+			return lifecycle, true
+		}
+	}
+	return PositionLifecycleTrace{}, false
+}
+
+func existingCloseSignalKeys(signals []CandidateSignal) map[string]bool {
+	out := map[string]bool{}
+	for _, signal := range signals {
+		if signal.Action != "close_long" && signal.Action != "close_short" {
+			continue
+		}
+		symbol := market.Normalize(signal.Symbol)
+		if symbol == "" {
+			continue
+		}
+		out[symbol+":"+signal.Action] = true
+	}
+	return out
+}
+
+func factorSnapshotForSymbol(snapshots map[string]*market.FactorSnapshot, symbol string) *market.FactorSnapshot {
+	if len(snapshots) == 0 {
+		return nil
+	}
+	if snapshot := snapshots[symbol]; snapshot != nil {
+		return snapshot
+	}
+	normalized := market.Normalize(symbol)
+	for key, snapshot := range snapshots {
+		if market.Normalize(key) == normalized {
+			return snapshot
+		}
+	}
+	return nil
+}
+
+func normalizedPositionSide(side string) string {
+	switch strings.ToLower(strings.TrimSpace(side)) {
+	case "long":
+		return "long"
+	case "short":
+		return "short"
+	default:
+		return ""
+	}
+}
+
+func closeActionForPositionSide(side string) string {
+	if side == "short" {
+		return "close_short"
+	}
+	return "close_long"
+}
+
+func oppositeOpenActionForPositionSide(side string) string {
+	if side == "short" {
+		return "open_long"
+	}
+	return "open_short"
+}
+
+func confirmationScoreMap(confirmations []ScoringEvaluationTrace) map[string]float64 {
+	if len(confirmations) == 0 {
+		return nil
+	}
+	out := map[string]float64{}
+	for _, trace := range confirmations {
+		if trace.Timeframe == "" || !trace.Eligible {
+			continue
+		}
+		out[trace.Timeframe] = trace.Score
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func lifecycleCloseConfidence(minConfidence int, trace SetupEvaluationTrace) int {
+	strength := absScore(trace.Primary.Score)
+	entryStrength := absScore(trace.Entry.Score)
+	if entryStrength > 0 {
+		strength = (strength + entryStrength) / 2
+	}
+	return scoringConfidence(minConfidence, strength)
+}
+
+func absScore(score float64) float64 {
+	if score < 0 {
+		return -score
+	}
+	return score
 }
 
 func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *market.FactorSnapshot) SetupEvaluationTrace {
