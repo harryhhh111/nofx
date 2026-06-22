@@ -39,7 +39,7 @@ func (s *Server) handleStrategyMetadata(c *gin.Context) {
 			{"key": "enable_macd", "label": "macd", "desc": "macdDesc", "color": "#a855f7", "operands": []string{"macd", "macd_signal", "macd_histogram"}},
 			{"key": "enable_rsi", "label": "rsi", "desc": "rsiDesc", "color": "#F6465D", "period_key": "rsi_periods", "default_periods": []int{7, 14}, "operands": []string{"rsi"}},
 			{"key": "enable_atr", "label": "atr", "desc": "atrDesc", "color": "#60a5fa", "period_key": "atr_periods", "default_periods": []int{14}, "operands": []string{"atr"}},
-			{"key": "enable_adx", "label": "adx", "desc": "adxDesc", "color": "#f97316", "operands": []string{"adx", "plus_di", "minus_di"}},
+			{"key": "enable_adx", "label": "adx", "desc": "adxDesc", "color": "#f97316", "period_key": "adx_period", "default_periods": []int{14}, "operands": []string{"adx", "plus_di", "minus_di", "di_direction", "adx_trending", "adx_strength_level"}},
 			{"key": "enable_sar", "label": "sar", "desc": "sarDesc", "color": "#06b6d4", "operands": []string{"sar", "sar_uptrend", "sar_flip_up", "sar_flip_down"}},
 			{"key": "enable_boll", "label": "boll", "desc": "bollDesc", "color": "#ec4899", "period_key": "boll_periods", "default_periods": []int{20}, "multiplier_key": "boll_multiplier", "operands": []string{"boll_upper", "boll_middle", "boll_lower"}},
 			{"key": "enable_session", "label": "session", "desc": "sessionDesc", "color": "#84cc16", "operands": []string{"session_open", "session_high", "session_low", "session_close", "session_volume", "bars_since_session_open", "prev_session_high", "prev_session_low", "prev_session_close", "prev_session_volume", "break_above_prev_session_high", "break_below_prev_session_low"}},
@@ -173,7 +173,7 @@ func indicatorGroup(name string) string {
 		return "rsi"
 	case "atr":
 		return "atr"
-	case "adx", "plus_di", "minus_di":
+	case "adx", "plus_di", "minus_di", "di_direction", "adx_trending", "adx_strength_level":
 		return "adx"
 	case "sar", "sar_uptrend", "sar_flip_up", "sar_flip_down":
 		return "sar"

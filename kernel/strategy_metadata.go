@@ -8,6 +8,7 @@ func SupportedIndicatorOperands() []string {
 		"ema", "sma", "sma_slope", "price_above_sma", "price_distance_pct",
 		"sma_cross_up_fast_slow", "sma_cross_down_fast_slow",
 		"rsi", "atr", "adx", "plus_di", "minus_di",
+		"di_direction", "adx_trending", "adx_strength_level",
 		"sar", "sar_uptrend", "sar_flip_up", "sar_flip_down",
 		"boll_upper", "boll_middle", "boll_lower",
 		"macd", "macd_signal", "macd_histogram",
