@@ -5,7 +5,9 @@ import "strings"
 func SupportedIndicatorOperands() []string {
 	return []string{
 		"price",
-		"ema", "sma", "rsi", "atr", "adx", "plus_di", "minus_di",
+		"ema", "sma", "sma_slope", "price_above_sma", "price_distance_pct",
+		"sma_cross_up_fast_slow", "sma_cross_down_fast_slow",
+		"rsi", "atr", "adx", "plus_di", "minus_di",
 		"sar", "sar_uptrend", "sar_flip_up", "sar_flip_down",
 		"boll_upper", "boll_middle", "boll_lower",
 		"macd", "macd_signal", "macd_histogram",
