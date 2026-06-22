@@ -246,7 +246,7 @@ func (c *StrategyConfig) normalizeTimeframeRoles() {
 		if klines.PrimaryTimeframe != "" {
 			selected = append(selected, klines.PrimaryTimeframe)
 		} else {
-			selected = append(selected, "5m")
+			selected = append(selected, "15m")
 		}
 	}
 
@@ -254,25 +254,17 @@ func (c *StrategyConfig) normalizeTimeframeRoles() {
 		return timeframeMinutes(selected[i]) < timeframeMinutes(selected[j])
 	})
 
-	entryWasEmpty := klines.EntryTimeframe == ""
-	if len(selected) >= 2 && klines.PrimaryTimeframe == selected[0] && (entryWasEmpty || klines.EntryTimeframe == selected[0]) {
-		klines.PrimaryTimeframe = selected[1]
-	}
 	if !containsString(selected, klines.PrimaryTimeframe) {
-		if len(selected) >= 2 {
-			klines.PrimaryTimeframe = selected[1]
-		} else {
-			klines.PrimaryTimeframe = selected[0]
-		}
+		klines.PrimaryTimeframe = selected[0]
 	}
-	if entryWasEmpty || !containsString(selected, klines.EntryTimeframe) {
-		klines.EntryTimeframe = selected[0]
+	if klines.EntryTimeframe == "" || !containsString(selected, klines.EntryTimeframe) {
+		klines.EntryTimeframe = klines.PrimaryTimeframe
 	}
 
 	confirmations := sanitizeTimeframeList(klines.ConfirmationTimeframes)
 	if len(confirmations) == 0 {
 		for _, tf := range selected {
-			if tf != klines.EntryTimeframe && tf != klines.PrimaryTimeframe {
+			if tf != klines.EntryTimeframe && tf != klines.PrimaryTimeframe && timeframeMinutes(tf) > timeframeMinutes(klines.PrimaryTimeframe) {
 				confirmations = append(confirmations, tf)
 			}
 		}
@@ -1158,12 +1150,12 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				IncludeOpenBar:     true,
 				LongerTimeframe:    "4h",
 				LongerCount:        10,
-				EntryTimeframe:     "5m",
+				EntryTimeframe:     "15m",
 				ConfirmationTimeframes: []string{
 					"1h",
 				},
 				EnableMultiTimeframe: true,
-				SelectedTimeframes:   []string{"5m", "15m", "1h"},
+				SelectedTimeframes:   []string{"15m", "1h"},
 			},
 			EnableRawKlines:        true, // Required - raw OHLCV data for AI analysis
 			EnableEMA:              true, // Core trend indicator

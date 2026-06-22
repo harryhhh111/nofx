@@ -229,6 +229,16 @@ function formatPeriods(periods?: number[]) {
   return periods && periods.length > 0 ? `(${periods.join('/')})` : ''
 }
 
+function resolveKlineRoles(config: StrategyConfig | null | undefined) {
+  const kline = config?.indicators?.klines
+  if (!kline) return null
+  const selected = kline.selected_timeframes || []
+  const primary = kline.primary_timeframe || config?.scoring_config?.timeframe || selected[0] || ''
+  const entry = kline.entry_timeframe || primary || selected[0]
+  const confirmations = (kline.confirmation_timeframes || []).filter((tf) => tf && tf !== primary && tf !== entry)
+  return { primary, entry, confirmations }
+}
+
 function getSelectedIndicatorLabels(config: StrategyConfig | null): string[] {
   const indicators = config?.indicators
   if (!indicators) return []
@@ -257,13 +267,14 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
   const indicators = getSelectedIndicatorLabels(config)
   if (indicators.length === 0) return ''
   const kline = config.indicators.klines
+  const roles = resolveKlineRoles(config)
   const timeframes = kline.selected_timeframes?.length
     ? kline.selected_timeframes.join(', ')
     : [kline.primary_timeframe, kline.longer_timeframe].filter(Boolean).join(', ')
-  const entryTimeframe = kline.entry_timeframe || kline.primary_timeframe
-  const primaryTimeframe = kline.primary_timeframe
-  const confirmationTimeframes = kline.confirmation_timeframes?.length
-    ? kline.confirmation_timeframes.join(', ')
+  const entryTimeframe = roles?.entry || kline.entry_timeframe || kline.primary_timeframe
+  const primaryTimeframe = roles?.primary || kline.primary_timeframe
+  const confirmationTimeframes = roles?.confirmations.length
+    ? roles.confirmations.join(', ')
     : 'none'
   const coinSource = config.coin_source.source_type
   const risk = config.risk_control
@@ -1028,11 +1039,12 @@ export function StrategyStudioPage() {
   // Get current strategy type (default to ai_trading if not set)
   const currentStrategyType = editingConfig?.strategy_type || 'ai_trading'
   const hasStructuredStrategy = hasGeneratedStrategy(editingConfig)
-  const timeframeRoles = editingConfig?.indicators?.klines
+  const resolvedTimeframeRoles = resolveKlineRoles(editingConfig)
+  const timeframeRoles = resolvedTimeframeRoles
     ? {
-        primary: editingConfig.indicators.klines.primary_timeframe || editingConfig.scoring_config?.timeframe || '-',
-        entry: editingConfig.indicators.klines.entry_timeframe || editingConfig.indicators.klines.primary_timeframe || '-',
-        confirmations: editingConfig.indicators.klines.confirmation_timeframes || [],
+        primary: resolvedTimeframeRoles.primary || '-',
+        entry: resolvedTimeframeRoles.entry || '-',
+        confirmations: resolvedTimeframeRoles.confirmations,
       }
     : null
   const promptText = (editingConfig?.strategy_prompt || '').trim()

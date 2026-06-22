@@ -59,6 +59,18 @@ const marketDataSources = [
   { value: 'hyperliquid', label: 'Hyperliquid' },
 ]
 
+const indicatorTranslationAliases: Record<string, keyof typeof indicator> = {
+  volume_spike: 'volumeSpike',
+  rolling_percentile_desc: 'rollingPercentileDesc',
+}
+
+function indicatorText(key: string | undefined, language: string) {
+  if (!key) return ''
+  const translationKey = indicatorTranslationAliases[key] || key
+  const entry = indicator[translationKey as keyof typeof indicator]
+  return entry ? ts(entry, language) : key
+}
+
 export function IndicatorEditor({
   config,
   onChange,
@@ -84,9 +96,17 @@ export function IndicatorEditor({
   }, [])
 
   // Get currently selected timeframes
-  const selectedTimeframes = config.klines.selected_timeframes || [config.klines.primary_timeframe]
-  const entryTimeframe = config.klines.entry_timeframe || selectedTimeframes[0] || config.klines.primary_timeframe
-  const confirmationTimeframes = config.klines.confirmation_timeframes || selectedTimeframes.filter((tf) => tf !== config.klines.primary_timeframe && tf !== entryTimeframe)
+  const selectedTimeframes =
+    config.klines.selected_timeframes || [config.klines.primary_timeframe]
+  const entryTimeframe =
+    config.klines.entry_timeframe ||
+    config.klines.primary_timeframe ||
+    selectedTimeframes[0]
+  const confirmationTimeframes =
+    config.klines.confirmation_timeframes ||
+    selectedTimeframes.filter(
+      (tf) => tf !== config.klines.primary_timeframe && tf !== entryTimeframe
+    )
 
   // Toggle timeframe selection
   const toggleTimeframe = (tf: string) => {
@@ -97,9 +117,17 @@ export function IndicatorEditor({
     if (index >= 0) {
       if (current.length > 1) {
         current.splice(index, 1)
-        const newPrimary = tf === config.klines.primary_timeframe ? current[0] : config.klines.primary_timeframe
-        const newEntry = tf === entryTimeframe ? current[0] : entryTimeframe
-        const newConfirmations = confirmationTimeframes.filter((item) => item !== tf && item !== newPrimary && item !== newEntry)
+        const newPrimary =
+          tf === config.klines.primary_timeframe
+            ? current[0]
+            : config.klines.primary_timeframe
+        const newEntry =
+          tf === entryTimeframe
+            ? newPrimary
+            : entryTimeframe
+        const newConfirmations = confirmationTimeframes.filter(
+          (item) => item !== tf && item !== newPrimary && item !== newEntry
+        )
         onChange({
           ...config,
           klines: {
@@ -130,7 +158,10 @@ export function IndicatorEditor({
         klines: {
           ...config.klines,
           selected_timeframes: current,
-          entry_timeframe: config.klines.entry_timeframe || current[0],
+          entry_timeframe:
+            config.klines.entry_timeframe ||
+            config.klines.primary_timeframe ||
+            current[0],
           enable_multi_timeframe: current.length > 1,
         },
       })
@@ -686,7 +717,7 @@ export function IndicatorEditor({
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ background: color }} />
-                    <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator[label as keyof typeof indicator], language)}</span>
+                    <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{indicatorText(label, language)}</span>
                   </div>
                   <input
                     type="checkbox"
@@ -696,7 +727,7 @@ export function IndicatorEditor({
                     className="w-4 h-4 rounded accent-yellow-500"
                   />
                 </div>
-                <p className="text-[10px] mb-1.5" style={{ color: '#5E6673' }}>{ts(indicator[desc as keyof typeof indicator], language)}</p>
+                <p className="text-[10px] mb-1.5" style={{ color: '#5E6673' }}>{indicatorText(desc, language)}</p>
                 {periodKey && config[key as keyof IndicatorConfig] && (
                   Array.isArray(config[periodKey as keyof IndicatorConfig]) ? (
                     <input
