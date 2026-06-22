@@ -49,7 +49,7 @@ func (s *Server) handleStrategyMetadata(c *gin.Context) {
 			{"key": "enable_vwap", "label": "vwap", "desc": "vwapDesc", "color": "#22d3ee", "period_key": "vwap_periods", "default_periods": []int{20}, "operands": []string{"vwap"}},
 			{"key": "enable_donchian", "label": "donchian", "desc": "donchianDesc", "color": "#f472b6", "period_key": "donchian_periods", "default_periods": []int{20}, "operands": []string{"donchian_upper", "donchian_lower", "donchian_middle", "break_above_donchian", "break_below_donchian", "channel_width_pct"}},
 			{"key": "enable_volume", "label": "volume", "desc": "volumeDesc", "color": "#8b5cf6", "period_key": "volume_periods", "default_periods": []int{20}, "operands": []string{"volume", "volume_avg", "volume_ratio"}},
-			{"key": "enable_volume_spike", "label": "volume_spike", "desc": "volumeSpikeDesc", "color": "#a78bfa", "period_key": "volume_periods", "default_periods": []int{20}, "multiplier_key": "volume_spike_multiplier", "operands": []string{"volume_spike", "last_volume_spike_high", "break_last_volume_spike_high"}},
+			{"key": "enable_volume_spike", "label": "volumeSpike", "desc": "volumeSpikeDesc", "color": "#a78bfa", "period_key": "volume_periods", "default_periods": []int{20}, "multiplier_key": "volume_spike_multiplier", "operands": []string{"volume_spike", "last_volume_spike_high", "break_last_volume_spike_high"}},
 			{"key": "enable_rolling_percentile", "label": "rolling_percentile", "desc": "rollingPercentileDesc", "color": "#34d399", "period_key": "rolling_percentile_periods", "default_periods": []int{20}, "operands": []string{"rolling_percentile", "z_score"}},
 		},
 		"always_calculated_indicators": []string{"price", "price_change", "realized_vol"},
