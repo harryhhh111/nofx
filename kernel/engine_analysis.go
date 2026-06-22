@@ -453,7 +453,8 @@ func requiredCalculationLookback(config *store.StrategyConfig) int {
 		required = maxInt(required, maxIntSlice(indicators.EMAPeriods))
 	}
 	if indicators.EnableSMA {
-		required = maxInt(required, maxIntSlice(indicators.SMAPeriods))
+		// +1 for derived signals that need the previous bar's SMA.
+		required = maxInt(required, maxIntSlice(indicators.SMAPeriods)+1)
 	}
 	if indicators.EnableRSI {
 		required = maxInt(required, maxIntSlice(indicators.RSIPeriods)+1)

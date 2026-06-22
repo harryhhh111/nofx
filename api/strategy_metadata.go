@@ -35,7 +35,7 @@ func (s *Server) handleStrategyMetadata(c *gin.Context) {
 		},
 		"technical_indicators": []gin.H{
 			{"key": "enable_ema", "label": "ema", "desc": "emaDesc", "color": "#F0B90B", "period_key": "ema_periods", "default_periods": []int{20, 50}, "operands": []string{"ema"}},
-			{"key": "enable_sma", "label": "sma", "desc": "smaDesc", "color": "#4ade80", "period_key": "sma_periods", "default_periods": []int{5, 20, 50}, "operands": []string{"sma"}},
+			{"key": "enable_sma", "label": "sma", "desc": "smaDesc", "color": "#4ade80", "period_key": "sma_periods", "default_periods": []int{5, 20, 50}, "operands": []string{"sma", "sma_slope", "price_above_sma", "price_distance_pct", "sma_cross_up_fast_slow", "sma_cross_down_fast_slow"}},
 			{"key": "enable_macd", "label": "macd", "desc": "macdDesc", "color": "#a855f7", "operands": []string{"macd", "macd_signal", "macd_histogram"}},
 			{"key": "enable_rsi", "label": "rsi", "desc": "rsiDesc", "color": "#F6465D", "period_key": "rsi_periods", "default_periods": []int{7, 14}, "operands": []string{"rsi"}},
 			{"key": "enable_atr", "label": "atr", "desc": "atrDesc", "color": "#60a5fa", "period_key": "atr_periods", "default_periods": []int{14}, "operands": []string{"atr"}},
@@ -116,7 +116,15 @@ func indicatorAvailableInConfig(config *store.StrategyConfig, operand store.Comp
 	case "ema":
 		return indicators.EnableEMA && containsInt(indicators.EMAPeriods, operand.Period)
 	case "sma":
-		return indicators.EnableSMA && containsInt(indicators.SMAPeriods, operand.Period)
+		if !indicators.EnableSMA {
+			return false
+		}
+		if operand.Name == "sma_cross_up_fast_slow" || operand.Name == "sma_cross_down_fast_slow" {
+			// Cross signals are generated only when at least two distinct SMA
+			// periods are configured; they are not bound to a single period.
+			return len(indicators.SMAPeriods) >= 2 && operand.Period == 0
+		}
+		return containsInt(indicators.SMAPeriods, operand.Period)
 	case "rsi":
 		return indicators.EnableRSI && containsInt(indicators.RSIPeriods, operand.Period)
 	case "atr":
@@ -158,7 +166,8 @@ func indicatorGroup(name string) string {
 	switch name {
 	case "ema":
 		return "ema"
-	case "sma":
+	case "sma", "sma_slope", "price_above_sma", "price_distance_pct",
+		"sma_cross_up_fast_slow", "sma_cross_down_fast_slow":
 		return "sma"
 	case "rsi":
 		return "rsi"

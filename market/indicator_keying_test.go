@@ -56,6 +56,41 @@ func TestMultiOutputIndicatorsAddressable(t *testing.T) {
 	_ = hist
 }
 
+// TestSMADerivedSignalsAddressable verifies SMA and its derived signals are
+// stored under their own names and can be retrieved independently.
+func TestSMADerivedSignalsAddressable(t *testing.T) {
+	klines := syntheticTrend(160)
+	input := MarketInput{
+		Symbol:     "TESTUSDT",
+		Timeframes: map[string][]Kline{"15m": klines},
+		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
+	}
+	req := IndicatorRequest{
+		SMAPeriods: []int{5, 20},
+	}
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mustGet := func(name string, period int) float64 {
+		v, ok := snap.IndicatorValue(name, "15m", period)
+		if !ok {
+			t.Fatalf("indicator %q (period %d) is not addressable by name", name, period)
+		}
+		return v
+	}
+
+	mustGet("sma", 5)
+	mustGet("sma", 20)
+	mustGet("sma_slope", 5)
+	mustGet("sma_slope", 20)
+	mustGet("price_above_sma", 5)
+	mustGet("price_distance_pct", 5)
+	mustGet("sma_cross_up_fast_slow", 0)
+	mustGet("sma_cross_down_fast_slow", 0)
+}
+
 // TestVolumeSpikeIndicatorsAddressable verifies that volume spike outputs are
 // stored under their own indicator names and can be retrieved independently.
 func TestVolumeSpikeIndicatorsAddressable(t *testing.T) {

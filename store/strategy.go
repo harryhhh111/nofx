@@ -432,7 +432,9 @@ func maxNamedWindowBars(windows []string) int {
 func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
 	required := c.Indicators.Klines.ComputeLookback
 	required = maxInt(required, maxPeriod(c.Indicators.EMAPeriods))
-	required = maxInt(required, maxPeriod(c.Indicators.SMAPeriods))
+	// SMA derived signals (slope + fast/slow cross) need one extra bar to
+	// compute the previous bar's SMA.
+	required = maxInt(required, maxPeriod(c.Indicators.SMAPeriods)+1)
 	required = maxInt(required, maxPeriod(c.Indicators.RSIPeriods)+1)
 	required = maxInt(required, maxPeriod(c.Indicators.ATRPeriods)+1)
 	required = maxInt(required, c.Indicators.ADXPeriod+1)
