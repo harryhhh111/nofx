@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -361,6 +362,7 @@ type DecisionDigest struct {
 	Timestamp           time.Time        `json:"timestamp"`
 	CoTTrace            string           `json:"cot_trace"`
 	CotSummary          string           `json:"cot_summary"`
+	JudgementSummary    string           `json:"judgement_summary,omitempty"`
 	RecentCoTTraces     []CoTTraceEntry  `json:"recent_cot_traces"`
 	Decisions           []DecisionAction `json:"decisions"`
 	Success             bool             `json:"success"`
@@ -380,7 +382,150 @@ func (db *DecisionRecordDB) toDigest() *DecisionDigest {
 		AIRequestDurationMs: db.AIRequestDurationMs,
 	}
 	json.Unmarshal([]byte(db.Decisions), &digest.Decisions)
+	digest.JudgementSummary = buildDecisionDigestJudgementSummary(db.DecisionJSON)
 	return digest
+}
+
+type decisionDigestJSON struct {
+	UserDecisionSummary *struct {
+		Status   string `json:"status"`
+		Headline string `json:"headline"`
+		Symbols  []struct {
+			Symbol   string   `json:"symbol"`
+			Decision string   `json:"decision"`
+			Reason   string   `json:"reason"`
+			Details  []string `json:"details"`
+		} `json:"symbols"`
+	} `json:"user_decision_summary"`
+	SetupEvaluations []decisionDigestSetupTrace `json:"setup_evaluations"`
+}
+
+type decisionDigestSetupTrace struct {
+	Symbol        string                       `json:"symbol"`
+	Setup         string                       `json:"setup"`
+	Action        string                       `json:"action"`
+	Reason        string                       `json:"reason"`
+	Eligible      bool                         `json:"eligible"`
+	Primary       decisionDigestScoringTrace   `json:"primary"`
+	Entry         decisionDigestScoringTrace   `json:"entry"`
+	Confirmations []decisionDigestScoringTrace `json:"confirmations"`
+}
+
+type decisionDigestScoringTrace struct {
+	Timeframe string  `json:"timeframe"`
+	Score     float64 `json:"score"`
+	Eligible  bool    `json:"eligible"`
+	Reason    string  `json:"reason"`
+}
+
+func buildDecisionDigestJudgementSummary(decisionJSON string) string {
+	if strings.TrimSpace(decisionJSON) == "" {
+		return ""
+	}
+	var parsed decisionDigestJSON
+	if err := json.Unmarshal([]byte(decisionJSON), &parsed); err != nil {
+		return ""
+	}
+	if parsed.UserDecisionSummary == nil && len(parsed.SetupEvaluations) == 0 {
+		return ""
+	}
+
+	reasonBySymbol := map[string]string{}
+	headline := ""
+	if parsed.UserDecisionSummary != nil {
+		headline = parsed.UserDecisionSummary.Headline
+		for _, item := range parsed.UserDecisionSummary.Symbols {
+			if item.Symbol != "" && item.Reason != "" {
+				reasonBySymbol[item.Symbol] = item.Reason
+			}
+		}
+	}
+
+	parts := make([]string, 0, len(parsed.SetupEvaluations))
+	for _, trace := range parsed.SetupEvaluations {
+		if trace.Symbol == "" {
+			continue
+		}
+		parts = append(parts, buildDecisionDigestSymbolJudgement(trace, reasonBySymbol[trace.Symbol]))
+		if len(parts) == 2 {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return headline
+	}
+	if headline == "" {
+		headline = "本轮完成市场评估。"
+	}
+	return strings.TrimRight(headline, "。；; ") + "。 " + strings.Join(parts, "；") + "。"
+}
+
+func buildDecisionDigestSymbolJudgement(trace decisionDigestSetupTrace, friendlyReason string) string {
+	reason := friendlyReason
+	if reason == "" {
+		reason = digestReasonFromSetup(trace)
+	}
+	reason = strings.TrimRight(reason, "。；; ")
+	scores := []string{fmt.Sprintf("主周期 %.1f", trace.Primary.Score), fmt.Sprintf("入场 %.1f", trace.Entry.Score)}
+	if confirmation := firstDigestConfirmationScore(trace.Confirmations); confirmation != "" {
+		scores = append(scores, confirmation)
+	}
+	return fmt.Sprintf("%s %s（%s），%s", trace.Symbol, digestBias(trace), strings.Join(scores, "，"), reason)
+}
+
+func firstDigestConfirmationScore(confirmations []decisionDigestScoringTrace) string {
+	for _, item := range confirmations {
+		if item.Timeframe != "" && item.Eligible {
+			return fmt.Sprintf("%s %.1f", item.Timeframe, item.Score)
+		}
+	}
+	return ""
+}
+
+func digestReasonFromSetup(trace decisionDigestSetupTrace) string {
+	if !trace.Primary.Eligible {
+		return "主周期证据不足，暂时无法确认交易机会"
+	}
+	if !trace.Entry.Eligible {
+		return "入场周期证据不足，暂时不适合进场"
+	}
+	if trace.Setup == "no_trade_chop" {
+		return "价格偏震荡，方向优势不明显"
+	}
+	if trace.Setup != "" && !strings.HasPrefix(trace.Setup, "no_trade_") && !trace.Eligible {
+		return "保护位或风险回报没有通过"
+	}
+	if absFloat64(trace.Primary.Score) < 35 {
+		return "主周期方向分偏低，还没有形成清晰机会"
+	}
+	if absFloat64(trace.Entry.Score) < 20 {
+		return "入场触发分不足"
+	}
+	return "未达到策略设定的开仓条件"
+}
+
+func digestBias(trace decisionDigestSetupTrace) string {
+	if !trace.Primary.Eligible {
+		return "证据不足"
+	}
+	if trace.Setup == "no_trade_chop" {
+		return "震荡"
+	}
+	switch {
+	case trace.Primary.Score >= 35:
+		return "偏多"
+	case trace.Primary.Score <= -35:
+		return "偏空"
+	default:
+		return "不明朗"
+	}
+}
+
+func absFloat64(value float64) float64 {
+	if value < 0 {
+		return -value
+	}
+	return value
 }
 
 // getLatestCoTTraces returns the most recent N CoT traces for a trader.

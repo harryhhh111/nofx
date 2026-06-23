@@ -1037,14 +1037,58 @@ func buildUserDecisionSymbolSummaries(result *TradingEngineResult) []UserDecisio
 		out = append(out, UserDecisionSymbolSummary{
 			Symbol:   trace.Symbol,
 			Decision: "skip",
-			Reason:   trace.Reason,
+			Reason:   userFriendlyNoTradeReason(trace),
 			Details: []string{
 				fmt.Sprintf("主周期评分 %.1f，入场周期评分 %.1f", trace.Primary.Score, trace.Entry.Score),
 				fmt.Sprintf("场景：%s", emptyAs(trace.Setup, "未满足交易场景")),
+				"技术原因：" + trace.Reason,
 			},
 		})
 	}
 	return out
+}
+
+func userFriendlyNoTradeReason(trace SetupEvaluationTrace) string {
+	const (
+		neutralScoreBand  = 35.0
+		directionalScore  = 60.0
+		entryTriggerScore = 20.0
+	)
+
+	if !trace.Primary.Eligible {
+		return "主周期的行情证据还不完整，暂时无法判断是否有稳定机会。"
+	}
+	if !trace.Entry.Eligible {
+		return "入场周期的触发证据还不完整，暂时不适合进场。"
+	}
+	for _, confirmation := range trace.Confirmations {
+		if !confirmation.Eligible {
+			return "确认周期的方向证据不足，本轮先观望。"
+		}
+	}
+
+	primaryScore := trace.Primary.Score
+	entryScore := trace.Entry.Score
+	switch {
+	case trace.Setup == "no_trade_chop":
+		return "当前价格波动偏震荡，方向优势不明显，暂时不追单。"
+	case primaryScore >= neutralScoreBand && primaryScore < directionalScore && entryScore < entryTriggerScore:
+		return "主周期有一些偏多迹象，但入场触发还不够明确。"
+	case primaryScore <= -neutralScoreBand && primaryScore > -directionalScore && entryScore > -entryTriggerScore:
+		return "主周期有一些偏空迹象，但入场触发还不够明确。"
+	case primaryScore > 0 && entryScore < -entryTriggerScore:
+		return "主周期偏多，但入场周期正在回落，等待回调结束更稳妥。"
+	case primaryScore < 0 && entryScore > entryTriggerScore:
+		return "主周期偏空，但入场周期正在反弹，暂时不逆着主方向开仓。"
+	case primaryScore > -neutralScoreBand && primaryScore < neutralScoreBand:
+		return "主周期方向不够清晰，还没有形成值得执行的交易机会。"
+	case primaryScore >= neutralScoreBand:
+		return "行情偏多，但还没有达到策略要求的开仓强度。"
+	case primaryScore <= -neutralScoreBand:
+		return "行情偏空，但还没有达到策略要求的开仓强度。"
+	default:
+		return "本轮条件不完整，系统选择继续观察。"
+	}
 }
 
 func signalUserDetails(signal CandidateSignal) []string {
