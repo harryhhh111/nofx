@@ -56,6 +56,71 @@ func TestMultiOutputIndicatorsAddressable(t *testing.T) {
 	_ = hist
 }
 
+// TestADXDerivedSignals verifies ADX/DMI derived signals are addressable and
+// semantically correct in a clear uptrend.
+func TestADXDerivedSignals(t *testing.T) {
+	klines := syntheticTrend(160)
+	input := MarketInput{
+		Symbol:     "TESTUSDT",
+		Timeframes: map[string][]Kline{"15m": klines},
+		AsOf:       time.UnixMilli(klines[len(klines)-1].OpenTime).UTC(),
+	}
+	req := IndicatorRequest{
+		ADX: &ADXSpec{Period: 14},
+	}
+	snap, err := NewDefaultIndicatorEngine().Calculate(context.Background(), input, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mustGet := func(name string, period int) float64 {
+		v, ok := snap.IndicatorValue(name, "15m", period)
+		if !ok {
+			t.Fatalf("indicator %q (period %d) is not addressable by name", name, period)
+		}
+		return v
+	}
+
+	adx := mustGet("adx", 14)
+	plusDI := mustGet("plus_di", 14)
+	minusDI := mustGet("minus_di", 14)
+	diDir := mustGet("di_direction", 14)
+	trending := mustGet("adx_trending", 14)
+	strength := mustGet("adx_strength_level", 14)
+
+	// In a synthetic uptrend +DI should dominate -DI.
+	if plusDI <= minusDI {
+		t.Fatalf("expected plus_di > minus_di in uptrend, got plus_di=%v minus_di=%v", plusDI, minusDI)
+	}
+	if diDir != 1 {
+		t.Fatalf("expected di_direction=1 in uptrend, got %v", diDir)
+	}
+
+	// adx_trending must be consistent with adx > 25 threshold.
+	if adx > 25 && trending != 1 {
+		t.Fatalf("expected adx_trending=1 when adx=%v > 25", adx)
+	}
+	if adx <= 25 && trending != 0 {
+		t.Fatalf("expected adx_trending=0 when adx=%v <= 25", adx)
+	}
+
+	// adx_strength_level must be consistent with thresholds.
+	var expectedStrength float64
+	switch {
+	case adx < 20:
+		expectedStrength = 0
+	case adx < 40:
+		expectedStrength = 1
+	case adx < 60:
+		expectedStrength = 2
+	default:
+		expectedStrength = 3
+	}
+	if strength != expectedStrength {
+		t.Fatalf("expected adx_strength_level=%v for adx=%v, got %v", expectedStrength, adx, strength)
+	}
+}
+
 // TestSMADerivedSignalsAddressable verifies SMA and its derived signals are
 // stored under their own names and can be retrieved independently.
 func TestSMADerivedSignalsAddressable(t *testing.T) {
