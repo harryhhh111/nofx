@@ -83,3 +83,33 @@ func TestDefaultStrategyConfigUsesPrimaryAsEntryTimeframe(t *testing.T) {
 		t.Fatalf("expected default selected timeframes [15m 1h], got %+v", config.Indicators.Klines.SelectedTimeframes)
 	}
 }
+
+func TestStrategyTemplatesAreExecutableScoringConfigs(t *testing.T) {
+	templates := ListStrategyTemplates("zh")
+	if len(templates) == 0 {
+		t.Fatal("expected strategy templates")
+	}
+
+	for _, template := range templates {
+		config := template.Config
+		if template.ID == "" || template.Name == "" || template.Archetype == "" || template.RiskProfile == "" {
+			t.Fatalf("template metadata is incomplete: %+v", template)
+		}
+		if config.StrategyArchetype != template.Archetype || config.RiskProfile != template.RiskProfile {
+			t.Fatalf("template config metadata mismatch for %s: %+v", template.ID, config)
+		}
+		if config.StrategyMode != "scoring" || !config.ScoringConfig.Enabled {
+			t.Fatalf("template %s should be an enabled scoring strategy: %+v", template.ID, config.ScoringConfig)
+		}
+		if config.ScoringConfig.LongThreshold <= 0 || config.ScoringConfig.ShortThreshold >= 0 {
+			t.Fatalf("template %s has invalid thresholds: %+v", template.ID, config.ScoringConfig)
+		}
+		weightSum := 0.0
+		for _, factor := range config.ScoringConfig.SelectedFactors {
+			weightSum += config.ScoringConfig.FactorWeights[factor]
+		}
+		if weightSum < 0.99 || weightSum > 1.01 {
+			t.Fatalf("template %s factor weights should sum to 1, got %.2f", template.ID, weightSum)
+		}
+	}
+}

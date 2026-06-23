@@ -28,7 +28,7 @@ import {
   FileJson,
   AlertTriangle,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, AIModel, StrategyCompileResponse, StrategyCalibrationReport, AI500CoinsResponse, NofxOSStatus } from '../types'
+import type { Strategy, StrategyConfig, StrategyTemplate, AIModel, StrategyCompileResponse, StrategyCalibrationReport, AI500CoinsResponse, NofxOSStatus } from '../types'
 import { api } from '../lib/api'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
@@ -393,6 +393,8 @@ export function StrategyStudioPage() {
   const { language } = useLanguage()
 
   const [strategies, setStrategies] = useState<Strategy[]>([])
+  const [strategyTemplates, setStrategyTemplates] = useState<StrategyTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('trend_following_balanced')
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [editingConfig, setEditingConfig] = useState<StrategyConfig | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -471,6 +473,28 @@ export function StrategyStudioPage() {
     }
   }, [token])
 
+  const fetchStrategyTemplates = useCallback(async () => {
+    if (!token) return
+    try {
+      const response = await fetch(`${API_BASE}/api/strategies/templates?lang=${language}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!response.ok) throw new Error('Failed to fetch strategy templates')
+      const data = await response.json()
+      const templates = data.templates || []
+      setStrategyTemplates(templates)
+      if (templates.length > 0) {
+        setSelectedTemplateId((current) =>
+          templates.some((template: StrategyTemplate) => template.id === current)
+            ? current
+            : templates[0].id
+        )
+      }
+    } catch (err) {
+      console.error('Failed to fetch strategy templates:', err)
+    }
+  }, [token, language])
+
   // Fetch strategies
   const fetchStrategies = useCallback(async () => {
     if (!token) return
@@ -500,18 +524,23 @@ export function StrategyStudioPage() {
   useEffect(() => {
     fetchStrategies()
     fetchAiModels()
-  }, [fetchStrategies, fetchAiModels])
+    fetchStrategyTemplates()
+  }, [fetchStrategies, fetchAiModels, fetchStrategyTemplates])
 
   // Create new strategy
   const handleCreateStrategy = async () => {
     if (!token) return
     try {
+      const template = strategyTemplates.find((item) => item.id === selectedTemplateId)
+      const templateQuery = template ? `&template=${encodeURIComponent(template.id)}` : ''
       const configResponse = await fetch(
-        `${API_BASE}/api/strategies/default-config?lang=${language}`,
+        `${API_BASE}/api/strategies/default-config?lang=${language}${templateQuery}`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
       if (!configResponse.ok) throw new Error('Failed to fetch default config')
       const defaultConfig = await configResponse.json()
+      const strategyName = template?.name || tr('newStrategyName')
+      const strategyDescription = template?.description || ''
 
       const response = await fetch(`${API_BASE}/api/strategies`, {
         method: 'POST',
@@ -520,8 +549,8 @@ export function StrategyStudioPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          name: tr('newStrategyName'),
-          description: '',
+          name: strategyName,
+          description: strategyDescription,
           config: defaultConfig,
         }),
       })
@@ -533,8 +562,8 @@ export function StrategyStudioPage() {
         const now = new Date().toISOString()
         const newStrategy = {
           id: result.id,
-          name: tr('newStrategyName'),
-          description: '',
+          name: strategyName,
+          description: strategyDescription,
           is_active: false,
           is_default: false,
           is_public: false,
@@ -1387,6 +1416,24 @@ export function StrategyStudioPage() {
                 </button>
               </div>
             </div>
+            {strategyTemplates.length > 0 && (
+              <div className="mb-2 px-2">
+                <label className="mb-1 block text-[10px] text-nofx-text-muted">
+                  {tr('strategyTemplate')}
+                </label>
+                <select
+                  value={selectedTemplateId}
+                  onChange={(event) => setSelectedTemplateId(event.target.value)}
+                  className="w-full rounded-md border border-nofx-gold/20 bg-nofx-bg px-2 py-1.5 text-[11px] text-nofx-text outline-none"
+                >
+                  {strategyTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="space-y-2">
               {strategies.map((strategy) => (
                 <div

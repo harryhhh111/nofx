@@ -472,10 +472,29 @@ func (s *Server) handleGetDefaultStrategyConfig(c *gin.Context) {
 	if lang != "zh" {
 		lang = "en"
 	}
+	if templateID := strings.TrimSpace(c.Query("template")); templateID != "" {
+		template, ok := store.GetStrategyTemplate(templateID, lang)
+		if !ok {
+			SafeBadRequest(c, "Unknown strategy template")
+			return
+		}
+		c.JSON(http.StatusOK, template.Config)
+		return
+	}
 
 	// Return default configuration with i18n support
 	defaultConfig := store.GetDefaultStrategyConfig(lang)
 	c.JSON(http.StatusOK, defaultConfig)
+}
+
+func (s *Server) handleGetStrategyTemplates(c *gin.Context) {
+	lang := c.Query("lang")
+	if lang != "zh" {
+		lang = "en"
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"templates": store.ListStrategyTemplates(lang),
+	})
 }
 
 // handlePreviewPrompt previews the structured strategy flow instead of the old prompt.

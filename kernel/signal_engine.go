@@ -750,13 +750,25 @@ func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *ma
 		trace.Setup = shortSetup
 		trace.Signals = shortSignals
 		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case isRangeReversalCandidate("long", primary, entry, snapshot, roles) && longConfirmOK:
+	case isVolatilityBreakoutCandidate(scoring, "long", primary, entry, snapshot, roles) && longConfirmOK:
+		trace.Eligible = true
+		trace.Action = "open_long"
+		trace.Setup = "volatility_breakout_long"
+		trace.Signals = append(longSignals, "volatility breakout archetype", "donchian breakout")
+		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
+	case isVolatilityBreakoutCandidate(scoring, "short", primary, entry, snapshot, roles) && shortConfirmOK:
+		trace.Eligible = true
+		trace.Action = "open_short"
+		trace.Setup = "volatility_breakout_short"
+		trace.Signals = append(shortSignals, "volatility breakout archetype", "donchian breakout")
+		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
+	case isRangeReversalCandidate(scoring, "long", primary, entry, snapshot, roles) && longConfirmOK:
 		trace.Eligible = true
 		trace.Action = "open_long"
 		trace.Setup = "range_reversal_long"
 		trace.Signals = append(longSignals, "range-bound primary", "support or momentum exhaustion")
 		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case isRangeReversalCandidate("short", primary, entry, snapshot, roles) && shortConfirmOK:
+	case isRangeReversalCandidate(scoring, "short", primary, entry, snapshot, roles) && shortConfirmOK:
 		trace.Eligible = true
 		trace.Action = "open_short"
 		trace.Setup = "range_reversal_short"
@@ -947,8 +959,12 @@ func noTradeReason(scoring *ScoringStrategy, primary, entry ScoringEvaluationTra
 	return "no setup: " + strings.Join(reasons, "; ")
 }
 
-func isRangeReversalCandidate(side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) bool {
-	if absFloat(primary.Score) > 35 {
+func isRangeReversalCandidate(scoring *ScoringStrategy, side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) bool {
+	maxPrimaryAbs := 35.0
+	if scoringArchetype(scoring) == "range_reversal" {
+		maxPrimaryAbs = 55
+	}
+	if absFloat(primary.Score) > maxPrimaryAbs {
 		return false
 	}
 	switch side {
@@ -959,6 +975,30 @@ func isRangeReversalCandidate(side string, primary, entry ScoringEvaluationTrace
 	default:
 		return false
 	}
+}
+
+func isVolatilityBreakoutCandidate(scoring *ScoringStrategy, side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) bool {
+	if scoringArchetype(scoring) != "volatility_breakout" {
+		return false
+	}
+	if !hasBreakoutSignal(side, roles.Primary, snapshot) {
+		return false
+	}
+	switch side {
+	case "long":
+		return primary.Score >= 35 && entry.Score >= 20
+	case "short":
+		return primary.Score <= -35 && entry.Score <= -20
+	default:
+		return false
+	}
+}
+
+func scoringArchetype(scoring *ScoringStrategy) string {
+	if scoring == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(scoring.StrategyArchetype))
 }
 
 func hasBreakoutSignal(side, timeframe string, snapshot *market.FactorSnapshot) bool {

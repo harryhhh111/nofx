@@ -213,6 +213,8 @@ func (s *Server) setupRoutes() {
 				s.handleGetActiveStrategy)
 			s.route(protected, "GET", "/strategies/default-config",
 				s.handleGetDefaultStrategyConfig)
+			s.route(protected, "GET", "/strategies/templates",
+				s.handleGetStrategyTemplates)
 			s.route(protected, "POST", "/strategies/preview-prompt",
 				s.handlePreviewPrompt)
 			s.route(protected, "POST", "/strategies/preview-flow", s.handlePreviewPrompt)

@@ -736,6 +736,10 @@ func (Strategy) TableName() string { return "strategies" }
 type StrategyConfig struct {
 	// Strategy type: "ai_trading" (default) or "grid_trading"
 	StrategyType string `json:"strategy_type,omitempty"`
+	// Strategy archetype describes the market setup this strategy is designed to trade.
+	StrategyArchetype string `json:"strategy_archetype,omitempty"`
+	// Risk profile tunes thresholds and sizing for the same archetype.
+	RiskProfile string `json:"risk_profile,omitempty"`
 	// Trading decision mode: rule, scoring, or hybrid.
 	StrategyMode string `json:"strategy_mode,omitempty"`
 
@@ -924,25 +928,25 @@ type IndicatorConfig struct {
 	// raw kline data (OHLCV) - always enabled, required for AI analysis
 	EnableRawKlines bool `json:"enable_raw_klines"`
 	// technical indicator switches
-	EnableEMA          bool `json:"enable_ema"`
-	EnableSMA          bool `json:"enable_sma"` // Simple Moving Average
-	EnableMACD         bool `json:"enable_macd"`
-	EnableRSI          bool `json:"enable_rsi"`
-	EnableATR          bool `json:"enable_atr"`
-	EnableADX          bool `json:"enable_adx"`           // ADX/DMI trend strength
-	EnableSAR          bool `json:"enable_sar"`           // Parabolic SAR
-	EnableBOLL         bool `json:"enable_boll"`          // Bollinger Bands
-	EnableSession      bool `json:"enable_session"`       // Previous session OHLCV
-	EnableOpeningRange bool `json:"enable_opening_range"` // Opening Range (first N minutes of session)
-	EnableRBreaker     bool `json:"enable_rbreaker"`      // R-Breaker pivot levels
-	EnableMTSI         bool `json:"enable_mtsi"`          // MTSI (log-ratio to VWAP)
-	EnableVolume       bool `json:"enable_volume"`        // volume, volume_avg, volume_ratio
-	EnableVolumeSpike  bool `json:"enable_volume_spike"`  // volume_spike and breakout signals
-	EnableVWAP         bool `json:"enable_vwap"`          // Volume Weighted Average Price
-	EnableDonchian     bool `json:"enable_donchian"`      // Donchian Channel
+	EnableEMA               bool `json:"enable_ema"`
+	EnableSMA               bool `json:"enable_sma"` // Simple Moving Average
+	EnableMACD              bool `json:"enable_macd"`
+	EnableRSI               bool `json:"enable_rsi"`
+	EnableATR               bool `json:"enable_atr"`
+	EnableADX               bool `json:"enable_adx"`                // ADX/DMI trend strength
+	EnableSAR               bool `json:"enable_sar"`                // Parabolic SAR
+	EnableBOLL              bool `json:"enable_boll"`               // Bollinger Bands
+	EnableSession           bool `json:"enable_session"`            // Previous session OHLCV
+	EnableOpeningRange      bool `json:"enable_opening_range"`      // Opening Range (first N minutes of session)
+	EnableRBreaker          bool `json:"enable_rbreaker"`           // R-Breaker pivot levels
+	EnableMTSI              bool `json:"enable_mtsi"`               // MTSI (log-ratio to VWAP)
+	EnableVolume            bool `json:"enable_volume"`             // volume, volume_avg, volume_ratio
+	EnableVolumeSpike       bool `json:"enable_volume_spike"`       // volume_spike and breakout signals
+	EnableVWAP              bool `json:"enable_vwap"`               // Volume Weighted Average Price
+	EnableDonchian          bool `json:"enable_donchian"`           // Donchian Channel
 	EnableRollingPercentile bool `json:"enable_rolling_percentile"` // rolling percentile / z-score
-	EnableOI           bool `json:"enable_oi"`           // open interest
-	EnableFundingRate  bool `json:"enable_funding_rate"` // funding rate
+	EnableOI                bool `json:"enable_oi"`                 // open interest
+	EnableFundingRate       bool `json:"enable_funding_rate"`       // funding rate
 	// EMA period configuration
 	EMAPeriods []int `json:"ema_periods,omitempty"` // default [20, 50]
 	// SMA period configuration
@@ -961,14 +965,14 @@ type IndicatorConfig struct {
 	MACDSlowPeriod   int `json:"macd_slow_period,omitempty"`   // default 26
 	MACDSignalPeriod int `json:"macd_signal_period,omitempty"` // default 9
 	// Additional K-line derived indicator period configuration.
-	VolumePeriods         []int   `json:"volume_periods,omitempty"`          // default [20]
-	VolumeSpikeMultiplier float64 `json:"volume_spike_multiplier,omitempty"` // default 4.0
-	VWAPPeriods           []int   `json:"vwap_periods,omitempty"`            // default [20]
-	DonchianPeriods       []int   `json:"donchian_periods,omitempty"`        // default [20]
-	RollingPercentilePeriods []int `json:"rolling_percentile_periods,omitempty"` // default [20]
-	RealizedVolPeriods      []int    `json:"realized_vol_periods,omitempty"`       // default [20]
-	PriceChangeWindows      []int    `json:"price_change_windows,omitempty"`       // default [12, 48], bar windows
-	PriceChangeNamedWindows []string `json:"price_change_named_windows,omitempty"` // default [] (opt-in)
+	VolumePeriods            []int    `json:"volume_periods,omitempty"`             // default [20]
+	VolumeSpikeMultiplier    float64  `json:"volume_spike_multiplier,omitempty"`    // default 4.0
+	VWAPPeriods              []int    `json:"vwap_periods,omitempty"`               // default [20]
+	DonchianPeriods          []int    `json:"donchian_periods,omitempty"`           // default [20]
+	RollingPercentilePeriods []int    `json:"rolling_percentile_periods,omitempty"` // default [20]
+	RealizedVolPeriods       []int    `json:"realized_vol_periods,omitempty"`       // default [20]
+	PriceChangeWindows       []int    `json:"price_change_windows,omitempty"`       // default [12, 48], bar windows
+	PriceChangeNamedWindows  []string `json:"price_change_named_windows,omitempty"` // default [] (opt-in)
 	// Session configuration (Phase 1: UTC day only)
 	Sessions []SessionSpec `json:"sessions,omitempty"`
 	// Opening Range configuration (shares session definition with SessionModule)
@@ -1159,53 +1163,53 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"15m", "1h"},
 			},
-			EnableRawKlines:        true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:              true, // Core trend indicator
-			EnableSMA:              false,
-			EnableMACD:             false,
-			EnableRSI:              false,
-			EnableATR:              true, // Stop-loss sizing
-			EnableADX:              true, // Trend strength confirmation
-			EnableSAR:              false,
-			EnableBOLL:             false,
-			EnableSession:          false,
-			EnableOpeningRange:     false,
-			OpeningRangeMinutes:    30,
-			EnableRBreaker:         false,
-			EnableVolume:           false,
-			EnableVolumeSpike:      false,
-			EnableVWAP:             false,
-			EnableDonchian:         false,
+			EnableRawKlines:         true, // Required - raw OHLCV data for AI analysis
+			EnableEMA:               true, // Core trend indicator
+			EnableSMA:               false,
+			EnableMACD:              false,
+			EnableRSI:               false,
+			EnableATR:               true, // Stop-loss sizing
+			EnableADX:               true, // Trend strength confirmation
+			EnableSAR:               false,
+			EnableBOLL:              false,
+			EnableSession:           false,
+			EnableOpeningRange:      false,
+			OpeningRangeMinutes:     30,
+			EnableRBreaker:          false,
+			EnableVolume:            false,
+			EnableVolumeSpike:       false,
+			EnableVWAP:              false,
+			EnableDonchian:          false,
 			EnableRollingPercentile: false,
-			EnableOI:               true,
-			EnableFundingRate:      true,
-			EMAPeriods:             []int{20, 50},
-			SMAPeriods:             []int{5, 20, 50},
-			RSIPeriods:             []int{7, 14},
-			ATRPeriods:             []int{14},
-			ADXPeriod:              14,
-			BOLLPeriods:            []int{20},
-			MACDFastPeriod:         12,
-			MACDSlowPeriod:         26,
-			MACDSignalPeriod:       9,
-			VolumePeriods:          []int{20},
-			VWAPPeriods:            []int{20},
-			DonchianPeriods:        []int{20},
-			RealizedVolPeriods:     []int{20},
-			PriceChangeWindows:     []int{12, 48},
-			NofxOSAPIKey:           "",
-			EnableQuantData:        false,
-			EnableQuantOI:          false,
-			EnableQuantNetflow:     false,
-			EnableOIRanking:        true,
-			OIRankingDuration:      "1h",
-			OIRankingLimit:         10,
-			EnableNetFlowRanking:   true,
-			NetFlowRankingDuration: "1h",
-			NetFlowRankingLimit:    10,
-			EnablePriceRanking:     true,
-			PriceRankingDuration:   "1h,4h,24h",
-			PriceRankingLimit:      10,
+			EnableOI:                true,
+			EnableFundingRate:       true,
+			EMAPeriods:              []int{20, 50},
+			SMAPeriods:              []int{5, 20, 50},
+			RSIPeriods:              []int{7, 14},
+			ATRPeriods:              []int{14},
+			ADXPeriod:               14,
+			BOLLPeriods:             []int{20},
+			MACDFastPeriod:          12,
+			MACDSlowPeriod:          26,
+			MACDSignalPeriod:        9,
+			VolumePeriods:           []int{20},
+			VWAPPeriods:             []int{20},
+			DonchianPeriods:         []int{20},
+			RealizedVolPeriods:      []int{20},
+			PriceChangeWindows:      []int{12, 48},
+			NofxOSAPIKey:            "",
+			EnableQuantData:         false,
+			EnableQuantOI:           false,
+			EnableQuantNetflow:      false,
+			EnableOIRanking:         true,
+			OIRankingDuration:       "1h",
+			OIRankingLimit:          10,
+			EnableNetFlowRanking:    true,
+			NetFlowRankingDuration:  "1h",
+			NetFlowRankingLimit:     10,
+			EnablePriceRanking:      true,
+			PriceRankingDuration:    "1h,4h,24h",
+			PriceRankingLimit:       10,
 		},
 		Structure: defaultStructureFactorConfig(),
 		RiskControl: RiskControlConfig{
@@ -1225,6 +1229,136 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 	}
 	config.ClampLimits()
 	return config
+}
+
+type StrategyTemplate struct {
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Archetype   string         `json:"archetype"`
+	RiskProfile string         `json:"risk_profile"`
+	Config      StrategyConfig `json:"config"`
+}
+
+func ListStrategyTemplates(lang string) []StrategyTemplate {
+	ids := []string{
+		"trend_following_balanced",
+		"pullback_balanced",
+		"range_reversal_balanced",
+		"breakout_balanced",
+		"volatility_breakout_aggressive",
+	}
+	out := make([]StrategyTemplate, 0, len(ids))
+	for _, id := range ids {
+		if tpl, ok := GetStrategyTemplate(id, lang); ok {
+			out = append(out, tpl)
+		}
+	}
+	return out
+}
+
+func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
+	lang = normalizeTemplateLang(lang)
+	config := GetDefaultStrategyConfig(lang)
+	config.StrategyMode = "scoring"
+	config.Indicators.EnableEMA = true
+	config.Indicators.EnableMACD = true
+	config.Indicators.EnableRSI = true
+	config.Indicators.EnableATR = true
+	config.Indicators.EnableADX = true
+	config.Indicators.EnableBOLL = true
+	config.Indicators.EnableVolume = true
+	config.Indicators.EnableDonchian = true
+	scoring := ScoringStrategyConfig{
+		Enabled:                 true,
+		SelectedFactors:         []string{"trend", "momentum", "structure", "derivatives"},
+		FactorWeights:           map[string]float64{"trend": 0.30, "momentum": 0.25, "structure": 0.25, "derivatives": 0.20},
+		LongThreshold:           65,
+		ShortThreshold:          -60,
+		MinAvailableWeightRatio: 0.5,
+		MinConfidence:           config.RiskControl.MinConfidence,
+		Timeframe:               config.Indicators.Klines.PrimaryTimeframe,
+		Execution: CompiledRuleExecution{
+			Leverage:        config.RiskControl.BTCETHMaxLeverage,
+			PositionSizeUSD: config.RiskControl.MinPositionSize,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      config.RiskControl.MinConfidence,
+		},
+	}
+	config.ScoringConfig = &scoring
+
+	name := ""
+	desc := ""
+	archetype := ""
+	risk := "balanced"
+	switch id {
+	case "trend_following_balanced":
+		archetype = "trend_following"
+		name, desc = templateText(lang, "趋势跟随 - 标准", "Trend Following - Balanced", "只在主周期趋势较明确、确认周期不冲突时开仓，适合顺势行情。", "Trades only when the primary timeframe trend is clear and confirmation does not conflict.")
+		config.ScoringConfig.LongThreshold = 70
+		config.ScoringConfig.ShortThreshold = -70
+		config.RiskControl.MinConfidence = 70
+	case "pullback_balanced":
+		archetype = "pullback"
+		name, desc = templateText(lang, "趋势回调 - 标准", "Pullback - Balanced", "主周期保持方向，入场周期允许回调后重新转强/转弱，适合趋势中的回踩。", "Keeps the primary trend requirement while allowing entry after a lower-timeframe pullback.")
+		config.ScoringConfig.LongThreshold = 60
+		config.ScoringConfig.ShortThreshold = -60
+		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.30, "momentum": 0.30, "structure": 0.25, "derivatives": 0.15}
+	case "range_reversal_balanced":
+		archetype = "range_reversal"
+		name, desc = templateText(lang, "区间反转 - 标准", "Range Reversal - Balanced", "不追强趋势，重点等待支撑阻力、BOLL/RSI 极值附近的反转证据。", "Avoids chasing strong trends and focuses on support/resistance plus RSI/BOLL exhaustion.")
+		config.ScoringConfig.LongThreshold = 55
+		config.ScoringConfig.ShortThreshold = -55
+		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.15, "momentum": 0.30, "structure": 0.40, "derivatives": 0.15}
+	case "breakout_balanced":
+		archetype = "breakout"
+		name, desc = templateText(lang, "突破/回踩 - 标准", "Breakout / Retest - Balanced", "关注 Donchian、成交量和结构位突破，允许突破后回踩确认。", "Uses Donchian, volume and structure breaks, with room for retest confirmation.")
+		config.ScoringConfig.LongThreshold = 60
+		config.ScoringConfig.ShortThreshold = -60
+		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.35, "momentum": 0.30, "structure": 0.20, "derivatives": 0.15}
+	case "volatility_breakout_aggressive":
+		archetype = "volatility_breakout"
+		risk = "aggressive"
+		name, desc = templateText(lang, "波动突破 - 激进", "Volatility Breakout - Aggressive", "面向波动市场，降低趋势门槛，但要求动量/成交量/突破证据更快触发。", "For volatile markets: lower trend threshold but faster momentum, volume and breakout triggers.")
+		config.ScoringConfig.LongThreshold = 55
+		config.ScoringConfig.ShortThreshold = -55
+		config.ScoringConfig.MinConfidence = 55
+		config.RiskControl.MinConfidence = 55
+		config.RiskControl.RiskPerTradePct = 0.8
+		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.25, "momentum": 0.35, "structure": 0.15, "derivatives": 0.25}
+	default:
+		return StrategyTemplate{}, false
+	}
+
+	config.StrategyArchetype = archetype
+	config.RiskProfile = risk
+	config.ScoringConfig.MinConfidence = config.RiskControl.MinConfidence
+	config.ScoringConfig.Execution.Confidence = config.ScoringConfig.MinConfidence
+	config.ResolvedParameters.Scoring = config.ScoringConfig
+	config.ClampLimits()
+	return StrategyTemplate{
+		ID:          id,
+		Name:        name,
+		Description: desc,
+		Archetype:   archetype,
+		RiskProfile: risk,
+		Config:      config,
+	}, true
+}
+
+func normalizeTemplateLang(lang string) string {
+	if lang == "zh" {
+		return "zh"
+	}
+	return "en"
+}
+
+func templateText(lang, zhName, enName, zhDesc, enDesc string) (string, string) {
+	if lang == "zh" {
+		return zhName, zhDesc
+	}
+	return enName, enDesc
 }
 
 func defaultStructureFactorConfig() StructureFactorConfig {

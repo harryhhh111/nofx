@@ -34,6 +34,8 @@ export interface StrategyPerformer {
 export interface StrategyConfig {
   // Strategy type: "ai_trading" (default) or "grid_trading"
   strategy_type?: 'ai_trading' | 'grid_trading';
+  strategy_archetype?: string;
+  risk_profile?: string;
   strategy_mode?: 'rule' | 'scoring' | 'hybrid';
   // Language setting: "zh" for Chinese, "en" for English
   language?: 'zh' | 'en';
@@ -48,6 +50,15 @@ export interface StrategyConfig {
   resolved_parameters?: ResolvedStrategyParameters;
   // Grid trading configuration (only used when strategy_type is 'grid_trading')
   grid_config?: GridStrategyConfig;
+}
+
+export interface StrategyTemplate {
+  id: string;
+  name: string;
+  description: string;
+  archetype: string;
+  risk_profile: string;
+  config: StrategyConfig;
 }
 
 export interface ResolvedStrategyParameters {

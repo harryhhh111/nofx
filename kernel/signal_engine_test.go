@@ -677,6 +677,58 @@ func TestSupportResistanceBounceUsesTimeframePrice(t *testing.T) {
 	}
 }
 
+func TestRangeReversalArchetypeAllowsModeratePrimaryScore(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.StrategyArchetype = "range_reversal"
+	primary := ScoringEvaluationTrace{Score: 50}
+	entry := ScoringEvaluationTrace{Score: 25}
+	roles := TimeframeRoleTrace{Primary: "15m", Entry: "15m"}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {{Name: "price", Timeframe: "15m", Value: 100}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "15m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 99},
+			}},
+		},
+	}
+
+	if !isRangeReversalCandidate(scoring, "long", primary, entry, snapshot, roles) {
+		t.Fatal("expected range_reversal archetype to allow a moderate primary score when structure bounce exists")
+	}
+	scoring.StrategyArchetype = ""
+	if isRangeReversalCandidate(scoring, "long", primary, entry, snapshot, roles) {
+		t.Fatal("default archetype should keep the stricter neutral-primary range check")
+	}
+}
+
+func TestVolatilityBreakoutArchetypeUsesDonchianBreakout(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.StrategyArchetype = "volatility_breakout"
+	primary := ScoringEvaluationTrace{Score: 40}
+	entry := ScoringEvaluationTrace{Score: 25}
+	roles := TimeframeRoleTrace{Primary: "15m", Entry: "15m"}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		Technical: map[string][]market.IndicatorPoint{
+			"break_above_donchian": {{Name: "break_above_donchian", Timeframe: "15m", Period: 20, Value: 1}},
+		},
+	}
+
+	if !isVolatilityBreakoutCandidate(scoring, "long", primary, entry, snapshot, roles) {
+		t.Fatal("expected volatility_breakout archetype to allow Donchian breakout with moderate trend score")
+	}
+	scoring.StrategyArchetype = "breakout"
+	if isVolatilityBreakoutCandidate(scoring, "long", primary, entry, snapshot, roles) {
+		t.Fatal("non-volatility archetypes should not use the lower breakout threshold")
+	}
+}
+
 func testScoringStrategy() *ScoringStrategy {
 	return &ScoringStrategy{
 		Enabled: true,

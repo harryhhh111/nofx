@@ -107,6 +107,8 @@ export function IndicatorEditor({
     selectedTimeframes.filter(
       (tf) => tf !== config.klines.primary_timeframe && tf !== entryTimeframe
     )
+  const displayKlineCount = config.klines.prompt_display_count || config.klines.primary_count || 30
+  const computeKlineCount = config.klines.compute_lookback || 300
 
   // Toggle timeframe selection
   const toggleTimeframe = (tf: string) => {
@@ -562,15 +564,19 @@ export function IndicatorEditor({
                 <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.timeframes, language)}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px]" style={{ color: '#848E9C' }}>{ts(indicator.klineCount, language)}:</span>
+                <span className="text-[10px]" style={{ color: '#848E9C' }}>{ts(indicator.displayKlineCount, language)}:</span>
                 <input
                   type="number"
-                  value={config.klines.primary_count}
+                  value={displayKlineCount}
                   onChange={(e) =>
                     !disabled &&
                     onChange({
                       ...config,
-                      klines: { ...config.klines, primary_count: parseInt(e.target.value) || 30 },
+                      klines: {
+                        ...config.klines,
+                        primary_count: parseInt(e.target.value) || 30,
+                        prompt_display_count: parseInt(e.target.value) || 30,
+                      },
                     })
                   }
                   disabled={disabled}
@@ -579,9 +585,13 @@ export function IndicatorEditor({
                   className="w-16 px-2 py-1 rounded text-xs text-center"
                   style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
                 />
+                <span className="text-[10px]" style={{ color: '#848E9C' }}>
+                  {ts(indicator.computeKlineCount, language)}: <span style={{ color: '#EAECEF' }}>{computeKlineCount}</span>
+                </span>
               </div>
             </div>
             <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.timeframesDesc, language)}</p>
+            <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.computeKlineCountDesc, language)}</p>
 
             {/* Timeframe Grid */}
             <div className="space-y-1.5">

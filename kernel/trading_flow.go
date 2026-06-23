@@ -89,6 +89,8 @@ type PositionSizingConfig struct {
 type ScoringStrategy struct {
 	Enabled                 bool               `json:"enabled"`
 	Version                 string             `json:"version,omitempty"`
+	StrategyArchetype       string             `json:"strategy_archetype,omitempty"`
+	RiskProfile             string             `json:"risk_profile,omitempty"`
 	SelectedFactors         []string           `json:"selected_factors,omitempty"`
 	FactorWeights           map[string]float64 `json:"factor_weights,omitempty"`
 	LongThreshold           float64            `json:"long_threshold,omitempty"`
