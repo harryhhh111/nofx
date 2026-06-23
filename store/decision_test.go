@@ -6,7 +6,26 @@ import (
 )
 
 func TestDecisionDigestIncludesReadableJudgementSignals(t *testing.T) {
-	record := &DecisionRecordDB{
+	record := testDecisionRecordDBWithJudgementJSON()
+
+	digest := record.toDigest()
+	if digest.JudgementSummary == "" {
+		t.Fatal("expected digest judgement summary")
+	}
+	assertReadableJudgementSummary(t, digest.JudgementSummary)
+}
+
+func TestDecisionRecordIncludesReadableJudgementSignals(t *testing.T) {
+	record := testDecisionRecordDBWithJudgementJSON().toRecord()
+
+	if record.JudgementSummary == "" {
+		t.Fatal("expected decision record judgement summary")
+	}
+	assertReadableJudgementSummary(t, record.JudgementSummary)
+}
+
+func testDecisionRecordDBWithJudgementJSON() *DecisionRecordDB {
+	return &DecisionRecordDB{
 		TraderID:    "trader-1",
 		CycleNumber: 7,
 		CotSummary:  "本轮完成市场评估，但没有满足开仓条件的信号。",
@@ -34,17 +53,16 @@ func TestDecisionDigestIncludesReadableJudgementSignals(t *testing.T) {
   ]
 }`,
 	}
+}
 
-	digest := record.toDigest()
-	if digest.JudgementSummary == "" {
-		t.Fatal("expected digest judgement summary")
-	}
+func assertReadableJudgementSummary(t *testing.T, summary string) {
+	t.Helper()
 	for _, expected := range []string{"BTCUSDT", "偏空", "主周期 -47.5", "入场 -46.0", "1h -12.0", "行情偏空"} {
-		if !strings.Contains(digest.JudgementSummary, expected) {
-			t.Fatalf("expected judgement summary to contain %q, got %q", expected, digest.JudgementSummary)
+		if !strings.Contains(summary, expected) {
+			t.Fatalf("expected judgement summary to contain %q, got %q", expected, summary)
 		}
 	}
-	if strings.Contains(digest.JudgementSummary, "setup") || strings.Contains(digest.JudgementSummary, "no_trade") {
-		t.Fatalf("judgement summary should not expose setup internals, got %q", digest.JudgementSummary)
+	if strings.Contains(summary, "setup") || strings.Contains(summary, "no_trade") {
+		t.Fatalf("judgement summary should not expose setup internals, got %q", summary)
 	}
 }

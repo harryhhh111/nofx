@@ -50,6 +50,7 @@ type DecisionRecord struct {
 	InputPrompt         string             `json:"input_prompt"`
 	CoTTrace            string             `json:"cot_trace"`
 	CotSummary          string             `json:"cot_summary"`
+	JudgementSummary    string             `json:"judgement_summary,omitempty"`
 	DecisionJSON        string             `json:"decision_json"`
 	RawResponse         string             `json:"raw_response"` // Raw AI response for debugging
 	CandidateCoins      []string           `json:"candidate_coins"`
@@ -146,6 +147,7 @@ func (db *DecisionRecordDB) toRecord() *DecisionRecord {
 		InputPrompt:         db.InputPrompt,
 		CoTTrace:            db.CoTTrace,
 		CotSummary:          db.CotSummary,
+		JudgementSummary:    buildDecisionDigestJudgementSummary(db.DecisionJSON),
 		DecisionJSON:        db.DecisionJSON,
 		RawResponse:         db.RawResponse,
 		Success:             db.Success,
