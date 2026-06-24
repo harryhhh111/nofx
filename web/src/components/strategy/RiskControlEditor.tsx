@@ -7,6 +7,7 @@ interface RiskControlEditorProps {
   onChange: (config: RiskControlConfig) => void
   disabled?: boolean
   language: string
+  availableTimeframes?: string[]
 }
 
 export function RiskControlEditor({
@@ -14,9 +15,18 @@ export function RiskControlEditor({
   onChange,
   disabled,
   language,
+  availableTimeframes = [],
 }: RiskControlEditorProps) {
   const stopLossATRBuffer = Number(config.stop_loss_atr_buffer ?? 0)
   const stopLossATRBufferIsAuto = !Number.isFinite(stopLossATRBuffer) || stopLossATRBuffer <= 0
+  const stopLossTimeframeMode = config.stop_loss_timeframe_mode ?? 'auto'
+  const stopLossTimeframeOptions = Array.from(
+    new Set(availableTimeframes.map((tf) => tf.trim()).filter(Boolean))
+  )
+  const selectedStopLossTimeframe =
+    config.stop_loss_timeframe && stopLossTimeframeOptions.includes(config.stop_loss_timeframe)
+      ? config.stop_loss_timeframe
+      : stopLossTimeframeOptions[0] ?? ''
 
   const updateField = <K extends keyof RiskControlConfig>(
     key: K,
@@ -449,6 +459,70 @@ export function RiskControlEditor({
               ? (language === 'zh' ? '自动：风险网关按默认 2.0 × ATR14 校验' : 'Auto: risk gate uses default 2.0 × ATR14')
               : (language === 'zh' ? '自定义 ATR 缓冲' : 'Custom ATR buffer')}
           </span>
+        </div>
+        <div className="mt-5">
+          <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
+            {language === 'zh' ? '止损依据周期' : 'Stop-loss basis timeframe'}
+          </label>
+          <p className="text-xs mb-3" style={{ color: '#848E9C' }}>
+            {language === 'zh'
+              ? '默认按主周期的失效位和 ATR 优先计算，入场周期只作为备用；需要更短线时可改为入场周期。'
+              : 'Default uses the primary setup timeframe first, with entry timeframe as fallback. Use entry timeframe only for shorter-term risk.'}
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {[
+              { value: 'auto', zh: '自动', en: 'Auto' },
+              { value: 'primary', zh: '主周期', en: 'Primary' },
+              { value: 'entry', zh: '入场周期', en: 'Entry' },
+              { value: 'custom', zh: '自定义', en: 'Custom' },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() =>
+                  !disabled &&
+                  onChange({
+                    ...config,
+                    stop_loss_timeframe_mode: option.value as RiskControlConfig['stop_loss_timeframe_mode'],
+                    stop_loss_timeframe:
+                      option.value === 'custom' ? selectedStopLossTimeframe : undefined,
+                  })
+                }
+                disabled={disabled}
+                className="px-3 py-2 rounded text-sm transition-colors"
+                style={{
+                  background: stopLossTimeframeMode === option.value ? '#F0B90B22' : '#0B0E11',
+                  border: `1px solid ${stopLossTimeframeMode === option.value ? '#F0B90B' : '#2B3139'}`,
+                  color: stopLossTimeframeMode === option.value ? '#F0B90B' : '#EAECEF',
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {language === 'zh' ? option.zh : option.en}
+              </button>
+            ))}
+          </div>
+          {stopLossTimeframeMode === 'custom' && (
+            <div className="mt-3 flex items-center gap-3">
+              <select
+                value={selectedStopLossTimeframe}
+                onChange={(e) => updateField('stop_loss_timeframe', e.target.value)}
+                disabled={disabled}
+                className="w-32 px-3 py-2 rounded"
+                style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+              >
+                {stopLossTimeframeOptions.map((timeframe) => (
+                  <option key={timeframe} value={timeframe}>
+                    {timeframe}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs" style={{ color: '#848E9C' }}>
+                {language === 'zh'
+                  ? '只允许选择已启用的 K 线周期。'
+                  : 'Only enabled K-line timeframes can be selected.'}
+              </span>
+            </div>
+          )}
         </div>
       </div>
 

@@ -1287,6 +1287,12 @@ export function StrategyStudioPage() {
           onChange={(riskControl) => updateConfig('risk_control', riskControl)}
           disabled={selectedStrategy?.is_default}
           language={language}
+          availableTimeframes={[
+            editingConfig.indicators.klines.primary_timeframe,
+            editingConfig.indicators.klines.entry_timeframe ?? '',
+            ...(editingConfig.indicators.klines.confirmation_timeframes ?? []),
+            ...(editingConfig.indicators.klines.selected_timeframes ?? []),
+          ]}
         />
       ),
     },

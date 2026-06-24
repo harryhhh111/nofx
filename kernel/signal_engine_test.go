@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"nofx/market"
+	"nofx/store"
 )
 
 func TestScoreSignalEngineBlocksSingleAvailableFactor(t *testing.T) {
@@ -330,7 +331,7 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForLong(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0)
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -379,7 +380,7 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForShort(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0)
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -406,7 +407,7 @@ func TestCandidateSignalRequiresATRForMarketBasedProtection(t *testing.T) {
 		TakeProfitPct:   5,
 		Confidence:      80,
 	}
-	_, err := calculateProtectiveLevels("trend_continuation_long", "open_long", 100, execution, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0)
+	_, err := calculateProtectiveLevels("trend_continuation_long", "open_long", 100, execution, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
 	if err == nil {
 		t.Fatalf("expected missing ATR to fail market-based protective level calculation")
 	}
@@ -434,7 +435,7 @@ func TestCandidateSignalRejectsProjectionForNonTrendSetup(t *testing.T) {
 		},
 	}
 
-	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0)
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
 	if !errors.Is(err, errSignalRejected) {
 		t.Fatalf("expected non-trend setup without structure target to be rejected, got %v", err)
 	}
@@ -462,7 +463,7 @@ func TestCandidateSignalAllowsPercentTargetFallbackForTrendSetup(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0)
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -516,7 +517,7 @@ func TestCandidateSignalUsesPrimaryTimeframeForProtectiveLevels(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3)
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{})
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -529,6 +530,73 @@ func TestCandidateSignalUsesPrimaryTimeframeForProtectiveLevels(t *testing.T) {
 	}
 	if levels.ATRTimeframe != "15m" || levels.StopTimeframe != "15m" || levels.ATRBuffer != 3 {
 		t.Fatalf("expected primary timeframe ATR/structure with configured buffer, got %+v", levels)
+	}
+}
+
+func TestCandidateSignalCanUseEntryTimeframeForProtectiveLevels(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "entry_protective_setup",
+		Version:   "v1",
+		Timeframe: "15m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {
+				{Name: "atr", Timeframe: "5m", Period: 14, Value: 1},
+				{Name: "atr", Timeframe: "15m", Period: 14, Value: 10},
+			},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {
+				{
+					Name:      "support_resistance",
+					Timeframe: "5m",
+					Valid:     true,
+					KeyLevels: map[string]float64{"support": 99, "resistance": 180},
+				},
+				{
+					Name:      "support_resistance",
+					Timeframe: "15m",
+					Valid:     true,
+					KeyLevels: map[string]float64{"support": 90, "resistance": 220},
+				},
+			},
+		},
+	}
+
+	signal, err := buildCandidateSignal(
+		rule,
+		"BTCUSDT",
+		100,
+		"test",
+		time.Unix(2, 0).UTC(),
+		snapshot,
+		TimeframeRoleTrace{Entry: "5m", Primary: "15m"},
+		3,
+		ProtectiveTimeframeConfig{StopLossMode: store.StopLossTimeframeModeEntry},
+	)
+	if err != nil {
+		t.Fatalf("buildCandidateSignal returned error: %v", err)
+	}
+	if signal.StopLoss != 96 {
+		t.Fatalf("expected entry timeframe stop loss, got %.2f", signal.StopLoss)
+	}
+	levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace)
+	if !ok {
+		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
+	}
+	if levels.ATRTimeframe != "5m" || levels.StopTimeframe != "5m" || levels.StopMode != store.StopLossTimeframeModeEntry {
+		t.Fatalf("expected entry timeframe ATR/structure, got %+v", levels)
 	}
 }
 
@@ -562,7 +630,7 @@ func TestCandidateSignalKeepsTechnicalTargetWhenATRBufferWidensStop(t *testing.T
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3)
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{})
 	if !errors.Is(err, errSignalRejected) {
 		t.Fatalf("expected technical target to remain unchanged and be rejected for low RR, got signal=%+v err=%v", signal, err)
 	}

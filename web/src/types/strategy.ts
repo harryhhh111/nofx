@@ -415,6 +415,8 @@ export interface RiskControlConfig {
   min_confidence: number;          // Min AI confidence to open position (AI guided)
   min_close_confidence: number;    // Min AI confidence to proactively close early (AI guided)
   stop_loss_atr_buffer?: number;   // Stop loss ATR buffer multiplier (0 = use product default)
+  stop_loss_timeframe_mode?: 'auto' | 'primary' | 'entry' | 'custom';
+  stop_loss_timeframe?: string;
 
   // Drawdown-based position close (risk monitor, runs every minute)
   drawdown_close_enabled?: boolean;         // Whether the mechanism is enabled (default: true)

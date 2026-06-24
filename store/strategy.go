@@ -30,6 +30,11 @@ const (
 	DefaultMinPositionSize    = 12.0
 	DefaultStopLossATRBuffer  = 2.0
 	MaxStopLossATRBuffer      = 3.0
+
+	StopLossTimeframeModeAuto    = "auto"
+	StopLossTimeframeModePrimary = "primary"
+	StopLossTimeframeModeEntry   = "entry"
+	StopLossTimeframeModeCustom  = "custom"
 )
 
 // ClampLimits enforces product-level limits on strategy config to prevent token overflow.
@@ -154,6 +159,7 @@ func (c *StrategyConfig) ClampLimits() {
 	if c.RiskControl.StopLossATRBuffer > MaxStopLossATRBuffer {
 		c.RiskControl.StopLossATRBuffer = MaxStopLossATRBuffer
 	}
+	c.normalizeStopLossTimeframeConfig()
 
 	// Clamp AI confidence thresholds to safe product ranges.
 	if c.RiskControl.MinConfidence <= 0 {
@@ -236,6 +242,49 @@ func (c *StrategyConfig) normalizeCoinSourceFlags() {
 		c.CoinSource.UseHyperAll = false
 		c.CoinSource.UseHyperMain = false
 	}
+}
+
+func (c *StrategyConfig) normalizeStopLossTimeframeConfig() {
+	mode := strings.ToLower(strings.TrimSpace(c.RiskControl.StopLossTimeframeMode))
+	switch mode {
+	case "", StopLossTimeframeModeAuto:
+		c.RiskControl.StopLossTimeframeMode = StopLossTimeframeModeAuto
+		c.RiskControl.StopLossTimeframe = ""
+	case StopLossTimeframeModePrimary, StopLossTimeframeModeEntry:
+		c.RiskControl.StopLossTimeframeMode = mode
+		c.RiskControl.StopLossTimeframe = ""
+	case StopLossTimeframeModeCustom:
+		tf := strings.TrimSpace(c.RiskControl.StopLossTimeframe)
+		if tf == "" || !c.hasSelectedTimeframe(tf) {
+			c.RiskControl.StopLossTimeframeMode = StopLossTimeframeModeAuto
+			c.RiskControl.StopLossTimeframe = ""
+			return
+		}
+		c.RiskControl.StopLossTimeframeMode = mode
+		c.RiskControl.StopLossTimeframe = tf
+	default:
+		c.RiskControl.StopLossTimeframeMode = StopLossTimeframeModeAuto
+		c.RiskControl.StopLossTimeframe = ""
+	}
+}
+
+func (c *StrategyConfig) hasSelectedTimeframe(tf string) bool {
+	tf = strings.TrimSpace(tf)
+	if tf == "" {
+		return false
+	}
+	values := []string{
+		c.Indicators.Klines.PrimaryTimeframe,
+		c.Indicators.Klines.EntryTimeframe,
+	}
+	values = append(values, c.Indicators.Klines.ConfirmationTimeframes...)
+	values = append(values, c.Indicators.Klines.SelectedTimeframes...)
+	for _, value := range values {
+		if strings.TrimSpace(value) == tf {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *StrategyConfig) normalizeTimeframeRoles() {
@@ -1094,6 +1143,10 @@ type RiskControlConfig struct {
 	// Long stops use support - ATR14 * this value; shorts use resistance + ATR14 * this value.
 	// 0 means the signal engine uses the product default.
 	StopLossATRBuffer float64 `json:"stop_loss_atr_buffer"`
+	// Stop loss timeframe selection. auto/primary use the setup timeframe first,
+	// entry uses the trigger timeframe first, and custom uses StopLossTimeframe first.
+	StopLossTimeframeMode string `json:"stop_loss_timeframe_mode,omitempty"`
+	StopLossTimeframe     string `json:"stop_loss_timeframe,omitempty"`
 
 	// 鈹€鈹€ Drawdown-based position close (risk monitor, runs every minute) 鈹€鈹€鈹€鈹€鈹€鈹€
 	// Whether the drawdown-close mechanism is enabled. Default: true.
@@ -1156,12 +1209,12 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				IncludeOpenBar:     true,
 				LongerTimeframe:    "4h",
 				LongerCount:        10,
-				EntryTimeframe:     "15m",
+				EntryTimeframe:     "5m",
 				ConfirmationTimeframes: []string{
 					"1h",
 				},
 				EnableMultiTimeframe: true,
-				SelectedTimeframes:   []string{"15m", "1h"},
+				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
 			EnableRawKlines:         true, // Required - raw OHLCV data for AI analysis
 			EnableEMA:               true, // Core trend indicator
@@ -1225,6 +1278,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits
 			StopLossATRBuffer:            DefaultStopLossATRBuffer,
+			StopLossTimeframeMode:        StopLossTimeframeModeAuto,
 		},
 	}
 	config.ClampLimits()
@@ -1296,27 +1350,43 @@ func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
 	case "trend_following_balanced":
 		archetype = "trend_following"
 		name, desc = templateText(lang, "趋势跟随 - 标准", "Trend Following - Balanced", "只在主周期趋势较明确、确认周期不冲突时开仓，适合顺势行情。", "Trades only when the primary timeframe trend is clear and confirmation does not conflict.")
+		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.40, "momentum": 0.25, "structure": 0.20, "derivatives": 0.15}
 		config.ScoringConfig.LongThreshold = 70
 		config.ScoringConfig.ShortThreshold = -70
 		config.RiskControl.MinConfidence = 70
+		config.RiskControl.RiskPerTradePct = 1.0
+		config.RiskControl.StopLossATRBuffer = 2.5
 	case "pullback_balanced":
 		archetype = "pullback"
 		name, desc = templateText(lang, "趋势回调 - 标准", "Pullback - Balanced", "主周期保持方向，入场周期允许回调后重新转强/转弱，适合趋势中的回踩。", "Keeps the primary trend requirement while allowing entry after a lower-timeframe pullback.")
 		config.ScoringConfig.LongThreshold = 60
 		config.ScoringConfig.ShortThreshold = -60
 		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.30, "momentum": 0.30, "structure": 0.25, "derivatives": 0.15}
+		config.RiskControl.MinConfidence = 65
+		config.RiskControl.RiskPerTradePct = 1.0
+		config.RiskControl.StopLossATRBuffer = 2.2
 	case "range_reversal_balanced":
 		archetype = "range_reversal"
 		name, desc = templateText(lang, "区间反转 - 标准", "Range Reversal - Balanced", "不追强趋势，重点等待支撑阻力、BOLL/RSI 极值附近的反转证据。", "Avoids chasing strong trends and focuses on support/resistance plus RSI/BOLL exhaustion.")
 		config.ScoringConfig.LongThreshold = 55
 		config.ScoringConfig.ShortThreshold = -55
 		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.15, "momentum": 0.30, "structure": 0.40, "derivatives": 0.15}
+		config.RiskControl.BTCETHMaxLeverage = 3
+		config.RiskControl.AltcoinMaxLeverage = 3
+		config.RiskControl.MinConfidence = 60
+		config.RiskControl.RiskPerTradePct = 0.7
+		config.RiskControl.StopLossATRBuffer = 1.8
 	case "breakout_balanced":
 		archetype = "breakout"
 		name, desc = templateText(lang, "突破/回踩 - 标准", "Breakout / Retest - Balanced", "关注 Donchian、成交量和结构位突破，允许突破后回踩确认。", "Uses Donchian, volume and structure breaks, with room for retest confirmation.")
 		config.ScoringConfig.LongThreshold = 60
 		config.ScoringConfig.ShortThreshold = -60
 		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.35, "momentum": 0.30, "structure": 0.20, "derivatives": 0.15}
+		config.RiskControl.BTCETHMaxLeverage = 4
+		config.RiskControl.AltcoinMaxLeverage = 4
+		config.RiskControl.MinConfidence = 65
+		config.RiskControl.RiskPerTradePct = 0.8
+		config.RiskControl.StopLossATRBuffer = 2.5
 	case "volatility_breakout_aggressive":
 		archetype = "volatility_breakout"
 		risk = "aggressive"
@@ -1324,8 +1394,11 @@ func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
 		config.ScoringConfig.LongThreshold = 55
 		config.ScoringConfig.ShortThreshold = -55
 		config.ScoringConfig.MinConfidence = 55
+		config.RiskControl.BTCETHMaxLeverage = 3
+		config.RiskControl.AltcoinMaxLeverage = 3
 		config.RiskControl.MinConfidence = 55
-		config.RiskControl.RiskPerTradePct = 0.8
+		config.RiskControl.RiskPerTradePct = 0.6
+		config.RiskControl.StopLossATRBuffer = 3.0
 		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.25, "momentum": 0.35, "structure": 0.15, "derivatives": 0.25}
 	default:
 		return StrategyTemplate{}, false
@@ -1333,7 +1406,10 @@ func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
 
 	config.StrategyArchetype = archetype
 	config.RiskProfile = risk
+	config.ScoringConfig.Timeframe = config.Indicators.Klines.PrimaryTimeframe
 	config.ScoringConfig.MinConfidence = config.RiskControl.MinConfidence
+	config.ScoringConfig.Execution.Leverage = config.RiskControl.BTCETHMaxLeverage
+	config.ScoringConfig.Execution.PositionSizeUSD = config.RiskControl.MinPositionSize
 	config.ScoringConfig.Execution.Confidence = config.ScoringConfig.MinConfidence
 	config.ResolvedParameters.Scoring = config.ScoringConfig
 	config.ClampLimits()

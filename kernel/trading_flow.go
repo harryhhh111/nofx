@@ -73,9 +73,15 @@ type SignalRequest struct {
 	PositionSizing *PositionSizingConfig `json:"position_sizing,omitempty"`
 	// ProtectiveATRBuffer controls stop-loss distance as ATR14 multiples.
 	// When unset, signal generation uses the product default.
-	ProtectiveATRBuffer float64                           `json:"protective_atr_buffer,omitempty"`
-	FactorSnapshot      map[string]*market.FactorSnapshot `json:"factor_snapshot"`
-	Now                 time.Time                         `json:"now"`
+	ProtectiveATRBuffer  float64                           `json:"protective_atr_buffer,omitempty"`
+	ProtectiveTimeframes ProtectiveTimeframeConfig         `json:"protective_timeframes,omitempty"`
+	FactorSnapshot       map[string]*market.FactorSnapshot `json:"factor_snapshot"`
+	Now                  time.Time                         `json:"now"`
+}
+
+type ProtectiveTimeframeConfig struct {
+	StopLossMode      string `json:"stop_loss_timeframe_mode,omitempty"`
+	StopLossTimeframe string `json:"stop_loss_timeframe,omitempty"`
 }
 
 type PositionSizingConfig struct {

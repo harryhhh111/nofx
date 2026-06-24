@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"nofx/market"
+	"nofx/store"
 	"strings"
 	"time"
 )
@@ -215,6 +216,8 @@ type ProtectiveLevelTrace struct {
 	ATR              float64 `json:"atr,omitempty"`
 	ATRTimeframe     string  `json:"atr_timeframe,omitempty"`
 	ATRBuffer        float64 `json:"atr_buffer"`
+	StopMode         string  `json:"stop_mode,omitempty"`
+	RequestedStopTF  string  `json:"requested_stop_timeframe,omitempty"`
 	TargetRiskReward float64 `json:"target_risk_reward"`
 	RiskReward       float64 `json:"risk_reward"`
 }
@@ -296,7 +299,7 @@ func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 			},
 			Enabled: true,
 		}
-		signal, err := buildCandidateSignal(rule, symbol, entry, trace.Reason, req.Now, snapshot, trace.Timeframes, req.ProtectiveATRBuffer)
+		signal, err := buildCandidateSignal(rule, symbol, entry, trace.Reason, req.Now, snapshot, trace.Timeframes, req.ProtectiveATRBuffer, req.ProtectiveTimeframes)
 		if err != nil {
 			if errors.Is(err, errSignalRejected) {
 				continue
@@ -374,7 +377,7 @@ func (e *ScoreSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 			Enabled: true,
 		}
 		roles := TimeframeRoleTrace{Entry: req.Scoring.Timeframe, Primary: req.Scoring.Timeframe}
-		signal, err := buildCandidateSignal(rule, symbol, entry, fmt.Sprintf("score %.2f reached %s threshold", trace.Score, action), req.Now, snapshot, roles, req.ProtectiveATRBuffer)
+		signal, err := buildCandidateSignal(rule, symbol, entry, fmt.Sprintf("score %.2f reached %s threshold", trace.Score, action), req.Now, snapshot, roles, req.ProtectiveATRBuffer, req.ProtectiveTimeframes)
 		if err != nil {
 			if errors.Is(err, errSignalRejected) {
 				continue
@@ -419,7 +422,7 @@ func (e *RuleSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]C
 			}
 			entry, _ := snapshotPrice(rule.Timeframe, snapshot)
 			roles := TimeframeRoleTrace{Entry: rule.Timeframe, Primary: rule.Timeframe}
-			signal, err := buildCandidateSignal(rule, symbol, entry, strings.Join(reasons, "; "), req.Now, snapshot, roles, req.ProtectiveATRBuffer)
+			signal, err := buildCandidateSignal(rule, symbol, entry, strings.Join(reasons, "; "), req.Now, snapshot, roles, req.ProtectiveATRBuffer, req.ProtectiveTimeframes)
 			if err != nil {
 				if errors.Is(err, errSignalRejected) {
 					continue
@@ -557,7 +560,7 @@ func TraceSetupEvaluations(req SignalRequest) []SetupEvaluationTrace {
 			continue
 		}
 		trace := evaluateSetupSnapshot(req.Scoring, symbol, snapshot)
-		trace = applyProtectiveEligibilityToSetupTrace(req.Scoring, symbol, snapshot, trace, req.ProtectiveATRBuffer)
+		trace = applyProtectiveEligibilityToSetupTrace(req.Scoring, symbol, snapshot, trace, req.ProtectiveATRBuffer, req.ProtectiveTimeframes)
 		traces = append(traces, trace)
 	}
 	return traces
@@ -781,7 +784,7 @@ func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *ma
 	return trace
 }
 
-func applyProtectiveEligibilityToSetupTrace(scoring *ScoringStrategy, symbol string, snapshot *market.FactorSnapshot, trace SetupEvaluationTrace, atrBuffer float64) SetupEvaluationTrace {
+func applyProtectiveEligibilityToSetupTrace(scoring *ScoringStrategy, symbol string, snapshot *market.FactorSnapshot, trace SetupEvaluationTrace, atrBuffer float64, timeframeConfig ProtectiveTimeframeConfig) SetupEvaluationTrace {
 	if scoring == nil || !trace.Eligible || trace.Action == "" {
 		return trace
 	}
@@ -793,7 +796,7 @@ func applyProtectiveEligibilityToSetupTrace(scoring *ScoringStrategy, symbol str
 	}
 	execution := scoring.Execution
 	execution.Confidence = setupConfidence(scoring.MinConfidence, trace)
-	_, err := calculateProtectiveLevels(trace.Setup, trace.Action, entry, execution, snapshot, trace.Timeframes, atrBuffer)
+	_, err := calculateProtectiveLevels(trace.Setup, trace.Action, entry, execution, snapshot, trace.Timeframes, atrBuffer, timeframeConfig)
 	if err == nil {
 		return trace
 	}
@@ -1073,7 +1076,7 @@ func absFloat(value float64) float64 {
 	return value
 }
 
-func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reason string, now time.Time, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace, atrBuffer float64) (CandidateSignal, error) {
+func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reason string, now time.Time, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace, atrBuffer float64, timeframeConfig ProtectiveTimeframeConfig) (CandidateSignal, error) {
 	confidence := rule.Execution.Confidence
 	if confidence <= 0 {
 		return CandidateSignal{}, fmt.Errorf("rule %s missing execution.confidence", rule.ID)
@@ -1102,7 +1105,7 @@ func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reaso
 		if err := validateOpenExecution(rule, entry); err != nil {
 			return CandidateSignal{}, err
 		}
-		levels, err := calculateProtectiveLevels(rule.ID, rule.Action, entry, rule.Execution, snapshot, roles, atrBuffer)
+		levels, err := calculateProtectiveLevels(rule.ID, rule.Action, entry, rule.Execution, snapshot, roles, atrBuffer, timeframeConfig)
 		if err != nil {
 			return CandidateSignal{}, fmt.Errorf("rule %s protective levels: %w", rule.ID, err)
 		}
@@ -1113,7 +1116,7 @@ func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reaso
 		if err := validateOpenExecution(rule, entry); err != nil {
 			return CandidateSignal{}, err
 		}
-		levels, err := calculateProtectiveLevels(rule.ID, rule.Action, entry, rule.Execution, snapshot, roles, atrBuffer)
+		levels, err := calculateProtectiveLevels(rule.ID, rule.Action, entry, rule.Execution, snapshot, roles, atrBuffer, timeframeConfig)
 		if err != nil {
 			return CandidateSignal{}, fmt.Errorf("rule %s protective levels: %w", rule.ID, err)
 		}
@@ -1128,20 +1131,23 @@ func buildCandidateSignal(rule StrategyRule, symbol string, entry float64, reaso
 	return signal, nil
 }
 
-func calculateProtectiveLevels(setup, action string, entry float64, execution RuleExecution, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace, atrBuffer float64) (ProtectiveLevelTrace, error) {
+func calculateProtectiveLevels(setup, action string, entry float64, execution RuleExecution, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace, atrBuffer float64, timeframeConfig ProtectiveTimeframeConfig) (ProtectiveLevelTrace, error) {
 	if atrBuffer <= 0 {
 		atrBuffer = defaultProtectiveATRBuffer
 	}
+	timeframes := resolveProtectiveTimeframes(roles, timeframeConfig)
 	trace := ProtectiveLevelTrace{
 		Action:           action,
 		Entry:            entry,
 		ATRBuffer:        atrBuffer,
+		StopMode:         timeframes.StopMode,
+		RequestedStopTF:  timeframes.RequestedStopTF,
 		TargetRiskReward: executionRiskReward(execution),
 	}
 	if snapshot == nil {
 		return trace, fmt.Errorf("factor snapshot is required for market-based stop loss and take profit")
 	}
-	atr, atrTF, ok := preferredATR(snapshot, protectiveATRTimeframes(roles))
+	atr, atrTF, ok := preferredATR(snapshot, timeframes.ATR)
 	if !ok || atr <= 0 {
 		return trace, fmt.Errorf("ATR14 is required for market-based stop loss and take profit")
 	}
@@ -1150,7 +1156,7 @@ func calculateProtectiveLevels(setup, action string, entry float64, execution Ru
 
 	switch action {
 	case "open_long":
-		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("long", entry, snapshot, protectiveStopTimeframes(roles))
+		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("long", entry, snapshot, timeframes.Stop)
 		if hasStopAnchor {
 			trace.StopLoss = stopAnchor - atr*trace.ATRBuffer
 			trace.StopAnchor = stopAnchor
@@ -1164,7 +1170,7 @@ func calculateProtectiveLevels(setup, action string, entry float64, execution Ru
 		if trace.StopLoss <= 0 || trace.StopLoss >= entry {
 			return trace, fmt.Errorf("long stop loss %.8f is not below entry %.8f", trace.StopLoss, entry)
 		}
-		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("long", entry, snapshot, protectiveTargetTimeframes(roles))
+		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("long", entry, snapshot, timeframes.Target)
 		if hasTargetAnchor && targetAnchor > entry {
 			actualRR := protectiveRiskReward(action, entry, trace.StopLoss, targetAnchor)
 			if actualRR < trace.TargetRiskReward {
@@ -1183,7 +1189,7 @@ func calculateProtectiveLevels(setup, action string, entry float64, execution Ru
 			trace.TargetSource = "execution_take_profit_pct"
 		}
 	case "open_short":
-		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("short", entry, snapshot, protectiveStopTimeframes(roles))
+		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("short", entry, snapshot, timeframes.Stop)
 		if hasStopAnchor {
 			trace.StopLoss = stopAnchor + atr*trace.ATRBuffer
 			trace.StopAnchor = stopAnchor
@@ -1197,7 +1203,7 @@ func calculateProtectiveLevels(setup, action string, entry float64, execution Ru
 		if trace.StopLoss <= entry {
 			return trace, fmt.Errorf("short stop loss %.8f is not above entry %.8f", trace.StopLoss, entry)
 		}
-		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("short", entry, snapshot, protectiveTargetTimeframes(roles))
+		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("short", entry, snapshot, timeframes.Target)
 		if hasTargetAnchor && targetAnchor > 0 && targetAnchor < entry {
 			actualRR := protectiveRiskReward(action, entry, trace.StopLoss, targetAnchor)
 			if actualRR < trace.TargetRiskReward {
@@ -1290,6 +1296,56 @@ func protectiveATRTimeframes(roles TimeframeRoleTrace) []string {
 	values := []string{roles.Primary, roles.Entry}
 	values = append(values, roles.Confirmations...)
 	return uniqueTimeframes(values...)
+}
+
+type resolvedProtectiveTimeframes struct {
+	Stop            []string
+	Target          []string
+	ATR             []string
+	StopMode        string
+	RequestedStopTF string
+}
+
+func resolveProtectiveTimeframes(roles TimeframeRoleTrace, config ProtectiveTimeframeConfig) resolvedProtectiveTimeframes {
+	mode := normalizeProtectiveStopMode(config.StopLossMode)
+	requested := strings.TrimSpace(config.StopLossTimeframe)
+	stop := []string{}
+	switch mode {
+	case store.StopLossTimeframeModeEntry:
+		stop = uniqueTimeframes(roles.Entry, roles.Primary)
+	case store.StopLossTimeframeModeCustom:
+		if requested == "" {
+			mode = store.StopLossTimeframeModeAuto
+			stop = protectiveStopTimeframes(roles)
+		} else {
+			stop = uniqueTimeframes(requested, roles.Primary, roles.Entry)
+		}
+	default:
+		stop = protectiveStopTimeframes(roles)
+	}
+	target := protectiveTargetTimeframes(roles)
+	atr := append([]string{}, stop...)
+	atr = append(atr, roles.Confirmations...)
+	return resolvedProtectiveTimeframes{
+		Stop:            stop,
+		Target:          target,
+		ATR:             uniqueTimeframes(atr...),
+		StopMode:        mode,
+		RequestedStopTF: requested,
+	}
+}
+
+func normalizeProtectiveStopMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case store.StopLossTimeframeModePrimary:
+		return store.StopLossTimeframeModePrimary
+	case store.StopLossTimeframeModeEntry:
+		return store.StopLossTimeframeModeEntry
+	case store.StopLossTimeframeModeCustom:
+		return store.StopLossTimeframeModeCustom
+	default:
+		return store.StopLossTimeframeModeAuto
+	}
 }
 
 func uniqueTimeframes(values ...string) []string {

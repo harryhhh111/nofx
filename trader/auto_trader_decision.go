@@ -294,6 +294,7 @@ func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.Close
 		EntryPrice:        pos.EntryPrice,
 		ExitPrice:         pos.ExitPrice,
 		Quantity:          entryQty,
+		PositionSizeUSD:   notional,
 		Leverage:          pos.Leverage,
 		RealizedPnL:       pos.RealizedPnL,
 		RealizedPnLPct:    pnlPct,
@@ -304,6 +305,18 @@ func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.Close
 		CloseReason:       pos.CloseReason,
 		OpeningReasoning:  pos.OpeningReasoning,
 		LastReviewSummary: pos.LastReviewSummary,
+		OpeningDecisionID: pos.OpeningDecisionID,
+
+		StopLossSource:         pos.StopLossSource,
+		StopLossTimeframe:      pos.StopLossTimeframe,
+		StopLossAnchor:         pos.StopLossAnchor,
+		TakeProfitSource:       pos.TakeProfitSource,
+		TakeProfitTimeframe:    pos.TakeProfitTimeframe,
+		TakeProfitAnchor:       pos.TakeProfitAnchor,
+		ProtectiveATR:          pos.ProtectiveATR,
+		ProtectiveATRTimeframe: pos.ProtectiveATRTimeframe,
+		ProtectiveATRBuffer:    pos.ProtectiveATRBuffer,
+		ProtectiveRiskReward:   pos.ProtectiveRiskReward,
 	}
 }
 

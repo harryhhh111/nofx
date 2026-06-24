@@ -131,15 +131,16 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	aiCallStart := time.Now()
 	signalRequest := SignalRequest{
-		Account:             ctx.Account,
-		Positions:           ctx.Positions,
-		Candidates:          ctx.CandidateCoins,
-		Rules:               rules,
-		Scoring:             scoring,
-		PositionSizing:      positionSizingFromRiskControl(riskConfig),
-		ProtectiveATRBuffer: riskConfig.StopLossATRBuffer,
-		FactorSnapshot:      factorSnapshots,
-		Now:                 time.Now().UTC(),
+		Account:              ctx.Account,
+		Positions:            ctx.Positions,
+		Candidates:           ctx.CandidateCoins,
+		Rules:                rules,
+		Scoring:              scoring,
+		PositionSizing:       positionSizingFromRiskControl(riskConfig),
+		ProtectiveATRBuffer:  riskConfig.StopLossATRBuffer,
+		ProtectiveTimeframes: protectiveTimeframesFromRiskControl(riskConfig),
+		FactorSnapshot:       factorSnapshots,
+		Now:                  time.Now().UTC(),
 	}
 	result, err := tradingEngine.Evaluate(context.Background(), TradingEngineRequest{
 		SignalRequest: signalRequest,
@@ -785,7 +786,7 @@ func buildMarketValidationMaps(ctx *Context, config *store.StrategyConfig, riskC
 		if data.CurrentPrice > 0 {
 			marketPrices[symbol] = data.CurrentPrice
 		}
-		atr := preferredATR14(data, config)
+		atr := preferredATR14(data, config, riskConfig)
 		if atr > 0 {
 			atrBuffer := riskConfig.StopLossATRBuffer
 			if atrBuffer <= 0 {
@@ -807,7 +808,14 @@ func positionSizingFromRiskControl(riskConfig store.RiskControlConfig) *Position
 	}
 }
 
-func preferredATR14(data *market.Data, config *store.StrategyConfig) float64 {
+func protectiveTimeframesFromRiskControl(riskConfig store.RiskControlConfig) ProtectiveTimeframeConfig {
+	return ProtectiveTimeframeConfig{
+		StopLossMode:      riskConfig.StopLossTimeframeMode,
+		StopLossTimeframe: riskConfig.StopLossTimeframe,
+	}
+}
+
+func preferredATR14(data *market.Data, config *store.StrategyConfig, riskConfig store.RiskControlConfig) float64 {
 	if data == nil || len(data.TimeframeData) == 0 {
 		return 0
 	}
@@ -819,8 +827,19 @@ func preferredATR14(data *market.Data, config *store.StrategyConfig) float64 {
 		}
 	}
 	if config != nil {
-		add(config.Indicators.Klines.PrimaryTimeframe)
-		add(config.Indicators.Klines.EntryTimeframe)
+		mode := normalizeProtectiveStopMode(riskConfig.StopLossTimeframeMode)
+		switch mode {
+		case store.StopLossTimeframeModeEntry:
+			add(config.Indicators.Klines.EntryTimeframe)
+			add(config.Indicators.Klines.PrimaryTimeframe)
+		case store.StopLossTimeframeModeCustom:
+			add(riskConfig.StopLossTimeframe)
+			add(config.Indicators.Klines.PrimaryTimeframe)
+			add(config.Indicators.Klines.EntryTimeframe)
+		default:
+			add(config.Indicators.Klines.PrimaryTimeframe)
+			add(config.Indicators.Klines.EntryTimeframe)
+		}
 		for _, tf := range config.Indicators.Klines.ConfirmationTimeframes {
 			add(tf)
 		}

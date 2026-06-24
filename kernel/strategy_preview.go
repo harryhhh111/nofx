@@ -19,12 +19,13 @@ func PreviewStrategySignals(config *store.StrategyConfig, candidates []Candidate
 		now = time.Now().UTC()
 	}
 	req := SignalRequest{
-		Candidates:          candidates,
-		Rules:               rulesFromStrategyConfig(config),
-		Scoring:             scoringFromStrategyConfig(config),
-		ProtectiveATRBuffer: config.RiskControl.StopLossATRBuffer,
-		FactorSnapshot:      factorSnapshots,
-		Now:                 now,
+		Candidates:           candidates,
+		Rules:                rulesFromStrategyConfig(config),
+		Scoring:              scoringFromStrategyConfig(config),
+		ProtectiveATRBuffer:  config.RiskControl.StopLossATRBuffer,
+		ProtectiveTimeframes: protectiveTimeframesFromRiskControl(config.RiskControl),
+		FactorSnapshot:       factorSnapshots,
+		Now:                  now,
 	}
 	signals, err := signalEngineFromStrategyConfig(config).Generate(context.Background(), req)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"nofx/market"
 	"nofx/store"
 )
 
@@ -100,5 +101,30 @@ func TestUserFriendlyNoTradeReasonHandlesEvidenceGaps(t *testing.T) {
 	})
 	if !strings.Contains(reason, "入场周期") || strings.Contains(reason, "missing factors") {
 		t.Fatalf("expected friendly entry evidence gap reason, got %q", reason)
+	}
+}
+
+func TestPreferredATR14FollowsStopLossTimeframeMode(t *testing.T) {
+	config := store.GetDefaultStrategyConfig("zh")
+	config.Indicators.Klines.PrimaryTimeframe = "15m"
+	config.Indicators.Klines.EntryTimeframe = "5m"
+	config.Indicators.Klines.SelectedTimeframes = []string{"5m", "15m", "1h"}
+	config.ClampLimits()
+	data := &market.Data{
+		TimeframeData: map[string]*market.TimeframeSeriesData{
+			"5m":  {Timeframe: "5m", ATR14: 1},
+			"15m": {Timeframe: "15m", ATR14: 10},
+		},
+	}
+
+	autoATR := preferredATR14(data, &config, config.RiskControl)
+	if autoATR != 10 {
+		t.Fatalf("expected auto stop-loss ATR to use primary timeframe, got %.2f", autoATR)
+	}
+
+	config.RiskControl.StopLossTimeframeMode = store.StopLossTimeframeModeEntry
+	entryATR := preferredATR14(data, &config, config.RiskControl)
+	if entryATR != 1 {
+		t.Fatalf("expected entry stop-loss ATR to use entry timeframe, got %.2f", entryATR)
 	}
 }

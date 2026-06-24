@@ -100,6 +100,7 @@ type ClosedTradeOutcome struct {
 	EntryPrice        float64 `json:"entry_price"`
 	ExitPrice         float64 `json:"exit_price"`
 	Quantity          float64 `json:"quantity"`
+	PositionSizeUSD   float64 `json:"position_size_usd,omitempty"`
 	Leverage          int     `json:"leverage"`
 	RealizedPnL       float64 `json:"realized_pnl"`
 	RealizedPnLPct    float64 `json:"realized_pnl_pct"`
@@ -110,6 +111,18 @@ type ClosedTradeOutcome struct {
 	CloseReason       string  `json:"close_reason,omitempty"`
 	OpeningReasoning  string  `json:"opening_reasoning,omitempty"`
 	LastReviewSummary string  `json:"last_review_summary,omitempty"`
+	OpeningDecisionID int64   `json:"opening_decision_id,omitempty"`
+
+	StopLossSource         string  `json:"stop_loss_source,omitempty"`
+	StopLossTimeframe      string  `json:"stop_loss_timeframe,omitempty"`
+	StopLossAnchor         float64 `json:"stop_loss_anchor,omitempty"`
+	TakeProfitSource       string  `json:"take_profit_source,omitempty"`
+	TakeProfitTimeframe    string  `json:"take_profit_timeframe,omitempty"`
+	TakeProfitAnchor       float64 `json:"take_profit_anchor,omitempty"`
+	ProtectiveATR          float64 `json:"protective_atr,omitempty"`
+	ProtectiveATRTimeframe string  `json:"protective_atr_timeframe,omitempty"`
+	ProtectiveATRBuffer    float64 `json:"protective_atr_buffer,omitempty"`
+	ProtectiveRiskReward   float64 `json:"protective_risk_reward,omitempty"`
 }
 
 type TradeMemorySummary struct {
@@ -150,6 +163,7 @@ Rules:
 - Summarize only the provided closed trade outcome.
 - Do not suggest live parameter changes.
 - Do not invent market facts that are not present.
+- Use deterministic setup, timeframe, position sizing, and protective-level metadata when present.
 - Extract reusable lessons that can help future AI risk review.
 - Keep the summary short and operational.
 

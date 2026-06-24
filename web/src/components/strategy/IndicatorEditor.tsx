@@ -59,9 +59,19 @@ const marketDataSources = [
   { value: 'hyperliquid', label: 'Hyperliquid' },
 ]
 
+const MIN_DISPLAY_KLINE_COUNT = 10
+const MAX_DISPLAY_KLINE_COUNT = 100
+const MIN_COMPUTE_KLINE_COUNT = 120
+const MAX_COMPUTE_KLINE_COUNT = 1000
+
 const indicatorTranslationAliases: Record<string, keyof typeof indicator> = {
   volume_spike: 'volumeSpike',
   rolling_percentile_desc: 'rollingPercentileDesc',
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min
+  return Math.min(max, Math.max(min, value))
 }
 
 function indicatorText(key: string | undefined, language: string) {
@@ -109,6 +119,29 @@ export function IndicatorEditor({
     )
   const displayKlineCount = config.klines.prompt_display_count || config.klines.primary_count || 30
   const computeKlineCount = config.klines.compute_lookback || 300
+  const updateDisplayKlineCount = (rawValue: string) => {
+    if (disabled) return
+    const next = clampNumber(parseInt(rawValue, 10), MIN_DISPLAY_KLINE_COUNT, MAX_DISPLAY_KLINE_COUNT)
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        primary_count: next,
+        prompt_display_count: next,
+      },
+    })
+  }
+  const updateComputeKlineCount = (rawValue: string) => {
+    if (disabled) return
+    const next = clampNumber(parseInt(rawValue, 10), MIN_COMPUTE_KLINE_COUNT, MAX_COMPUTE_KLINE_COUNT)
+    onChange({
+      ...config,
+      klines: {
+        ...config.klines,
+        compute_lookback: next,
+      },
+    })
+  }
 
   // Toggle timeframe selection
   const toggleTimeframe = (tf: string) => {
@@ -563,31 +596,30 @@ export function IndicatorEditor({
                 <Clock className="w-3.5 h-3.5" style={{ color: '#848E9C' }} />
                 <span className="text-xs font-medium" style={{ color: '#EAECEF' }}>{ts(indicator.timeframes, language)}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <span className="text-[10px]" style={{ color: '#848E9C' }}>{ts(indicator.displayKlineCount, language)}:</span>
                 <input
                   type="number"
                   value={displayKlineCount}
-                  onChange={(e) =>
-                    !disabled &&
-                    onChange({
-                      ...config,
-                      klines: {
-                        ...config.klines,
-                        primary_count: parseInt(e.target.value) || 30,
-                        prompt_display_count: parseInt(e.target.value) || 30,
-                      },
-                    })
-                  }
+                  onChange={(e) => updateDisplayKlineCount(e.target.value)}
                   disabled={disabled}
-                  min={10}
-                  max={100}
+                  min={MIN_DISPLAY_KLINE_COUNT}
+                  max={MAX_DISPLAY_KLINE_COUNT}
                   className="w-16 px-2 py-1 rounded text-xs text-center"
                   style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
                 />
-                <span className="text-[10px]" style={{ color: '#848E9C' }}>
-                  {ts(indicator.computeKlineCount, language)}: <span style={{ color: '#EAECEF' }}>{computeKlineCount}</span>
-                </span>
+                <span className="text-[10px]" style={{ color: '#848E9C' }}>{ts(indicator.computeKlineCount, language)}:</span>
+                <input
+                  type="number"
+                  value={computeKlineCount}
+                  onChange={(e) => updateComputeKlineCount(e.target.value)}
+                  disabled={disabled}
+                  min={MIN_COMPUTE_KLINE_COUNT}
+                  max={MAX_COMPUTE_KLINE_COUNT}
+                  step={20}
+                  className="w-20 px-2 py-1 rounded text-xs text-center"
+                  style={{ background: '#1E2329', border: '1px solid #2B3139', color: '#EAECEF' }}
+                />
               </div>
             </div>
             <p className="text-[10px] mb-2" style={{ color: '#5E6673' }}>{ts(indicator.timeframesDesc, language)}</p>
