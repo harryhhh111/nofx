@@ -28,7 +28,7 @@ import {
   FileJson,
   AlertTriangle,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, StrategyTemplate, AIModel, StrategyCompileResponse, StrategyCalibrationReport, AI500CoinsResponse, NofxOSStatus } from '../types'
+import type { Strategy, StrategyConfig, StrategyTemplate, AIModel, StrategyCompileResponse, StrategyCalibrationReport, StrategyEvolutionResult, AI500CoinsResponse, NofxOSStatus } from '../types'
 import { api } from '../lib/api'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
@@ -419,7 +419,7 @@ export function StrategyStudioPage() {
   })
 
   // Right panel states
-  const [activeRightTab, setActiveRightTab] = useState<'structured' | 'flow' | 'calibration' | 'test'>('structured')
+  const [activeRightTab, setActiveRightTab] = useState<'structured' | 'flow' | 'calibration' | 'evolution' | 'test'>('structured')
   const [flowPreview, setFlowPreview] = useState<Record<string, unknown> | null>(null)
   const [isLoadingFlowPreview, setIsLoadingFlowPreview] = useState(false)
   const [selectedVariant, setSelectedVariant] = useState('balanced')
@@ -432,6 +432,8 @@ export function StrategyStudioPage() {
   const [isLoadingDataStatus, setIsLoadingDataStatus] = useState(false)
   const [calibrationReport, setCalibrationReport] = useState<StrategyCalibrationReport | null>(null)
   const [isLoadingCalibration, setIsLoadingCalibration] = useState(false)
+  const [evolutionResult, setEvolutionResult] = useState<StrategyEvolutionResult | null>(null)
+  const [isEvolvingStrategy, setIsEvolvingStrategy] = useState(false)
 
   // AI Test Run states
   const [aiTestResult, setAiTestResult] = useState<Record<string, unknown> | null>(null)
@@ -454,6 +456,7 @@ export function StrategyStudioPage() {
     setFlowPreview(null)
     setAiTestResult(null)
     setCalibrationReport(null)
+    setEvolutionResult(null)
     setCompileResult(draft?.compileResult || null)
     setCompileDraftSavedAt(draft?.savedAt || null)
   }, [])
@@ -976,6 +979,36 @@ export function StrategyStudioPage() {
     } finally {
       setIsLoadingCalibration(false)
     }
+  }
+
+  const evolveCurrentStrategy = async () => {
+    if (!selectedStrategy || !selectedModelId) return
+    setIsEvolvingStrategy(true)
+    try {
+      const result = await api.evolveStrategy(selectedStrategy.id, {
+        ai_model_id: selectedModelId,
+        trigger: 'manual',
+        limit: 1000,
+      })
+      setEvolutionResult(result)
+      setActiveRightTab('evolution')
+      notify.success(language === 'zh' ? '已生成策略进化提案' : 'Strategy evolution proposal generated')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      notify.error(message, { duration: 8000 })
+    } finally {
+      setIsEvolvingStrategy(false)
+    }
+  }
+
+  const applyEvolutionDraft = () => {
+    if (!selectedStrategy || !evolutionResult?.proposed_config) return
+    const nextConfig = evolutionResult.proposed_config
+    setEditingConfig(nextConfig)
+    const draft = writeCompileDraft(selectedStrategy, nextConfig, compileResult)
+    setCompileDraftSavedAt(draft?.savedAt || null)
+    setHasChanges(true)
+    notify.success(language === 'zh' ? '提案已应用为草稿，保存后生效' : 'Proposal applied as a draft. Save to apply.')
   }
 
   // Run AI test with real AI model
@@ -1719,6 +1752,14 @@ export function StrategyStudioPage() {
               <BarChart3 className="w-4 h-4" />
               {language === 'zh' ? '校准' : 'Calib'}
             </button>
+            <button
+              onClick={() => setActiveRightTab('evolution')}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'evolution' ? 'border-b-2 border-cyan-500 text-cyan-400' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+                }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              {language === 'zh' ? '进化' : 'Evolve'}
+            </button>
           </div>
 
           {/* Tab Content */}
@@ -2168,6 +2209,118 @@ export function StrategyStudioPage() {
                     <BarChart3 className="w-10 h-10 mb-2 opacity-30" />
                     <p className="text-sm">
                       {language === 'zh' ? '读取当前策略的校准样本报告' : 'Load calibration samples for this strategy'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : activeRightTab === 'evolution' ? (
+              <div className="p-3 space-y-3">
+                <div className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-medium text-nofx-text">
+                        {language === 'zh' ? 'AI 历史复盘提案' : 'AI Historical Review Proposal'}
+                      </div>
+                      <div className="mt-1 text-[11px] leading-relaxed text-nofx-text-muted">
+                        {language === 'zh'
+                          ? '基于校准样本、已平仓模拟盘结果和当前策略参数生成提案；不会自动保存，也不会改变运行中的交易员。'
+                          : 'Uses calibration samples, linked paper outcomes, and current parameters. It will not save or change a running trader automatically.'}
+                      </div>
+                    </div>
+                    <button
+                      onClick={evolveCurrentStrategy}
+                      disabled={isEvolvingStrategy || !selectedStrategy || !selectedModelId}
+                      className="flex items-center gap-1.5 rounded bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    >
+                      {isEvolvingStrategy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      {language === 'zh' ? '生成' : 'Generate'}
+                    </button>
+                  </div>
+                </div>
+
+                {evolutionResult ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-medium text-nofx-text">
+                          {language === 'zh' ? '提案摘要' : 'Proposal Summary'}
+                        </div>
+                        <span className="rounded bg-black/30 px-2 py-1 font-mono text-[10px] text-cyan-300">
+                          {evolutionResult.proposal.evidence_quality}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-[11px] leading-relaxed text-nofx-text-muted">
+                        {evolutionResult.proposal.summary}
+                      </p>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
+                        <div className="rounded border border-white/10 bg-nofx-bg p-2">
+                          <div>{language === 'zh' ? '样本' : 'Samples'}</div>
+                          <div className="mt-1 font-mono text-sm text-nofx-text">{evolutionResult.proposal.data_used.samples}</div>
+                        </div>
+                        <div className="rounded border border-white/10 bg-nofx-bg p-2">
+                          <div>{language === 'zh' ? '平仓' : 'Closed'}</div>
+                          <div className="mt-1 font-mono text-sm text-nofx-text">{evolutionResult.proposal.data_used.closed_trades}</div>
+                        </div>
+                        <div className="rounded border border-white/10 bg-nofx-bg p-2">
+                          <div>Setup</div>
+                          <div className="mt-1 font-mono text-sm text-nofx-text">{evolutionResult.proposal.data_used.setups}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs font-medium text-nofx-text">
+                        {language === 'zh' ? '主要判断' : 'Diagnosis'}
+                      </div>
+                      <div className="space-y-2">
+                        {evolutionResult.proposal.diagnosis.slice(0, 5).map((item, index) => (
+                          <div key={index} className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]">
+                            <div className="font-medium text-nofx-text">{item.area}</div>
+                            <div className="mt-1 text-nofx-text-muted">{item.finding}</div>
+                            <div className="mt-1 font-mono text-[10px] text-nofx-text-muted">{item.evidence}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs font-medium text-nofx-text">
+                        {language === 'zh' ? '建议改动' : 'Recommended Changes'}
+                      </div>
+                      <div className="space-y-2">
+                        {evolutionResult.proposal.recommended_changes.slice(0, 8).map((change, index) => (
+                          <div key={index} className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]">
+                            <div className="font-mono text-cyan-300">{change.field}</div>
+                            <div className="mt-1 text-nofx-text-muted">
+                              {change.from} → <span className="text-nofx-text">{change.to}</span>
+                            </div>
+                            <div className="mt-1 text-nofx-text-muted">{change.rationale}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {(evolutionResult.warnings?.length || evolutionResult.proposal.warnings?.length) ? (
+                      <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-3 text-[11px] text-yellow-100">
+                        {[...(evolutionResult.warnings || []), ...(evolutionResult.proposal.warnings || [])].slice(0, 6).map((warning, index) => (
+                          <div key={index}>- {warning}</div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    <button
+                      onClick={applyEvolutionDraft}
+                      disabled={!evolutionResult.proposed_config || selectedStrategy?.is_default}
+                      className="w-full rounded bg-cyan-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {language === 'zh' ? '应用为草稿' : 'Apply as Draft'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
+                    <Sparkles className="mb-2 h-10 w-10 opacity-30" />
+                    <p className="text-sm">
+                      {language === 'zh' ? '生成当前策略的历史复盘提案' : 'Generate a historical review proposal for this strategy'}
                     </p>
                   </div>
                 )}

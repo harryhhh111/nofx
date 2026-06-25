@@ -2010,50 +2010,50 @@ func derivativesScore(snapshot *market.FactorSnapshot) (float64, bool) {
 	score := 0.0
 	used := 0
 	if funding, ok := snapshot.External["funding_rate"]; ok && funding.Available {
-		used++
 		switch funding.State {
 		case "overheated_positive":
+			used++
 			score -= 40
 		case "overheated_negative":
+			used++
 			score += 40
-		case "positive":
-			score += 10
-		case "negative":
-			score -= 10
 		}
 	}
 	for name, factor := range snapshot.External {
 		if !factor.Available || name == "funding_rate" {
 			continue
 		}
-		switch {
-		case strings.HasPrefix(name, "oi_ranking_top"), strings.HasPrefix(name, "oi_top_candidate"):
+		component, ok := derivativeExternalComponent(name, factor.Score)
+		if ok {
 			used++
-			score += clampScore(factor.Score)
-		case strings.HasPrefix(name, "oi_ranking_low"):
-			used++
-			score -= absFloat(clampScore(factor.Score))
-		case strings.HasPrefix(name, "netflow_institution_future_top"):
-			used++
-			score += absFloat(clampScore(factor.Score))
-		case strings.HasPrefix(name, "netflow_institution_future_low"):
-			used++
-			score -= absFloat(clampScore(factor.Score))
-		case strings.HasPrefix(name, "price_ranking_top"):
-			used++
-			score += absFloat(clampScore(factor.Score))
-		case strings.HasPrefix(name, "price_ranking_low"):
-			used++
-			score -= absFloat(clampScore(factor.Score))
-		case strings.HasPrefix(name, "quant_oi_delta_"), strings.HasPrefix(name, "quant_netflow_"):
-			used++
-			score += clampScore(factor.Score)
+			score += component
 		}
 	}
 	if used == 0 {
 		return 0, false
 	}
 	return clampScore(score / float64(used)), true
+}
+
+func derivativeExternalComponent(name string, score float64) (float64, bool) {
+	switch {
+	case strings.HasPrefix(name, "oi_ranking_top"), strings.HasPrefix(name, "oi_top_candidate"):
+		return clampScore(score), true
+	case strings.HasPrefix(name, "oi_ranking_low"):
+		return -absFloat(clampScore(score)), true
+	case strings.HasPrefix(name, "netflow_institution_future_top"):
+		return absFloat(clampScore(score)), true
+	case strings.HasPrefix(name, "netflow_institution_future_low"):
+		return -absFloat(clampScore(score)), true
+	case strings.HasPrefix(name, "price_ranking_top"):
+		return absFloat(clampScore(score)), true
+	case strings.HasPrefix(name, "price_ranking_low"):
+		return -absFloat(clampScore(score)), true
+	case strings.HasPrefix(name, "quant_oi_delta_"), strings.HasPrefix(name, "quant_netflow_"):
+		return clampScore(score), true
+	default:
+		return 0, false
+	}
 }
 
 func scoringConfidence(minConfidence int, score float64) int {

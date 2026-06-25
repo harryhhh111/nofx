@@ -158,6 +158,22 @@ func TestStrategyTemplatesAreExecutableScoringConfigs(t *testing.T) {
 	}
 }
 
+func TestClampLimitsPreservesNegativeShortThreshold(t *testing.T) {
+	config := GetDefaultStrategyConfig("zh")
+	config.ScoringConfig = &ScoringStrategyConfig{Enabled: true}
+	config.ScoringConfig.ShortThreshold = -70
+	config.ClampLimits()
+	if config.ScoringConfig.ShortThreshold != -70 {
+		t.Fatalf("expected legal negative short threshold to be preserved, got %.2f", config.ScoringConfig.ShortThreshold)
+	}
+
+	config.ScoringConfig.ShortThreshold = 30
+	config.ClampLimits()
+	if config.ScoringConfig.ShortThreshold != -60 {
+		t.Fatalf("expected positive short threshold to fall back to -60, got %.2f", config.ScoringConfig.ShortThreshold)
+	}
+}
+
 func TestStrategyTemplatesKeepDistinctTradingProfiles(t *testing.T) {
 	templates := map[string]StrategyTemplate{}
 	for _, template := range ListStrategyTemplates("zh") {

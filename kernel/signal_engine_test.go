@@ -136,6 +136,52 @@ func TestSetupSignalEngineRequiresEntryAndConfirmationRoles(t *testing.T) {
 	}
 }
 
+func TestDerivativesScoreRequiresMaterialExternalEvidence(t *testing.T) {
+	normalFunding := &market.FactorSnapshot{
+		External: map[string]market.ExternalFactor{
+			"funding_rate": {
+				Name:      "funding_rate",
+				State:     "positive",
+				Available: true,
+			},
+		},
+	}
+	if score, ok := derivativesScore(normalFunding); ok {
+		t.Fatalf("normal funding alone should not make derivatives available, got score %.2f", score)
+	}
+
+	overheatedFunding := &market.FactorSnapshot{
+		External: map[string]market.ExternalFactor{
+			"funding_rate": {
+				Name:      "funding_rate",
+				State:     "overheated_negative",
+				Available: true,
+			},
+		},
+	}
+	if score, ok := derivativesScore(overheatedFunding); !ok || score != 40 {
+		t.Fatalf("expected overheated funding to produce material derivatives evidence, got score %.2f ok=%v", score, ok)
+	}
+
+	rankingEvidence := &market.FactorSnapshot{
+		External: map[string]market.ExternalFactor{
+			"funding_rate": {
+				Name:      "funding_rate",
+				State:     "positive",
+				Available: true,
+			},
+			"oi_ranking_top_1h": {
+				Name:      "oi_ranking_top_1h",
+				Score:     80,
+				Available: true,
+			},
+		},
+	}
+	if score, ok := derivativesScore(rankingEvidence); !ok || score != 80 {
+		t.Fatalf("expected available ranking evidence to drive derivatives score, got score %.2f ok=%v", score, ok)
+	}
+}
+
 func TestSetupSignalEngineGeneratesShortWhenTimeframesAlignBearish(t *testing.T) {
 	scoring := testScoringStrategy()
 	scoring.SelectedFactors = []string{"trend", "momentum"}

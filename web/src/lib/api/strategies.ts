@@ -3,6 +3,7 @@ import type {
   StrategyConfig,
   StrategyCompileResponse,
   StrategyCalibrationReport,
+  StrategyEvolutionResult,
   StrategyMetadata,
   StrategyPreviewFlowResponse,
   StrategyTestRunResponse,
@@ -138,6 +139,27 @@ export const strategyApi = {
       `${API_BASE}/strategies/${strategyId}/calibration-report?limit=${limit}`
     )
     if (!result.success) throw new Error(result.message || 'Failed to fetch calibration report')
+    return result.data!
+  },
+
+  async evolveStrategy(
+    strategyId: string,
+    data: {
+      ai_model_id: string
+      trigger?: string
+      user_instruction?: string
+      limit?: number
+    }
+  ): Promise<StrategyEvolutionResult> {
+    const result = await httpClient.request<StrategyEvolutionResult>(
+      `${API_BASE}/strategies/${strategyId}/evolve`,
+      {
+        method: 'POST',
+        data,
+        timeout: 180000,
+      }
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to evolve strategy')
     return result.data!
   },
 }

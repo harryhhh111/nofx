@@ -298,6 +298,44 @@ func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*Sig
 	return report, nil
 }
 
+func (s *SignalCalibrationStore) RecentSamples(strategyID string, limit int) ([]SignalCalibrationSample, error) {
+	strategyID = strings.TrimSpace(strategyID)
+	if strategyID == "" {
+		return nil, fmt.Errorf("strategy_id is required")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var samples []SignalCalibrationSample
+	err := s.db.Where("strategy_id = ?", strategyID).
+		Order("as_of DESC").
+		Limit(limit).
+		Find(&samples).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent calibration samples: %w", err)
+	}
+	return samples, nil
+}
+
+func (s *SignalCalibrationStore) RecentClosedPositions(strategyID string, limit int) ([]TraderPosition, error) {
+	strategyID = strings.TrimSpace(strategyID)
+	if strategyID == "" {
+		return nil, fmt.Errorf("strategy_id is required")
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var positions []TraderPosition
+	err := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED").
+		Order("exit_time DESC").
+		Limit(limit).
+		Find(&positions).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to query recent closed positions: %w", err)
+	}
+	return positions, nil
+}
+
 func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalibrationReport, setupStats map[string]*SignalCalibrationSetupStat, strategyID string, limit int) error {
 	var positions []TraderPosition
 	err := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED").

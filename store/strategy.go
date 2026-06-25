@@ -554,7 +554,7 @@ func (c *StrategyConfig) clampScoringConfig() {
 	if c.ScoringConfig.LongThreshold > 100 {
 		c.ScoringConfig.LongThreshold = 100
 	}
-	if c.ScoringConfig.ShortThreshold <= 0 {
+	if c.ScoringConfig.ShortThreshold >= 0 {
 		c.ScoringConfig.ShortThreshold = -60
 	}
 	if c.ScoringConfig.ShortThreshold < -100 {

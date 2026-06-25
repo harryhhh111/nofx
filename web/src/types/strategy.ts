@@ -173,6 +173,46 @@ export interface StrategyCalibrationTimeframeStat {
   approved: number;
 }
 
+export interface StrategyEvolutionResult {
+  proposal: StrategyEvolutionProposal;
+  evidence: StrategyEvolutionEvidence;
+  proposed_config?: StrategyConfig;
+  warnings?: string[];
+}
+
+export interface StrategyEvolutionProposal {
+  summary: string;
+  evidence_quality: 'sufficient' | 'limited' | 'insufficient' | string;
+  data_used: {
+    samples: number;
+    closed_trades: number;
+    setups: number;
+  };
+  diagnosis: Array<{
+    area: string;
+    finding: string;
+    evidence: string;
+  }>;
+  recommended_changes: Array<{
+    field: string;
+    from: string;
+    to: string;
+    rationale: string;
+  }>;
+  config_patch: Record<string, unknown>;
+  warnings?: string[];
+  requires_paper_validation: boolean;
+}
+
+export interface StrategyEvolutionEvidence {
+  strategy_id: string;
+  generated_at: string;
+  data_quality_notes?: string[];
+  calibration?: StrategyCalibrationReport;
+  recent_closed_trades?: unknown[];
+  recent_failure_samples?: unknown[];
+}
+
 export interface StrategyCompileResponse {
   strategy_prompt: string;
   strategy_mode?: 'rule' | 'scoring' | 'hybrid';
