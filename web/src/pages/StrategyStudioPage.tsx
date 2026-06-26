@@ -2300,13 +2300,18 @@ export function StrategyStudioPage() {
                       </div>
                     </div>
 
-                    {(evolutionResult.warnings?.length || evolutionResult.proposal.warnings?.length) ? (
-                      <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-3 text-[11px] text-yellow-100">
-                        {[...(evolutionResult.warnings || []), ...(evolutionResult.proposal.warnings || [])].slice(0, 6).map((warning, index) => (
-                          <div key={index}>- {warning}</div>
-                        ))}
-                      </div>
-                    ) : null}
+                    {(() => {
+                      const warnings = Array.from(
+                        new Set([...(evolutionResult.warnings || []), ...(evolutionResult.proposal.warnings || [])].filter(Boolean))
+                      )
+                      return warnings.length ? (
+                        <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-3 text-[11px] text-yellow-100">
+                          {warnings.slice(0, 6).map((warning, index) => (
+                            <div key={index}>- {warning}</div>
+                          ))}
+                        </div>
+                      ) : null
+                    })()}
 
                     <button
                       onClick={applyEvolutionDraft}

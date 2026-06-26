@@ -3,6 +3,8 @@ package smallcap
 import (
 	"testing"
 	"time"
+
+	"nofx/provider/coinank"
 )
 
 func TestCoinAnkProviderCacheKeyIsDeterministic(t *testing.T) {
@@ -27,6 +29,11 @@ func TestCoinAnkProviderCacheKeyIsDeterministic(t *testing.T) {
 
 	if p.cacheKey(req1) != p.cacheKey(req2) {
 		t.Fatal("cache key should be case-insensitive for exchange")
+	}
+
+	req2.MinDepthUSD = 0
+	if p.cacheKey(req1) != p.cacheKey(req2) {
+		t.Fatal("cache key should ignore depth because CoinAnk depth is unavailable")
 	}
 }
 
@@ -53,5 +60,25 @@ func TestCoinAnkProviderStoresAndReadsCache(t *testing.T) {
 	}
 	if cached.data.Coins[0].Symbol != "PEPEUSDT" {
 		t.Fatalf("unexpected cached data: %+v", cached.data)
+	}
+}
+
+func TestBuildRawCoinsFromRowsLeavesUnknownTotalSupplyZero(t *testing.T) {
+	coins := buildRawCoinsFromRows(SmallMarketValueRequest{Exchange: "Binance"}, []coinank.VolumeRankResponse{
+		{
+			BaseCoin:        "pepe",
+			Symbol:          "PEPEUSDT",
+			ExchangeName:    "Binance",
+			SupportContract: true,
+			Price:           0.000001,
+			Turnover24H:     10_000_000,
+		},
+	}, nil)
+
+	if len(coins) != 1 {
+		t.Fatalf("expected one raw coin, got %d", len(coins))
+	}
+	if coins[0].TotalSupply != 0 {
+		t.Fatalf("unknown total supply should stay zero, got %f", coins[0].TotalSupply)
 	}
 }

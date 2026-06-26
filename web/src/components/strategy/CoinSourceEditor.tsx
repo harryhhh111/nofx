@@ -593,26 +593,9 @@ export function CoinSourceEditor({
                   />
                 </label>
 
-                <label className="space-y-1 md:col-span-2">
-                  <span className="block text-sm text-nofx-text-muted">
-                    {ts(coinSource.minDepth, language)}
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={10000}
-                    value={config.min_depth_usd ?? 100000}
-                    onChange={(e) =>
-                      !disabled &&
-                      onChange({ ...config, min_depth_usd: parseFloat(e.target.value) || 0 })
-                    }
-                    disabled={disabled}
-                    className="w-full px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                  />
-                  <span className="block text-xs text-nofx-text-muted">
-                    {ts(coinSource.smallMarketValueDepthNote, language)}
-                  </span>
-                </label>
+                <div className="md:col-span-2 rounded border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-nofx-text-muted">
+                  {ts(coinSource.smallMarketValueDepthNote, language)}
+                </div>
               </div>
             )}
 

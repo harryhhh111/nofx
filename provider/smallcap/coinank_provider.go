@@ -25,8 +25,8 @@ const (
 
 // cacheEntry stores a cached ranking result and its expiration time.
 type cacheEntry struct {
-	data       *SmallMarketValueRankingData
-	expiresAt  time.Time
+	data      *SmallMarketValueRankingData
+	expiresAt time.Time
 }
 
 // CoinAnkProvider builds Small Market Value rankings from CoinAnk aggregate data.
@@ -35,8 +35,8 @@ type CoinAnkProvider struct {
 	fetchSize int
 	ttl       time.Duration
 
-	mu     sync.RWMutex
-	cache  map[string]cacheEntry
+	mu    sync.RWMutex
+	cache map[string]cacheEntry
 }
 
 // NewCoinAnkProvider creates the default CoinAnk-backed small market value provider.
@@ -77,10 +77,17 @@ func (p *CoinAnkProvider) GetSmallMarketValueRanking(ctx context.Context, req Sm
 		fetchSize = maxCoinAnkFetchSize
 	}
 
-	// Paginate through market-cap ascending pages until we have enough raw
-	// candidates or hit the safety page limit.
-	var volumeRows []coinank.VolumeRankResponse
-	var oiRows []coinank.OiRankResponse
+	filterReq := req
+	filterReq.Limit = limit
+	// CoinAnk aggregate ranking does not expose order book depth, so depth is
+	// explicitly marked unavailable instead of treating missing depth as liquid.
+	filterReq.MinDepthUSD = 0
+
+	// Paginate through market-cap ascending pages until post-filter candidates
+	// can satisfy the requested limit. This keeps CoinAnk enrichment bounded in
+	// common cases while still allowing deeper pages when the smallest caps are
+	// filtered out by volume/OI requirements.
+	coins := make([]SmallMarketValueCoin, 0, fetchSize)
 	for page := 1; page <= maxCoinAnkPages; page++ {
 		vRows, err := p.client.VolumeRank(ctx, coinank_enum.MarketCap, coinank_enum.Asc, page, fetchSize)
 		if err != nil {
@@ -90,13 +97,50 @@ func (p *CoinAnkProvider) GetSmallMarketValueRanking(ctx context.Context, req Sm
 		if err != nil {
 			return nil, fmt.Errorf("fetch CoinAnk open interest ranking page %d: %w", page, err)
 		}
-		volumeRows = append(volumeRows, vRows...)
-		oiRows = append(oiRows, oRows...)
-		if len(vRows) < fetchSize {
+
+		rawCoins := buildRawCoinsFromRows(req, vRows, oRows)
+		if err := p.enrichCoins(ctx, rawCoins); err != nil {
+			return nil, fmt.Errorf("enrich coins: %w", err)
+		}
+
+		for _, c := range rawCoins {
+			if c.Price > 0 && c.CirculatingSupply > 0 {
+				c.MarketCap = c.Price * c.CirculatingSupply
+			}
+			if c.FDV <= 0 && c.Price > 0 && c.TotalSupply > 0 {
+				c.FDV = c.Price * c.TotalSupply
+			}
+			coins = append(coins, *c)
+		}
+
+		if len(filterAndScore(coins, filterReq)) >= limit || len(vRows) < fetchSize {
 			break
 		}
 	}
 
+	filtered := filterAndScore(coins, filterReq)
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	result := &SmallMarketValueRankingData{
+		Coins:          filtered,
+		FilterStats:    computeFilterStats(coins, filtered),
+		DepthAvailable: false,
+		FetchedAt:      time.Now().UTC(),
+	}
+
+	p.mu.Lock()
+	p.cache[cacheKey] = cacheEntry{
+		data:      result,
+		expiresAt: time.Now().Add(p.ttl),
+	}
+	p.mu.Unlock()
+
+	return result, nil
+}
+
+func buildRawCoinsFromRows(req SmallMarketValueRequest, volumeRows []coinank.VolumeRankResponse, oiRows []coinank.OiRankResponse) []*SmallMarketValueCoin {
 	oiBySymbol := make(map[string]coinank.OiRankResponse, len(oiRows))
 	oiByBase := make(map[string]coinank.OiRankResponse, len(oiRows))
 	for _, row := range oiRows {
@@ -151,64 +195,18 @@ func (p *CoinAnkProvider) GetSmallMarketValueRanking(ctx context.Context, req Sm
 				coin.CirculatingSupply = float64(oi.CirculatingSupply)
 			}
 		}
-
-		// Defer market cap enrichment to concurrent workers below.
-		coin.TotalSupply = -1 // sentinel: not yet fetched
 		rawCoins = append(rawCoins, coin)
 	}
-
-	// Concurrently enrich coins with detailed market cap / supply data.
-	if err := p.enrichCoins(ctx, rawCoins); err != nil {
-		return nil, fmt.Errorf("enrich coins: %w", err)
-	}
-
-	coins := make([]SmallMarketValueCoin, 0, len(rawCoins))
-	for _, c := range rawCoins {
-		if c.Price > 0 && c.CirculatingSupply > 0 {
-			c.MarketCap = c.Price * c.CirculatingSupply
-		}
-		if c.FDV <= 0 && c.Price > 0 && c.TotalSupply > 0 {
-			c.FDV = c.Price * c.TotalSupply
-		}
-		coins = append(coins, *c)
-	}
-
-	filterReq := req
-	filterReq.Limit = limit
-	// CoinAnk aggregate ranking does not expose order book depth, so depth is
-	// explicitly marked unavailable instead of treating missing depth as liquid.
-	filterReq.MinDepthUSD = 0
-
-	filtered := filterAndScore(coins, filterReq)
-	if len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-
-	result := &SmallMarketValueRankingData{
-		Coins:          filtered,
-		FilterStats:    computeFilterStats(coins, filtered),
-		DepthAvailable: false,
-		FetchedAt:      time.Now().UTC(),
-	}
-
-	p.mu.Lock()
-	p.cache[cacheKey] = cacheEntry{
-		data:      result,
-		expiresAt: time.Now().Add(p.ttl),
-	}
-	p.mu.Unlock()
-
-	return result, nil
+	return rawCoins
 }
 
 func (p *CoinAnkProvider) cacheKey(req SmallMarketValueRequest) string {
-	return fmt.Sprintf("%s|%s|%d|%.0f|%.0f|%.0f",
+	return fmt.Sprintf("%s|%s|%d|%.0f|%.0f",
 		strings.ToLower(strings.TrimSpace(req.Exchange)),
 		req.SortBy,
 		req.Limit,
 		req.Min24hQuoteVolumeUSD,
 		req.MinOpenInterestUSD,
-		req.MinDepthUSD,
 	)
 }
 
