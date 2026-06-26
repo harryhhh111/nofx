@@ -17,12 +17,26 @@ const (
 	maxCoinAnkFetchSize     = 100
 	maxCoinAnkPages         = 5
 	coinAnkEnrichWorkers    = 8
+	// DefaultSmallMarketValueCacheTTL is the default time-to-live for cached
+	// small market value rankings. Multiple strategies/traders can share the
+	// same cached result to avoid hammering the upstream API.
+	DefaultSmallMarketValueCacheTTL = 2 * time.Hour
 )
+
+// cacheEntry stores a cached ranking result and its expiration time.
+type cacheEntry struct {
+	data       *SmallMarketValueRankingData
+	expiresAt  time.Time
+}
 
 // CoinAnkProvider builds Small Market Value rankings from CoinAnk aggregate data.
 type CoinAnkProvider struct {
 	client    *coinank.CoinankClient
 	fetchSize int
+	ttl       time.Duration
+
+	mu     sync.RWMutex
+	cache  map[string]cacheEntry
 }
 
 // NewCoinAnkProvider creates the default CoinAnk-backed small market value provider.
@@ -30,12 +44,22 @@ func NewCoinAnkProvider(apiKey string) *CoinAnkProvider {
 	return &CoinAnkProvider{
 		client:    coinank.NewCoinankClient(coinank_enum.MainUrl, apiKey),
 		fetchSize: defaultCoinAnkFetchSize,
+		ttl:       DefaultSmallMarketValueCacheTTL,
+		cache:     make(map[string]cacheEntry),
 	}
 }
 
 func (p *CoinAnkProvider) GetSmallMarketValueRanking(ctx context.Context, req SmallMarketValueRequest) (*SmallMarketValueRankingData, error) {
 	if p == nil || p.client == nil {
 		return nil, fmt.Errorf("small market value CoinAnk provider is not configured")
+	}
+
+	cacheKey := p.cacheKey(req)
+	p.mu.RLock()
+	entry, ok := p.cache[cacheKey]
+	p.mu.RUnlock()
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.data, nil
 	}
 
 	limit := req.Limit
@@ -160,12 +184,32 @@ func (p *CoinAnkProvider) GetSmallMarketValueRanking(ctx context.Context, req Sm
 		filtered = filtered[:limit]
 	}
 
-	return &SmallMarketValueRankingData{
+	result := &SmallMarketValueRankingData{
 		Coins:          filtered,
 		FilterStats:    computeFilterStats(coins, filtered),
 		DepthAvailable: false,
 		FetchedAt:      time.Now().UTC(),
-	}, nil
+	}
+
+	p.mu.Lock()
+	p.cache[cacheKey] = cacheEntry{
+		data:      result,
+		expiresAt: time.Now().Add(p.ttl),
+	}
+	p.mu.Unlock()
+
+	return result, nil
+}
+
+func (p *CoinAnkProvider) cacheKey(req SmallMarketValueRequest) string {
+	return fmt.Sprintf("%s|%s|%d|%.0f|%.0f|%.0f",
+		strings.ToLower(strings.TrimSpace(req.Exchange)),
+		req.SortBy,
+		req.Limit,
+		req.Min24hQuoteVolumeUSD,
+		req.MinOpenInterestUSD,
+		req.MinDepthUSD,
+	)
 }
 
 func (p *CoinAnkProvider) enrichCoins(ctx context.Context, coins []*SmallMarketValueCoin) error {

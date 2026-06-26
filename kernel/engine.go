@@ -10,6 +10,7 @@ import (
 	"nofx/market"
 	"nofx/provider/hyperliquid"
 	"nofx/provider/nofxos"
+	"nofx/provider/smallcap"
 	"nofx/store"
 	"os"
 	"strconv"
@@ -66,8 +67,9 @@ type AccountInfo struct {
 
 // CandidateCoin candidate coin (from coin pool)
 type CandidateCoin struct {
-	Symbol  string   `json:"symbol"`
-	Sources []string `json:"sources"` // Sources: "ai500" and/or "oi_top"
+	Symbol  string             `json:"symbol"`
+	Sources []string           `json:"sources"`           // Sources: "ai500", "oi_top", "small_market_value", etc.
+	Metrics map[string]float64 `json:"metrics,omitempty"` // Audit metrics for small_market_value and future sources
 }
 
 // OITopData open interest growth top data (for AI decision reference)
@@ -416,10 +418,11 @@ type OIDeltaData struct {
 
 // StrategyEngine strategy execution engine
 type StrategyEngine struct {
-	config       *store.StrategyConfig
-	nofxosClient *nofxos.Client
-	traderID     string
-	traderName   string
+	config           *store.StrategyConfig
+	nofxosClient     *nofxos.Client
+	smallcapProvider smallcap.SmallMarketValueProvider
+	traderID         string
+	traderName       string
 }
 
 // NewStrategyEngine creates strategy execution engine.
@@ -451,9 +454,16 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 	}
 
 	return &StrategyEngine{
-		config:       config,
-		nofxosClient: client,
+		config:           config,
+		nofxosClient:     client,
+		smallcapProvider: smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY")),
 	}
+}
+
+// SetSmallMarketValueProvider injects a custom provider for small market value coin selection.
+// Used by tests and by callers that wire a real data source.
+func (e *StrategyEngine) SetSmallMarketValueProvider(p smallcap.SmallMarketValueProvider) {
+	e.smallcapProvider = p
 }
 
 // GetRiskControlConfig gets risk control configuration
@@ -493,6 +503,7 @@ func (e *StrategyEngine) SetTraderInfo(id, name string) {
 func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 	var candidates []CandidateCoin
 	symbolSources := make(map[string][]string)
+	symbolMetrics := make(map[string]map[string]float64)
 
 	coinSource := e.config.CoinSource
 
@@ -615,6 +626,27 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 		}
 		return e.filterExcludedCoins(coins), nil
 
+	case "small_market_value":
+		if !coinSource.UseSmallMarketValue {
+			logger.Infof("⚠️  source_type is 'small_market_value' but use_small_market_value is false, falling back to static coins")
+			for _, symbol := range coinSource.StaticCoins {
+				symbol = market.Normalize(symbol)
+				candidates = append(candidates, CandidateCoin{
+					Symbol:  symbol,
+					Sources: []string{"static"},
+				})
+			}
+			return e.filterExcludedCoins(candidates), nil
+		}
+		coins, err := e.getSmallMarketValueCoins(coinSource.SmallMarketValueLimit, coinSource.SmallMarketValueSortBy)
+		if err != nil {
+			return nil, err
+		}
+		if len(coins) == 0 {
+			logger.Warnf("⚠️  Small Market Value returned 0 candidate coins (limit=%d, excluded=%v)", coinSource.SmallMarketValueLimit, coinSource.ExcludedCoins)
+		}
+		return e.filterExcludedCoins(coins), nil
+
 	case "mixed":
 		var sourceErrors []string
 
@@ -678,6 +710,21 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 			}
 		}
 
+		if coinSource.UseSmallMarketValue {
+			smvCoins, err := e.getSmallMarketValueCoins(coinSource.SmallMarketValueLimit, coinSource.SmallMarketValueSortBy)
+			if err != nil {
+				sourceErrors = append(sourceErrors, fmt.Sprintf("small_market_value: %v", err))
+				logger.Infof("⚠️  Failed to get Small Market Value coins: %v", err)
+			} else {
+				for _, coin := range smvCoins {
+					symbolSources[coin.Symbol] = append(symbolSources[coin.Symbol], "small_market_value")
+					if coin.Metrics != nil {
+						symbolMetrics[coin.Symbol] = coin.Metrics
+					}
+				}
+			}
+		}
+
 		for _, symbol := range coinSource.StaticCoins {
 			symbol = market.Normalize(symbol)
 			if _, exists := symbolSources[symbol]; !exists {
@@ -691,6 +738,7 @@ func (e *StrategyEngine) GetCandidateCoins() ([]CandidateCoin, error) {
 			candidates = append(candidates, CandidateCoin{
 				Symbol:  symbol,
 				Sources: sources,
+				Metrics: symbolMetrics[symbol],
 			})
 		}
 		candidates = e.filterExcludedCoins(candidates)
@@ -796,6 +844,52 @@ func (e *StrategyEngine) getOILowCoins(limit int) ([]CandidateCoin, error) {
 		candidates = append(candidates, CandidateCoin{
 			Symbol:  symbol,
 			Sources: []string{"oi_low"},
+		})
+	}
+	return candidates, nil
+}
+
+func (e *StrategyEngine) getSmallMarketValueCoins(limit int, sortBy string) ([]CandidateCoin, error) {
+	if limit <= 0 {
+		limit = store.DefaultSmallMarketValueLimit
+	}
+
+	cs := e.config.CoinSource
+	req := smallcap.SmallMarketValueRequest{
+		Exchange:             e.config.Indicators.Klines.MarketDataSource,
+		SortBy:               smallcap.SortBy(sortBy),
+		Limit:                limit,
+		Min24hQuoteVolumeUSD: cs.Min24hQuoteVolumeUSD,
+		MinOpenInterestUSD:   cs.MinOpenInterestUSD,
+		MinDepthUSD:          cs.MinDepthUSD,
+	}
+	if req.SortBy == "" {
+		req.SortBy = smallcap.SortByMarketCap
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	data, err := e.smallcapProvider.GetSmallMarketValueRanking(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	var candidates []CandidateCoin
+	for _, c := range data.Coins {
+		symbol := market.Normalize(c.Symbol)
+		candidates = append(candidates, CandidateCoin{
+			Symbol:  symbol,
+			Sources: []string{"small_market_value"},
+			Metrics: map[string]float64{
+				"market_cap":        c.MarketCap,
+				"fdv":               c.FDV,
+				"market_cap_rank":   float64(c.MarketCapRank),
+				"liquidity_rank":    float64(c.LiquidityRank),
+				"small_cap_score":   c.SmallCapScore,
+				"volume_24h_usd":    c.Volume24hUSD,
+				"open_interest_usd": c.OpenInterestUSD,
+				"depth_usd":         c.DepthUSD,
+			},
 		})
 	}
 	return candidates, nil

@@ -42,6 +42,105 @@ func TestClampLimitsPreservesMixedCoinSourceFlags(t *testing.T) {
 	}
 }
 
+func TestClampLimitsSetsSmallMarketValueDefaults(t *testing.T) {
+	config := StrategyConfig{
+		StrategyMode: "scoring",
+		CoinSource: CoinSourceConfig{
+			SourceType: "small_market_value",
+		},
+	}
+
+	config.ClampLimits()
+
+	if config.CoinSource.SourceType != "small_market_value" {
+		t.Fatalf("expected source_type to remain small_market_value, got %s", config.CoinSource.SourceType)
+	}
+	if !config.CoinSource.UseSmallMarketValue {
+		t.Fatal("expected UseSmallMarketValue to be true")
+	}
+	if config.CoinSource.SmallMarketValueLimit != DefaultSmallMarketValueLimit {
+		t.Fatalf("expected small market value limit default %d, got %d", DefaultSmallMarketValueLimit, config.CoinSource.SmallMarketValueLimit)
+	}
+	if config.CoinSource.SmallMarketValueSortBy != "market_cap" {
+		t.Fatalf("expected default sort_by market_cap, got %s", config.CoinSource.SmallMarketValueSortBy)
+	}
+	if config.CoinSource.Min24hQuoteVolumeUSD != DefaultSmallMarketValueMinVolume {
+		t.Fatalf("expected default min volume %.0f, got %.0f", DefaultSmallMarketValueMinVolume, config.CoinSource.Min24hQuoteVolumeUSD)
+	}
+	if config.CoinSource.MinOpenInterestUSD != DefaultSmallMarketValueMinOI {
+		t.Fatalf("expected default min OI %.0f, got %.0f", DefaultSmallMarketValueMinOI, config.CoinSource.MinOpenInterestUSD)
+	}
+	if config.CoinSource.MinDepthUSD != DefaultSmallMarketValueMinDepth {
+		t.Fatalf("expected default min depth %.0f, got %.0f", DefaultSmallMarketValueMinDepth, config.CoinSource.MinDepthUSD)
+	}
+}
+
+func TestClampLimitsClampsSmallMarketValueLimit(t *testing.T) {
+	config := StrategyConfig{
+		StrategyMode: "scoring",
+		CoinSource: CoinSourceConfig{
+			SourceType:            "small_market_value",
+			SmallMarketValueLimit: MaxCandidateCoins + 10,
+		},
+	}
+
+	config.ClampLimits()
+
+	if config.CoinSource.SmallMarketValueLimit != MaxCandidateCoins {
+		t.Fatalf("expected limit clamped to %d, got %d", MaxCandidateCoins, config.CoinSource.SmallMarketValueLimit)
+	}
+}
+
+func TestNormalizeCoinSourceFlagsForSmallMarketValue(t *testing.T) {
+	config := StrategyConfig{
+		CoinSource: CoinSourceConfig{
+			SourceType:            "small_market_value",
+			UseAI500:              true,
+			UseOITop:              true,
+			UseSmallMarketValue:   false,
+			SmallMarketValueLimit: 5,
+		},
+	}
+
+	config.normalizeCoinSourceFlags()
+
+	if config.CoinSource.UseAI500 || config.CoinSource.UseOITop {
+		t.Fatalf("small_market_value should clear other source flags: %+v", config.CoinSource)
+	}
+	if !config.CoinSource.UseSmallMarketValue {
+		t.Fatal("expected UseSmallMarketValue to be true")
+	}
+}
+
+func TestGetEffectiveCoinCountForSmallMarketValue(t *testing.T) {
+	config := StrategyConfig{
+		CoinSource: CoinSourceConfig{
+			SourceType:            "small_market_value",
+			SmallMarketValueLimit: 5,
+		},
+	}
+
+	if got := config.getEffectiveCoinCount(); got != 5 {
+		t.Fatalf("expected effective coin count 5, got %d", got)
+	}
+}
+
+func TestGetEffectiveCoinCountForMixedWithSmallMarketValue(t *testing.T) {
+	config := StrategyConfig{
+		CoinSource: CoinSourceConfig{
+			SourceType:            "mixed",
+			UseAI500:              true,
+			AI500Limit:            2,
+			UseSmallMarketValue:   true,
+			SmallMarketValueLimit: 3,
+		},
+	}
+
+	if got := config.getEffectiveCoinCount(); got != 5 {
+		t.Fatalf("expected effective coin count 5, got %d", got)
+	}
+}
+
 func TestClampLimitsBackfillsRiskControlDefaults(t *testing.T) {
 	config := StrategyConfig{}
 

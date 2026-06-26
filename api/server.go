@@ -10,7 +10,9 @@ import (
 	"nofx/logger"
 	"nofx/manager"
 	"nofx/provider/nofxos"
+	"nofx/provider/smallcap"
 	"nofx/store"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +28,7 @@ type Server struct {
 	cryptoHandler             *CryptoHandler
 	exchangeAccountStateCache *ExchangeAccountStateCache
 	nofxosClient              *nofxos.Client
+	smallcapProvider          smallcap.SmallMarketValueProvider
 	httpServer                *http.Server
 	port                      int
 	telegramReloadCh          chan<- struct{} // signal Telegram bot to reload
@@ -51,6 +54,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		cryptoHandler:             cryptoHandler,
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
 		nofxosClient:              initNofxosClient(),
+		smallcapProvider:          smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY")),
 		port:                      port,
 	}
 
@@ -114,6 +118,7 @@ func (s *Server) setupRoutes() {
 		s.route(api, "GET", "/klines", s.handleKlines)
 		s.route(api, "GET", "/symbols", s.handleSymbols)
 		s.route(api, "GET", "/ai500/coins", s.handleAI500Coins)
+		s.route(api, "GET", "/small-market-value/coins", s.handleSmallMarketValueCoins)
 		s.route(api, "GET", "/nofxos/status", s.handleNofxosStatus)
 
 		// Public strategy market (no authentication required)

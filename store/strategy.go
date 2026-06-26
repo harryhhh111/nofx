@@ -31,6 +31,11 @@ const (
 	DefaultStopLossATRBuffer  = 2.0
 	MaxStopLossATRBuffer      = 3.0
 
+	DefaultSmallMarketValueLimit     = 3
+	DefaultSmallMarketValueMinVolume = 5_000_000.0
+	DefaultSmallMarketValueMinOI     = 1_000_000.0
+	DefaultSmallMarketValueMinDepth  = 100_000.0
+
 	StopLossTimeframeModeAuto    = "auto"
 	StopLossTimeframeModePrimary = "primary"
 	StopLossTimeframeModeEntry   = "entry"
@@ -65,6 +70,27 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	if c.CoinSource.OILowLimit > MaxCandidateCoins {
 		c.CoinSource.OILowLimit = MaxCandidateCoins
+	}
+	if c.CoinSource.HyperMainLimit > MaxCandidateCoins {
+		c.CoinSource.HyperMainLimit = MaxCandidateCoins
+	}
+	if c.CoinSource.SmallMarketValueLimit > MaxCandidateCoins {
+		c.CoinSource.SmallMarketValueLimit = MaxCandidateCoins
+	}
+	if c.CoinSource.SmallMarketValueLimit <= 0 {
+		c.CoinSource.SmallMarketValueLimit = DefaultSmallMarketValueLimit
+	}
+	if c.CoinSource.SmallMarketValueSortBy == "" {
+		c.CoinSource.SmallMarketValueSortBy = "market_cap"
+	}
+	if c.CoinSource.Min24hQuoteVolumeUSD <= 0 {
+		c.CoinSource.Min24hQuoteVolumeUSD = DefaultSmallMarketValueMinVolume
+	}
+	if c.CoinSource.MinOpenInterestUSD <= 0 {
+		c.CoinSource.MinOpenInterestUSD = DefaultSmallMarketValueMinOI
+	}
+	if c.CoinSource.MinDepthUSD <= 0 {
+		c.CoinSource.MinDepthUSD = DefaultSmallMarketValueMinDepth
 	}
 
 	// Clamp static coins
@@ -207,40 +233,40 @@ func (c *StrategyConfig) ClampLimits() {
 }
 
 func (c *StrategyConfig) normalizeCoinSourceFlags() {
+	resetSourceFlags := func() {
+		c.CoinSource.UseAI500 = false
+		c.CoinSource.UseOITop = false
+		c.CoinSource.UseOILow = false
+		c.CoinSource.UseHyperAll = false
+		c.CoinSource.UseHyperMain = false
+		c.CoinSource.UseSmallMarketValue = false
+	}
 	switch c.CoinSource.SourceType {
 	case "mixed":
 		return
 	case "static":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
+		resetSourceFlags()
 	case "ai500":
+		resetSourceFlags()
 		c.CoinSource.UseAI500 = true
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
 	case "oi_top":
-		c.CoinSource.UseAI500 = false
+		resetSourceFlags()
 		c.CoinSource.UseOITop = true
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
 	case "oi_low":
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
+		resetSourceFlags()
 		c.CoinSource.UseOILow = true
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
+	case "hyper_all":
+		resetSourceFlags()
+		c.CoinSource.UseHyperAll = true
+	case "hyper_main":
+		resetSourceFlags()
+		c.CoinSource.UseHyperMain = true
+	case "small_market_value":
+		resetSourceFlags()
+		c.CoinSource.UseSmallMarketValue = true
 	default:
 		c.CoinSource.SourceType = "static"
-		c.CoinSource.UseAI500 = false
-		c.CoinSource.UseOITop = false
-		c.CoinSource.UseOILow = false
-		c.CoinSource.UseHyperAll = false
-		c.CoinSource.UseHyperMain = false
+		resetSourceFlags()
 	}
 }
 
@@ -943,7 +969,7 @@ type GridStrategyConfig struct {
 
 // CoinSourceConfig coin source configuration
 type CoinSourceConfig struct {
-	// source type: "static" | "ai500" | "oi_top" | "oi_low" | "mixed"
+	// source type: "static" | "ai500" | "oi_top" | "oi_low" | "hyper_all" | "hyper_main" | "small_market_value" | "mixed"
 	SourceType string `json:"source_type"`
 	// static coin list (used when source_type = "static")
 	StaticCoins []string `json:"static_coins,omitempty"`
@@ -967,7 +993,18 @@ type CoinSourceConfig struct {
 	UseHyperMain bool `json:"use_hyper_main"`
 	// Hyperliquid Main maximum count (default 20)
 	HyperMainLimit int `json:"hyper_main_limit,omitempty"`
-	// Note: AI500/NofxOS data is billed through the configured Claw402 wallet.
+	// whether to use Small Market Value ranking
+	UseSmallMarketValue bool `json:"use_small_market_value"`
+	// Small Market Value maximum count
+	SmallMarketValueLimit int `json:"small_market_value_limit,omitempty"`
+	// Small Market Value sort field: "market_cap" | "fdv"
+	SmallMarketValueSortBy string `json:"small_market_value_sort_by,omitempty"`
+	// minimum 24h quote volume in USD for liquidity filtering
+	Min24hQuoteVolumeUSD float64 `json:"min_24h_quote_volume_usd,omitempty"`
+	// minimum open interest in USD for liquidity filtering
+	MinOpenInterestUSD float64 `json:"min_open_interest_usd,omitempty"`
+	// minimum order book depth in USD for liquidity filtering
+	MinDepthUSD float64 `json:"min_depth_usd,omitempty"`
 }
 
 // IndicatorConfig indicator configuration
@@ -1190,13 +1227,22 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 		StrategyMode: "rule",
 		Language:     normalizedLang,
 		CoinSource: CoinSourceConfig{
-			SourceType: "ai500",
-			UseAI500:   true,
-			AI500Limit: 3,
-			UseOITop:   false,
-			OITopLimit: 3,
-			UseOILow:   false,
-			OILowLimit: 3,
+			SourceType:               "ai500",
+			UseAI500:                 true,
+			AI500Limit:               3,
+			UseOITop:                 false,
+			OITopLimit:               3,
+			UseOILow:                 false,
+			OILowLimit:               3,
+			UseHyperAll:              false,
+			UseHyperMain:             false,
+			HyperMainLimit:           20,
+			UseSmallMarketValue:      false,
+			SmallMarketValueLimit:    DefaultSmallMarketValueLimit,
+			SmallMarketValueSortBy:   "market_cap",
+			Min24hQuoteVolumeUSD:     DefaultSmallMarketValueMinVolume,
+			MinOpenInterestUSD:       DefaultSmallMarketValueMinOI,
+			MinDepthUSD:              DefaultSmallMarketValueMinDepth,
 		},
 		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{
@@ -1994,6 +2040,15 @@ func (c *StrategyConfig) getEffectiveCoinCount() int {
 		count = c.CoinSource.OITopLimit
 	case "oi_low":
 		count = c.CoinSource.OILowLimit
+	case "hyper_all":
+		count = MaxCandidateCoins
+	case "hyper_main":
+		count = c.CoinSource.HyperMainLimit
+		if count <= 0 {
+			count = 20
+		}
+	case "small_market_value":
+		count = c.CoinSource.SmallMarketValueLimit
 	case "mixed":
 		if c.CoinSource.UseAI500 {
 			count += c.CoinSource.AI500Limit
@@ -2003,6 +2058,15 @@ func (c *StrategyConfig) getEffectiveCoinCount() int {
 		}
 		if c.CoinSource.UseOILow {
 			count += c.CoinSource.OILowLimit
+		}
+		if c.CoinSource.UseHyperMain {
+			count += c.CoinSource.HyperMainLimit
+		}
+		if c.CoinSource.UseHyperAll {
+			count += MaxCandidateCoins
+		}
+		if c.CoinSource.UseSmallMarketValue {
+			count += c.CoinSource.SmallMarketValueLimit
 		}
 	default:
 		count = c.CoinSource.AI500Limit
