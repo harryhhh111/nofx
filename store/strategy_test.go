@@ -273,6 +273,21 @@ func TestClampLimitsPreservesNegativeShortThreshold(t *testing.T) {
 	}
 }
 
+func TestClampLimitsDefaultsStopLossATRBuffer(t *testing.T) {
+	config := GetDefaultStrategyConfig("zh")
+	config.RiskControl.StopLossATRBuffer = 0
+	config.ClampLimits()
+	if config.RiskControl.StopLossATRBuffer != DefaultStopLossATRBuffer {
+		t.Fatalf("expected stop loss ATR buffer to default to %.2f, got %.2f", DefaultStopLossATRBuffer, config.RiskControl.StopLossATRBuffer)
+	}
+
+	config.RiskControl.StopLossATRBuffer = -1
+	config.ClampLimits()
+	if config.RiskControl.StopLossATRBuffer != DefaultStopLossATRBuffer {
+		t.Fatalf("expected negative stop loss ATR buffer to default to %.2f, got %.2f", DefaultStopLossATRBuffer, config.RiskControl.StopLossATRBuffer)
+	}
+}
+
 func TestStrategyTemplatesKeepDistinctTradingProfiles(t *testing.T) {
 	templates := map[string]StrategyTemplate{}
 	for _, template := range ListStrategyTemplates("zh") {

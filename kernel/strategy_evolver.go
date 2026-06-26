@@ -56,11 +56,21 @@ type StrategyEvolutionClosedTrade struct {
 	EntryPrice             float64 `json:"entry_price"`
 	ExitPrice              float64 `json:"exit_price"`
 	Leverage               int     `json:"leverage"`
+	StopLossSource         string  `json:"stop_loss_source,omitempty"`
 	StopLossTimeframe      string  `json:"stop_loss_timeframe,omitempty"`
+	StopLossAnchor         float64 `json:"stop_loss_anchor,omitempty"`
+	TakeProfitSource       string  `json:"take_profit_source,omitempty"`
 	TakeProfitTimeframe    string  `json:"take_profit_timeframe,omitempty"`
+	TakeProfitAnchor       float64 `json:"take_profit_anchor,omitempty"`
 	ProtectiveATRTimeframe string  `json:"protective_atr_timeframe,omitempty"`
 	ProtectiveATRBuffer    float64 `json:"protective_atr_buffer,omitempty"`
 	ProtectiveRiskReward   float64 `json:"protective_risk_reward,omitempty"`
+	MaxFavorablePnL        float64 `json:"max_favorable_pnl,omitempty"`
+	MaxFavorablePnLPct     float64 `json:"max_favorable_pnl_pct,omitempty"`
+	MaxFavorablePrice      float64 `json:"max_favorable_price,omitempty"`
+	MaxAdversePnL          float64 `json:"max_adverse_pnl,omitempty"`
+	MaxAdversePnLPct       float64 `json:"max_adverse_pnl_pct,omitempty"`
+	MaxAdversePrice        float64 `json:"max_adverse_price,omitempty"`
 }
 
 type StrategyEvolutionFailureSample struct {
@@ -361,6 +371,11 @@ Your task:
 - Do not rewrite the whole strategy unless evidence clearly supports it.
 - Prefer small parameter changes backed by the provided evidence.
 - If evidence is insufficient, say so and keep config_patch minimal.
+- Do not materially reduce trading opportunity frequency unless the evidence is high-confidence and shows that the filtered opportunities are consistently low quality.
+- Do not "optimize" by blindly tightening long_threshold, short_threshold, min_confidence, min_risk_reward_ratio, max_positions, or timeframe roles just to reduce losses.
+- If a change may reduce trade frequency, explain the specific evidence: affected setup(s), sample/outcome counts, loss pattern, and why a less restrictive adjustment is insufficient.
+- Prefer targeted improvements that preserve useful opportunities: adjust factor weights, fix mismatched timeframe roles, improve stop/target derivation, or isolate a clearly losing setup before globally tightening the strategy.
+- In current_config.risk_control, stop_loss_atr_buffer is an explicit ATR multiple; missing legacy values have already been normalized to the product default.
 
 Allowed config_patch fields only:
 - strategy_archetype, risk_profile
@@ -503,7 +518,7 @@ func summarizeEvolutionConfig(config *store.StrategyConfig) StrategyEvolutionCon
 		"risk_per_trade_pct":       config.RiskControl.RiskPerTradePct,
 		"min_risk_reward_ratio":    config.RiskControl.MinRiskRewardRatio,
 		"min_confidence":           config.RiskControl.MinConfidence,
-		"stop_loss_atr_buffer":     config.RiskControl.StopLossATRBuffer,
+		"stop_loss_atr_buffer":     normalizedEvolutionStopLossATRBuffer(config.RiskControl.StopLossATRBuffer),
 		"stop_loss_timeframe_mode": config.RiskControl.StopLossTimeframeMode,
 		"stop_loss_timeframe":      config.RiskControl.StopLossTimeframe,
 	}
@@ -527,6 +542,16 @@ func summarizeEvolutionConfig(config *store.StrategyConfig) StrategyEvolutionCon
 		EnabledIndicators: enabledEvolutionIndicators(config),
 		CoinSource:        config.CoinSource,
 	}
+}
+
+func normalizedEvolutionStopLossATRBuffer(configured float64) float64 {
+	if configured <= 0 {
+		return store.DefaultStopLossATRBuffer
+	}
+	if configured > store.MaxStopLossATRBuffer {
+		return store.MaxStopLossATRBuffer
+	}
+	return configured
 }
 
 func enabledEvolutionData(config *store.StrategyConfig) map[string]bool {
@@ -599,11 +624,21 @@ func summarizeClosedTrade(pos store.TraderPosition) StrategyEvolutionClosedTrade
 		EntryPrice:             pos.EntryPrice,
 		ExitPrice:              pos.ExitPrice,
 		Leverage:               pos.Leverage,
+		StopLossSource:         pos.StopLossSource,
 		StopLossTimeframe:      pos.StopLossTimeframe,
+		StopLossAnchor:         pos.StopLossAnchor,
+		TakeProfitSource:       pos.TakeProfitSource,
 		TakeProfitTimeframe:    pos.TakeProfitTimeframe,
+		TakeProfitAnchor:       pos.TakeProfitAnchor,
 		ProtectiveATRTimeframe: pos.ProtectiveATRTimeframe,
 		ProtectiveATRBuffer:    pos.ProtectiveATRBuffer,
 		ProtectiveRiskReward:   pos.ProtectiveRiskReward,
+		MaxFavorablePnL:        round2(pos.MaxFavorablePnL),
+		MaxFavorablePnLPct:     round2(pos.MaxFavorablePnLPct),
+		MaxFavorablePrice:      pos.MaxFavorablePrice,
+		MaxAdversePnL:          round2(pos.MaxAdversePnL),
+		MaxAdversePnLPct:       round2(pos.MaxAdversePnLPct),
+		MaxAdversePrice:        pos.MaxAdversePrice,
 	}
 }
 
@@ -673,7 +708,7 @@ func applyRiskControlEvolutionPatch(risk *store.RiskControlConfig, patch *RiskCo
 		risk.MinConfidence = clampInt(*patch.MinConfidence, 1, 100)
 	}
 	if patch.StopLossATRBuffer != nil {
-		risk.StopLossATRBuffer = clampFloat(*patch.StopLossATRBuffer, 0.5, 6)
+		risk.StopLossATRBuffer = clampFloat(*patch.StopLossATRBuffer, 0.5, store.MaxStopLossATRBuffer)
 	}
 	if patch.StopLossTimeframeMode != "" {
 		mode := strings.TrimSpace(patch.StopLossTimeframeMode)

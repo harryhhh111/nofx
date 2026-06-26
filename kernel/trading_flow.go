@@ -72,7 +72,7 @@ type SignalRequest struct {
 	Scoring        *ScoringStrategy      `json:"scoring,omitempty"`
 	PositionSizing *PositionSizingConfig `json:"position_sizing,omitempty"`
 	// ProtectiveATRBuffer controls stop-loss distance as ATR14 multiples.
-	// When unset, signal generation uses the product default.
+	// Strategy configs should provide the explicit default; the signal engine still guards legacy unset values.
 	ProtectiveATRBuffer  float64                           `json:"protective_atr_buffer,omitempty"`
 	ProtectiveTimeframes ProtectiveTimeframeConfig         `json:"protective_timeframes,omitempty"`
 	FactorSnapshot       map[string]*market.FactorSnapshot `json:"factor_snapshot"`

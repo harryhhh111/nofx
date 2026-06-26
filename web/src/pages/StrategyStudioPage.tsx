@@ -388,6 +388,63 @@ function getScoringFieldLabel(key: string, language: string) {
   }
 }
 
+function getCalibrationGateDisplay(gate: string | undefined, language: string) {
+  const labels: Record<string, { zh: string; en: string }> = {
+    no_data: { zh: '暂无样本', en: 'No samples' },
+    collecting: { zh: '样本收集中', en: 'Collecting samples' },
+    blocked: { zh: '需要检查策略', en: 'Needs strategy review' },
+    paper_collecting: { zh: '等待平仓结果', en: 'Waiting for outcomes' },
+    outcome_collecting: { zh: '结果样本不足', en: 'Collecting outcomes' },
+    needs_review: { zh: '需要人工复盘', en: 'Manual review needed' },
+    paper_ready: { zh: '可进入纸盘验证', en: 'Ready for paper validation' },
+  }
+  return labels[gate || '']?.[language === 'zh' ? 'zh' : 'en'] || gate || '-'
+}
+
+function getCalibrationRecommendation(report: StrategyCalibrationReport, language: string) {
+  const closed = report.closed_trade_count ?? 0
+  const minOutcomes = report.min_required_outcomes ?? 30
+  const samples = report.sample_count ?? 0
+  const minSamples = report.min_required_samples ?? 100
+  if (language !== 'zh') {
+    switch (report.quality_gate) {
+      case 'no_data':
+        return 'No strategy samples yet. Run the strategy in paper mode before using this report.'
+      case 'collecting':
+        return 'Only ' + samples + '/' + minSamples + ' samples are available. Keep collecting deterministic setup and signal evidence before changing parameters.'
+      case 'blocked':
+        return 'Samples exist, but no approved candidate signals were observed. Review setup thresholds and data availability first.'
+      case 'paper_collecting':
+        return 'Signal coverage is available, but no linked paper trades have closed yet. Keep paper mode running until outcomes are available.'
+      case 'outcome_collecting':
+        return 'Closed outcomes are linked, but only ' + closed + '/' + minOutcomes + ' are available. Review manually; do not treat this as a final optimization basis.'
+      case 'needs_review':
+        return 'Outcome sample size is sufficient, but performance is weak. Use manual strategy review before live deployment.'
+      case 'paper_ready':
+        return 'Sample coverage is sufficient for a paper-mode validation report. Review evidence before enabling live trading.'
+      default:
+        return report.recommendation || '-'
+    }
+  }
+  switch (report.quality_gate) {
+    case 'no_data':
+      return '当前还没有策略样本。先让策略在模拟盘运行，积累 setup、信号和结果数据。'
+    case 'collecting':
+      return '当前样本 ' + samples + '/' + minSamples + '，还不足以支撑调参结论。建议继续收集代码计算出的 setup 和信号证据。'
+    case 'blocked':
+      return '已有样本，但没有通过的候选信号。应优先检查阈值、周期和数据可用性，而不是直接优化风控参数。'
+    case 'paper_collecting':
+      return '候选信号覆盖已经开始形成，但还没有关联的模拟盘平仓结果。需要继续运行到有真实平仓结果。'
+    case 'outcome_collecting':
+      return '已有平仓结果，但只有 ' + closed + '/' + minOutcomes + '，不足以自动判断策略优劣。可以人工复盘，不建议直接大幅调参。'
+    case 'needs_review':
+      return '样本数量够了，但胜率或总收益偏弱。需要人工复盘具体 setup、止盈止损和市场状态。'
+    case 'paper_ready':
+      return '样本覆盖已满足纸盘验证报告要求。仍需人工确认后再考虑应用优化提案或进入实盘。'
+    default:
+      return report.recommendation || '-'
+  }
+}
 export function StrategyStudioPage() {
   const { token } = useAuth()
   const { language } = useLanguage()
@@ -992,7 +1049,7 @@ export function StrategyStudioPage() {
       })
       setEvolutionResult(result)
       setActiveRightTab('evolution')
-      notify.success(language === 'zh' ? '已生成策略进化提案' : 'Strategy evolution proposal generated')
+      notify.success(language === 'zh' ? '已生成 AI 复盘提案' : 'AI review proposal generated')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       notify.error(message, { duration: 8000 })
@@ -1750,7 +1807,7 @@ export function StrategyStudioPage() {
                 }`}
             >
               <BarChart3 className="w-4 h-4" />
-              {language === 'zh' ? '校准' : 'Calib'}
+              {language === 'zh' ? '样本' : 'Stats'}
             </button>
             <button
               onClick={() => setActiveRightTab('evolution')}
@@ -1758,7 +1815,7 @@ export function StrategyStudioPage() {
                 }`}
             >
               <Sparkles className="w-4 h-4" />
-              {language === 'zh' ? '进化' : 'Evolve'}
+              {language === 'zh' ? 'AI复盘' : 'AI Review'}
             </button>
           </div>
 
@@ -2082,12 +2139,12 @@ export function StrategyStudioPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium text-nofx-text">
-                      {language === 'zh' ? '校准样本报告' : 'Calibration Sample Report'}
+                      {language === 'zh' ? '策略样本统计' : 'Strategy Sample Statistics'}
                     </div>
                     <div className="text-[11px] text-nofx-text-muted">
                       {language === 'zh'
-                        ? '只读统计；基于运行中记录的 setup/信号样本和已关联模拟盘平仓结果，不等同于完整历史回测，也不会修改策略。'
-                        : 'Read-only statistics from recorded setup/signal samples and linked paper outcomes. This is not a full historical backtest and does not change the strategy.'}
+                        ? '只读统计和质量闸门；不调用 AI，不修改策略。用于判断样本是否足够支撑后续 AI 复盘提案。'
+                        : 'Read-only statistics and quality gate. This does not call AI or change the strategy; it checks whether evidence is sufficient for a later AI review proposal.'}
                     </div>
                   </div>
 	                  <button
@@ -2113,11 +2170,11 @@ export function StrategyStudioPage() {
                           {language === 'zh' ? '质量闸门' : 'Quality Gate'}
                         </span>
                         <span className="rounded bg-black/20 px-2 py-1 font-mono text-[10px]">
-                          {calibrationReport.quality_gate}
+                          {getCalibrationGateDisplay(calibrationReport.quality_gate, language)}
                         </span>
                       </div>
                       <div className="mt-2 leading-relaxed text-[11px] opacity-90">
-                        {calibrationReport.recommendation}
+                        {getCalibrationRecommendation(calibrationReport, language)}
                       </div>
                     </div>
 
@@ -2154,8 +2211,8 @@ export function StrategyStudioPage() {
 	                      </div>
 	                      <div className="mt-2 text-[10px] text-nofx-text-muted">
 	                        {language === 'zh'
-	                          ? `模拟盘结果阈值 ${calibrationReport.closed_trade_count ?? 0}/${calibrationReport.min_required_outcomes ?? 30}，只统计已关联 strategy_id 的平仓记录；不能替代历史回放回测。`
-	                          : `Paper outcome threshold ${(calibrationReport.closed_trade_count ?? 0)}/${calibrationReport.min_required_outcomes ?? 30}; only linked closed positions are counted. This does not replace historical replay backtesting.`}
+	                          ? `平仓结果阈值 ${calibrationReport.closed_trade_count ?? 0}/${calibrationReport.min_required_outcomes ?? 30}。这里只统计已关联当前策略的模拟盘平仓记录，不能替代历史回放回测。`
+	                          : `Closed outcome threshold ${(calibrationReport.closed_trade_count ?? 0)}/${calibrationReport.min_required_outcomes ?? 30}. Only linked paper positions for this strategy are counted; this does not replace historical replay backtesting.`}
 	                      </div>
 	                    </div>
 
@@ -2208,7 +2265,7 @@ export function StrategyStudioPage() {
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <BarChart3 className="w-10 h-10 mb-2 opacity-30" />
                     <p className="text-sm">
-                      {language === 'zh' ? '读取当前策略的校准样本报告' : 'Load calibration samples for this strategy'}
+                      {language === 'zh' ? '读取当前策略的样本统计报告' : 'Load sample statistics for this strategy'}
                     </p>
                   </div>
                 )}
@@ -2219,12 +2276,12 @@ export function StrategyStudioPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? 'AI 历史复盘提案' : 'AI Historical Review Proposal'}
+                        {language === 'zh' ? 'AI 复盘提案' : 'AI Review Proposal'}
                       </div>
                       <div className="mt-1 text-[11px] leading-relaxed text-nofx-text-muted">
                         {language === 'zh'
-                          ? '基于校准样本、已平仓模拟盘结果和当前策略参数生成提案；不会自动保存，也不会改变运行中的交易员。'
-                          : 'Uses calibration samples, linked paper outcomes, and current parameters. It will not save or change a running trader automatically.'}
+                          ? '调用 AI，基于样本统计、失败样本、已平仓模拟盘结果和当前策略参数生成优化提案；不会自动保存，也不会改变运行中的交易员。'
+                          : 'Calls AI to generate an improvement proposal from sample statistics, failure samples, linked paper outcomes, and current parameters. It will not save or change a running trader automatically.'}
                       </div>
                     </div>
                     <button
@@ -2325,7 +2382,7 @@ export function StrategyStudioPage() {
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Sparkles className="mb-2 h-10 w-10 opacity-30" />
                     <p className="text-sm">
-                      {language === 'zh' ? '生成当前策略的历史复盘提案' : 'Generate a historical review proposal for this strategy'}
+                      {language === 'zh' ? '生成当前策略的 AI 复盘提案' : 'Generate an AI review proposal for this strategy'}
                     </p>
                   </div>
                 )}

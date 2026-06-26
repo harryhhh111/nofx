@@ -1,6 +1,7 @@
 package kernel
 
 import (
+	"strings"
 	"testing"
 
 	"nofx/store"
@@ -104,5 +105,83 @@ func TestParseStrategyEvolutionResponseNormalizesStringItems(t *testing.T) {
 	}
 	if len(proposal.RecommendedChanges) != 1 || proposal.RecommendedChanges[0].Field != "strategy" || proposal.RecommendedChanges[0].Rationale == "" {
 		t.Fatalf("expected string recommended change to normalize, got %+v", proposal.RecommendedChanges)
+	}
+}
+
+func TestBuildStrategyEvolutionSystemPromptProtectsOpportunityFrequency(t *testing.T) {
+	prompt := buildStrategyEvolutionSystemPrompt("zh")
+	for _, expected := range []string{
+		"Do not materially reduce trading opportunity frequency",
+		"Do not \"optimize\" by blindly tightening",
+		"If a change may reduce trade frequency",
+		"Prefer targeted improvements that preserve useful opportunities",
+		"stop_loss_atr_buffer is an explicit ATR multiple",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected prompt to contain %q, got %s", expected, prompt)
+		}
+	}
+}
+
+func TestSummarizeEvolutionConfigNormalizesATRBuffer(t *testing.T) {
+	config := store.GetDefaultStrategyConfig("zh")
+	config.RiskControl.StopLossATRBuffer = 0
+
+	summary := summarizeEvolutionConfig(&config)
+	risk := summary.RiskControl
+	if risk["stop_loss_atr_buffer"] != store.DefaultStopLossATRBuffer {
+		t.Fatalf("expected normalized ATR buffer %.2f, got %#v", store.DefaultStopLossATRBuffer, risk["stop_loss_atr_buffer"])
+	}
+	if _, ok := risk["stop_loss_atr_buffer_configured"]; ok {
+		t.Fatalf("did not expect configured ATR buffer debug field, got %#v", risk["stop_loss_atr_buffer_configured"])
+	}
+	if _, ok := risk["stop_loss_atr_buffer_default_used"]; ok {
+		t.Fatalf("did not expect default-used debug field, got %#v", risk["stop_loss_atr_buffer_default_used"])
+	}
+}
+
+func TestSummarizeClosedTradeIncludesProtectiveAndExcursionEvidence(t *testing.T) {
+	pos := store.TraderPosition{
+		Symbol:                 "BTCUSDT",
+		Side:                   "LONG",
+		OpeningSetup:           "trend_pullback_long",
+		StrategyVersion:        "v1",
+		EntryTime:              1000,
+		ExitTime:               10*60*1000 + 1000,
+		EntryPrice:             100,
+		ExitPrice:              108,
+		RealizedPnL:            12.345,
+		Fee:                    0.125,
+		Leverage:               5,
+		CloseReason:            "take_profit",
+		StopLossSource:         "structure",
+		StopLossTimeframe:      "15m",
+		StopLossAnchor:         96,
+		TakeProfitSource:       "resistance",
+		TakeProfitTimeframe:    "15m",
+		TakeProfitAnchor:       110,
+		ProtectiveATRTimeframe: "15m",
+		ProtectiveATRBuffer:    2,
+		ProtectiveRiskReward:   2.5,
+		MaxFavorablePnL:        18.239,
+		MaxFavorablePnLPct:     7.824,
+		MaxFavorablePrice:      112,
+		MaxAdversePnL:          -4.225,
+		MaxAdversePnLPct:       -1.76,
+		MaxAdversePrice:        97,
+	}
+
+	got := summarizeClosedTrade(pos)
+	if got.HoldDurationMinutes != 10 {
+		t.Fatalf("expected hold duration 10, got %d", got.HoldDurationMinutes)
+	}
+	if got.StopLossSource != "structure" || got.StopLossAnchor != 96 || got.TakeProfitSource != "resistance" || got.TakeProfitAnchor != 110 {
+		t.Fatalf("expected protective level evidence, got %+v", got)
+	}
+	if got.MaxFavorablePnL != 18.24 || got.MaxFavorablePnLPct != 7.82 || got.MaxFavorablePrice != 112 {
+		t.Fatalf("expected favorable excursion evidence, got %+v", got)
+	}
+	if got.MaxAdversePnL != -4.22 || got.MaxAdversePnLPct != -1.76 || got.MaxAdversePrice != 97 {
+		t.Fatalf("expected adverse excursion evidence, got %+v", got)
 	}
 }

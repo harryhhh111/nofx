@@ -142,6 +142,14 @@ type TraderPosition struct {
 	ProtectiveATRTimeframe string  `gorm:"column:protective_atr_timeframe;default:''" json:"protective_atr_timeframe,omitempty"`
 	ProtectiveATRBuffer    float64 `gorm:"column:protective_atr_buffer;default:0" json:"protective_atr_buffer,omitempty"`
 	ProtectiveRiskReward   float64 `gorm:"column:protective_risk_reward;default:0" json:"protective_risk_reward,omitempty"`
+	MaxFavorablePnL        float64 `gorm:"column:max_favorable_pnl;default:0" json:"max_favorable_pnl,omitempty"`
+	MaxFavorablePnLPct     float64 `gorm:"column:max_favorable_pnl_pct;default:0" json:"max_favorable_pnl_pct,omitempty"`
+	MaxFavorablePrice      float64 `gorm:"column:max_favorable_price;default:0" json:"max_favorable_price,omitempty"`
+	MaxFavorableAt         int64   `gorm:"column:max_favorable_at;default:0" json:"max_favorable_at,omitempty"`
+	MaxAdversePnL          float64 `gorm:"column:max_adverse_pnl;default:0" json:"max_adverse_pnl,omitempty"`
+	MaxAdversePnLPct       float64 `gorm:"column:max_adverse_pnl_pct;default:0" json:"max_adverse_pnl_pct,omitempty"`
+	MaxAdversePrice        float64 `gorm:"column:max_adverse_price;default:0" json:"max_adverse_price,omitempty"`
+	MaxAdverseAt           int64   `gorm:"column:max_adverse_at;default:0" json:"max_adverse_at,omitempty"`
 	LastReviewSummary      string  `gorm:"column:last_review_summary;default:''" json:"last_review_summary"`
 	LastReviewCycle        int     `gorm:"column:last_review_cycle;default:0" json:"last_review_cycle"`
 	CreatedAt              int64   `gorm:"column:created_at" json:"created_at"` // Unix milliseconds UTC
@@ -214,6 +222,14 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr_timeframe TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr_buffer DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_risk_reward DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_pnl DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_pnl_pct DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_price DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_at BIGINT DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_adverse_pnl DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_adverse_pnl_pct DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_adverse_price DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_adverse_at BIGINT DEFAULT 0`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_opening_signal_id ON trader_positions(opening_signal_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_strategy_id ON trader_positions(strategy_id)`)
 			return nil
@@ -334,6 +350,44 @@ func (s *PositionStore) UpdatePositionProtectiveLevelMetadata(traderID, symbol, 
 		return fmt.Errorf("no matching OPEN position found for %s %s %s", traderID, symbol, side)
 	}
 	return nil
+}
+
+// UpdatePositionExcursion records the best and worst unrealized performance observed while a position is open.
+func (s *PositionStore) UpdatePositionExcursion(traderID, symbol, side string, markPrice, unrealizedPnL, unrealizedPnLPct float64, observedAtMs int64) error {
+	if observedAtMs <= 0 {
+		observedAtMs = time.Now().UTC().UnixMilli()
+	}
+
+	var pos TraderPosition
+	err := s.db.Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
+		Order("entry_time DESC").
+		First(&pos).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		return err
+	}
+
+	updates := map[string]interface{}{}
+	if pos.MaxFavorableAt == 0 || unrealizedPnL > pos.MaxFavorablePnL {
+		updates["max_favorable_pnl"] = unrealizedPnL
+		updates["max_favorable_pnl_pct"] = unrealizedPnLPct
+		updates["max_favorable_price"] = markPrice
+		updates["max_favorable_at"] = observedAtMs
+	}
+	if pos.MaxAdverseAt == 0 || unrealizedPnL < pos.MaxAdversePnL {
+		updates["max_adverse_pnl"] = unrealizedPnL
+		updates["max_adverse_pnl_pct"] = unrealizedPnLPct
+		updates["max_adverse_price"] = markPrice
+		updates["max_adverse_at"] = observedAtMs
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	updates["updated_at"] = time.Now().UTC().UnixMilli()
+
+	return s.db.Model(&TraderPosition{}).Where("id = ?", pos.ID).Updates(updates).Error
 }
 
 // UpdatePositionReviewSummary writes the AI's latest hold-decision snapshot to the position.

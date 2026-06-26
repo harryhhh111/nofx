@@ -179,8 +179,8 @@ func (c *StrategyConfig) ClampLimits() {
 	if c.RiskControl.MinRiskRewardRatio <= 0 {
 		c.RiskControl.MinRiskRewardRatio = DefaultMinRiskRewardRatio
 	}
-	if c.RiskControl.StopLossATRBuffer < 0 {
-		c.RiskControl.StopLossATRBuffer = 0
+	if c.RiskControl.StopLossATRBuffer <= 0 {
+		c.RiskControl.StopLossATRBuffer = DefaultStopLossATRBuffer
 	}
 	if c.RiskControl.StopLossATRBuffer > MaxStopLossATRBuffer {
 		c.RiskControl.StopLossATRBuffer = MaxStopLossATRBuffer
@@ -1178,7 +1178,7 @@ type RiskControlConfig struct {
 
 	// Stop loss ATR buffer multiplier.
 	// Long stops use support - ATR14 * this value; shorts use resistance + ATR14 * this value.
-	// 0 means the signal engine uses the product default.
+	// Missing or invalid values are normalized to DefaultStopLossATRBuffer.
 	StopLossATRBuffer float64 `json:"stop_loss_atr_buffer"`
 	// Stop loss timeframe selection. auto/primary use the setup timeframe first,
 	// entry uses the trigger timeframe first, and custom uses StopLossTimeframe first.
@@ -1227,22 +1227,22 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 		StrategyMode: "rule",
 		Language:     normalizedLang,
 		CoinSource: CoinSourceConfig{
-			SourceType:               "ai500",
-			UseAI500:                 true,
-			AI500Limit:               3,
-			UseOITop:                 false,
-			OITopLimit:               3,
-			UseOILow:                 false,
-			OILowLimit:               3,
-			UseHyperAll:              false,
-			UseHyperMain:             false,
-			HyperMainLimit:           20,
-			UseSmallMarketValue:      false,
-			SmallMarketValueLimit:    DefaultSmallMarketValueLimit,
-			SmallMarketValueSortBy:   "market_cap",
-			Min24hQuoteVolumeUSD:     DefaultSmallMarketValueMinVolume,
-			MinOpenInterestUSD:       DefaultSmallMarketValueMinOI,
-			MinDepthUSD:              DefaultSmallMarketValueMinDepth,
+			SourceType:             "ai500",
+			UseAI500:               true,
+			AI500Limit:             3,
+			UseOITop:               false,
+			OITopLimit:             3,
+			UseOILow:               false,
+			OILowLimit:             3,
+			UseHyperAll:            false,
+			UseHyperMain:           false,
+			HyperMainLimit:         20,
+			UseSmallMarketValue:    false,
+			SmallMarketValueLimit:  DefaultSmallMarketValueLimit,
+			SmallMarketValueSortBy: "market_cap",
+			Min24hQuoteVolumeUSD:   DefaultSmallMarketValueMinVolume,
+			MinOpenInterestUSD:     DefaultSmallMarketValueMinOI,
+			MinDepthUSD:            DefaultSmallMarketValueMinDepth,
 		},
 		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{

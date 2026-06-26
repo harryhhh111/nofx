@@ -2,6 +2,8 @@ import { Shield, AlertTriangle, TrendingDown } from 'lucide-react'
 import type { RiskControlConfig } from '../../types'
 import { riskControl, ts } from '../../i18n/strategy-translations'
 
+const DEFAULT_STOP_LOSS_ATR_BUFFER = 2
+
 interface RiskControlEditorProps {
   config: RiskControlConfig
   onChange: (config: RiskControlConfig) => void
@@ -17,8 +19,11 @@ export function RiskControlEditor({
   language,
   availableTimeframes = [],
 }: RiskControlEditorProps) {
-  const stopLossATRBuffer = Number(config.stop_loss_atr_buffer ?? 0)
-  const stopLossATRBufferIsAuto = !Number.isFinite(stopLossATRBuffer) || stopLossATRBuffer <= 0
+  const rawStopLossATRBuffer = Number(config.stop_loss_atr_buffer ?? DEFAULT_STOP_LOSS_ATR_BUFFER)
+  const stopLossATRBuffer =
+    Number.isFinite(rawStopLossATRBuffer) && rawStopLossATRBuffer > 0
+      ? rawStopLossATRBuffer
+      : DEFAULT_STOP_LOSS_ATR_BUFFER
   const stopLossTimeframeMode = config.stop_loss_timeframe_mode ?? 'auto'
   const stopLossTimeframeOptions = Array.from(
     new Set(availableTimeframes.map((tf) => tf.trim()).filter(Boolean))
@@ -436,16 +441,22 @@ export function RiskControlEditor({
         </div>
         <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
           {language === 'zh'
-            ? '止损价与支撑/阻力位之间的缓冲空间（ATR14倍数），防止正常波动假突破扫掉止损。0 = 使用系统默认 2.0'
-            : 'Buffer between stop-loss and support/resistance level (ATR14 multiplier), prevents false breakout sweeps. 0 = product default 2.0'}
+            ? '止损价与支撑/阻力位之间的缓冲空间（ATR14倍数），防止正常波动假突破扫掉止损。默认 2.0。'
+            : 'Buffer between stop-loss and support/resistance level (ATR14 multiplier), preventing normal volatility from sweeping stops. Default: 2.0.'}
         </p>
         <div className="flex items-center gap-3">
           <input
             type="number"
-            value={stopLossATRBufferIsAuto ? 0 : stopLossATRBuffer}
-            onChange={(e) => updateField('stop_loss_atr_buffer', parseFloat(e.target.value) || 0)}
+            value={stopLossATRBuffer}
+            onChange={(e) => {
+              const value = parseFloat(e.target.value)
+              updateField(
+                'stop_loss_atr_buffer',
+                Number.isFinite(value) && value > 0 ? value : DEFAULT_STOP_LOSS_ATR_BUFFER
+              )
+            }}
             disabled={disabled}
-            min={0}
+            min={0.1}
             max={3}
             step={0.1}
             className="w-24 px-3 py-2 rounded text-center"
@@ -454,10 +465,10 @@ export function RiskControlEditor({
           <span className="text-sm" style={{ color: '#848E9C' }}>
             × ATR14
           </span>
-          <span className="text-xs ml-2" style={{ color: stopLossATRBufferIsAuto ? '#F0B90B' : '#5E6673' }}>
-            {stopLossATRBufferIsAuto
-              ? (language === 'zh' ? '自动：风险网关按默认 2.0 × ATR14 校验' : 'Auto: risk gate uses default 2.0 × ATR14')
-              : (language === 'zh' ? '自定义 ATR 缓冲' : 'Custom ATR buffer')}
+          <span className="text-xs ml-2" style={{ color: '#5E6673' }}>
+            {language === 'zh'
+              ? `当前：${stopLossATRBuffer.toFixed(1)} × ATR14 缓冲`
+              : `Current: ${stopLossATRBuffer.toFixed(1)} × ATR14 buffer`}
           </span>
         </div>
         <div className="mt-5">

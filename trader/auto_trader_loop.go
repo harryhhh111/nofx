@@ -523,6 +523,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 		// Calculate P&L percentage (based on margin, considering leverage)
 		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
+		at.recordPositionExcursion(symbol, side, markPrice, unrealizedPnl, pnlPct)
 
 		// Get position open time from exchange (preferred) or fallback to local tracking
 		posKey := symbol + "_" + side

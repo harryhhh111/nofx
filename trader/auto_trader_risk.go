@@ -95,6 +95,15 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		} else {
 			currentPnLPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
 		}
+		unrealizedPnl := 0.0
+		if v, ok := pos["unRealizedProfit"].(float64); ok {
+			unrealizedPnl = v
+		} else if side == "long" {
+			unrealizedPnl = (markPrice - entryPrice) * quantity
+		} else {
+			unrealizedPnl = (entryPrice - markPrice) * quantity
+		}
+		at.recordPositionExcursion(symbol, side, markPrice, unrealizedPnl, currentPnLPct)
 
 		// Construct unique position identifier (distinguish long/short)
 		posKey := symbol + "_" + side
@@ -172,6 +181,28 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			logger.Infof("📊 Drawdown monitoring: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 		}
+	}
+}
+
+func (at *AutoTrader) recordPositionExcursion(symbol, side string, markPrice, unrealizedPnL, unrealizedPnLPct float64) {
+	if at == nil || at.store == nil {
+		return
+	}
+	normalizedSymbol := market.Normalize(symbol)
+	normalizedSide := strings.ToUpper(side)
+	if normalizedSymbol == "" || normalizedSide == "" {
+		return
+	}
+	if err := at.store.Position().UpdatePositionExcursion(
+		at.id,
+		normalizedSymbol,
+		normalizedSide,
+		markPrice,
+		unrealizedPnL,
+		unrealizedPnLPct,
+		time.Now().UTC().UnixMilli(),
+	); err != nil {
+		logger.Warnf("Update position excursion failed trader=%s symbol=%s side=%s: %v", at.id, normalizedSymbol, normalizedSide, err)
 	}
 }
 

@@ -463,7 +463,7 @@ export interface RiskControlConfig {
   min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
   min_confidence: number;          // Min AI confidence to open position (AI guided)
   min_close_confidence: number;    // Min AI confidence to proactively close early (AI guided)
-  stop_loss_atr_buffer?: number;   // Stop loss ATR buffer multiplier (0 = use product default)
+  stop_loss_atr_buffer?: number;   // Stop loss ATR buffer multiplier (default: 2)
   stop_loss_timeframe_mode?: 'auto' | 'primary' | 'entry' | 'custom';
   stop_loss_timeframe?: string;
 
