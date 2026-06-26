@@ -85,3 +85,24 @@ func TestParseStrategyEvolutionResponseRequiresSummary(t *testing.T) {
 		t.Fatal("expected missing summary to fail")
 	}
 }
+
+func TestParseStrategyEvolutionResponseNormalizesStringItems(t *testing.T) {
+	proposal, err := parseStrategyEvolutionResponse(`{
+		"summary": "证据有限，建议先小幅优化。",
+		"evidence_quality": "limited",
+		"data_used": {"samples": 12, "closed_trades": 1, "setups": 3},
+		"diagnosis": ["样本不足，不能大幅调参"],
+		"recommended_changes": ["保持风险参数，仅调整评分阈值"],
+		"config_patch": {},
+		"requires_paper_validation": true
+	}`)
+	if err != nil {
+		t.Fatalf("parseStrategyEvolutionResponse returned error: %v", err)
+	}
+	if len(proposal.Diagnosis) != 1 || proposal.Diagnosis[0].Area != "general" || proposal.Diagnosis[0].Finding == "" {
+		t.Fatalf("expected string diagnosis to normalize, got %+v", proposal.Diagnosis)
+	}
+	if len(proposal.RecommendedChanges) != 1 || proposal.RecommendedChanges[0].Field != "strategy" || proposal.RecommendedChanges[0].Rationale == "" {
+		t.Fatalf("expected string recommended change to normalize, got %+v", proposal.RecommendedChanges)
+	}
+}

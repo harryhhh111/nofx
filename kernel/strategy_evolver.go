@@ -118,11 +118,49 @@ type StrategyEvolutionDiagnosis struct {
 	Evidence string `json:"evidence"`
 }
 
+func (d *StrategyEvolutionDiagnosis) UnmarshalJSON(data []byte) error {
+	type diagnosis StrategyEvolutionDiagnosis
+	var item diagnosis
+	if err := json.Unmarshal(data, &item); err == nil {
+		*d = StrategyEvolutionDiagnosis(item)
+		return nil
+	}
+
+	var finding string
+	if err := json.Unmarshal(data, &finding); err != nil {
+		return err
+	}
+	*d = StrategyEvolutionDiagnosis{
+		Area:    "general",
+		Finding: strings.TrimSpace(finding),
+	}
+	return nil
+}
+
 type StrategyEvolutionChange struct {
 	Field     string `json:"field"`
 	From      string `json:"from"`
 	To        string `json:"to"`
 	Rationale string `json:"rationale"`
+}
+
+func (c *StrategyEvolutionChange) UnmarshalJSON(data []byte) error {
+	type change StrategyEvolutionChange
+	var item change
+	if err := json.Unmarshal(data, &item); err == nil {
+		*c = StrategyEvolutionChange(item)
+		return nil
+	}
+
+	var rationale string
+	if err := json.Unmarshal(data, &rationale); err != nil {
+		return err
+	}
+	*c = StrategyEvolutionChange{
+		Field:     "strategy",
+		Rationale: strings.TrimSpace(rationale),
+	}
+	return nil
 }
 
 type StrategyEvolutionConfigPatch struct {
@@ -344,8 +382,8 @@ func buildStrategyEvolutionUserPrompt(evidence StrategyEvolutionEvidence, trigge
 			"summary":                   "short user-facing summary",
 			"evidence_quality":          "sufficient|limited|insufficient",
 			"data_used":                 map[string]string{"samples": "int", "closed_trades": "int", "setups": "int"},
-			"diagnosis":                 []string{"area/finding/evidence objects"},
-			"recommended_changes":       []string{"field/from/to/rationale objects"},
+			"diagnosis":                 []map[string]string{{"area": "string", "finding": "string", "evidence": "string"}},
+			"recommended_changes":       []map[string]string{{"field": "string", "from": "string", "to": "string", "rationale": "string"}},
 			"config_patch":              "allowed fields only; omit fields that should not change",
 			"warnings":                  []string{"short warnings"},
 			"requires_paper_validation": true,
@@ -370,9 +408,9 @@ func strategyEvolutionResponseFormat() map[string]any {
 				"properties": map[string]any{
 					"summary":                   map[string]any{"type": "string"},
 					"evidence_quality":          map[string]any{"type": "string", "enum": []string{"sufficient", "limited", "insufficient"}},
-					"data_used":                 map[string]any{"type": "object"},
-					"diagnosis":                 map[string]any{"type": "array"},
-					"recommended_changes":       map[string]any{"type": "array"},
+					"data_used":                 strategyEvolutionDataUsedSchema(),
+					"diagnosis":                 map[string]any{"type": "array", "items": strategyEvolutionDiagnosisSchema()},
+					"recommended_changes":       map[string]any{"type": "array", "items": strategyEvolutionChangeSchema()},
 					"config_patch":              map[string]any{"type": "object"},
 					"warnings":                  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 					"requires_paper_validation": map[string]any{"type": "boolean"},
@@ -380,6 +418,46 @@ func strategyEvolutionResponseFormat() map[string]any {
 				"required": []string{"summary", "evidence_quality", "data_used", "diagnosis", "recommended_changes", "config_patch", "requires_paper_validation"},
 			},
 		},
+	}
+}
+
+func strategyEvolutionDataUsedSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"samples":       map[string]any{"type": "integer"},
+			"closed_trades": map[string]any{"type": "integer"},
+			"setups":        map[string]any{"type": "integer"},
+		},
+		"required": []string{"samples", "closed_trades", "setups"},
+	}
+}
+
+func strategyEvolutionDiagnosisSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"area":     map[string]any{"type": "string"},
+			"finding":  map[string]any{"type": "string"},
+			"evidence": map[string]any{"type": "string"},
+		},
+		"required": []string{"area", "finding", "evidence"},
+	}
+}
+
+func strategyEvolutionChangeSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"properties": map[string]any{
+			"field":     map[string]any{"type": "string"},
+			"from":      map[string]any{"type": "string"},
+			"to":        map[string]any{"type": "string"},
+			"rationale": map[string]any{"type": "string"},
+		},
+		"required": []string{"field", "from", "to", "rationale"},
 	}
 }
 
