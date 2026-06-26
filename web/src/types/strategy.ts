@@ -321,7 +321,7 @@ export interface GridStrategyConfig {
 }
 
 export interface CoinSourceConfig {
-  source_type: 'static' | 'ai500' | 'oi_top' | 'oi_low' | 'mixed';
+  source_type: 'static' | 'ai500' | 'oi_top' | 'oi_low' | 'hyper_all' | 'hyper_main' | 'small_market_value' | 'mixed';
   static_coins?: string[];
   excluded_coins?: string[];   // 排除的币种列表
   use_ai500: boolean;
@@ -330,6 +330,15 @@ export interface CoinSourceConfig {
   oi_top_limit?: number;
   use_oi_low: boolean;
   oi_low_limit?: number;
+  use_hyper_all?: boolean;
+  use_hyper_main?: boolean;
+  hyper_main_limit?: number;
+  use_small_market_value?: boolean;
+  small_market_value_limit?: number;
+  small_market_value_sort_by?: 'market_cap' | 'fdv';
+  min_24h_quote_volume_usd?: number;
+  min_open_interest_usd?: number;
+  min_depth_usd?: number;
   // Note: AI500/NofxOS data is billed through the configured Claw402 wallet.
 }
 

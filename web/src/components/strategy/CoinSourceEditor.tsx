@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, X, Database, TrendingUp, TrendingDown, List, Ban, Zap, Shuffle } from 'lucide-react'
+import { Plus, X, Database, TrendingUp, TrendingDown, List, Ban, Zap, Shuffle, Gem } from 'lucide-react'
 import type { CoinSourceConfig } from '../../types'
 import { coinSource, ts } from '../../i18n/strategy-translations'
 import { NofxSelect } from '../ui/select'
@@ -25,6 +25,7 @@ export function CoinSourceEditor({
     { value: 'ai500', icon: Database, color: '#F0B90B' },
     { value: 'oi_top', icon: TrendingUp, color: '#0ECB81' },
     { value: 'oi_low', icon: TrendingDown, color: '#F6465D' },
+    { value: 'small_market_value', icon: Gem, color: '#22C55E' },
   ] as const
 
   // Calculate mixed mode summary
@@ -43,6 +44,10 @@ export function CoinSourceEditor({
     if (config.use_oi_low) {
       sources.push(`${ts(coinSource.oiDecreaseShort, language)}(${config.oi_low_limit || 3})`)
       totalLimit += config.oi_low_limit || 3
+    }
+    if (config.use_small_market_value) {
+      sources.push(`${ts(coinSource.smallMarketValueShort, language)}(${config.small_market_value_limit || 3})`)
+      totalLimit += config.small_market_value_limit || 3
     }
     if ((config.static_coins || []).length > 0) {
       sources.push(`${ts(coinSource.custom, language)}(${config.static_coins?.length || 0})`)
@@ -108,6 +113,14 @@ export function CoinSourceEditor({
       use_ai500: sourceType === 'ai500',
       use_oi_top: sourceType === 'oi_top',
       use_oi_low: sourceType === 'oi_low',
+      use_hyper_all: sourceType === 'hyper_all',
+      use_hyper_main: sourceType === 'hyper_main',
+      use_small_market_value: sourceType === 'small_market_value',
+      small_market_value_limit: config.small_market_value_limit || 3,
+      small_market_value_sort_by: config.small_market_value_sort_by || 'market_cap',
+      min_24h_quote_volume_usd: config.min_24h_quote_volume_usd || 5000000,
+      min_open_interest_usd: config.min_open_interest_usd || 1000000,
+      min_depth_usd: config.min_depth_usd || 100000,
     }
   }
 
@@ -190,7 +203,7 @@ export function CoinSourceEditor({
         <label className="block text-sm font-medium mb-3 text-nofx-text">
           {ts(coinSource.sourceType, language)}
         </label>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
           {sourceTypes.map(({ value, icon: Icon, color }) => (
             <button
               key={value}
@@ -478,6 +491,138 @@ export function CoinSourceEditor({
         </div>
       )}
 
+      {/* Small Market Value Options - only for small_market_value mode */}
+      {config.source_type === 'small_market_value' && (
+        <div className="p-4 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Gem className="w-4 h-4 text-emerald-400" />
+              <span className="text-sm font-medium text-nofx-text">
+                {ts(coinSource.small_market_value, language)} {ts(coinSource.dataSourceConfig, language)}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!config.use_small_market_value}
+                onChange={(e) =>
+                  !disabled && onChange({ ...config, use_small_market_value: e.target.checked })
+                }
+                disabled={disabled}
+                className="w-5 h-5 rounded accent-emerald-500"
+              />
+              <span className="text-nofx-text">{ts(coinSource.useSmallMarketValue, language)}</span>
+            </label>
+
+            {config.use_small_market_value && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-8">
+                <label className="space-y-1">
+                  <span className="block text-sm text-nofx-text-muted">
+                    {ts(coinSource.smallMarketValueLimit, language)}
+                  </span>
+                  <NofxSelect
+                    value={config.small_market_value_limit || 3}
+                    onChange={(val) =>
+                      !disabled &&
+                      onChange({ ...config, small_market_value_limit: parseInt(val) || 3 })
+                    }
+                    disabled={disabled}
+                    options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({ value: n, label: String(n) }))}
+                    className="w-full px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-sm text-nofx-text-muted">
+                    {ts(coinSource.smallMarketValueSortBy, language)}
+                  </span>
+                  <NofxSelect
+                    value={config.small_market_value_sort_by || 'market_cap'}
+                    onChange={(val) =>
+                      !disabled &&
+                      onChange({
+                        ...config,
+                        small_market_value_sort_by: val === 'fdv' ? 'fdv' : 'market_cap',
+                      })
+                    }
+                    disabled={disabled}
+                    options={[
+                      { value: 'market_cap', label: ts(coinSource.marketCap, language) },
+                      { value: 'fdv', label: ts(coinSource.fdv, language) },
+                    ]}
+                    className="w-full px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-sm text-nofx-text-muted">
+                    {ts(coinSource.min24hVolume, language)}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={100000}
+                    value={config.min_24h_quote_volume_usd ?? 5000000}
+                    onChange={(e) =>
+                      !disabled &&
+                      onChange({ ...config, min_24h_quote_volume_usd: parseFloat(e.target.value) || 0 })
+                    }
+                    disabled={disabled}
+                    className="w-full px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-sm text-nofx-text-muted">
+                    {ts(coinSource.minOpenInterest, language)}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={100000}
+                    value={config.min_open_interest_usd ?? 1000000}
+                    onChange={(e) =>
+                      !disabled &&
+                      onChange({ ...config, min_open_interest_usd: parseFloat(e.target.value) || 0 })
+                    }
+                    disabled={disabled}
+                    className="w-full px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  />
+                </label>
+
+                <label className="space-y-1 md:col-span-2">
+                  <span className="block text-sm text-nofx-text-muted">
+                    {ts(coinSource.minDepth, language)}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={10000}
+                    value={config.min_depth_usd ?? 100000}
+                    onChange={(e) =>
+                      !disabled &&
+                      onChange({ ...config, min_depth_usd: parseFloat(e.target.value) || 0 })
+                    }
+                    disabled={disabled}
+                    className="w-full px-3 py-1.5 rounded bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  />
+                  <span className="block text-xs text-nofx-text-muted">
+                    {ts(coinSource.smallMarketValueDepthNote, language)}
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <p className="text-xs pl-8 text-nofx-text-muted">
+              {ts(coinSource.smallMarketValueNote, language)}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Mixed Mode - Unified Card Selector */}
       {config.source_type === 'mixed' && (
         <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/20">
@@ -488,7 +633,7 @@ export function CoinSourceEditor({
             </span>
           </div>
 
-          {/* 4 Source Cards in 2x2 Grid */}
+          {/* Source Cards */}
           <div className="grid grid-cols-2 gap-3 mb-4">
             {/* AI500 Card */}
             <div
@@ -600,6 +745,64 @@ export function CoinSourceEditor({
                     onChange={(val) => !disabled && onChange({ ...config, oi_low_limit: parseInt(val) || 3 })}
                     disabled={disabled}
                     options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({ value: n, label: String(n) }))}
+                    className="px-2 py-1 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Small Market Value Card */}
+            <div
+              className={`p-3 rounded-lg border transition-all cursor-pointer ${
+                config.use_small_market_value
+                  ? 'bg-emerald-500/10 border-emerald-500/50'
+                  : 'bg-nofx-bg border-nofx-border hover:border-emerald-500/30'
+              }`}
+              onClick={() => !disabled && onChange({ ...config, use_small_market_value: !config.use_small_market_value })}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  type="checkbox"
+                  checked={!!config.use_small_market_value}
+                  onChange={(e) => !disabled && onChange({ ...config, use_small_market_value: e.target.checked })}
+                  disabled={disabled}
+                  className="w-4 h-4 rounded accent-emerald-500"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <Gem className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-medium text-nofx-text">
+                  {ts(coinSource.smallMarketValueShort, language)}
+                </span>
+              </div>
+              <p className="text-xs text-nofx-text-muted pl-6 mb-1">
+                {ts(coinSource.small_market_valueDesc, language)}
+              </p>
+              {config.use_small_market_value && (
+                <div className="space-y-2 mt-2 pl-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-nofx-text-muted">Limit:</span>
+                    <NofxSelect
+                      value={config.small_market_value_limit || 3}
+                      onChange={(val) => !disabled && onChange({ ...config, small_market_value_limit: parseInt(val) || 3 })}
+                      disabled={disabled}
+                      options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({ value: n, label: String(n) }))}
+                      className="px-2 py-1 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
+                    />
+                  </div>
+                  <NofxSelect
+                    value={config.small_market_value_sort_by || 'market_cap'}
+                    onChange={(val) =>
+                      !disabled &&
+                      onChange({
+                        ...config,
+                        small_market_value_sort_by: val === 'fdv' ? 'fdv' : 'market_cap',
+                      })
+                    }
+                    disabled={disabled}
+                    options={[
+                      { value: 'market_cap', label: ts(coinSource.marketCap, language) },
+                      { value: 'fdv', label: ts(coinSource.fdv, language) },
+                    ]}
                     className="px-2 py-1 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
                   />
                 </div>
