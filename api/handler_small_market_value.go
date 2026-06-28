@@ -23,7 +23,7 @@ func (s *Server) handleSmallMarketValueCoins(c *gin.Context) {
 	req := parseSmallMarketValueRequest(c)
 
 	if s.smallcapProvider == nil {
-		s.smallcapProvider = initSmallMarketValueProvider()
+		s.smallcapProvider = smallcap.SharedProvider()
 	}
 
 	data, err := s.smallcapProvider.GetSmallMarketValueRanking(c.Request.Context(), req)
