@@ -2,9 +2,11 @@ package smallcap
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -140,6 +142,61 @@ func TestCoinGeckoProviderMarksOIAvailableFalseWhenAllFail(t *testing.T) {
 	// coins are still returned.
 	if len(data.Coins) != 1 {
 		t.Fatalf("expected 1 coin despite OI failure, got %d", len(data.Coins))
+	}
+}
+
+func TestCoinGeckoProviderStopsPagingWhenOIUnavailable(t *testing.T) {
+	var pageRequests atomic.Int32
+	geckoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pageRequests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("["))
+		for i := 0; i < defaultCoinGeckoFetchSize; i++ {
+			if i > 0 {
+				w.Write([]byte(","))
+			}
+			fmt.Fprintf(w, `{"id":"coin%d","symbol":"coin%d","name":"Coin %d","current_price":1,"market_cap":%d,"total_volume":800000000}`,
+				i, i, i, 1_000_000+i)
+		}
+		w.Write([]byte("]"))
+	}))
+	defer geckoServer.Close()
+
+	binanceServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "exchangeInfo") {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"symbols":[`))
+			for i := 0; i < defaultCoinGeckoFetchSize; i++ {
+				if i > 0 {
+					w.Write([]byte(","))
+				}
+				fmt.Fprintf(w, `{"symbol":"COIN%dUSDT","status":"TRADING","contractType":"PERPETUAL"}`, i)
+			}
+			w.Write([]byte(`]}`))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer binanceServer.Close()
+
+	p := newTestCoinGeckoProvider(geckoServer.URL, binanceServer.URL)
+	data, err := p.GetSmallMarketValueRanking(context.Background(), SmallMarketValueRequest{
+		Limit:                2,
+		Min24hQuoteVolumeUSD: 100_000,
+		MinOpenInterestUSD:   1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if data.OIAvailable {
+		t.Fatal("expected OIAvailable=false when all OI calls fail")
+	}
+	if len(data.Coins) != 2 {
+		t.Fatalf("expected 2 coins after OI fallback, got %d", len(data.Coins))
+	}
+	if got := pageRequests.Load(); got != 1 {
+		t.Fatalf("expected CoinGecko pagination to stop after first page, got %d page requests", got)
 	}
 }
 

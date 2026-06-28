@@ -2,7 +2,6 @@ package api
 
 import (
 	"net/http"
-	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -24,7 +23,7 @@ func (s *Server) handleSmallMarketValueCoins(c *gin.Context) {
 	req := parseSmallMarketValueRequest(c)
 
 	if s.smallcapProvider == nil {
-		s.smallcapProvider = smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY"))
+		s.smallcapProvider = initSmallMarketValueProvider()
 	}
 
 	data, err := s.smallcapProvider.GetSmallMarketValueRanking(c.Request.Context(), req)

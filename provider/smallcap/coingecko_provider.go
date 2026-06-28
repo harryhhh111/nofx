@@ -27,8 +27,8 @@ var (
 // CoinGeckoProvider builds Small Market Value rankings from CoinGecko market data
 // with Binance futures tradability validation and optional open-interest enrichment.
 type CoinGeckoProvider struct {
-	client    *coingecko.Client
-	ttl       time.Duration
+	client *coingecko.Client
+	ttl    time.Duration
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
@@ -114,6 +114,9 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 		attempts, successes := p.enrichOpenInterest(ctx, raw)
 		oiAttemptCount += attempts
 		oiSuccessCount += successes
+		if attempts > 0 && successes == 0 && oiSuccessCount == 0 {
+			filterReq.MinOpenInterestUSD = 0
+		}
 
 		for _, c := range raw {
 			allCoins = append(allCoins, *c)
@@ -183,8 +186,8 @@ func (p *CoinGeckoProvider) getBinanceSymbols(ctx context.Context) (map[string]s
 
 	var payload struct {
 		Symbols []struct {
-			Symbol     string `json:"symbol"`
-			Status     string `json:"status"`
+			Symbol       string `json:"symbol"`
+			Status       string `json:"status"`
 			ContractType string `json:"contractType"`
 		} `json:"symbols"`
 	}
