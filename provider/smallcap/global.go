@@ -18,7 +18,9 @@ var (
 // the free CoinGecko + Binance OI provider is used.
 func SharedProvider() SmallMarketValueProvider {
 	sharedProviderOnce.Do(func() {
-		sharedProvider = initSharedProvider()
+		if sharedProvider == nil {
+			sharedProvider = initSharedProvider()
+		}
 	})
 	return sharedProvider
 }
@@ -33,4 +35,5 @@ func initSharedProvider() SmallMarketValueProvider {
 // SetSharedProvider overrides the shared provider. Useful for tests.
 func SetSharedProvider(p SmallMarketValueProvider) {
 	sharedProvider = p
+	sharedProviderOnce = sync.Once{}
 }
