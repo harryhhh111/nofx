@@ -456,7 +456,7 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 	return &StrategyEngine{
 		config:           config,
 		nofxosClient:     client,
-		smallcapProvider: smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY")),
+		smallcapProvider: smallcap.SharedProvider(),
 	}
 }
 

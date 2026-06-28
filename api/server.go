@@ -12,7 +12,6 @@ import (
 	"nofx/provider/nofxos"
 	"nofx/provider/smallcap"
 	"nofx/store"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -54,7 +53,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		cryptoHandler:             cryptoHandler,
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
 		nofxosClient:              initNofxosClient(),
-		smallcapProvider:          smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY")),
+		smallcapProvider:          smallcap.SharedProvider(),
 		port:                      port,
 	}
 
