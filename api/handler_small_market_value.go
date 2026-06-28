@@ -45,6 +45,7 @@ func (s *Server) handleSmallMarketValueCoins(c *gin.Context) {
 		"coins":           data.Coins,
 		"filter_stats":    data.FilterStats,
 		"depth_available": data.DepthAvailable,
+		"oi_available":    data.OIAvailable,
 		"fetched_at":      data.FetchedAt,
 	})
 }

@@ -54,7 +54,7 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 		cryptoHandler:             cryptoHandler,
 		exchangeAccountStateCache: NewExchangeAccountStateCache(),
 		nofxosClient:              initNofxosClient(),
-		smallcapProvider:          smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY")),
+		smallcapProvider:          initSmallMarketValueProvider(),
 		port:                      port,
 	}
 
@@ -62,6 +62,16 @@ func NewServer(traderManager *manager.TraderManager, st *store.Store, cryptoServ
 	s.setupRoutes()
 
 	return s
+}
+
+// initSmallMarketValueProvider selects the small market value provider.
+// CoinGecko (+ Binance OI) is the default free provider. CoinAnk is used when
+// COINANK_API_KEY is explicitly configured.
+func initSmallMarketValueProvider() smallcap.SmallMarketValueProvider {
+	if apiKey := os.Getenv("COINANK_API_KEY"); apiKey != "" {
+		return smallcap.NewCoinAnkProvider(apiKey)
+	}
+	return smallcap.NewCoinGeckoProvider()
 }
 
 // corsMiddleware CORS middleware

@@ -456,8 +456,18 @@ func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string)
 	return &StrategyEngine{
 		config:           config,
 		nofxosClient:     client,
-		smallcapProvider: smallcap.NewCoinAnkProvider(os.Getenv("COINANK_API_KEY")),
+		smallcapProvider: initSmallMarketValueProvider(),
 	}
+}
+
+// initSmallMarketValueProvider selects the small market value provider.
+// CoinGecko (+ Binance OI) is the default free provider. CoinAnk is used when
+// COINANK_API_KEY is explicitly configured.
+func initSmallMarketValueProvider() smallcap.SmallMarketValueProvider {
+	if apiKey := os.Getenv("COINANK_API_KEY"); apiKey != "" {
+		return smallcap.NewCoinAnkProvider(apiKey)
+	}
+	return smallcap.NewCoinGeckoProvider()
 }
 
 // SetSmallMarketValueProvider injects a custom provider for small market value coin selection.
