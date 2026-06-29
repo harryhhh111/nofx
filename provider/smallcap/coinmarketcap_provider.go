@@ -14,7 +14,12 @@ import (
 
 const (
 	defaultCMCFetchSize = 5000
-	maxCMCPages         = 4 // 4 x 5000 = 20000 coins
+	maxCMCPages         = 1 // one page = top 5000 coins; keeps credit usage bounded
+
+	// cmCacheTTL is how long CMC-derived ranking data is considered fresh.
+	// CMC Basic gives ~10k credits/month; at 25 credits per fetch this is
+	// ~4 fetches/day = 3000 credits/month, well under the cap.
+	cmcCacheTTL = 6 * time.Hour
 )
 
 // CoinMarketCapProvider builds Small Market Value rankings from CoinMarketCap
@@ -39,7 +44,7 @@ type CoinMarketCapProvider struct {
 func NewCoinMarketCapProvider(client *coinmarketcap.Client) *CoinMarketCapProvider {
 	return &CoinMarketCapProvider{
 		client: client,
-		ttl:    DefaultSmallMarketValueCacheTTL,
+		ttl:    cmcCacheTTL,
 		cache:  make(map[string]cacheEntry),
 	}
 }
@@ -115,13 +120,104 @@ func (p *CoinMarketCapProvider) fetchRanking(ctx context.Context, req SmallMarke
 	filterReq.Limit = limit
 	filterReq.MinDepthUSD = 0
 
-	// Build a deduplicated universe keyed by Binance symbol. CMC can return
-	// multiple tokens with the same ticker; keep the one with the largest
-	// market cap so we don't accidentally select a worthless duplicate.
+	bestBySymbol, fetchedFromAPI, err := p.buildUniverse(ctx, binanceSymbols, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	if fetchedFromAPI {
+		records := make([]store.CoinSupply, 0, len(bestBySymbol))
+		for _, coin := range bestBySymbol {
+			records = append(records, store.CoinSupply{
+				Symbol:            coin.Symbol,
+				CoingeckoID:       "",
+				Name:              "",
+				CirculatingSupply: coin.CirculatingSupply,
+				TotalSupply:       coin.TotalSupply,
+				MarketCapUSD:      coin.MarketCap,
+				Volume24hUSD:      coin.Volume24hUSD,
+				LastUpdatedAt:     time.Now().UTC(),
+				Source:            "coinmarketcap",
+			})
+		}
+		if len(records) > 0 && p.supplyStore != nil {
+			if upsertErr := p.supplyStore.Upsert(records); upsertErr != nil {
+				logger.Warnf("CoinMarketCap provider upsert %d records failed: %v", len(records), upsertErr)
+			} else {
+				logger.Infof("CoinMarketCap provider upserted %d records", len(records))
+			}
+		}
+	}
+
+	raw := make([]*SmallMarketValueCoin, 0, len(bestBySymbol))
+	for _, c := range bestBySymbol {
+		raw = append(raw, &c)
+	}
+	attempts, successes := p.enrichOpenInterest(ctx, raw)
+	if attempts > 0 && successes == 0 {
+		filterReq.MinOpenInterestUSD = 0
+	}
+
+	allCoins := make([]SmallMarketValueCoin, len(raw))
+	for i, r := range raw {
+		allCoins[i] = *r
+	}
+
+	filtered := filterAndScore(allCoins, filterReq)
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	return &SmallMarketValueRankingData{
+		Coins:          filtered,
+		FilterStats:    computeFilterStats(allCoins, filtered),
+		DepthAvailable: false,
+		OIAvailable:    attempts == 0 || successes > 0,
+		FetchedAt:      time.Now().UTC(),
+	}, nil
+}
+
+// buildUniverse returns the set of Binance-tradable CMC coins. It prefers a
+// fresh DB cache so multiple instances/restarts share the same fetch schedule.
+// The second return value is true when data came from the CMC API rather than
+// the DB cache.
+func (p *CoinMarketCapProvider) buildUniverse(ctx context.Context, binanceSymbols map[string]struct{}, limit int) (map[string]SmallMarketValueCoin, bool, error) {
 	bestBySymbol := make(map[string]SmallMarketValueCoin)
 
-	var oiAttemptCount int
-	var oiSuccessCount int
+	// Prefer cached DB data when it is still fresh. This bounds CMC credit
+	// usage across restarts and multiple running instances.
+	if p.supplyStore != nil {
+		latest, dbErr := p.supplyStore.GetLatestUpdate("coinmarketcap")
+		if dbErr == nil && !latest.IsZero() && time.Since(latest) < p.ttl {
+			records, dbErr := p.supplyStore.GetBySource("coinmarketcap")
+			if dbErr == nil && len(records) > 0 {
+				logger.Infof("CoinMarketCap provider using %d cached DB records (updated %s ago)",
+					len(records), time.Since(latest).Round(time.Second))
+				for _, r := range records {
+					symbol := normalizeSymbol(r.Symbol, "")
+					if symbol == "" {
+						continue
+					}
+					if _, tradable := binanceSymbols[symbol]; !tradable {
+						continue
+					}
+					coin := SmallMarketValueCoin{
+						Symbol:            symbol,
+						Price:             r.MarketCapUSD / r.CirculatingSupply,
+						CirculatingSupply: r.CirculatingSupply,
+						TotalSupply:       r.TotalSupply,
+						MarketCap:         r.MarketCapUSD,
+						Volume24hUSD:      r.Volume24hUSD,
+					}
+					existing, ok := bestBySymbol[symbol]
+					if !ok || coin.MarketCap > existing.MarketCap {
+						bestBySymbol[symbol] = coin
+					}
+				}
+				return bestBySymbol, false, nil
+			}
+		}
+	}
 
 	for page := 1; page <= maxCMCPages; page++ {
 		data, err := p.client.ListingsLatest(ctx, coinmarketcap.ListingsLatestRequest{
@@ -130,7 +226,7 @@ func (p *CoinMarketCapProvider) fetchRanking(ctx context.Context, req SmallMarke
 			Convert: "USD",
 		})
 		if err != nil {
-			return nil, fmt.Errorf("fetch CoinMarketCap listings page %d: %w", page, err)
+			return nil, false, fmt.Errorf("fetch CoinMarketCap listings page %d: %w", page, err)
 		}
 		if len(data) == 0 {
 			break
@@ -167,52 +263,5 @@ func (p *CoinMarketCapProvider) fetchRanking(ctx context.Context, req SmallMarke
 		}
 	}
 
-	allCoins := make([]SmallMarketValueCoin, 0, len(bestBySymbol))
-	records := make([]store.CoinSupply, 0, len(bestBySymbol))
-	for _, coin := range bestBySymbol {
-		allCoins = append(allCoins, coin)
-		records = append(records, store.CoinSupply{
-			Symbol:            coin.Symbol,
-			CoingeckoID:       "",
-			Name:              "",
-			CirculatingSupply: coin.CirculatingSupply,
-			TotalSupply:       coin.TotalSupply,
-			MarketCapUSD:      coin.MarketCap,
-			Volume24hUSD:      coin.Volume24hUSD,
-			LastUpdatedAt:     time.Now().UTC(),
-			Source:            "coinmarketcap",
-		})
-	}
-
-	if len(records) > 0 && p.supplyStore != nil {
-		if upsertErr := p.supplyStore.Upsert(records); upsertErr != nil {
-			logger.Warnf("CoinMarketCap provider upsert %d records failed: %v", len(records), upsertErr)
-		} else {
-			logger.Infof("CoinMarketCap provider upserted %d records", len(records))
-		}
-	}
-
-	raw := make([]*SmallMarketValueCoin, len(allCoins))
-	for i := range allCoins {
-		raw[i] = &allCoins[i]
-	}
-	attempts, successes := p.enrichOpenInterest(ctx, raw)
-	oiAttemptCount += attempts
-	oiSuccessCount += successes
-	if attempts > 0 && successes == 0 && oiSuccessCount == 0 {
-		filterReq.MinOpenInterestUSD = 0
-	}
-
-	filtered := filterAndScore(allCoins, filterReq)
-	if len(filtered) > limit {
-		filtered = filtered[:limit]
-	}
-
-	return &SmallMarketValueRankingData{
-		Coins:          filtered,
-		FilterStats:    computeFilterStats(allCoins, filtered),
-		DepthAvailable: false,
-		OIAvailable:    oiAttemptCount == 0 || oiSuccessCount > 0,
-		FetchedAt:      time.Now().UTC(),
-	}, nil
+	return bestBySymbol, true, nil
 }

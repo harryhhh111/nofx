@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -99,4 +100,30 @@ func (s *CoinSupplyStore) Count() (int64, error) {
 	var count int64
 	err := s.db.Model(&CoinSupply{}).Count(&count).Error
 	return count, err
+}
+
+// GetLatestUpdate returns the most recent LastUpdatedAt for the given source.
+func (s *CoinSupplyStore) GetLatestUpdate(source string) (time.Time, error) {
+	var t sql.NullTime
+	err := s.db.Model(&CoinSupply{}).
+		Select("MAX(last_updated_at)").
+		Where("source = ?", source).
+		Scan(&t).Error
+	if err != nil {
+		return time.Time{}, err
+	}
+	if t.Valid {
+		return t.Time, nil
+	}
+	return time.Time{}, nil
+}
+
+// GetBySource returns all cached records for the given source.
+func (s *CoinSupplyStore) GetBySource(source string) ([]CoinSupply, error) {
+	var records []CoinSupply
+	err := s.db.Where("source = ?", source).Find(&records).Error
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
 }
