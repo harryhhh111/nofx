@@ -36,9 +36,11 @@ func scoringFromStrategyConfig(config *store.StrategyConfig) *ScoringStrategy {
 		return nil
 	}
 	scoring := config.ScoringConfig
-	version := ""
+	version := StrategyConfigFingerprint(config)
 	if len(config.CompiledRules) > 0 {
-		version = config.CompiledRules[0].Version
+		if version == "" {
+			version = config.CompiledRules[0].Version
+		}
 	}
 	timeframe := scoring.Timeframe
 	if config.Indicators.Klines.PrimaryTimeframe != "" {

@@ -96,7 +96,7 @@
 - `strategy_mode`: `rule` / `scoring` / `hybrid`。
 - `scoring_config`: `selected_factors`、`factor_weights`、阈值、执行参数。
 - `resolved_parameters.scoring`：记录最终生效评分参数。
-- `ScoreSignalEngine`：根据结构化因子打分并生成 `CandidateSignal`。
+- `SetupSignalEngine`：先消费结构化 setup，再把评分作为证据强弱和冲突过滤。
 - `CompositeSignalEngine`：合并 Rule Mode 和 Scoring Mode 的信号。
 - 编译器支持输出 `compiled_rules` 或 `scoring_config`。
 - scoring factor 已做白名单校验；未知 factor 或缺少正权重会直接报错。
@@ -268,7 +268,7 @@
 - 支持选择 AI 模型后调用 `/api/strategies/compile`。
 - 编译成功后写回当前编辑配置：`strategy_prompt`、`strategy_mode`、`compiled_rules`、`scoring_config`、`resolved_parameters`。
 - 编译失败时会在结构化页签展示后端返回的结构化错误。
-- 右侧新增 `结构化` 页签，展示规则数、策略模式、评分配置、规则摘要和原始结构。
+- 右侧新增 `结构化` 页签，展示规则数、策略模式、证据过滤、规则摘要和原始结构。
 - 保留原有 `preview-flow` 和 `test-run`，用于查看结构化流和真实 AI 审查结果。
 
 边界：

@@ -134,7 +134,7 @@ func (at *AutoTrader) runCycle() error {
 			Decisions           []kernel.Decision               `json:"decisions"`
 			Signals             []kernel.CandidateSignal        `json:"signals"`
 			SetupEvaluations    []kernel.SetupEvaluationTrace   `json:"setup_evaluations"`
-			ScoringEvaluations  []kernel.ScoringEvaluationTrace `json:"scoring_evaluations"`
+			EvidenceEvaluations []kernel.ScoringEvaluationTrace `json:"evidence_evaluations"`
 			RuleEvaluations     []kernel.RuleEvaluationTrace    `json:"rule_evaluations"`
 			Reviews             []kernel.AIReviewDecision       `json:"reviews,omitempty"`
 			Risk                *kernel.RiskGateResult          `json:"risk,omitempty"`
@@ -145,7 +145,7 @@ func (at *AutoTrader) runCycle() error {
 			Decisions:           aiDecision.Decisions,
 			Signals:             aiDecision.Signals,
 			SetupEvaluations:    aiDecision.SetupEvaluations,
-			ScoringEvaluations:  aiDecision.ScoringEvaluations,
+			EvidenceEvaluations: aiDecision.EvidenceEvaluations,
 			RuleEvaluations:     aiDecision.RuleEvaluations,
 			Reviews:             aiDecision.Reviews,
 			Risk:                aiDecision.Risk,

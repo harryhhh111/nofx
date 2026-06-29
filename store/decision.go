@@ -403,17 +403,17 @@ type decisionDigestJSON struct {
 }
 
 type decisionDigestSetupTrace struct {
-	Symbol        string                       `json:"symbol"`
-	Setup         string                       `json:"setup"`
-	Action        string                       `json:"action"`
-	Reason        string                       `json:"reason"`
-	Eligible      bool                         `json:"eligible"`
-	Primary       decisionDigestScoringTrace   `json:"primary"`
-	Entry         decisionDigestScoringTrace   `json:"entry"`
-	Confirmations []decisionDigestScoringTrace `json:"confirmations"`
+	Symbol        string                        `json:"symbol"`
+	Setup         string                        `json:"setup"`
+	Action        string                        `json:"action"`
+	Reason        string                        `json:"reason"`
+	Eligible      bool                          `json:"eligible"`
+	Primary       decisionDigestEvidenceTrace   `json:"primary"`
+	Entry         decisionDigestEvidenceTrace   `json:"entry"`
+	Confirmations []decisionDigestEvidenceTrace `json:"confirmations"`
 }
 
-type decisionDigestScoringTrace struct {
+type decisionDigestEvidenceTrace struct {
 	Timeframe string  `json:"timeframe"`
 	Score     float64 `json:"score"`
 	Eligible  bool    `json:"eligible"`
@@ -475,7 +475,7 @@ func buildDecisionDigestSymbolJudgement(trace decisionDigestSetupTrace, friendly
 	return fmt.Sprintf("%s %s（%s），%s", trace.Symbol, digestBias(trace), strings.Join(scores, "，"), reason)
 }
 
-func firstDigestConfirmationScore(confirmations []decisionDigestScoringTrace) string {
+func firstDigestConfirmationScore(confirmations []decisionDigestEvidenceTrace) string {
 	for _, item := range confirmations {
 		if item.Timeframe != "" && item.Eligible {
 			return fmt.Sprintf("%s %.1f", item.Timeframe, item.Score)

@@ -98,3 +98,56 @@ func TestSignalCalibrationReportIncludesClosedTradeOutcomes(t *testing.T) {
 		t.Fatalf("unexpected setup outcome stats: %+v", report.SetupStats)
 	}
 }
+
+func TestSignalCalibrationReportFiltersByStrategyVersion(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	st := NewSignalCalibrationStore(db)
+	if err := st.initTables(); err != nil {
+		t.Fatalf("init tables: %v", err)
+	}
+	if err := db.AutoMigrate(&TraderPosition{}); err != nil {
+		t.Fatalf("migrate positions: %v", err)
+	}
+	if err := st.CreateMany([]*SignalCalibrationSample{
+		{TraderID: "t1", StrategyID: "strategy-1", StrategyVersion: "v1", Symbol: "BTCUSDT", SampleKind: "setup", Setup: "trend_pullback_long", Eligible: true, RiskStatus: "approved"},
+		{TraderID: "t1", StrategyID: "strategy-1", StrategyVersion: "v2", Symbol: "ETHUSDT", SampleKind: "setup", Setup: "breakout_long", Eligible: false, RiskStatus: "no_signal"},
+	}); err != nil {
+		t.Fatalf("create samples: %v", err)
+	}
+	err = db.Create([]TraderPosition{
+		{TraderID: "t1", StrategyID: "strategy-1", StrategyVersion: "v1", Symbol: "BTCUSDT", Side: "LONG", Status: "CLOSED", OpeningSetup: "trend_pullback_long", EntryPrice: 100, EntryTime: 1, ExitPrice: 110, ExitTime: 2, RealizedPnL: 10},
+		{TraderID: "t1", StrategyID: "strategy-1", StrategyVersion: "v2", Symbol: "ETHUSDT", Side: "LONG", Status: "CLOSED", OpeningSetup: "breakout_long", EntryPrice: 100, EntryTime: 1, ExitPrice: 90, ExitTime: 2, RealizedPnL: -10},
+	}).Error
+	if err != nil {
+		t.Fatalf("create positions: %v", err)
+	}
+
+	report, err := st.BuildReportForVersion("strategy-1", "v2", 100)
+	if err != nil {
+		t.Fatalf("build version report: %v", err)
+	}
+	if report.StrategyVersion != "v2" || report.SampleCount != 1 || report.NoSignalCount != 1 || report.ApprovedCount != 0 {
+		t.Fatalf("unexpected version-scoped sample counts: %+v", report)
+	}
+	if report.ClosedTradeCount != 1 || report.TotalPnL != -10 {
+		t.Fatalf("unexpected version-scoped outcomes: %+v", report)
+	}
+
+	samples, err := st.RecentSamplesForVersion("strategy-1", "v2", 10)
+	if err != nil {
+		t.Fatalf("recent samples: %v", err)
+	}
+	if len(samples) != 1 || samples[0].StrategyVersion != "v2" {
+		t.Fatalf("unexpected recent samples: %+v", samples)
+	}
+	positions, err := st.RecentClosedPositionsForVersion("strategy-1", "v2", 10)
+	if err != nil {
+		t.Fatalf("recent closed positions: %v", err)
+	}
+	if len(positions) != 1 || positions[0].StrategyVersion != "v2" {
+		t.Fatalf("unexpected recent positions: %+v", positions)
+	}
+}

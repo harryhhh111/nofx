@@ -24,6 +24,22 @@ func TestClampLimitsNormalizesSingleCoinSourceFlags(t *testing.T) {
 	}
 }
 
+func TestClampLimitsEnsuresRealizedVolBaselinePeriod(t *testing.T) {
+	config := StrategyConfig{
+		StrategyMode: "scoring",
+		Indicators: IndicatorConfig{
+			RealizedVolPeriods: []int{20},
+		},
+	}
+
+	config.ClampLimits()
+
+	got := config.Indicators.RealizedVolPeriods
+	if len(got) != 2 || got[0] != 20 || got[1] != 60 {
+		t.Fatalf("expected realized vol periods [20 60], got %+v", got)
+	}
+}
+
 func TestClampLimitsPreservesMixedCoinSourceFlags(t *testing.T) {
 	config := StrategyConfig{
 		StrategyMode: "scoring",
@@ -286,6 +302,30 @@ func TestClampLimitsDefaultsStopLossATRBuffer(t *testing.T) {
 	if config.RiskControl.StopLossATRBuffer != DefaultStopLossATRBuffer {
 		t.Fatalf("expected negative stop loss ATR buffer to default to %.2f, got %.2f", DefaultStopLossATRBuffer, config.RiskControl.StopLossATRBuffer)
 	}
+}
+
+func TestClampLimitsForcesATR14ForProtectiveStops(t *testing.T) {
+	config := GetDefaultStrategyConfig("zh")
+	config.Indicators.EnableATR = false
+	config.Indicators.ATRPeriods = nil
+
+	config.ClampLimits()
+
+	if !config.Indicators.EnableATR {
+		t.Fatal("expected ATR to be forced on because protective stops require ATR14")
+	}
+	if !testContainsInt(config.Indicators.ATRPeriods, 14) {
+		t.Fatalf("expected ATR periods to include 14, got %v", config.Indicators.ATRPeriods)
+	}
+}
+
+func testContainsInt(values []int, target int) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestStrategyTemplatesKeepDistinctTradingProfiles(t *testing.T) {

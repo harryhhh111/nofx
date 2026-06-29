@@ -10,8 +10,8 @@ import (
 
 func TestMarketContextSeparatesDirectionFromVolatility(t *testing.T) {
 	snapshots := map[string]*market.FactorSnapshot{
-		"BTCUSDT": bearishContextSnapshot("BTCUSDT"),
-		"ETHUSDT": bearishContextSnapshot("ETHUSDT"),
+		"BTCUSDT": bearishContextSnapshotWithVol("BTCUSDT", 0.80, 0.35, 1.0),
+		"ETHUSDT": bearishContextSnapshotWithVol("ETHUSDT", 0.80, 0.35, 1.0),
 	}
 	ctx, err := NewDefaultMarketContextEngine().Build(context.Background(), MarketContextRequest{
 		FactorSnapshot: snapshots,
@@ -28,6 +28,43 @@ func TestMarketContextSeparatesDirectionFromVolatility(t *testing.T) {
 	}
 	if ctx.VolatilityRegime != "high_volatility" {
 		t.Fatalf("expected high volatility regime field, got %+v", ctx)
+	}
+}
+
+func TestMarketContextDoesNotTreatNormalPerBarVolAsHigh(t *testing.T) {
+	snapshots := map[string]*market.FactorSnapshot{
+		"BTCUSDT": bearishContextSnapshotWithVol("BTCUSDT", 0.05, 0.04, 0.12),
+		"ETHUSDT": bearishContextSnapshotWithVol("ETHUSDT", 0.05, 0.04, 0.12),
+	}
+	ctx, err := NewDefaultMarketContextEngine().Build(context.Background(), MarketContextRequest{
+		FactorSnapshot: snapshots,
+		Now:            time.Unix(1, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	if ctx.VolatilityRegime != "normal" {
+		t.Fatalf("expected normal volatility for 0.05%% per-bar RV, got %+v", ctx)
+	}
+	if ctx.MarketRegime == "high_volatility" {
+		t.Fatalf("normal per-bar RV should not dominate market regime, got %+v", ctx)
+	}
+}
+
+func TestMarketContextDetectsRelativeVolatilityExpansion(t *testing.T) {
+	snapshots := map[string]*market.FactorSnapshot{
+		"BTCUSDT": bearishContextSnapshotWithVol("BTCUSDT", 0.30, 0.12, 0.35),
+		"ETHUSDT": bearishContextSnapshotWithVol("ETHUSDT", 0.30, 0.12, 0.35),
+	}
+	ctx, err := NewDefaultMarketContextEngine().Build(context.Background(), MarketContextRequest{
+		FactorSnapshot: snapshots,
+		Now:            time.Unix(1, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+	if ctx.VolatilityRegime != "high_volatility" {
+		t.Fatalf("expected expanded realized volatility to be high, got %+v", ctx)
 	}
 }
 
@@ -86,6 +123,10 @@ func TestAssetTrendUsesDominantTimeframePrice(t *testing.T) {
 }
 
 func bearishContextSnapshot(symbol string) *market.FactorSnapshot {
+	return bearishContextSnapshotWithVol(symbol, 0.80, 0.35, 1.0)
+}
+
+func bearishContextSnapshotWithVol(symbol string, rv20, rv60, atr14 float64) *market.FactorSnapshot {
 	return &market.FactorSnapshot{
 		Symbol: symbol,
 		AsOf:   time.Unix(1, 0).UTC(),
@@ -101,7 +142,11 @@ func bearishContextSnapshot(symbol string) *market.FactorSnapshot {
 				{Name: "macd_histogram", Timeframe: "15m", Value: -1},
 			},
 			"realized_vol": {
-				{Name: "realized_vol", Timeframe: "15m", Period: 20, Value: 0.05},
+				{Name: "realized_vol", Timeframe: "15m", Period: 20, Value: rv20},
+				{Name: "realized_vol", Timeframe: "15m", Period: 60, Value: rv60},
+			},
+			"atr": {
+				{Name: "atr", Timeframe: "15m", Period: 14, Value: atr14},
 			},
 		},
 	}

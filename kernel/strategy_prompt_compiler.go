@@ -229,17 +229,17 @@ func buildStrategyCompilerSystemPrompt() string {
 - Do not calculate indicators.
 - Do not invent unavailable data sources.
 - Convert user intent into indicator/external_factor/structure/literal operands.
-- If the user only selects indicators/factors but gives no exact trigger conditions, output strategy_mode="scoring" and a complete scoring_config instead of rules.
+- If the user only selects indicators/factors but gives no exact trigger conditions, output strategy_mode="scoring" as the deterministic structure-setup mode and provide scoring_config only as evidence-filter settings.
 - If both exact rules and factor scoring are useful, output strategy_mode="hybrid".
 - Supported actions: open_long, open_short, close_long, close_short, wait.
 - Open actions must include leverage, position_size_usd, stop_loss_pct, take_profit_pct, confidence.
 - position_size_usd is a required minimum-order placeholder for schema compatibility. The program recalculates final notional size from account equity, configured risk per trade, and stop distance; do not invent position size.
 - Close and wait actions must include confidence.
-- For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution.
+- For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution. long_threshold and short_threshold are signed evidence safeguards required by the schema; do not describe them as the primary trade trigger.
 - factor_weights are proportions from 0 to 1 and should sum to about 1 across selected_factors. If the user gives percentages, convert them to proportions.
-- Scoring scores are signed from -100 to 100. long_threshold must be positive, short_threshold must be negative. Example: long_threshold=70, short_threshold=-70. Never output short_threshold as a positive magnitude.
+- Evidence scores are signed from -100 to 100. long_threshold must be positive, short_threshold must be negative. Example: long_threshold=60, short_threshold=-60. Never output short_threshold as a positive magnitude.
 - min_available_weight_ratio should normally be 0.5 or higher so scoring does not trade from one missing-heavy factor snapshot.
-- Supported scoring factors: trend, momentum, structure, derivatives.
+- Supported evidence factors: trend, momentum, structure, derivatives.
 - Supported indicator operands: %s.
 - If the prompt lacks required execution parameters, put a clear message in errors instead of guessing.
 - Fibonacci, support, and resistance are supported by the structure engine. Use structure operands or structure scoring; do not ask for manual anchors unless the user explicitly requires custom anchors.
@@ -458,11 +458,11 @@ func normalizeCompiledScoringConfig(result *StrategyCompileResult) {
 	scoring := result.ScoringConfig
 	if scoring.ShortThreshold > 0 && scoring.ShortThreshold <= 100 {
 		scoring.ShortThreshold = -scoring.ShortThreshold
-		result.Warnings = append(result.Warnings, "Normalized scoring_config.short_threshold from positive magnitude to negative signed score.")
+		result.Warnings = append(result.Warnings, "Normalized evidence short_threshold from positive magnitude to negative signed score.")
 	}
 	if scoring.LongThreshold < 0 && scoring.LongThreshold >= -100 {
 		scoring.LongThreshold = -scoring.LongThreshold
-		result.Warnings = append(result.Warnings, "Normalized scoring_config.long_threshold from negative value to positive signed score.")
+		result.Warnings = append(result.Warnings, "Normalized evidence long_threshold from negative value to positive signed score.")
 	}
 	normalizeCompiledFactorWeights(scoring)
 }

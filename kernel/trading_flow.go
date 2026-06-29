@@ -72,11 +72,12 @@ type SignalRequest struct {
 	Scoring        *ScoringStrategy      `json:"scoring,omitempty"`
 	PositionSizing *PositionSizingConfig `json:"position_sizing,omitempty"`
 	// ProtectiveATRBuffer controls stop-loss distance as ATR14 multiples.
-	// Strategy configs should provide the explicit default; the signal engine still guards legacy unset values.
-	ProtectiveATRBuffer  float64                           `json:"protective_atr_buffer,omitempty"`
-	ProtectiveTimeframes ProtectiveTimeframeConfig         `json:"protective_timeframes,omitempty"`
-	FactorSnapshot       map[string]*market.FactorSnapshot `json:"factor_snapshot"`
-	Now                  time.Time                         `json:"now"`
+	// Strategy configs should provide the explicit default; the signal engine still guards unset values.
+	ProtectiveATRBuffer  float64                              `json:"protective_atr_buffer,omitempty"`
+	ProtectiveTimeframes ProtectiveTimeframeConfig            `json:"protective_timeframes,omitempty"`
+	FactorSnapshot       map[string]*market.FactorSnapshot    `json:"factor_snapshot"`
+	KlineWindows         map[string]map[string][]market.Kline `json:"-"`
+	Now                  time.Time                            `json:"now"`
 }
 
 type ProtectiveTimeframeConfig struct {
@@ -285,8 +286,9 @@ type SignalCalibrationSample struct {
 	RiskStatus             string
 	RiskReason             string
 	FactorSnapshot         *market.FactorSnapshot
+	KlineWindows           map[string][]market.Kline
 	SetupTrace             *SetupEvaluationTrace
-	ScoringTrace           *ScoringEvaluationTrace
+	EvidenceTrace          *ScoringEvaluationTrace
 	Signal                 *CandidateSignal
 	MarketContext          *MarketContext
 	AsOf                   time.Time
@@ -439,6 +441,7 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 			PrimaryScore:           trace.Primary.Score,
 			EntryScore:             trace.Entry.Score,
 			FactorSnapshot:         req.FactorSnapshot[trace.Symbol],
+			KlineWindows:           calibrationKlineWindows(req, trace.Symbol),
 			SetupTrace:             &traceCopy,
 			MarketContext:          result.MarketContext,
 			AsOf:                   calibrationAsOf(req, trace.Symbol),
@@ -472,14 +475,15 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 			RuleID:          signal.RuleID,
 			StrategyVersion: signal.StrategyVersion,
 			FactorSnapshot:  req.FactorSnapshot[signal.Symbol],
+			KlineWindows:    calibrationKlineWindows(req, signal.Symbol),
 			Signal:          &signalCopy,
 			MarketContext:   result.MarketContext,
 			AsOf:            calibrationAsOf(req, signal.Symbol),
 		}
-		if scoring, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
-			scoringCopy := scoring
-			sample.Score = scoring.Score
-			sample.ScoringTrace = &scoringCopy
+		if evidence, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
+			evidenceCopy := evidence
+			sample.Score = evidence.Score
+			sample.EvidenceTrace = &evidenceCopy
 		}
 		enrichCalibrationSampleFromSignal(&sample, signal, reviewBySignal, approved, riskBySignal)
 		samples = append(samples, sample)
@@ -511,10 +515,10 @@ func enrichCalibrationSampleFromSignal(sample *SignalCalibrationSample, signal C
 		sample.EntryTimeframe = setup.Timeframes.Entry
 		sample.ConfirmationTimeframes = append([]string(nil), setup.Timeframes.Confirmations...)
 	}
-	if scoring, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
-		scoringCopy := scoring
-		sample.ScoringTrace = &scoringCopy
-		sample.Score = scoring.Score
+	if evidence, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
+		evidenceCopy := evidence
+		sample.EvidenceTrace = &evidenceCopy
+		sample.Score = evidence.Score
 	}
 	if review, ok := reviews[signal.ID]; ok {
 		sample.ReviewStatus = review.Status
@@ -553,4 +557,25 @@ func calibrationAsOf(req SignalRequest, symbol string) time.Time {
 		return req.Now.UTC()
 	}
 	return time.Now().UTC()
+}
+
+func calibrationKlineWindows(req SignalRequest, symbol string) map[string][]market.Kline {
+	if req.KlineWindows == nil {
+		return nil
+	}
+	windows := req.KlineWindows[symbol]
+	if len(windows) == 0 {
+		return nil
+	}
+	out := make(map[string][]market.Kline, len(windows))
+	for timeframe, klines := range windows {
+		if timeframe == "" || len(klines) == 0 {
+			continue
+		}
+		out[timeframe] = append([]market.Kline(nil), klines...)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

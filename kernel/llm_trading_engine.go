@@ -118,12 +118,12 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 }
 
 type compactFactorSnapshot struct {
-	Symbol     string                                           `json:"symbol"`
-	RiskFlags  []string                                         `json:"risk_flags,omitempty"`
-	Notes      []string                                         `json:"notes,omitempty"`
-	Technical  map[string][]compactIndicatorPoint               `json:"technical,omitempty"`
-	Structures map[string][]compactStructureSnapshot            `json:"structures,omitempty"`
-	External   map[string]compactExternalFactor                 `json:"external,omitempty"`
+	Symbol     string                                `json:"symbol"`
+	RiskFlags  []string                              `json:"risk_flags,omitempty"`
+	Notes      []string                              `json:"notes,omitempty"`
+	Technical  map[string][]compactIndicatorPoint    `json:"technical,omitempty"`
+	Structures map[string][]compactStructureSnapshot `json:"structures,omitempty"`
+	External   map[string]compactExternalFactor      `json:"external,omitempty"`
 }
 
 type compactIndicatorPoint struct {
@@ -140,6 +140,9 @@ type compactStructureSnapshot struct {
 	Valid        bool               `json:"valid"`
 	Reason       string             `json:"reason,omitempty"`
 	Direction    string             `json:"direction,omitempty"`
+	Phase        string             `json:"phase,omitempty"`
+	Setup        string             `json:"setup,omitempty"`
+	Signals      []string           `json:"signals,omitempty"`
 	InvalidPrice float64            `json:"invalid_price,omitempty"`
 	KeyLevels    map[string]float64 `json:"key_levels,omitempty"`
 	Confirmed    bool               `json:"confirmed"`
@@ -234,6 +237,9 @@ func compactStructures(input map[string][]market.StructureSnapshot) map[string][
 				Valid:        snapshot.Valid,
 				Reason:       snapshot.Reason,
 				Direction:    snapshot.Direction,
+				Phase:        snapshot.Phase,
+				Setup:        snapshot.Setup,
+				Signals:      snapshot.Signals,
 				InvalidPrice: snapshot.InvalidPrice,
 				KeyLevels:    snapshot.KeyLevels,
 				Confirmed:    snapshot.Confirmed,

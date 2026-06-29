@@ -24,9 +24,11 @@ func NewLLMStrategyEvolver(client mcp.AIClient) *LLMStrategyEvolver {
 
 type StrategyEvolutionEvidence struct {
 	StrategyID           string                           `json:"strategy_id"`
+	StrategyVersion      string                           `json:"strategy_version,omitempty"`
 	GeneratedAt          time.Time                        `json:"generated_at"`
 	CurrentConfig        StrategyEvolutionConfigSummary   `json:"current_config"`
 	Calibration          *store.SignalCalibrationReport   `json:"calibration"`
+	Replay               *StrategyReplayReport            `json:"replay,omitempty"`
 	RecentClosedTrades   []StrategyEvolutionClosedTrade   `json:"recent_closed_trades,omitempty"`
 	RecentFailureSamples []StrategyEvolutionFailureSample `json:"recent_failure_samples,omitempty"`
 	DataQualityNotes     []string                         `json:"data_quality_notes,omitempty"`
@@ -37,7 +39,8 @@ type StrategyEvolutionConfigSummary struct {
 	RiskProfile       string                 `json:"risk_profile,omitempty"`
 	StrategyMode      string                 `json:"strategy_mode,omitempty"`
 	Timeframes        map[string]any         `json:"timeframes,omitempty"`
-	Scoring           map[string]any         `json:"scoring,omitempty"`
+	EvidenceFilters   map[string]any         `json:"evidence_filters,omitempty"`
+	MarketStructure   map[string]any         `json:"market_structure,omitempty"`
 	RiskControl       map[string]any         `json:"risk_control,omitempty"`
 	EnabledData       map[string]bool        `json:"enabled_data,omitempty"`
 	EnabledIndicators []string               `json:"enabled_indicators,omitempty"`
@@ -89,8 +92,10 @@ type StrategyEvolutionFailureSample struct {
 
 type StrategyEvolutionRequest struct {
 	StrategyID      string
+	StrategyVersion string
 	CurrentConfig   *store.StrategyConfig
 	Calibration     *store.SignalCalibrationReport
+	Replay          *StrategyReplayReport
 	RecentSamples   []store.SignalCalibrationSample
 	RecentClosed    []store.TraderPosition
 	Language        string
@@ -174,19 +179,32 @@ func (c *StrategyEvolutionChange) UnmarshalJSON(data []byte) error {
 }
 
 type StrategyEvolutionConfigPatch struct {
-	StrategyArchetype string                     `json:"strategy_archetype,omitempty"`
-	RiskProfile       string                     `json:"risk_profile,omitempty"`
-	ScoringConfig     *ScoringEvolutionPatch     `json:"scoring_config,omitempty"`
-	RiskControl       *RiskControlEvolutionPatch `json:"risk_control,omitempty"`
-	Klines            *KlineEvolutionPatch       `json:"klines,omitempty"`
+	StrategyArchetype string                         `json:"strategy_archetype,omitempty"`
+	RiskProfile       string                         `json:"risk_profile,omitempty"`
+	EvidenceFilters   *EvidenceFilterEvolutionPatch  `json:"evidence_filters,omitempty"`
+	MarketStructure   *MarketStructureEvolutionPatch `json:"market_structure,omitempty"`
+	RiskControl       *RiskControlEvolutionPatch     `json:"risk_control,omitempty"`
+	Klines            *KlineEvolutionPatch           `json:"klines,omitempty"`
 }
 
-type ScoringEvolutionPatch struct {
+type EvidenceFilterEvolutionPatch struct {
 	FactorWeights           map[string]float64 `json:"factor_weights,omitempty"`
-	LongThreshold           *float64           `json:"long_threshold,omitempty"`
-	ShortThreshold          *float64           `json:"short_threshold,omitempty"`
 	MinAvailableWeightRatio *float64           `json:"min_available_weight_ratio,omitempty"`
 	MinConfidence           *int               `json:"min_confidence,omitempty"`
+}
+
+type MarketStructureEvolutionPatch struct {
+	EnableMarketStructure *bool          `json:"enable_market_structure,omitempty"`
+	Timeframe             string         `json:"timeframe,omitempty"`
+	Lookback              *int           `json:"lookback,omitempty"`
+	LookbackByTimeframe   map[string]int `json:"lookback_by_timeframe,omitempty"`
+	SwingWindow           *int           `json:"swing_window,omitempty"`
+	MinLegBars            *int           `json:"min_leg_bars,omitempty"`
+	MinLegATRMultiple     *float64       `json:"min_leg_atr_multiple,omitempty"`
+	ZigZagThresholdPct    *float64       `json:"zigzag_threshold_pct,omitempty"`
+	BreakoutBufferATR     *float64       `json:"breakout_buffer_atr,omitempty"`
+	RetestToleranceATR    *float64       `json:"retest_tolerance_atr,omitempty"`
+	ExhaustionRSIPeriod   *int           `json:"exhaustion_rsi_period,omitempty"`
 }
 
 type RiskControlEvolutionPatch struct {
@@ -281,9 +299,11 @@ func BuildStrategyEvolutionEvidence(req StrategyEvolutionRequest) StrategyEvolut
 	config := req.CurrentConfig
 	evidence := StrategyEvolutionEvidence{
 		StrategyID:       req.StrategyID,
+		StrategyVersion:  strings.TrimSpace(req.StrategyVersion),
 		GeneratedAt:      time.Now().UTC(),
 		CurrentConfig:    summarizeEvolutionConfig(config),
 		Calibration:      req.Calibration,
+		Replay:           req.Replay,
 		DataQualityNotes: buildEvolutionDataQualityNotes(req.Calibration),
 	}
 	for _, pos := range req.RecentClosed {
@@ -326,12 +346,15 @@ func ApplyStrategyEvolutionPatch(base *store.StrategyConfig, patch StrategyEvolu
 	if strings.TrimSpace(patch.RiskProfile) != "" {
 		next.RiskProfile = strings.TrimSpace(patch.RiskProfile)
 	}
-	if patch.ScoringConfig != nil {
+	if patch.EvidenceFilters != nil {
 		if next.ScoringConfig == nil {
 			next.ScoringConfig = &store.ScoringStrategyConfig{Enabled: true}
 		}
-		applyScoringEvolutionPatch(next.ScoringConfig, patch.ScoringConfig, &warnings)
+		applyEvidenceFilterEvolutionPatch(next.ScoringConfig, patch.EvidenceFilters, &warnings)
 		next.ResolvedParameters.Scoring = next.ScoringConfig
+	}
+	if patch.MarketStructure != nil {
+		applyMarketStructureEvolutionPatch(&next.Structure, patch.MarketStructure, &warnings)
 	}
 	if patch.RiskControl != nil {
 		applyRiskControlEvolutionPatch(&next.RiskControl, patch.RiskControl, &warnings)
@@ -364,22 +387,25 @@ You are a strategy evolution analyst for a deterministic crypto trading system.
 
 Your task:
 - Review historical structured evidence, closed paper outcomes, and current strategy parameters.
+- Use replay.parameter_scans to judge whether market_structure parameter changes are stable across persisted K-line windows before proposing them.
 - Produce a conservative manual strategy improvement proposal.
-- The program calculates K-lines, indicators, setup scores, risk gate decisions, and paper outcomes. Do not recalculate raw indicators.
+- The program calculates K-lines, indicators, market_structure, setup detection, evidence filters, risk gate decisions, and paper outcomes. Do not recalculate raw indicators.
 - Do not invent unavailable market data.
 - Do not suggest live trading activation.
 - Do not rewrite the whole strategy unless evidence clearly supports it.
 - Prefer small parameter changes backed by the provided evidence.
 - If evidence is insufficient, say so and keep config_patch minimal.
 - Do not materially reduce trading opportunity frequency unless the evidence is high-confidence and shows that the filtered opportunities are consistently low quality.
-- Do not "optimize" by blindly tightening long_threshold, short_threshold, min_confidence, min_risk_reward_ratio, max_positions, or timeframe roles just to reduce losses.
+- Do not "optimize" by blindly tightening min_confidence, min_risk_reward_ratio, max_positions, market_structure filters, or timeframe roles just to reduce losses.
 - If a change may reduce trade frequency, explain the specific evidence: affected setup(s), sample/outcome counts, loss pattern, and why a less restrictive adjustment is insufficient.
-- Prefer targeted improvements that preserve useful opportunities: adjust factor weights, fix mismatched timeframe roles, improve stop/target derivation, or isolate a clearly losing setup before globally tightening the strategy.
-- In current_config.risk_control, stop_loss_atr_buffer is an explicit ATR multiple; missing legacy values have already been normalized to the product default.
+- Prefer targeted improvements that preserve useful opportunities: tune market_structure swing/leg filters, adjust evidence factor weights, fix mismatched timeframe roles, improve stop/target derivation, or isolate a clearly losing setup before globally tightening the strategy.
+- Do not recommend a market_structure parameter change only because one variant changes fewer signals. Prefer variants that preserve approved setups, reduce unstable/noisy classifications, and have enough replayable samples.
+- In current_config.risk_control, stop_loss_atr_buffer is an explicit ATR multiple; missing values have already been normalized to the product default.
 
 Allowed config_patch fields only:
 - strategy_archetype, risk_profile
-- scoring_config.factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence
+- evidence_filters.factor_weights, min_available_weight_ratio, min_confidence
+- market_structure.enable_market_structure, timeframe, lookback, lookback_by_timeframe, swing_window, min_leg_bars, min_leg_atr_multiple, zigzag_threshold_pct, breakout_buffer_atr, retest_tolerance_atr, exhaustion_rsi_period
 - risk_control.max_positions, btc_eth_max_leverage, altcoin_max_leverage, risk_per_trade_pct, min_risk_reward_ratio, min_confidence, stop_loss_atr_buffer, stop_loss_timeframe_mode, stop_loss_timeframe
 - klines.primary_timeframe, entry_timeframe, confirmation_timeframes, compute_lookback, prompt_display_count
 
@@ -502,14 +528,25 @@ func summarizeEvolutionConfig(config *store.StrategyConfig) StrategyEvolutionCon
 	if config == nil {
 		return StrategyEvolutionConfigSummary{}
 	}
-	scoring := map[string]any{}
+	evidenceFilters := map[string]any{}
 	if config.ScoringConfig != nil {
-		scoring["selected_factors"] = config.ScoringConfig.SelectedFactors
-		scoring["factor_weights"] = config.ScoringConfig.FactorWeights
-		scoring["long_threshold"] = config.ScoringConfig.LongThreshold
-		scoring["short_threshold"] = config.ScoringConfig.ShortThreshold
-		scoring["min_available_weight_ratio"] = config.ScoringConfig.MinAvailableWeightRatio
-		scoring["min_confidence"] = config.ScoringConfig.MinConfidence
+		evidenceFilters["selected_factors"] = config.ScoringConfig.SelectedFactors
+		evidenceFilters["factor_weights"] = config.ScoringConfig.FactorWeights
+		evidenceFilters["min_available_weight_ratio"] = config.ScoringConfig.MinAvailableWeightRatio
+		evidenceFilters["min_confidence"] = config.ScoringConfig.MinConfidence
+	}
+	marketStructure := map[string]any{
+		"enabled":               config.Structure.EnableMarketStructure,
+		"timeframe":             config.Structure.MarketStructure.Timeframe,
+		"lookback":              config.Structure.MarketStructure.Lookback,
+		"lookback_by_timeframe": config.Structure.MarketStructure.LookbackByTimeframe,
+		"swing_window":          config.Structure.MarketStructure.SwingWindow,
+		"min_leg_bars":          config.Structure.MarketStructure.MinLegBars,
+		"min_leg_atr_multiple":  config.Structure.MarketStructure.MinLegATRMultiple,
+		"zigzag_threshold_pct":  config.Structure.MarketStructure.ZigZagThresholdPct,
+		"breakout_buffer_atr":   config.Structure.MarketStructure.BreakoutBufferATR,
+		"retest_tolerance_atr":  config.Structure.MarketStructure.RetestToleranceATR,
+		"exhaustion_rsi_period": config.Structure.MarketStructure.ExhaustionRSIPeriod,
 	}
 	risk := map[string]any{
 		"max_positions":            config.RiskControl.MaxPositions,
@@ -536,7 +573,8 @@ func summarizeEvolutionConfig(config *store.StrategyConfig) StrategyEvolutionCon
 			"display_count":      klines.PromptDisplayCount,
 			"market_data_source": klines.MarketDataSource,
 		},
-		Scoring:           scoring,
+		EvidenceFilters:   evidenceFilters,
+		MarketStructure:   marketStructure,
 		RiskControl:       risk,
 		EnabledData:       enabledEvolutionData(config),
 		EnabledIndicators: enabledEvolutionIndicators(config),
@@ -656,7 +694,7 @@ func selectFailureSamples(samples []store.SignalCalibrationSample, limit int) []
 	return out
 }
 
-func applyScoringEvolutionPatch(scoring *store.ScoringStrategyConfig, patch *ScoringEvolutionPatch, warnings *[]string) {
+func applyEvidenceFilterEvolutionPatch(scoring *store.ScoringStrategyConfig, patch *EvidenceFilterEvolutionPatch, warnings *[]string) {
 	if patch.FactorWeights != nil {
 		factors := scoring.SelectedFactors
 		if len(factors) == 0 {
@@ -668,23 +706,59 @@ func applyScoringEvolutionPatch(scoring *store.ScoringStrategyConfig, patch *Sco
 		}
 		scoring.FactorWeights = normalizeEvolutionWeights(patch.FactorWeights, factors, warnings)
 	}
-	if patch.LongThreshold != nil {
-		scoring.LongThreshold = clampFloat(*patch.LongThreshold, 1, 100)
-	}
-	if patch.ShortThreshold != nil {
-		value := *patch.ShortThreshold
-		if value > 0 {
-			value = -value
-			*warnings = append(*warnings, "normalized positive short_threshold to a negative signed score")
-		}
-		scoring.ShortThreshold = clampFloat(value, -100, -1)
-	}
 	if patch.MinAvailableWeightRatio != nil {
 		scoring.MinAvailableWeightRatio = clampFloat(*patch.MinAvailableWeightRatio, 0.1, 1)
 	}
 	if patch.MinConfidence != nil {
 		scoring.MinConfidence = clampInt(*patch.MinConfidence, 1, 100)
 		scoring.Execution.Confidence = scoring.MinConfidence
+	}
+}
+
+func applyMarketStructureEvolutionPatch(structure *store.StructureFactorConfig, patch *MarketStructureEvolutionPatch, warnings *[]string) {
+	if patch.EnableMarketStructure != nil {
+		structure.EnableMarketStructure = *patch.EnableMarketStructure
+	}
+	if patch.Timeframe != "" {
+		structure.MarketStructure.Timeframe = strings.TrimSpace(patch.Timeframe)
+	}
+	if patch.Lookback != nil {
+		structure.MarketStructure.Lookback = clampInt(*patch.Lookback, 20, store.MaxComputeLookback)
+	}
+	if patch.LookbackByTimeframe != nil {
+		next := map[string]int{}
+		for timeframe, lookback := range patch.LookbackByTimeframe {
+			timeframe = strings.TrimSpace(timeframe)
+			if timeframe == "" {
+				continue
+			}
+			next[timeframe] = clampInt(lookback, 20, store.MaxComputeLookback)
+		}
+		structure.MarketStructure.LookbackByTimeframe = next
+	}
+	if patch.SwingWindow != nil {
+		structure.MarketStructure.SwingWindow = clampInt(*patch.SwingWindow, 1, 20)
+	}
+	if patch.MinLegBars != nil {
+		structure.MarketStructure.MinLegBars = clampInt(*patch.MinLegBars, 1, store.MaxComputeLookback)
+	}
+	if patch.MinLegATRMultiple != nil {
+		structure.MarketStructure.MinLegATRMultiple = clampFloat(*patch.MinLegATRMultiple, 0.1, 20)
+	}
+	if patch.ZigZagThresholdPct != nil {
+		structure.MarketStructure.ZigZagThresholdPct = clampFloat(*patch.ZigZagThresholdPct, 0.1, 100)
+	}
+	if patch.BreakoutBufferATR != nil {
+		structure.MarketStructure.BreakoutBufferATR = clampFloat(*patch.BreakoutBufferATR, 0.05, 10)
+	}
+	if patch.RetestToleranceATR != nil {
+		structure.MarketStructure.RetestToleranceATR = clampFloat(*patch.RetestToleranceATR, 0.05, 10)
+	}
+	if patch.ExhaustionRSIPeriod != nil {
+		structure.MarketStructure.ExhaustionRSIPeriod = clampInt(*patch.ExhaustionRSIPeriod, 2, 100)
+	}
+	if !structure.EnableMarketStructure {
+		*warnings = append(*warnings, "market_structure disabled by evolution patch; setup detection may fall back to evidence-only classification")
 	}
 }
 

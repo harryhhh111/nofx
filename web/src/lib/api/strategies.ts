@@ -3,6 +3,7 @@ import type {
   StrategyConfig,
   StrategyCompileResponse,
   StrategyCalibrationReport,
+  StrategyReplayReport,
   StrategyEvolutionResult,
   StrategyMetadata,
   StrategyPreviewFlowResponse,
@@ -139,6 +140,17 @@ export const strategyApi = {
       `${API_BASE}/strategies/${strategyId}/calibration-report?limit=${limit}`
     )
     if (!result.success) throw new Error(result.message || 'Failed to fetch calibration report')
+    return result.data!
+  },
+
+  async getStrategyReplayReport(
+    strategyId: string,
+    limit = 500
+  ): Promise<StrategyReplayReport> {
+    const result = await httpClient.get<StrategyReplayReport>(
+      `${API_BASE}/strategies/${strategyId}/replay-report?limit=${limit}`
+    )
+    if (!result.success) throw new Error(result.message || 'Failed to fetch replay report')
     return result.data!
   },
 

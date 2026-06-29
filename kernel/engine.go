@@ -299,7 +299,7 @@ type FullDecision struct {
 	MarketContext       *MarketContext            `json:"market_context,omitempty"`
 	Signals             []CandidateSignal         `json:"signals,omitempty"`
 	SetupEvaluations    []SetupEvaluationTrace    `json:"setup_evaluations,omitempty"`
-	ScoringEvaluations  []ScoringEvaluationTrace  `json:"scoring_evaluations,omitempty"`
+	EvidenceEvaluations []ScoringEvaluationTrace  `json:"evidence_evaluations,omitempty"`
 	RuleEvaluations     []RuleEvaluationTrace     `json:"rule_evaluations,omitempty"`
 	Reviews             []AIReviewDecision        `json:"reviews,omitempty"`
 	Risk                *RiskGateResult           `json:"risk,omitempty"`

@@ -133,6 +133,11 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	c.normalizeTimeframeRoles()
 	c.clampIndicatorConfig()
+	// Open signals use market structure plus ATR14 for protective stop sizing.
+	// External API clients may omit or disable ATR, but the trading engine treats
+	// it as a system dependency rather than an optional display indicator.
+	c.Indicators.EnableATR = true
+	c.Indicators.ATRPeriods = ensureIndicatorPeriods(c.Indicators.ATRPeriods, 14)
 
 	// Clamp max positions
 	if c.RiskControl.MaxPositions <= 0 {
@@ -430,7 +435,7 @@ func (c *StrategyConfig) clampIndicatorConfig() {
 	}
 	c.Indicators.VWAPPeriods = sanitizeIndicatorPeriods(c.Indicators.VWAPPeriods, []int{20})
 	c.Indicators.DonchianPeriods = sanitizeIndicatorPeriods(c.Indicators.DonchianPeriods, []int{20})
-	c.Indicators.RealizedVolPeriods = sanitizeIndicatorPeriods(c.Indicators.RealizedVolPeriods, []int{20})
+	c.Indicators.RealizedVolPeriods = ensureIndicatorPeriods(sanitizeIndicatorPeriods(c.Indicators.RealizedVolPeriods, []int{20, 60}), 20, 60)
 	c.Indicators.PriceChangeWindows = sanitizeIndicatorPeriods(c.Indicators.PriceChangeWindows, []int{12, 48})
 	// PriceChangeNamedWindows defaults to empty so that named-window returns and
 	// first-cross signals are opt-in only. Existing strategies without this field
@@ -475,6 +480,27 @@ func sanitizeIndicatorPeriods(values []int, defaults []int) []int {
 	}
 	if len(out) == 0 {
 		return append([]int(nil), defaults...)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func ensureIndicatorPeriods(values []int, required ...int) []int {
+	seen := map[int]bool{}
+	out := make([]int, 0, len(values)+len(required))
+	for _, value := range values {
+		if value <= 0 || value > MaxComputeLookback || seen[value] {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = true
+	}
+	for _, value := range required {
+		if value <= 0 || value > MaxComputeLookback || seen[value] {
+			continue
+		}
+		out = append(out, value)
+		seen[value] = true
 	}
 	sort.Ints(out)
 	return out
@@ -537,6 +563,9 @@ func (c *StrategyConfig) ensureComputeLookbackForCalculations() {
 	if c.Structure.EnableSupportResistance {
 		required = maxInt(required, c.Structure.SupportResistance.Lookback)
 	}
+	if c.Structure.EnableMarketStructure {
+		required = maxInt(required, c.maxMarketStructureLookback())
+	}
 	if required > MaxComputeLookback {
 		required = MaxComputeLookback
 	}
@@ -553,6 +582,14 @@ func maxPeriod(values []int) int {
 		}
 	}
 	return max
+}
+
+func (c *StrategyConfig) maxMarketStructureLookback() int {
+	maxLookback := c.Structure.MarketStructure.Lookback
+	for _, value := range c.Structure.MarketStructure.LookbackByTimeframe {
+		maxLookback = maxInt(maxLookback, value)
+	}
+	return maxLookback
 }
 
 func maxInt(a, b int) int {
@@ -609,6 +646,7 @@ func (c *StrategyConfig) clampScoringConfig() {
 	normalizeScoringFactorWeights(c.ScoringConfig)
 	for _, factor := range c.ScoringConfig.SelectedFactors {
 		if factor == "structure" {
+			c.Structure.EnableMarketStructure = true
 			c.Structure.EnableFibonacci = true
 			c.Structure.EnableSupportResistance = true
 		}
@@ -648,6 +686,78 @@ func normalizeScoringFactorWeights(scoring *ScoringStrategyConfig) {
 
 func (c *StrategyConfig) clampStructureConfig() {
 	defaults := defaultStructureFactorConfig()
+	if c.Structure.MarketStructure.Timeframe == "" {
+		c.Structure.MarketStructure.Timeframe = defaults.MarketStructure.Timeframe
+	}
+	if c.Structure.MarketStructure.Lookback <= 0 {
+		c.Structure.MarketStructure.Lookback = defaults.MarketStructure.Lookback
+	}
+	if c.Structure.MarketStructure.Lookback > MaxComputeLookback {
+		c.Structure.MarketStructure.Lookback = MaxComputeLookback
+	}
+	if c.Structure.MarketStructure.Lookback < 20 {
+		c.Structure.MarketStructure.Lookback = 20
+	}
+	if len(c.Structure.MarketStructure.LookbackByTimeframe) > 0 {
+		normalized := map[string]int{}
+		for timeframe, lookback := range c.Structure.MarketStructure.LookbackByTimeframe {
+			timeframe = strings.TrimSpace(timeframe)
+			if timeframe == "" {
+				continue
+			}
+			if lookback < 20 {
+				lookback = 20
+			}
+			if lookback > MaxComputeLookback {
+				lookback = MaxComputeLookback
+			}
+			normalized[timeframe] = lookback
+		}
+		c.Structure.MarketStructure.LookbackByTimeframe = normalized
+	}
+	if c.Structure.MarketStructure.SwingWindow <= 0 {
+		c.Structure.MarketStructure.SwingWindow = defaults.MarketStructure.SwingWindow
+	}
+	if c.Structure.MarketStructure.SwingWindow > 20 {
+		c.Structure.MarketStructure.SwingWindow = 20
+	}
+	if c.Structure.MarketStructure.MinLegBars <= 0 {
+		c.Structure.MarketStructure.MinLegBars = defaults.MarketStructure.MinLegBars
+	}
+	if c.Structure.MarketStructure.MinLegBars > c.maxMarketStructureLookback() {
+		c.Structure.MarketStructure.MinLegBars = c.maxMarketStructureLookback()
+	}
+	if c.Structure.MarketStructure.MinLegATRMultiple <= 0 {
+		c.Structure.MarketStructure.MinLegATRMultiple = defaults.MarketStructure.MinLegATRMultiple
+	}
+	if c.Structure.MarketStructure.MinLegATRMultiple > 20 {
+		c.Structure.MarketStructure.MinLegATRMultiple = 20
+	}
+	if c.Structure.MarketStructure.ZigZagThresholdPct <= 0 {
+		c.Structure.MarketStructure.ZigZagThresholdPct = defaults.MarketStructure.ZigZagThresholdPct
+	}
+	if c.Structure.MarketStructure.ZigZagThresholdPct > 100 {
+		c.Structure.MarketStructure.ZigZagThresholdPct = 100
+	}
+	if c.Structure.MarketStructure.BreakoutBufferATR <= 0 {
+		c.Structure.MarketStructure.BreakoutBufferATR = defaults.MarketStructure.BreakoutBufferATR
+	}
+	if c.Structure.MarketStructure.BreakoutBufferATR > 10 {
+		c.Structure.MarketStructure.BreakoutBufferATR = 10
+	}
+	if c.Structure.MarketStructure.RetestToleranceATR <= 0 {
+		c.Structure.MarketStructure.RetestToleranceATR = defaults.MarketStructure.RetestToleranceATR
+	}
+	if c.Structure.MarketStructure.RetestToleranceATR > 10 {
+		c.Structure.MarketStructure.RetestToleranceATR = 10
+	}
+	if c.Structure.MarketStructure.ExhaustionRSIPeriod <= 0 {
+		c.Structure.MarketStructure.ExhaustionRSIPeriod = defaults.MarketStructure.ExhaustionRSIPeriod
+	}
+	if c.Structure.MarketStructure.ExhaustionRSIPeriod > 100 {
+		c.Structure.MarketStructure.ExhaustionRSIPeriod = 100
+	}
+
 	if c.Structure.Fibonacci.Timeframe == "" {
 		c.Structure.Fibonacci.Timeframe = defaults.Fibonacci.Timeframe
 	}
@@ -729,6 +839,11 @@ func (c *StrategyConfig) clampStructureConfig() {
 
 func (c *StrategyConfig) resolveParameters() {
 	c.ResolvedParameters = ResolvedStrategyParameters{}
+	if c.Structure.EnableMarketStructure {
+		structure := c.Structure.MarketStructure
+		structure.Timeframe = c.resolveStructureTimeframe(structure.Timeframe)
+		c.ResolvedParameters.Structure.MarketStructure = &structure
+	}
 	if c.Structure.EnableFibonacci {
 		fib := c.Structure.Fibonacci
 		fib.Timeframe = c.resolveStructureTimeframe(fib.Timeframe)
@@ -854,6 +969,7 @@ type ResolvedStrategyParameters struct {
 }
 
 type ResolvedStructureParameters struct {
+	MarketStructure   *StructureMarketConfig            `json:"market_structure,omitempty"`
 	Fibonacci         *StructureFibonacciConfig         `json:"fibonacci,omitempty"`
 	SupportResistance *StructureSupportResistanceConfig `json:"support_resistance,omitempty"`
 }
@@ -907,10 +1023,25 @@ type ScoringStrategyConfig struct {
 }
 
 type StructureFactorConfig struct {
+	EnableMarketStructure   bool                             `json:"enable_market_structure"`
 	EnableFibonacci         bool                             `json:"enable_fibonacci"`
 	EnableSupportResistance bool                             `json:"enable_support_resistance"`
+	MarketStructure         StructureMarketConfig            `json:"market_structure,omitempty"`
 	Fibonacci               StructureFibonacciConfig         `json:"fibonacci,omitempty"`
 	SupportResistance       StructureSupportResistanceConfig `json:"support_resistance,omitempty"`
+}
+
+type StructureMarketConfig struct {
+	Timeframe           string         `json:"timeframe,omitempty"`
+	Lookback            int            `json:"lookback,omitempty"`
+	LookbackByTimeframe map[string]int `json:"lookback_by_timeframe,omitempty"`
+	SwingWindow         int            `json:"swing_window,omitempty"`
+	MinLegBars          int            `json:"min_leg_bars,omitempty"`
+	MinLegATRMultiple   float64        `json:"min_leg_atr_multiple,omitempty"`
+	ZigZagThresholdPct  float64        `json:"zigzag_threshold_pct,omitempty"`
+	BreakoutBufferATR   float64        `json:"breakout_buffer_atr,omitempty"`
+	RetestToleranceATR  float64        `json:"retest_tolerance_atr,omitempty"`
+	ExhaustionRSIPeriod int            `json:"exhaustion_rsi_period,omitempty"`
 }
 
 type StructureFibonacciConfig struct {
@@ -1056,7 +1187,7 @@ type IndicatorConfig struct {
 	VWAPPeriods              []int    `json:"vwap_periods,omitempty"`               // default [20]
 	DonchianPeriods          []int    `json:"donchian_periods,omitempty"`           // default [20]
 	RollingPercentilePeriods []int    `json:"rolling_percentile_periods,omitempty"` // default [20]
-	RealizedVolPeriods       []int    `json:"realized_vol_periods,omitempty"`       // default [20]
+	RealizedVolPeriods       []int    `json:"realized_vol_periods,omitempty"`       // default [20, 60]
 	PriceChangeWindows       []int    `json:"price_change_windows,omitempty"`       // default [12, 48], bar windows
 	PriceChangeNamedWindows  []string `json:"price_change_named_windows,omitempty"` // default [] (opt-in)
 	// Session configuration (Phase 1: UTC day only)
@@ -1185,11 +1316,11 @@ type RiskControlConfig struct {
 	StopLossTimeframeMode string `json:"stop_loss_timeframe_mode,omitempty"`
 	StopLossTimeframe     string `json:"stop_loss_timeframe,omitempty"`
 
-	// 鈹€鈹€ Drawdown-based position close (risk monitor, runs every minute) 鈹€鈹€鈹€鈹€鈹€鈹€
-	// Whether the drawdown-close mechanism is enabled. Default: true.
+	// Profit protection close (risk monitor, runs every minute).
+	// Whether the protection mechanism is enabled. Default: true.
 	DrawdownCloseEnabled bool `json:"drawdown_close_enabled"`
-	// Min unrealised leveraged profit (%) before drawdown is measured. Default: 5.0.
-	// Example: 5.0 means the mechanism only activates once the position is 鈮?% in profit.
+	// Peak unrealised leveraged profit (%) that arms protection. Default: 5.0.
+	// Example: 5.0 means drawdown protection activates after the position has reached 5% peak profit.
 	DrawdownCloseMinProfitPct float64 `json:"drawdown_close_min_profit_pct"`
 	// Drawdown threshold (%) relative to peak profit that triggers the close. Default: 40.0.
 	// Example: 40.0 means: if profit dropped from peak by 鈮?0%, close the position.
@@ -1294,7 +1425,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			VolumePeriods:           []int{20},
 			VWAPPeriods:             []int{20},
 			DonchianPeriods:         []int{20},
-			RealizedVolPeriods:      []int{20},
+			RealizedVolPeriods:      []int{20, 60},
 			PriceChangeWindows:      []int{12, 48},
 			NofxOSAPIKey:            "",
 			EnableQuantData:         false,
@@ -1485,8 +1616,19 @@ func templateText(lang, zhName, enName, zhDesc, enDesc string) (string, string) 
 
 func defaultStructureFactorConfig() StructureFactorConfig {
 	return StructureFactorConfig{
+		EnableMarketStructure:   true,
 		EnableFibonacci:         true,
 		EnableSupportResistance: true,
+		MarketStructure: StructureMarketConfig{
+			Lookback:            160,
+			SwingWindow:         3,
+			MinLegBars:          5,
+			MinLegATRMultiple:   1.5,
+			ZigZagThresholdPct:  1,
+			BreakoutBufferATR:   0.2,
+			RetestToleranceATR:  1.0,
+			ExhaustionRSIPeriod: 14,
+		},
 		Fibonacci: StructureFibonacciConfig{
 			Lookback:              120,
 			SwingWindow:           3,

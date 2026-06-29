@@ -35,14 +35,57 @@ func TestStructureRequestIncludesScoringRoleTimeframes(t *testing.T) {
 	for _, support := range req.Supports {
 		supportTimeframes[support.Timeframe] = true
 	}
+	marketStructureTimeframes := map[string]bool{}
+	if req.MarketStructure != nil {
+		marketStructureTimeframes[req.MarketStructure.Timeframe] = true
+	}
+	for _, structure := range req.MarketStructures {
+		marketStructureTimeframes[structure.Timeframe] = true
+	}
 
 	for _, timeframe := range []string{"15m", "5m", "1h"} {
+		if !marketStructureTimeframes[timeframe] {
+			t.Fatalf("expected market structure request for %s, got %+v", timeframe, req)
+		}
 		if !fibTimeframes[timeframe] {
 			t.Fatalf("expected fibonacci structure request for %s, got %+v", timeframe, req)
 		}
 		if !supportTimeframes[timeframe] {
 			t.Fatalf("expected support/resistance structure request for %s, got %+v", timeframe, req)
 		}
+	}
+}
+
+func TestStructureRequestUsesPerTimeframeMarketStructureLookback(t *testing.T) {
+	config := store.GetDefaultStrategyConfig("zh")
+	config.Indicators.Klines.PrimaryTimeframe = "15m"
+	config.Indicators.Klines.EntryTimeframe = "5m"
+	config.Indicators.Klines.ConfirmationTimeframes = []string{"1h"}
+	config.Indicators.Klines.SelectedTimeframes = []string{"5m", "15m", "1h"}
+	config.Structure.MarketStructure.Lookback = 160
+	config.Structure.MarketStructure.LookbackByTimeframe = map[string]int{
+		"5m":  220,
+		"15m": 420,
+		"1h":  900,
+	}
+	config.ClampLimits()
+
+	req := StructureRequestFromStrategyConfig(&config)
+	got := map[string]int{}
+	if req.MarketStructure != nil {
+		got[req.MarketStructure.Timeframe] = req.MarketStructure.Lookback
+	}
+	for _, structure := range req.MarketStructures {
+		got[structure.Timeframe] = structure.Lookback
+	}
+
+	for timeframe, want := range map[string]int{"5m": 220, "15m": 420, "1h": 900} {
+		if got[timeframe] != want {
+			t.Fatalf("expected %s market_structure lookback %d, got %d in %+v", timeframe, want, got[timeframe], req)
+		}
+	}
+	if config.Indicators.Klines.ComputeLookback < 900 {
+		t.Fatalf("expected compute lookback to cover largest structure window, got %d", config.Indicators.Klines.ComputeLookback)
 	}
 }
 
