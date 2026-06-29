@@ -126,11 +126,16 @@ func fetchWithRetry(ctx context.Context, client *coingecko.Client, page, pageSiz
 
 func toRecords(data []coingecko.MarketData) []store.CoinSupply {
 	records := make([]store.CoinSupply, 0, len(data))
+	seen := make(map[string]struct{}, len(data))
 	for _, d := range data {
 		symbol := normalizeSymbol(d.Symbol)
 		if symbol == "" {
 			continue
 		}
+		if _, ok := seen[symbol]; ok {
+			continue
+		}
+		seen[symbol] = struct{}{}
 		records = append(records, store.CoinSupply{
 			Symbol:            symbol,
 			CoingeckoID:       d.ID,
