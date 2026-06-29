@@ -22,6 +22,7 @@ services:
       # Data provider API keys
       - COINANK_API_KEY=${COINANK_API_KEY:-}
       - COINGECKO_API_KEY=${COINGECKO_API_KEY:-}
+      - COINMARKETCAP_API_KEY=${COINMARKETCAP_API_KEY:-}
       # Database Configuration
       - DB_TYPE=${DB_TYPE:-sqlite}
       - DB_HOST=${DB_HOST:-}

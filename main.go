@@ -95,7 +95,10 @@ func main() {
 	defer refresher.Stop()
 
 	// Wire the local supply store into the shared smallcap provider if applicable.
-	if p, ok := smallcap.SharedProvider().(*smallcap.CoinGeckoProvider); ok {
+	switch p := smallcap.SharedProvider().(type) {
+	case *smallcap.CoinGeckoProvider:
+		p.WithSupplyStore(st.CoinSupply())
+	case *smallcap.CoinMarketCapProvider:
 		p.WithSupplyStore(st.CoinSupply())
 	}
 

@@ -452,37 +452,6 @@ func (p *CoinGeckoProvider) enrichOpenInterest(ctx context.Context, coins []*Sma
 	return attempts, successes
 }
 
-func fetchBinanceOpenInterest(ctx context.Context, httpClient *http.Client, symbol string) (float64, error) {
-	url := fmt.Sprintf("%s?symbol=%s", binanceOIAPIURL, symbol)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return 0, err
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return 0, fmt.Errorf("unexpected status %d", resp.StatusCode)
-	}
-
-	var payload struct {
-		OpenInterest string `json:"openInterest"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return 0, err
-	}
-
-	var oi float64
-	if _, err := fmt.Sscanf(payload.OpenInterest, "%f", &oi); err != nil {
-		return 0, err
-	}
-	return oi, nil
-}
-
 func (p *CoinGeckoProvider) cacheKey(req SmallMarketValueRequest) string {
 	return fmt.Sprintf("coingecko|%s|%s|%d|%.0f|%.0f",
 		strings.ToLower(strings.TrimSpace(req.Exchange)),

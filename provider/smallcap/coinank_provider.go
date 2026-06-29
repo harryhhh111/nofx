@@ -304,12 +304,4 @@ func normalizeSymbol(symbol, baseCoin string) string {
 	return symbol
 }
 
-func baseFromSymbol(symbol string) string {
-	symbol = strings.ToUpper(strings.TrimSpace(symbol))
-	for _, suffix := range []string{"USDT", "USDC", "USD"} {
-		if strings.HasSuffix(symbol, suffix) && len(symbol) > len(suffix) {
-			return strings.TrimSuffix(symbol, suffix)
-		}
-	}
-	return symbol
-}
+
