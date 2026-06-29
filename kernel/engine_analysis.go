@@ -253,10 +253,12 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance)
+		// Liquidity filter (skip for xyz dex assets - they don't have OI data from Binance).
+		// Also skip for small-market-value coins, which by definition have low OI.
 		isExistingPosition := positionSymbols[coin.Symbol]
 		isXyzAsset := market.IsXyzDexAsset(coin.Symbol)
-		if !isExistingPosition && !isXyzAsset && data.OpenInterest != nil && data.OpenInterest.Latest > 0 && data.CurrentPrice > 0 {
+		isSmallCap := hasSource(coin, "small_market_value")
+		if !isExistingPosition && !isXyzAsset && !isSmallCap && data.OpenInterest != nil && data.OpenInterest.Latest > 0 && data.CurrentPrice > 0 {
 			oiValue := data.OpenInterest.Latest * data.CurrentPrice
 			oiValueInMillions := oiValue / 1_000_000
 			if oiValueInMillions < minOIThresholdMillions {
@@ -1255,4 +1257,14 @@ func extractCoTTrace(response string) string {
 	}
 
 	return strings.TrimSpace(response)
+}
+
+// hasSource reports whether candidate's Sources includes the given source tag.
+func hasSource(coin CandidateCoin, source string) bool {
+	for _, s := range coin.Sources {
+		if s == source {
+			return true
+		}
+	}
+	return false
 }
