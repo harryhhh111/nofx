@@ -12,6 +12,7 @@ nofx-auto
 *.exe
 nofx
 nofx_test
+bin/
 
 # Go 相关
 *.test

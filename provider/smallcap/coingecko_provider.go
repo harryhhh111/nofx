@@ -3,6 +3,7 @@ package smallcap
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,11 +11,15 @@ import (
 	"time"
 
 	"nofx/provider/coingecko"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
 	defaultCoinGeckoFetchSize = 250
-	maxCoinGeckoPages         = 5
+	// Cap pages at 3: small-cap coins are at the start when sorted by
+	// market_cap_asc, and fetching more pages increases the chance of
+	// hitting CoinGecko rate limits / caller context deadlines.
+	maxCoinGeckoPages         = 3
 	coinGeckoEnrichWorkers    = 8
 	binanceSymbolsCacheTTL    = 1 * time.Hour
 )
@@ -36,12 +41,19 @@ type CoinGeckoProvider struct {
 	symbolsMu        sync.RWMutex
 	binanceSymbols   map[string]struct{}
 	symbolsFetchedAt time.Time
+
+	flight singleflight.Group
 }
 
 // NewCoinGeckoProvider creates the default free small market value provider.
 func NewCoinGeckoProvider() *CoinGeckoProvider {
+	return NewCoinGeckoProviderWithClient(coingecko.NewClient())
+}
+
+// NewCoinGeckoProviderWithClient creates a provider using the supplied CoinGecko client.
+func NewCoinGeckoProviderWithClient(client *coingecko.Client) *CoinGeckoProvider {
 	return &CoinGeckoProvider{
-		client: coingecko.NewClient(),
+		client: client,
 		ttl:    DefaultSmallMarketValueCacheTTL,
 		cache:  make(map[string]cacheEntry),
 	}
@@ -58,13 +70,57 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 	}
 
 	cacheKey := p.cacheKey(req)
-	p.mu.RLock()
-	entry, ok := p.cache[cacheKey]
-	p.mu.RUnlock()
-	if ok && time.Now().Before(entry.expiresAt) {
-		return entry.data, nil
+
+	// Fast path: fresh cache.
+	if data, ok := p.loadCache(cacheKey); ok {
+		return data, nil
 	}
 
+	// Single-flight: only one goroutine fetches for each cache key, so N
+	// concurrent traders do not multiply upstream requests.
+	v, err, _ := p.flight.Do(cacheKey, func() (interface{}, error) {
+		// Double-check cache after winning the single-flight race.
+		if data, ok := p.loadCache(cacheKey); ok {
+			return data, nil
+		}
+
+		result, fetchErr := p.fetchRanking(ctx, req, limit)
+		if fetchErr != nil {
+			// Fallback: return stale cached data if we have any, so a rate-limit
+			// burst does not leave traders without candidates.
+			if data, ok := p.loadCacheStale(cacheKey); ok {
+				return data, nil
+			}
+			return nil, fetchErr
+		}
+		return result, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*SmallMarketValueRankingData), nil
+}
+
+// loadCache returns a fresh cached result if available.
+func (p *CoinGeckoProvider) loadCache(key string) (*SmallMarketValueRankingData, bool) {
+	p.mu.RLock()
+	entry, ok := p.cache[key]
+	p.mu.RUnlock()
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.data, true
+	}
+	return nil, false
+}
+
+// loadCacheStale returns any cached result, even if expired.
+func (p *CoinGeckoProvider) loadCacheStale(key string) (*SmallMarketValueRankingData, bool) {
+	p.mu.RLock()
+	entry, ok := p.cache[key]
+	p.mu.RUnlock()
+	return entry.data, ok
+}
+
+func (p *CoinGeckoProvider) fetchRanking(ctx context.Context, req SmallMarketValueRequest, limit int) (*SmallMarketValueRankingData, error) {
 	binanceSymbols, err := p.getBinanceSymbols(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch Binance tradable symbols: %w", err)
@@ -85,6 +141,11 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 			Page:        page,
 		})
 		if err != nil {
+			// If we already fetched some pages, fall back to partial results
+			// instead of failing entirely when the context deadline is hit.
+			if len(allCoins) > 0 && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+				break
+			}
 			return nil, fmt.Errorf("fetch CoinGecko markets page %d: %w", page, err)
 		}
 		if len(data) == 0 {
@@ -146,6 +207,7 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 		FetchedAt:      time.Now().UTC(),
 	}
 
+	cacheKey := p.cacheKey(req)
 	p.mu.Lock()
 	p.cache[cacheKey] = cacheEntry{
 		data:      result,

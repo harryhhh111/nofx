@@ -5,7 +5,38 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"golang.org/x/time/rate"
 )
+
+func TestCoinsMarketsRetriesOn429(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests < 2 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`[
+			{"id":"bitcoin","symbol":"btc","name":"Bitcoin","current_price":60000,"market_cap":1200000000000,"total_volume":30000000000}
+		]`))
+	}))
+	defer server.Close()
+
+	client := NewClientWithURL(server.URL)
+	client.SetLimiter(rate.NewLimiter(rate.Inf, 1))
+	data, err := client.CoinsMarkets(context.Background(), CoinsMarketsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 {
+		t.Fatalf("expected 2 requests (1 failure + 1 success), got %d", requests)
+	}
+	if len(data) != 1 || data[0].Symbol != "btc" {
+		t.Fatalf("unexpected data: %+v", data)
+	}
+}
 
 func TestCoinsMarketsDecodesResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +52,7 @@ func TestCoinsMarketsDecodesResponse(t *testing.T) {
 	defer server.Close()
 
 	client := NewClientWithURL(server.URL)
+	client.SetLimiter(rate.NewLimiter(rate.Inf, 1))
 	data, err := client.CoinsMarkets(context.Background(), CoinsMarketsRequest{
 		Order:   "market_cap_asc",
 		PerPage: 2,

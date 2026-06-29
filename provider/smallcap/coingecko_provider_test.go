@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nofx/provider/coingecko"
+	"golang.org/x/time/rate"
 )
 
 func TestCoinGeckoProviderCacheKey(t *testing.T) {
@@ -200,6 +201,71 @@ func TestCoinGeckoProviderStopsPagingWhenOIUnavailable(t *testing.T) {
 	}
 }
 
+func TestCoinGeckoProviderReturnsStaleCacheOnError(t *testing.T) {
+	geckoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer geckoServer.Close()
+
+	binanceServer := newBinanceMockServer(t)
+	defer binanceServer.Close()
+
+	p := newTestCoinGeckoProvider(geckoServer.URL, binanceServer.URL)
+
+	req := SmallMarketValueRequest{Limit: 2}
+	stale := &SmallMarketValueRankingData{
+		Coins: []SmallMarketValueCoin{{Symbol: "STALEUSDT", MarketCap: 1e6}},
+	}
+	key := p.cacheKey(req)
+	p.mu.Lock()
+	p.cache[key] = cacheEntry{data: stale, expiresAt: time.Now().Add(-1 * time.Hour)}
+	p.mu.Unlock()
+
+	data, err := p.GetSmallMarketValueRanking(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Coins) != 1 || data.Coins[0].Symbol != "STALEUSDT" {
+		t.Fatalf("expected stale cache fallback, got %+v", data.Coins)
+	}
+}
+
+func TestCoinGeckoProviderReturnsPartialResultsOnTimeout(t *testing.T) {
+	var page int
+	geckoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		page++
+		if page == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`[
+				{"id":"pepe","symbol":"pepe","name":"Pepe","current_price":0.0001,"market_cap":4200000000,"total_volume":800000000}
+			]`))
+			return
+		}
+		// Page 2 blocks until the request context is cancelled.
+		<-r.Context().Done()
+	}))
+	defer geckoServer.Close()
+
+	binanceServer := newBinanceMockServer(t)
+	defer binanceServer.Close()
+
+	p := newTestCoinGeckoProvider(geckoServer.URL, binanceServer.URL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	data, err := p.GetSmallMarketValueRanking(ctx, SmallMarketValueRequest{Limit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data.Coins) == 0 {
+		t.Fatal("expected partial results from page 1")
+	}
+	if data.Coins[0].Symbol != "PEPEUSDT" {
+		t.Fatalf("unexpected symbol: %s", data.Coins[0].Symbol)
+	}
+}
+
 func TestCoinGeckoProviderFetchesAndFilters(t *testing.T) {
 	geckoServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -267,8 +333,10 @@ func newBinanceMockServer(t *testing.T) *httptest.Server {
 }
 
 func newTestCoinGeckoProvider(geckoURL, binanceURL string) *CoinGeckoProvider {
+	client := coingecko.NewClientWithURL(geckoURL)
+	client.SetLimiter(rate.NewLimiter(rate.Inf, 1))
 	p := &CoinGeckoProvider{
-		client: coingecko.NewClientWithURL(geckoURL),
+		client: client,
 		ttl:    1 * time.Hour,
 		cache:  make(map[string]cacheEntry),
 	}

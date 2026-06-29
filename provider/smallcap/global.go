@@ -3,6 +3,8 @@ package smallcap
 import (
 	"os"
 	"sync"
+
+	"nofx/provider/coingecko"
 )
 
 var (
@@ -26,6 +28,9 @@ func SharedProvider() SmallMarketValueProvider {
 func initSharedProvider() SmallMarketValueProvider {
 	if apiKey := os.Getenv("COINANK_API_KEY"); apiKey != "" {
 		return NewCoinAnkProvider(apiKey)
+	}
+	if apiKey := os.Getenv("COINGECKO_API_KEY"); apiKey != "" {
+		return NewCoinGeckoProviderWithClient(coingecko.NewProClient(apiKey))
 	}
 	return NewCoinGeckoProvider()
 }
