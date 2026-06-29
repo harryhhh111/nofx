@@ -186,7 +186,9 @@ func (p *CoinMarketCapProvider) fetchRanking(ctx context.Context, req SmallMarke
 
 	if len(records) > 0 && p.supplyStore != nil {
 		if upsertErr := p.supplyStore.Upsert(records); upsertErr != nil {
-			logger.Warnf("CoinMarketCap provider upsert failed: %v", upsertErr)
+			logger.Warnf("CoinMarketCap provider upsert %d records failed: %v", len(records), upsertErr)
+		} else {
+			logger.Infof("CoinMarketCap provider upserted %d records", len(records))
 		}
 	}
 
