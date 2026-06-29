@@ -203,8 +203,10 @@ func (p *CoinGeckoProvider) fetchRankingFromLocal(ctx context.Context, req Small
 		if _, tradable := binanceSymbols[symbol]; !tradable {
 			continue
 		}
+		price := priceFromSupply(r.MarketCapUSD, r.CirculatingSupply)
 		coin := SmallMarketValueCoin{
 			Symbol:            symbol,
+			Price:             price,
 			CirculatingSupply: r.CirculatingSupply,
 			TotalSupply:       r.TotalSupply,
 			MarketCap:         r.MarketCapUSD,
@@ -243,6 +245,13 @@ func fdvFromSupply(totalSupply, marketCap, circulatingSupply float64) float64 {
 	if totalSupply > 0 && circulatingSupply > 0 {
 		price := marketCap / circulatingSupply
 		return price * totalSupply
+	}
+	return 0
+}
+
+func priceFromSupply(marketCap, circulatingSupply float64) float64 {
+	if marketCap > 0 && circulatingSupply > 0 {
+		return marketCap / circulatingSupply
 	}
 	return 0
 }
