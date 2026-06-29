@@ -3,14 +3,12 @@ package api
 import (
 	"net/http"
 	"nofx/kernel"
-	"nofx/store"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-func (s *Server) handleStrategyCalibrationReport(c *gin.Context) {
+func (s *Server) handleStrategyReplayReport(c *gin.Context) {
 	userID := c.GetString("user_id")
 	if userID == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
@@ -27,31 +25,28 @@ func (s *Server) handleStrategyCalibrationReport(c *gin.Context) {
 		SafeInternalError(c, "Failed to parse strategy config", err)
 		return
 	}
-	limit := 1000
+	limit := 500
 	if raw := c.Query("limit"); raw != "" {
 		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
 			limit = parsed
 		}
 	}
 	strategyVersion := requestedStrategyVersion(c, config)
-	report, err := s.store.SignalCalibration().BuildReportForVersion(strategyID, strategyVersion, limit)
+	samples, err := s.store.SignalCalibration().RecentSamplesForVersion(strategyID, strategyVersion, limit)
 	if err != nil {
-		SafeInternalError(c, "Build strategy calibration report", err)
+		SafeInternalError(c, "Load strategy replay samples", err)
+		return
+	}
+	report, err := kernel.BuildStrategyReplayReport(kernel.StrategyReplayRequest{
+		StrategyID:      strategyID,
+		StrategyVersion: strategyVersion,
+		CurrentConfig:   config,
+		Samples:         samples,
+		Limit:           limit,
+	})
+	if err != nil {
+		SafeInternalError(c, "Build strategy replay report", err)
 		return
 	}
 	c.JSON(http.StatusOK, report)
-}
-
-func requestedStrategyVersion(c *gin.Context, config *store.StrategyConfig) string {
-	raw := strings.TrimSpace(c.Query("strategy_version"))
-	if raw == "" {
-		raw = strings.TrimSpace(c.Query("version"))
-	}
-	if strings.EqualFold(raw, "all") {
-		return ""
-	}
-	if raw != "" && !strings.EqualFold(raw, "current") {
-		return raw
-	}
-	return kernel.StrategyConfigFingerprint(config)
 }

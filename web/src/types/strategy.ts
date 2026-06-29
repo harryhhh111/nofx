@@ -67,6 +67,7 @@ export interface ResolvedStrategyParameters {
 }
 
 export interface ResolvedStructureParameters {
+  market_structure?: StructureMarketConfig;
   fibonacci?: StructureFibonacciConfig;
   support_resistance?: StructureSupportResistanceConfig;
 }
@@ -173,6 +174,35 @@ export interface StrategyCalibrationTimeframeStat {
   approved: number;
 }
 
+export interface StrategyReplayReport {
+  strategy_id: string;
+  strategy_version?: string;
+  sample_count: number;
+  replayable_sample_count: number;
+  missing_kline_window_count: number;
+  baseline_match_count: number;
+  baseline_match_rate: number;
+  approved_sample_count: number;
+  parameter_scans: StrategyReplayScanResult[];
+  quality_notes?: string[];
+  generated_at: string;
+}
+
+export interface StrategyReplayScanResult {
+  variant_id: string;
+  label: string;
+  parameters: Record<string, unknown>;
+  replayed_count: number;
+  tradable_count: number;
+  no_trade_count: number;
+  match_recorded_count: number;
+  changed_from_baseline_count: number;
+  approved_preserved_count: number;
+  approved_changed_count: number;
+  setup_counts: Record<string, number>;
+  error_count?: number;
+}
+
 export interface StrategyEvolutionResult {
   proposal: StrategyEvolutionProposal;
   evidence: StrategyEvolutionEvidence;
@@ -206,9 +236,23 @@ export interface StrategyEvolutionProposal {
 
 export interface StrategyEvolutionEvidence {
   strategy_id: string;
+  strategy_version?: string;
   generated_at: string;
+  current_config?: {
+    strategy_archetype?: string;
+    risk_profile?: string;
+    strategy_mode?: string;
+    timeframes?: Record<string, unknown>;
+    evidence_filters?: Record<string, unknown>;
+    market_structure?: Record<string, unknown>;
+    risk_control?: Record<string, unknown>;
+    enabled_data?: Record<string, boolean>;
+    enabled_indicators?: string[];
+    coin_source?: CoinSourceConfig;
+  };
   data_quality_notes?: string[];
   calibration?: StrategyCalibrationReport;
+  replay?: StrategyReplayReport;
   recent_closed_trades?: unknown[];
   recent_failure_samples?: unknown[];
 }
@@ -260,10 +304,25 @@ export interface StrategyMetadata {
 }
 
 export interface StructureFactorConfig {
+  enable_market_structure?: boolean;
   enable_fibonacci: boolean;
   enable_support_resistance: boolean;
+  market_structure?: StructureMarketConfig;
   fibonacci?: StructureFibonacciConfig;
   support_resistance?: StructureSupportResistanceConfig;
+}
+
+export interface StructureMarketConfig {
+  timeframe?: string;
+  lookback?: number;
+  lookback_by_timeframe?: Record<string, number>;
+  swing_window?: number;
+  min_leg_bars?: number;
+  min_leg_atr_multiple?: number;
+  zigzag_threshold_pct?: number;
+  breakout_buffer_atr?: number;
+  retest_tolerance_atr?: number;
+  exhaustion_rsi_period?: number;
 }
 
 export interface StructureFibonacciConfig {
@@ -467,9 +526,9 @@ export interface RiskControlConfig {
   stop_loss_timeframe_mode?: 'auto' | 'primary' | 'entry' | 'custom';
   stop_loss_timeframe?: string;
 
-  // Drawdown-based position close (risk monitor, runs every minute)
+  // Profit protection close (risk monitor, runs every minute)
   drawdown_close_enabled?: boolean;         // Whether the mechanism is enabled (default: true)
-  drawdown_close_min_profit_pct?: number;   // Min leveraged profit (%) before measuring drawdown (default: 5)
+  drawdown_close_min_profit_pct?: number;   // Peak leveraged profit (%) that arms protection (default: 5)
   drawdown_close_trigger_pct?: number;      // Drawdown % from peak that triggers action (default: 40)
   drawdown_close_use_ai?: boolean;          // false=close immediately, true=let AI decide (default: false)
 }

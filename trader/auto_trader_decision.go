@@ -97,9 +97,10 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 			RiskReason:                 sample.RiskReason,
 			FactorSnapshotJSON:         store.MarshalCalibrationJSON(sample.FactorSnapshot),
 			SetupTraceJSON:             store.MarshalCalibrationJSON(sample.SetupTrace),
-			ScoringTraceJSON:           store.MarshalCalibrationJSON(sample.ScoringTrace),
+			EvidenceTraceJSON:          store.MarshalCalibrationJSON(sample.EvidenceTrace),
 			SignalJSON:                 store.MarshalCalibrationJSON(sample.Signal),
 			MarketContextJSON:          store.MarshalCalibrationJSON(sample.MarketContext),
+			KlineWindowsJSON:           store.MarshalCalibrationJSON(sample.KlineWindows),
 			AsOf:                       sample.AsOf,
 		})
 	}
@@ -325,13 +326,13 @@ func (at *AutoTrader) currentStrategyVersion() string {
 		return ""
 	}
 	config := at.strategyEngine.GetConfig()
+	if version := kernel.StrategyConfigFingerprint(config); version != "" {
+		return version
+	}
 	for _, rule := range config.CompiledRules {
 		if rule.Version != "" {
 			return rule.Version
 		}
-	}
-	if config.ScoringConfig != nil && config.ScoringConfig.Enabled {
-		return "scoring"
 	}
 	return ""
 }

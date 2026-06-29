@@ -11,26 +11,11 @@ import (
 	"nofx/store"
 )
 
-func TestScoreSignalEngineBlocksSingleAvailableFactor(t *testing.T) {
+func TestEvidenceTraceBlocksSingleAvailableFactor(t *testing.T) {
 	scoring := testScoringStrategy()
 	snapshot := testScoringSnapshot(true, false)
 
-	signals, err := NewScoreSignalEngine().Generate(context.Background(), SignalRequest{
-		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
-		Scoring:    scoring,
-		FactorSnapshot: map[string]*market.FactorSnapshot{
-			"BTCUSDT": snapshot,
-		},
-		Now: time.Unix(1, 0).UTC(),
-	})
-	if err != nil {
-		t.Fatalf("Generate returned error: %v", err)
-	}
-	if len(signals) != 0 {
-		t.Fatalf("expected no signal with one available scoring factor, got %d", len(signals))
-	}
-
-	traces := TraceScoringEvaluations(SignalRequest{
+	traces := TraceEvidenceEvaluations(SignalRequest{
 		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
 		Scoring:    scoring,
 		FactorSnapshot: map[string]*market.FactorSnapshot{
@@ -38,21 +23,21 @@ func TestScoreSignalEngineBlocksSingleAvailableFactor(t *testing.T) {
 		},
 	})
 	if len(traces) != 1 {
-		t.Fatalf("expected one scoring trace, got %d", len(traces))
+		t.Fatalf("expected one evidence trace, got %d", len(traces))
 	}
 	if traces[0].Eligible {
-		t.Fatalf("expected scoring trace to be ineligible: %+v", traces[0])
+		t.Fatalf("expected evidence trace to be ineligible: %+v", traces[0])
 	}
 	if traces[0].AvailableFactorCount != 1 || traces[0].RequiredFactorCount != 2 {
 		t.Fatalf("unexpected factor counts: %+v", traces[0])
 	}
 }
 
-func TestScoreSignalEngineGeneratesWhenEvidenceIsSufficient(t *testing.T) {
+func TestEvidenceTraceRemainsEvidenceOnlyWhenEvidenceIsSufficient(t *testing.T) {
 	scoring := testScoringStrategy()
 	snapshot := testScoringSnapshot(true, true)
 
-	signals, err := NewScoreSignalEngine().Generate(context.Background(), SignalRequest{
+	traces := TraceEvidenceEvaluations(SignalRequest{
 		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
 		Scoring:    scoring,
 		FactorSnapshot: map[string]*market.FactorSnapshot{
@@ -60,21 +45,14 @@ func TestScoreSignalEngineGeneratesWhenEvidenceIsSufficient(t *testing.T) {
 		},
 		Now: time.Unix(1, 0).UTC(),
 	})
-	if err != nil {
-		t.Fatalf("Generate returned error: %v", err)
+	if len(traces) != 1 {
+		t.Fatalf("expected one evidence trace, got %d", len(traces))
 	}
-	if len(signals) != 1 {
-		t.Fatalf("expected one signal with trend and momentum evidence, got %d", len(signals))
+	if traces[0].Action != "" || traces[0].Threshold != 0 {
+		t.Fatalf("evidence trace should not label an executable action, got %+v", traces[0])
 	}
-	if signals[0].Action != "open_long" {
-		t.Fatalf("expected open_long signal, got %s", signals[0].Action)
-	}
-	scoringEvidence, ok := signals[0].Evidence["scoring"].(ScoringEvaluationTrace)
-	if !ok {
-		t.Fatalf("expected scoring evidence trace, got %#v", signals[0].Evidence["scoring"])
-	}
-	if !scoringEvidence.Eligible || scoringEvidence.AvailableWeightRatio < scoring.MinAvailableWeightRatio {
-		t.Fatalf("unexpected scoring evidence: %+v", scoringEvidence)
+	if !traces[0].Eligible || traces[0].AvailableWeightRatio < scoring.MinAvailableWeightRatio {
+		t.Fatalf("unexpected scoring evidence: %+v", traces[0])
 	}
 }
 
@@ -314,13 +292,21 @@ func TestMergePositionLifecycleSignalsSuppressesOpenWhenAnyCloseExists(t *testin
 	}
 }
 
-func TestTraceSetupEvaluationsExplainsProtectiveFilter(t *testing.T) {
+func TestTraceSetupEvaluationsKeepsStructuralTargetForRiskGate(t *testing.T) {
 	scoring := testScoringStrategy()
 	scoring.Timeframe = "15m"
 	scoring.EntryTimeframe = "5m"
 	scoring.ConfirmationTimeframes = []string{"1h"}
 	snapshot := testMultiTimeframeSetupSnapshot()
 	snapshot.Structures = map[string][]market.StructureSnapshot{
+		"setup": {{
+			Name:      "setup",
+			Timeframe: "15m",
+			Valid:     true,
+			Setup:     "support_resistance_bounce_long",
+			Direction: "long",
+			Signals:   []string{"support bounce", "mean reversion setup"},
+		}},
 		"support_resistance": {{
 			Name:      "support_resistance",
 			Timeframe: "5m",
@@ -339,11 +325,8 @@ func TestTraceSetupEvaluationsExplainsProtectiveFilter(t *testing.T) {
 	if len(traces) != 1 {
 		t.Fatalf("expected one setup trace, got %d", len(traces))
 	}
-	if traces[0].Eligible {
-		t.Fatalf("expected protective filter to mark setup ineligible: %+v", traces[0])
-	}
-	if !strings.Contains(traces[0].Reason, "protective filter") || !strings.Contains(traces[0].Reason, "risk/reward") {
-		t.Fatalf("expected protective filter reason, got %+v", traces[0])
+	if !traces[0].Eligible {
+		t.Fatalf("expected setup trace to stay eligible with structural target; risk gate evaluates final RR later: %+v", traces[0])
 	}
 }
 
@@ -457,6 +440,55 @@ func TestCandidateSignalRequiresATRForMarketBasedProtection(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected missing ATR to fail market-based protective level calculation")
 	}
+	if !errors.Is(err, errSignalRejected) {
+		t.Fatalf("expected missing ATR to be a signal rejection, got %v", err)
+	}
+}
+
+func TestRuleSignalEngineSkipsCandidateWhenATRUnavailable(t *testing.T) {
+	engine := NewRuleSignalEngine()
+	rule := StrategyRule{
+		ID:        "support_resistance_bounce_long",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+		Enabled: true,
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {{Name: "price", Timeframe: "5m", Value: 100}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "5m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 95, "resistance": 115},
+			}},
+		},
+	}
+
+	signals, err := engine.Generate(context.Background(), SignalRequest{
+		Rules: []StrategyRule{rule},
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Now:        time.Unix(2, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("expected missing ATR to skip the candidate, got error %v", err)
+	}
+	if len(signals) != 0 {
+		t.Fatalf("expected missing ATR candidate to be skipped, got %+v", signals)
+	}
 }
 
 func TestCandidateSignalRejectsProjectionForNonTrendSetup(t *testing.T) {
@@ -487,7 +519,7 @@ func TestCandidateSignalRejectsProjectionForNonTrendSetup(t *testing.T) {
 	}
 }
 
-func TestCandidateSignalAllowsPercentTargetFallbackForTrendSetup(t *testing.T) {
+func TestCandidateSignalRequiresStructuralStopForTrendSetup(t *testing.T) {
 	rule := StrategyRule{
 		ID:        "trend_continuation_long",
 		Version:   "v1",
@@ -509,16 +541,97 @@ func TestCandidateSignalAllowsPercentTargetFallbackForTrendSetup(t *testing.T) {
 		},
 	}
 
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	if !errors.Is(err, errSignalRejected) {
+		t.Fatalf("expected missing structural stop to reject trend setup, got %v", err)
+	}
+	if reason, ok := signalRejectionReason(err); !ok || !strings.Contains(reason, "no structural stop-loss anchor") {
+		t.Fatalf("expected structural stop rejection, got %q err=%v", reason, err)
+	}
+}
+
+func TestCandidateSignalRequiresStructuralTargetForTrendSetup(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "trend_continuation_long",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "5m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 95},
+			}},
+		},
+	}
+
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	if !errors.Is(err, errSignalRejected) {
+		t.Fatalf("expected missing structural target to reject trend setup, got %v", err)
+	}
+	if reason, ok := signalRejectionReason(err); !ok || !strings.Contains(reason, "no structural take-profit target") {
+		t.Fatalf("expected structural target rejection, got %q err=%v", reason, err)
+	}
+}
+
+func TestCandidateSignalKeepsNearStructuralTargetForBreakoutSetup(t *testing.T) {
+	rule := StrategyRule{
+		ID:        "breakout_long",
+		Version:   "v1",
+		Timeframe: "5m",
+		Action:    "open_long",
+		Execution: RuleExecution{
+			Leverage:        2,
+			PositionSizeUSD: 100,
+			StopLossPct:     2,
+			TakeProfitPct:   5,
+			Confidence:      80,
+		},
+	}
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"atr": {{Name: "atr", Timeframe: "5m", Period: 14, Value: 10}},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"support_resistance": {{
+				Name:      "support_resistance",
+				Timeframe: "5m",
+				Valid:     true,
+				KeyLevels: map[string]float64{"support": 95, "resistance": 102},
+			}},
+		},
+	}
+
 	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
 	if err != nil {
-		t.Fatalf("buildCandidateSignal returned error: %v", err)
+		t.Fatalf("breakout signal should keep near structural target for later risk review, got error: %v", err)
 	}
 	levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace)
 	if !ok {
 		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
 	}
-	if levels.TargetSource != "execution_take_profit_pct" || signal.TakeProfit != 105 {
-		t.Fatalf("expected trend setup to use percent target fallback, got signal=%+v levels=%+v", signal, levels)
+	if levels.TargetSource != "support_resistance.resistance" || signal.TakeProfit != 102 {
+		t.Fatalf("expected breakout target to remain the structural resistance, got signal=%+v levels=%+v", signal, levels)
+	}
+	if levels.RiskReward >= levels.TargetRiskReward {
+		t.Fatalf("fixture should keep low RR for risk gate instead of moving target, got %+v", levels)
 	}
 }
 
@@ -677,12 +790,22 @@ func TestCandidateSignalKeepsTechnicalTargetWhenATRBufferWidensStop(t *testing.T
 	}
 
 	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{})
-	if !errors.Is(err, errSignalRejected) {
-		t.Fatalf("expected technical target to remain unchanged and be rejected for low RR, got signal=%+v err=%v", signal, err)
+	if err != nil {
+		t.Fatalf("expected technical target to remain unchanged for downstream risk gate, got err=%v", err)
+	}
+	levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace)
+	if !ok {
+		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
+	}
+	if signal.TakeProfit != 120 || levels.TargetSource != "support_resistance.resistance" {
+		t.Fatalf("expected ATR buffer to widen stop without moving structural take profit, got signal=%+v levels=%+v", signal, levels)
+	}
+	if levels.RiskReward >= levels.TargetRiskReward {
+		t.Fatalf("fixture should expose low RR to risk gate instead of moving target, got %+v", levels)
 	}
 }
 
-func TestTraceSetupEvaluationsLabelsNoTradeChop(t *testing.T) {
+func TestTraceSetupEvaluationsBlocksMissingStructureSetup(t *testing.T) {
 	scoring := testScoringStrategy()
 	scoring.Timeframe = "15m"
 	scoring.EntryTimeframe = "5m"
@@ -702,20 +825,19 @@ func TestTraceSetupEvaluationsLabelsNoTradeChop(t *testing.T) {
 	if traces[0].Eligible {
 		t.Fatalf("expected neutral trace to be ineligible: %+v", traces[0])
 	}
-	if traces[0].Setup != "no_trade_chop" {
-		t.Fatalf("expected no_trade_chop setup, got %+v", traces[0])
+	if traces[0].Setup != "no_trade_no_structure_setup" {
+		t.Fatalf("expected missing structure setup to block trading, got %+v", traces[0])
 	}
 }
 
-func TestSetupSignalEngineLabelsBreakout(t *testing.T) {
+func TestSetupSignalEngineUsesStructureBreakoutSetup(t *testing.T) {
 	scoring := testScoringStrategy()
 	scoring.Timeframe = "15m"
 	scoring.EntryTimeframe = "5m"
 	scoring.ConfirmationTimeframes = []string{"1h"}
 	snapshot := testMultiTimeframeSetupSnapshot()
-	snapshot.Technical["break_above_donchian"] = []market.IndicatorPoint{
-		{Name: "break_above_donchian", Timeframe: "15m", Period: 20, Value: 1},
-	}
+	snapshot.Structures["setup"][0].Setup = "breakout_long"
+	snapshot.Structures["setup"][0].Signals = []string{"confirmed range break", "price above resistance"}
 
 	signals, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
 		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
@@ -733,6 +855,234 @@ func TestSetupSignalEngineLabelsBreakout(t *testing.T) {
 	}
 	if signals[0].RuleID != "breakout_long" {
 		t.Fatalf("expected breakout_long setup, got %+v", signals[0])
+	}
+}
+
+func TestSetupSignalEngineDoesNotOpenFromScoresWithoutStructureSetup(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = []string{"1h"}
+	snapshot := testMultiTimeframeSetupSnapshot()
+	snapshot.Structures = nil
+
+	signals, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(3, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if len(signals) != 0 {
+		t.Fatalf("expected no signal without deterministic structure setup, got %+v", signals)
+	}
+
+	traces := TraceSetupEvaluations(SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+	})
+	if len(traces) != 1 || traces[0].Setup != "no_trade_no_structure_setup" || traces[0].Eligible {
+		t.Fatalf("expected no_trade_no_structure_setup trace, got %+v", traces)
+	}
+	if traces[0].Primary.Score < scoring.LongThreshold {
+		t.Fatalf("test fixture should still have strong score evidence, got %+v", traces[0])
+	}
+}
+
+func TestSetupSignalEngineUsesStructureSetupBeforeScoreThreshold(t *testing.T) {
+	scoring := testScoringStrategy()
+	scoring.SelectedFactors = []string{"trend"}
+	scoring.FactorWeights = map[string]float64{"trend": 1}
+	scoring.Timeframe = "15m"
+	scoring.EntryTimeframe = "5m"
+	scoring.ConfirmationTimeframes = nil
+	snapshot := &market.FactorSnapshot{
+		Symbol: "BTCUSDT",
+		AsOf:   time.Unix(1, 0).UTC(),
+		Technical: map[string][]market.IndicatorPoint{
+			"price": {
+				{Name: "price", Value: 100},
+				{Name: "price", Timeframe: "15m", Value: 100},
+				{Name: "price", Timeframe: "5m", Value: 100},
+			},
+			"ema": {
+				{Name: "ema", Timeframe: "15m", Period: 20, Value: 101},
+				{Name: "ema", Timeframe: "15m", Period: 50, Value: 99},
+				{Name: "ema", Timeframe: "5m", Period: 20, Value: 101},
+				{Name: "ema", Timeframe: "5m", Period: 50, Value: 99},
+			},
+			"macd_histogram": {
+				{Name: "macd_histogram", Timeframe: "15m", Value: 1},
+				{Name: "macd_histogram", Timeframe: "5m", Value: 1},
+			},
+			"atr": {
+				{Name: "atr", Timeframe: "15m", Period: 14, Value: 1},
+				{Name: "atr", Timeframe: "5m", Period: 14, Value: 1},
+			},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"setup": {{
+				Name:      "setup",
+				Timeframe: "15m",
+				Valid:     true,
+				Setup:     "trend_continuation_long",
+				Direction: "long",
+				Signals:   []string{"HH/HL trend", "current leg supports continuation"},
+			}},
+			"market_structure": {{
+				Name:      "market_structure",
+				Timeframe: "15m",
+				Valid:     true,
+				Direction: "up",
+				KeyLevels: map[string]float64{"support": 95, "resistance": 120},
+			}},
+		},
+	}
+
+	signals, err := NewSetupSignalEngine().Generate(context.Background(), SignalRequest{
+		Candidates: []CandidateCoin{{Symbol: "BTCUSDT"}},
+		Scoring:    scoring,
+		FactorSnapshot: map[string]*market.FactorSnapshot{
+			"BTCUSDT": snapshot,
+		},
+		Now: time.Unix(4, 0).UTC(),
+	})
+	if err != nil {
+		t.Fatalf("Generate returned error: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("expected structure setup signal despite score below old threshold, got %d", len(signals))
+	}
+	if signals[0].RuleID != "trend_continuation_long" || signals[0].Action != "open_long" {
+		t.Fatalf("expected structure-driven trend continuation, got %+v", signals[0])
+	}
+	setup, ok := signals[0].Evidence["setup"].(SetupEvaluationTrace)
+	if !ok || setup.Primary.Score >= scoring.LongThreshold {
+		t.Fatalf("expected setup evidence with sub-threshold score, got %#v", signals[0].Evidence["setup"])
+	}
+}
+
+func TestPreferredStructureSetupUsesEntryTriggerWhenPrimaryWaits(t *testing.T) {
+	snapshot := &market.FactorSnapshot{
+		Structures: map[string][]market.StructureSnapshot{
+			"setup": {
+				{
+					Name:      "setup",
+					Timeframe: "15m",
+					Valid:     false,
+					Setup:     "no_trade_wait_trigger",
+					Direction: "long",
+					Signals:   []string{"HH/HL trend", "waiting for entry trigger"},
+				},
+				{
+					Name:      "setup",
+					Timeframe: "5m",
+					Valid:     true,
+					Setup:     "trend_pullback_long",
+					Direction: "long",
+					Signals:   []string{"HH/HL trend", "pullback near latest support"},
+				},
+			},
+		},
+	}
+
+	setup, ok := preferredStructureSetup(snapshot, TimeframeRoleTrace{Primary: "15m", Entry: "5m"})
+	if !ok {
+		t.Fatal("expected preferred setup")
+	}
+	if setup.Setup != "trend_pullback_long" || setup.Timeframe != "5m" {
+		t.Fatalf("expected entry trigger to outrank primary wait state, got %+v", setup)
+	}
+}
+
+func TestPreferredStructureSetupKeepsPrimaryInvalidationAsHardBlock(t *testing.T) {
+	snapshot := &market.FactorSnapshot{
+		Structures: map[string][]market.StructureSnapshot{
+			"setup": {
+				{
+					Name:      "setup",
+					Timeframe: "15m",
+					Valid:     false,
+					Setup:     "no_trade_structure_invalidated",
+					Phase:     "invalidated",
+				},
+				{
+					Name:      "setup",
+					Timeframe: "5m",
+					Valid:     true,
+					Setup:     "trend_pullback_long",
+					Direction: "long",
+				},
+			},
+		},
+	}
+
+	setup, ok := preferredStructureSetup(snapshot, TimeframeRoleTrace{Primary: "15m", Entry: "5m"})
+	if !ok {
+		t.Fatal("expected preferred setup")
+	}
+	if setup.Setup != "no_trade_structure_invalidated" || setup.Timeframe != "15m" {
+		t.Fatalf("expected primary invalidation to remain a hard block, got %+v", setup)
+	}
+}
+
+func TestPreferredStructureSetupDoesNotUseConfirmationWhenPrimaryEntryAreNoTrade(t *testing.T) {
+	snapshot := &market.FactorSnapshot{
+		Structures: map[string][]market.StructureSnapshot{
+			"setup": {
+				{
+					Name:      "setup",
+					Timeframe: "15m",
+					Valid:     false,
+					Setup:     "no_trade_chop",
+					Direction: "neutral",
+				},
+				{
+					Name:      "setup",
+					Timeframe: "5m",
+					Valid:     false,
+					Setup:     "no_trade_chop",
+					Direction: "neutral",
+				},
+				{
+					Name:      "setup",
+					Timeframe: "1h",
+					Valid:     true,
+					Setup:     "failed_breakout_short",
+					Direction: "short",
+				},
+			},
+		},
+	}
+
+	setup, ok := preferredStructureSetup(snapshot, TimeframeRoleTrace{Primary: "15m", Entry: "5m", Confirmations: []string{"1h"}})
+	if !ok {
+		t.Fatal("expected preferred setup")
+	}
+	if setup.Setup != "no_trade_chop" || setup.Timeframe != "15m" {
+		t.Fatalf("expected primary no-trade setup to block confirmation-only trade, got %+v", setup)
+	}
+}
+
+func TestScoresSupportStructureSetupRejectsStrongOppositeReversalEvidence(t *testing.T) {
+	if scoresSupportStructureSetup("open_short", "failed_breakout_short", ScoringEvaluationTrace{Score: 41}, ScoringEvaluationTrace{Score: -10}) {
+		t.Fatal("expected strongly bullish primary score to reject failed-breakout short")
+	}
+	if !scoresSupportStructureSetup("open_short", "failed_breakout_short", ScoringEvaluationTrace{Score: 10}, ScoringEvaluationTrace{Score: -10}) {
+		t.Fatal("expected neutral primary score with bearish entry to allow failed-breakout short")
+	}
+	if scoresSupportStructureSetup("open_long", "range_reversal_long", ScoringEvaluationTrace{Score: -41}, ScoringEvaluationTrace{Score: 10}) {
+		t.Fatal("expected strongly bearish primary score to reject reversal long")
+	}
+	if !scoresSupportStructureSetup("open_long", "range_reversal_long", ScoringEvaluationTrace{Score: -10}, ScoringEvaluationTrace{Score: 10}) {
+		t.Fatal("expected neutral primary score with bullish entry to allow reversal long")
 	}
 }
 
@@ -761,85 +1111,6 @@ func TestTrendScoreUsesTimeframePrice(t *testing.T) {
 	}
 	if score <= 0 {
 		t.Fatalf("expected 5m timeframe price to produce bullish trend score, got %.2f", score)
-	}
-}
-
-func TestSupportResistanceBounceUsesTimeframePrice(t *testing.T) {
-	snapshot := &market.FactorSnapshot{
-		Symbol: "BTCUSDT",
-		AsOf:   time.Unix(1, 0).UTC(),
-		Technical: map[string][]market.IndicatorPoint{
-			"price": {
-				{Name: "price", Value: 100},
-				{Name: "price", Timeframe: "5m", Value: 120},
-			},
-		},
-		Structures: map[string][]market.StructureSnapshot{
-			"support_resistance": {
-				{
-					Name:      "support_resistance",
-					Timeframe: "5m",
-					Valid:     true,
-					KeyLevels: map[string]float64{"support": 119},
-				},
-			},
-		},
-	}
-
-	if !hasSupportResistanceBounce("long", "5m", snapshot) {
-		t.Fatalf("expected 5m support bounce to use 5m price")
-	}
-}
-
-func TestRangeReversalArchetypeAllowsModeratePrimaryScore(t *testing.T) {
-	scoring := testScoringStrategy()
-	scoring.StrategyArchetype = "range_reversal"
-	primary := ScoringEvaluationTrace{Score: 50}
-	entry := ScoringEvaluationTrace{Score: 25}
-	roles := TimeframeRoleTrace{Primary: "15m", Entry: "15m"}
-	snapshot := &market.FactorSnapshot{
-		Symbol: "BTCUSDT",
-		Technical: map[string][]market.IndicatorPoint{
-			"price": {{Name: "price", Timeframe: "15m", Value: 100}},
-		},
-		Structures: map[string][]market.StructureSnapshot{
-			"support_resistance": {{
-				Name:      "support_resistance",
-				Timeframe: "15m",
-				Valid:     true,
-				KeyLevels: map[string]float64{"support": 99},
-			}},
-		},
-	}
-
-	if !isRangeReversalCandidate(scoring, "long", primary, entry, snapshot, roles) {
-		t.Fatal("expected range_reversal archetype to allow a moderate primary score when structure bounce exists")
-	}
-	scoring.StrategyArchetype = ""
-	if isRangeReversalCandidate(scoring, "long", primary, entry, snapshot, roles) {
-		t.Fatal("default archetype should keep the stricter neutral-primary range check")
-	}
-}
-
-func TestVolatilityBreakoutArchetypeUsesDonchianBreakout(t *testing.T) {
-	scoring := testScoringStrategy()
-	scoring.StrategyArchetype = "volatility_breakout"
-	primary := ScoringEvaluationTrace{Score: 40}
-	entry := ScoringEvaluationTrace{Score: 25}
-	roles := TimeframeRoleTrace{Primary: "15m", Entry: "15m"}
-	snapshot := &market.FactorSnapshot{
-		Symbol: "BTCUSDT",
-		Technical: map[string][]market.IndicatorPoint{
-			"break_above_donchian": {{Name: "break_above_donchian", Timeframe: "15m", Period: 20, Value: 1}},
-		},
-	}
-
-	if !isVolatilityBreakoutCandidate(scoring, "long", primary, entry, snapshot, roles) {
-		t.Fatal("expected volatility_breakout archetype to allow Donchian breakout with moderate trend score")
-	}
-	scoring.StrategyArchetype = "breakout"
-	if isVolatilityBreakoutCandidate(scoring, "long", primary, entry, snapshot, roles) {
-		t.Fatal("non-volatility archetypes should not use the lower breakout threshold")
 	}
 }
 
@@ -960,6 +1231,23 @@ func testMultiTimeframeSetupSnapshot() *market.FactorSnapshot {
 				{Name: "atr", Timeframe: "1h", Period: 14, Value: 4},
 			},
 		},
+		Structures: map[string][]market.StructureSnapshot{
+			"setup": {{
+				Name:      "setup",
+				Timeframe: "15m",
+				Valid:     true,
+				Setup:     "trend_continuation_long",
+				Direction: "long",
+				Signals:   []string{"HH/HL trend", "current leg supports continuation"},
+			}},
+			"market_structure": {{
+				Name:      "market_structure",
+				Timeframe: "15m",
+				Valid:     true,
+				Direction: "up",
+				KeyLevels: map[string]float64{"support": 95, "resistance": 130},
+			}},
+		},
 	}
 }
 
@@ -992,6 +1280,23 @@ func testBearishMultiTimeframeSetupSnapshot() *market.FactorSnapshot {
 				{Name: "atr", Timeframe: "15m", Period: 14, Value: 3},
 				{Name: "atr", Timeframe: "1h", Period: 14, Value: 4},
 			},
+		},
+		Structures: map[string][]market.StructureSnapshot{
+			"setup": {{
+				Name:      "setup",
+				Timeframe: "15m",
+				Valid:     true,
+				Setup:     "trend_continuation_short",
+				Direction: "short",
+				Signals:   []string{"LL/LH trend", "current leg supports continuation"},
+			}},
+			"market_structure": {{
+				Name:      "market_structure",
+				Timeframe: "15m",
+				Valid:     true,
+				Direction: "down",
+				KeyLevels: map[string]float64{"support": 70, "resistance": 105},
+			}},
 		},
 	}
 }

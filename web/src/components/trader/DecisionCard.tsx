@@ -126,9 +126,11 @@ function statusText(status: unknown, language: Language): string {
 function setupLabel(setup: string | undefined, language: Language): string {
   if (!setup) return language === 'zh' ? '未分类' : 'Unclassified'
   const zh: Record<string, string> = {
-    no_trade_threshold_not_met: '未达到阈值',
+    no_trade_threshold_not_met: '证据不足',
     no_trade_insufficient_evidence: '证据不足',
     no_trade_chop: '震荡过滤',
+    no_trade_structure_invalidated: '结构已失效',
+    no_trade_wait_trigger: '等待触发',
     trend_continuation_long: '多头趋势延续',
     trend_continuation_short: '空头趋势延续',
     trend_pullback_long: '多头趋势回调',
@@ -137,6 +139,8 @@ function setupLabel(setup: string | undefined, language: Language): string {
     breakout_short: '空头突破',
     breakout_retest_long: '多头突破回踩',
     breakout_retest_short: '空头突破回踩',
+    failed_breakout_long: '假跌破反转',
+    failed_breakout_short: '假突破回落',
     range_reversal_long: '区间多头反转',
     range_reversal_short: '区间空头反转',
     support_resistance_bounce_long: '支撑反弹',
@@ -224,6 +228,14 @@ function formatRatioPercent(value: unknown): string {
   return typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value * 100)}%` : '-'
 }
 
+function formatMetricPercent(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) ? `${value.toFixed(2)}%` : '-'
+}
+
+function formatMetricMultiple(value: unknown): string {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? `${value.toFixed(2)}x` : '-'
+}
+
 function marketDirectionReasons(marketContext: Record<string, any> | null, language: Language): string[] {
   if (!marketContext) return []
   const metrics = marketContext.metrics && typeof marketContext.metrics === 'object' ? marketContext.metrics : {}
@@ -240,6 +252,16 @@ function marketDirectionReasons(marketContext: Record<string, any> | null, langu
   }
   if (typeof metrics.external_signal_score === 'number') {
     reasons.push(language === 'zh' ? `外部信号 ${metrics.external_signal_score.toFixed(2)}` : `External score ${metrics.external_signal_score.toFixed(2)}`)
+  }
+  const normalizedRV = metrics.average_realized_vol_20_15m_equivalent ?? metrics.average_realized_vol_20
+  if (typeof normalizedRV === 'number') {
+    const atr = metrics.average_atr_percent_14_15m_equivalent ?? metrics.average_atr_percent_14
+    const expansion = metrics.average_realized_vol_expansion_ratio
+    reasons.push(
+      language === 'zh'
+        ? `波动 RV20 ${formatMetricPercent(normalizedRV)}，ATR ${formatMetricPercent(atr)}，扩张 ${formatMetricMultiple(expansion)}`
+        : `Vol RV20 ${formatMetricPercent(normalizedRV)}, ATR ${formatMetricPercent(atr)}, expansion ${formatMetricMultiple(expansion)}`
+    )
   }
   return reasons
 }
@@ -544,7 +566,7 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
   const parsedDecision = useMemo(() => parseDecisionJson(decision.decision_json), [decision.decision_json])
   const snapshotSymbols = useMemo(() => getSnapshotSymbols(parsedDecision), [parsedDecision])
   const setupEvaluations = useMemo(() => getArray(parsedDecision?.setup_evaluations), [parsedDecision])
-  const scoringEvaluations = useMemo(() => getArray(parsedDecision?.scoring_evaluations), [parsedDecision])
+  const evidenceEvaluations = useMemo(() => getArray(parsedDecision?.evidence_evaluations), [parsedDecision])
   const ruleEvaluations = useMemo(() => getArray(parsedDecision?.rule_evaluations), [parsedDecision])
   const reviews = useMemo(() => getArray(parsedDecision?.reviews), [parsedDecision])
   const riskRejected = useMemo(() => getArray(parsedDecision?.risk?.rejected), [parsedDecision])
@@ -693,7 +715,7 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
         </div>
       )}
 
-      {(setupEvaluations.length > 0 || scoringEvaluations.length > 0 || ruleEvaluations.length > 0 || reviews.length > 0 || riskRejected.length > 0 || marketContext || inputAudit) && (
+      {(setupEvaluations.length > 0 || evidenceEvaluations.length > 0 || ruleEvaluations.length > 0 || reviews.length > 0 || riskRejected.length > 0 || marketContext || inputAudit) && (
         <div
           className="rounded-lg p-3 mb-4"
           style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
@@ -1045,9 +1067,9 @@ export function DecisionCard({ decision, language, onSymbolClick }: DecisionCard
               )
             })}
           </div>
-          {setupEvaluations.length === 0 && scoringEvaluations.length > 0 && (
+          {setupEvaluations.length === 0 && evidenceEvaluations.length > 0 && (
             <div className="text-[11px]" style={{ color: '#A7B0BC' }}>
-              {language === 'zh' ? '本轮只有评分评估，没有 setup 评估。' : 'This cycle has scoring evaluations but no setup evaluation.'}
+              {language === 'zh' ? '本轮只有证据过滤评估，没有 setup 评估。' : 'This cycle has evidence-filter evaluations but no setup evaluation.'}
             </div>
           )}
         </div>

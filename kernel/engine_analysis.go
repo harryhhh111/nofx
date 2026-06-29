@@ -140,6 +140,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		ProtectiveATRBuffer:  riskConfig.StopLossATRBuffer,
 		ProtectiveTimeframes: protectiveTimeframesFromRiskControl(riskConfig),
 		FactorSnapshot:       factorSnapshots,
+		KlineWindows:         buildCalibrationKlineWindows(ctx),
 		Now:                  time.Now().UTC(),
 	}
 	result, err := tradingEngine.Evaluate(context.Background(), TradingEngineRequest{
@@ -150,6 +151,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		return nil, err
 	}
 
+	evidenceEvaluations := TraceEvidenceEvaluations(signalRequest)
 	decision := &FullDecision{
 		Timestamp:           time.Now(),
 		AIRequestDurationMs: aiCallDuration.Milliseconds(),
@@ -158,7 +160,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		MarketContext:       result.MarketContext,
 		Signals:             result.Signals,
 		SetupEvaluations:    result.SetupEvaluations,
-		ScoringEvaluations:  TraceScoringEvaluations(signalRequest),
+		EvidenceEvaluations: evidenceEvaluations,
 		RuleEvaluations:     result.RuleEvaluations,
 		Reviews:             result.Reviews,
 		Risk:                result.Risk,
@@ -285,6 +287,53 @@ func buildFactorSnapshots(ctx *Context, config *store.StrategyConfig) (map[strin
 	}
 	EnrichExternalFactors(ctx, snapshots, asOf)
 	return snapshots, nil
+}
+
+func buildCalibrationKlineWindows(ctx *Context) map[string]map[string][]market.Kline {
+	if ctx == nil || len(ctx.MarketDataMap) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string][]market.Kline, len(ctx.MarketDataMap))
+	for symbol, data := range ctx.MarketDataMap {
+		if data == nil || len(data.TimeframeData) == 0 {
+			continue
+		}
+		timeframes := map[string][]market.Kline{}
+		for timeframe, tfData := range data.TimeframeData {
+			if timeframe == "" || tfData == nil {
+				continue
+			}
+			switch {
+			case len(tfData.ComputeBars) > 0:
+				timeframes[timeframe] = append([]market.Kline(nil), tfData.ComputeBars...)
+			case len(tfData.Klines) > 0:
+				timeframes[timeframe] = klineBarsToCalibrationKlines(tfData.Klines)
+			}
+		}
+		if len(timeframes) > 0 {
+			out[symbol] = timeframes
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func klineBarsToCalibrationKlines(bars []market.KlineBar) []market.Kline {
+	out := make([]market.Kline, 0, len(bars))
+	for _, bar := range bars {
+		out = append(out, market.Kline{
+			OpenTime:  bar.Time,
+			Open:      bar.Open,
+			High:      bar.High,
+			Low:       bar.Low,
+			Close:     bar.Close,
+			Volume:    bar.Volume,
+			CloseTime: bar.Time,
+		})
+	}
+	return out
 }
 
 func buildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *TradingInputAudit {
@@ -492,6 +541,9 @@ func requiredCalculationLookback(config *store.StrategyConfig) int {
 	}
 	if config.Structure.EnableSupportResistance {
 		required = maxInt(required, config.Structure.SupportResistance.Lookback)
+	}
+	if config.Structure.EnableMarketStructure {
+		required = maxInt(required, marketStructureMaxLookback(config.Structure.MarketStructure))
 	}
 	return required
 }
@@ -701,6 +753,30 @@ func StructureRequestFromStrategyConfig(config *store.StrategyConfig) market.Str
 	config.ClampLimits()
 	req := market.StructureRequest{}
 	timeframes := structureRequestTimeframes(config)
+	if config.ResolvedParameters.Structure.MarketStructure != nil {
+		structure := config.ResolvedParameters.Structure.MarketStructure
+		structureRequests := make([]market.MarketStructureRequest, 0, len(timeframes))
+		for _, timeframe := range timeframes {
+			if timeframe == "" {
+				continue
+			}
+			structureRequests = append(structureRequests, market.MarketStructureRequest{
+				Timeframe:           timeframe,
+				Lookback:            marketStructureLookbackForTimeframe(*structure, timeframe),
+				SwingWindow:         structure.SwingWindow,
+				MinLegBars:          structure.MinLegBars,
+				MinLegATRMultiple:   structure.MinLegATRMultiple,
+				ZigZagThresholdPct:  structure.ZigZagThresholdPct,
+				BreakoutBufferATR:   structure.BreakoutBufferATR,
+				RetestToleranceATR:  structure.RetestToleranceATR,
+				ExhaustionRSIPeriod: structure.ExhaustionRSIPeriod,
+			})
+		}
+		if len(structureRequests) > 0 {
+			req.MarketStructure = &structureRequests[0]
+			req.MarketStructures = structureRequests[1:]
+		}
+	}
 	if config.ResolvedParameters.Structure.Fibonacci != nil {
 		fib := config.ResolvedParameters.Structure.Fibonacci
 		fibRequests := make([]market.FibonacciRequest, 0, len(timeframes))
@@ -748,6 +824,23 @@ func StructureRequestFromStrategyConfig(config *store.StrategyConfig) market.Str
 	return req
 }
 
+func marketStructureLookbackForTimeframe(structure store.StructureMarketConfig, timeframe string) int {
+	if structure.LookbackByTimeframe != nil {
+		if lookback := structure.LookbackByTimeframe[timeframe]; lookback > 0 {
+			return lookback
+		}
+	}
+	return structure.Lookback
+}
+
+func marketStructureMaxLookback(structure store.StructureMarketConfig) int {
+	maxLookback := structure.Lookback
+	for _, lookback := range structure.LookbackByTimeframe {
+		maxLookback = maxInt(maxLookback, lookback)
+	}
+	return maxLookback
+}
+
 func structureRequestTimeframes(config *store.StrategyConfig) []string {
 	if config == nil {
 		return nil
@@ -772,6 +865,9 @@ func structureRequestTimeframes(config *store.StrategyConfig) []string {
 	}
 	if config.ResolvedParameters.Structure.SupportResistance != nil {
 		add(config.ResolvedParameters.Structure.SupportResistance.Timeframe)
+	}
+	if config.ResolvedParameters.Structure.MarketStructure != nil {
+		add(config.ResolvedParameters.Structure.MarketStructure.Timeframe)
 	}
 	return out
 }

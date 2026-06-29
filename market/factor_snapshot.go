@@ -13,31 +13,31 @@ type KlineWindowSpec struct {
 // IndicatorRequest describes the technical indicators the program should
 // calculate from OHLCV data. It intentionally contains parameters, not values.
 type IndicatorRequest struct {
-	EMAPeriods         []int         `json:"ema_periods,omitempty"`
-	SMAPeriods         []int         `json:"sma_periods,omitempty"`
-	RSIPeriods         []int         `json:"rsi_periods,omitempty"`
-	ATRPeriods         []int         `json:"atr_periods,omitempty"`
-	ADX                *ADXSpec      `json:"adx,omitempty"`
-	SAR                *SARSpec      `json:"sar,omitempty"`
-	BOLLPeriods        []BOLLSpec    `json:"boll_periods,omitempty"`
-	MACD               *MACDSpec     `json:"macd,omitempty"`
-	VWAPPeriods              []int         `json:"vwap_periods,omitempty"`
-	EnableVolume             bool          `json:"enable_volume,omitempty"`
-	VolumePeriods            []int         `json:"volume_periods,omitempty"`
-	VolumeSpikeMultiplier    float64       `json:"volume_spike_multiplier,omitempty"`
-	DonchianPeriods          []int         `json:"donchian_periods,omitempty"`
-	RollingPercentilePeriods []int         `json:"rolling_percentile_periods,omitempty"`
-	RealizedVolPeriods       []int         `json:"realized_vol_periods,omitempty"`
-	PriceChangeWindows       []int         `json:"price_change_windows,omitempty"`
-	PriceChangeNamedWindows  []string      `json:"price_change_named_windows,omitempty"`
-	Sessions                 []SessionSpec `json:"sessions,omitempty"`
+	EMAPeriods               []int             `json:"ema_periods,omitempty"`
+	SMAPeriods               []int             `json:"sma_periods,omitempty"`
+	RSIPeriods               []int             `json:"rsi_periods,omitempty"`
+	ATRPeriods               []int             `json:"atr_periods,omitempty"`
+	ADX                      *ADXSpec          `json:"adx,omitempty"`
+	SAR                      *SARSpec          `json:"sar,omitempty"`
+	BOLLPeriods              []BOLLSpec        `json:"boll_periods,omitempty"`
+	MACD                     *MACDSpec         `json:"macd,omitempty"`
+	VWAPPeriods              []int             `json:"vwap_periods,omitempty"`
+	EnableVolume             bool              `json:"enable_volume,omitempty"`
+	VolumePeriods            []int             `json:"volume_periods,omitempty"`
+	VolumeSpikeMultiplier    float64           `json:"volume_spike_multiplier,omitempty"`
+	DonchianPeriods          []int             `json:"donchian_periods,omitempty"`
+	RollingPercentilePeriods []int             `json:"rolling_percentile_periods,omitempty"`
+	RealizedVolPeriods       []int             `json:"realized_vol_periods,omitempty"`
+	PriceChangeWindows       []int             `json:"price_change_windows,omitempty"`
+	PriceChangeNamedWindows  []string          `json:"price_change_named_windows,omitempty"`
+	Sessions                 []SessionSpec     `json:"sessions,omitempty"`
 	OpeningRange             *OpeningRangeSpec `json:"opening_range,omitempty"`
-	EnableRBreaker           bool          `json:"enable_rbreaker,omitempty"`
-	EnableMTSI               bool          `json:"enable_mtsi,omitempty"`
-	EnableVolumeSpike        bool          `json:"enable_volume_spike,omitempty"`
-	EnableVWAP               bool          `json:"enable_vwap,omitempty"`
-	EnableDonchian           bool          `json:"enable_donchian,omitempty"`
-	EnableRollingPercentile  bool          `json:"enable_rolling_percentile,omitempty"`
+	EnableRBreaker           bool              `json:"enable_rbreaker,omitempty"`
+	EnableMTSI               bool              `json:"enable_mtsi,omitempty"`
+	EnableVolumeSpike        bool              `json:"enable_volume_spike,omitempty"`
+	EnableVWAP               bool              `json:"enable_vwap,omitempty"`
+	EnableDonchian           bool              `json:"enable_donchian,omitempty"`
+	EnableRollingPercentile  bool              `json:"enable_rolling_percentile,omitempty"`
 }
 
 type ADXSpec struct {
@@ -99,10 +99,15 @@ type StructureSnapshot struct {
 	Valid         bool               `json:"valid"`
 	Reason        string             `json:"reason,omitempty"`
 	Direction     string             `json:"direction,omitempty"`
+	Phase         string             `json:"phase,omitempty"`
+	Setup         string             `json:"setup,omitempty"`
+	Signals       []string           `json:"signals,omitempty"`
 	AnchorLow     *StructureAnchor   `json:"anchor_low,omitempty"`
 	AnchorHigh    *StructureAnchor   `json:"anchor_high,omitempty"`
+	CurrentLeg    *StructureLeg      `json:"current_leg,omitempty"`
 	InvalidPrice  float64            `json:"invalid_price,omitempty"`
 	KeyLevels     map[string]float64 `json:"key_levels,omitempty"`
+	Evidence      map[string]float64 `json:"evidence,omitempty"`
 	Confirmed     bool               `json:"confirmed"`
 	SourceTime    time.Time          `json:"source_time,omitempty"`
 	AvailableAt   time.Time          `json:"available_at,omitempty"`
@@ -114,6 +119,16 @@ type StructureAnchor struct {
 	Index int       `json:"index"`
 	Price float64   `json:"price"`
 	Kind  string    `json:"kind"`
+}
+
+type StructureLeg struct {
+	Direction   string          `json:"direction"`
+	From        StructureAnchor `json:"from"`
+	To          StructureAnchor `json:"to"`
+	Bars        int             `json:"bars"`
+	MovePct     float64         `json:"move_pct"`
+	ATRMultiple float64         `json:"atr_multiple"`
+	Confirmed   bool            `json:"confirmed"`
 }
 
 // ExternalFactor is the normalized form of data that cannot be calculated from

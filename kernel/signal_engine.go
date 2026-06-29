@@ -13,6 +13,7 @@ import (
 const defaultMinScoringAvailableWeightRatio = 0.5
 const defaultProtectiveATRBuffer = 2.0
 const defaultProtectiveRiskReward = 2.0
+const maxOppositePrimaryScoreForReversalSetup = 25.0
 
 var errSignalRejected = errors.New("signal rejected")
 
@@ -70,12 +71,6 @@ func (e *CompositeSignalEngine) Generate(ctx context.Context, req SignalRequest)
 		out = append(out, signals...)
 	}
 	return out, nil
-}
-
-type ScoreSignalEngine struct{}
-
-func NewScoreSignalEngine() *ScoreSignalEngine {
-	return &ScoreSignalEngine{}
 }
 
 type SetupSignalEngine struct{}
@@ -316,82 +311,6 @@ func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 	return out, nil
 }
 
-func (e *ScoreSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]CandidateSignal, error) {
-	if req.Scoring == nil || !req.Scoring.Enabled {
-		return nil, nil
-	}
-	if req.Now.IsZero() {
-		req.Now = time.Now().UTC()
-	}
-	if err := validateScoringStrategy(req.Scoring); err != nil {
-		return nil, err
-	}
-
-	symbols := candidateSymbolSet(req.Candidates, req.Positions)
-	out := []CandidateSignal{}
-	for symbol := range symbolsForScoring(req.Scoring, symbols) {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		snapshot := req.FactorSnapshot[symbol]
-		if snapshot == nil {
-			continue
-		}
-		trace := evaluateScoringSnapshot(req.Scoring, symbol, snapshot)
-		if !trace.Eligible {
-			continue
-		}
-		action := ""
-		threshold := 0.0
-		switch {
-		case trace.Score >= req.Scoring.LongThreshold:
-			action = "open_long"
-			threshold = req.Scoring.LongThreshold
-		case trace.Score <= req.Scoring.ShortThreshold:
-			action = "open_short"
-			threshold = req.Scoring.ShortThreshold
-		default:
-			continue
-		}
-		trace.Action = action
-		trace.Threshold = threshold
-		entry, ok := snapshotPrice(req.Scoring.Timeframe, snapshot)
-		if !ok || entry <= 0 {
-			return nil, fmt.Errorf("scoring signal for %s cannot open position without a positive entry price", symbol)
-		}
-		confidence := scoringConfidence(req.Scoring.MinConfidence, trace.Score)
-		rule := StrategyRule{
-			ID:        "scoring",
-			Version:   req.Scoring.Version,
-			Timeframe: req.Scoring.Timeframe,
-			Action:    action,
-			Execution: RuleExecution{
-				Leverage:        req.Scoring.Execution.Leverage,
-				PositionSizeUSD: req.Scoring.Execution.PositionSizeUSD,
-				StopLossPct:     req.Scoring.Execution.StopLossPct,
-				TakeProfitPct:   req.Scoring.Execution.TakeProfitPct,
-				Confidence:      confidence,
-			},
-			Enabled: true,
-		}
-		roles := TimeframeRoleTrace{Entry: req.Scoring.Timeframe, Primary: req.Scoring.Timeframe}
-		signal, err := buildCandidateSignal(rule, symbol, entry, fmt.Sprintf("score %.2f reached %s threshold", trace.Score, action), req.Now, snapshot, roles, req.ProtectiveATRBuffer, req.ProtectiveTimeframes)
-		if err != nil {
-			if errors.Is(err, errSignalRejected) {
-				continue
-			}
-			return nil, err
-		}
-		signal.Evidence["score"] = trace.Score
-		signal.Evidence["components"] = trace.Components
-		signal.Evidence["scoring"] = trace
-		out = append(out, signal)
-	}
-	return out, nil
-}
-
 func (e *RuleSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]CandidateSignal, error) {
 	if req.Now.IsZero() {
 		req.Now = time.Now().UTC()
@@ -504,7 +423,7 @@ func TraceRuleEvaluations(req SignalRequest) []RuleEvaluationTrace {
 	return traces
 }
 
-func TraceScoringEvaluations(req SignalRequest) []ScoringEvaluationTrace {
+func TraceEvidenceEvaluations(req SignalRequest) []ScoringEvaluationTrace {
 	if req.Scoring == nil || !req.Scoring.Enabled {
 		return nil
 	}
@@ -526,16 +445,7 @@ func TraceScoringEvaluations(req SignalRequest) []ScoringEvaluationTrace {
 			})
 			continue
 		}
-		trace := evaluateScoringSnapshot(req.Scoring, symbol, snapshot)
-		switch {
-		case trace.Eligible && trace.Score >= req.Scoring.LongThreshold:
-			trace.Action = "open_long"
-			trace.Threshold = req.Scoring.LongThreshold
-		case trace.Eligible && trace.Score <= req.Scoring.ShortThreshold:
-			trace.Action = "open_short"
-			trace.Threshold = req.Scoring.ShortThreshold
-		}
-		traces = append(traces, trace)
+		traces = append(traces, evaluateScoringSnapshot(req.Scoring, symbol, snapshot))
 	}
 	return traces
 }
@@ -738,50 +648,176 @@ func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *ma
 	}
 
 	longConfirmOK, shortConfirmOK, confirmReason := confirmationDirection(confirmations)
-	longSetup, longSignals := classifySetup("long", primary, entry, snapshot, roles)
-	shortSetup, shortSignals := classifySetup("short", primary, entry, snapshot, roles)
-	switch {
-	case primary.Score >= scoring.LongThreshold && entry.Score >= 20 && longConfirmOK:
-		trace.Eligible = true
-		trace.Action = "open_long"
-		trace.Setup = longSetup
-		trace.Signals = longSignals
-		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case primary.Score <= scoring.ShortThreshold && entry.Score <= -20 && shortConfirmOK:
-		trace.Eligible = true
-		trace.Action = "open_short"
-		trace.Setup = shortSetup
-		trace.Signals = shortSignals
-		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case isVolatilityBreakoutCandidate(scoring, "long", primary, entry, snapshot, roles) && longConfirmOK:
-		trace.Eligible = true
-		trace.Action = "open_long"
-		trace.Setup = "volatility_breakout_long"
-		trace.Signals = append(longSignals, "volatility breakout archetype", "donchian breakout")
-		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case isVolatilityBreakoutCandidate(scoring, "short", primary, entry, snapshot, roles) && shortConfirmOK:
-		trace.Eligible = true
-		trace.Action = "open_short"
-		trace.Setup = "volatility_breakout_short"
-		trace.Signals = append(shortSignals, "volatility breakout archetype", "donchian breakout")
-		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case isRangeReversalCandidate(scoring, "long", primary, entry, snapshot, roles) && longConfirmOK:
-		trace.Eligible = true
-		trace.Action = "open_long"
-		trace.Setup = "range_reversal_long"
-		trace.Signals = append(longSignals, "range-bound primary", "support or momentum exhaustion")
-		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	case isRangeReversalCandidate(scoring, "short", primary, entry, snapshot, roles) && shortConfirmOK:
-		trace.Eligible = true
-		trace.Action = "open_short"
-		trace.Setup = "range_reversal_short"
-		trace.Signals = append(shortSignals, "range-bound primary", "resistance or momentum exhaustion")
-		trace.Reason = fmt.Sprintf("%s: primary score %.2f, entry score %.2f, %s", trace.Setup, primary.Score, entry.Score, confirmReason)
-	default:
-		trace.Setup = classifyNoTradeSetup(primary, entry, confirmReason)
-		trace.Reason = noTradeReason(scoring, primary, entry, longConfirmOK, shortConfirmOK, confirmReason)
+	if setup, ok := preferredStructureSetup(snapshot, roles); ok {
+		trace = applyStructureSetup(scoring, trace, setup, longConfirmOK, shortConfirmOK, confirmReason)
+		if trace.Setup != "" {
+			return trace
+		}
+	}
+	trace.Setup = "no_trade_no_structure_setup"
+	trace.Reason = fmt.Sprintf("no deterministic structure setup available; score evidence only: primary %.2f, entry %.2f, %s", primary.Score, entry.Score, confirmReason)
+	return trace
+}
+
+func preferredStructureSetup(snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) (market.StructureSnapshot, bool) {
+	if snapshot == nil || snapshot.Structures == nil {
+		return market.StructureSnapshot{}, false
+	}
+	primaryEntrySetups := structureSetupsForTimeframes(snapshot, uniqueTimeframes(roles.Primary, roles.Entry))
+	for _, setup := range primaryEntrySetups {
+		if structureSetupHardBlocks(setup) {
+			return setup, true
+		}
+	}
+	for _, setup := range primaryEntrySetups {
+		if actionableStructureSetup(setup) {
+			return setup, true
+		}
+	}
+	for _, setup := range primaryEntrySetups {
+		if strings.TrimSpace(setup.Setup) != "" {
+			return setup, true
+		}
+	}
+	confirmationSetups := structureSetupsForTimeframes(snapshot, roles.Confirmations)
+	for _, setup := range confirmationSetups {
+		if actionableStructureSetup(setup) {
+			return setup, true
+		}
+	}
+	for _, setup := range append(primaryEntrySetups, confirmationSetups...) {
+		if strings.TrimSpace(setup.Setup) != "" {
+			return setup, true
+		}
+	}
+	for _, setup := range snapshot.Structures["setup"] {
+		if actionableStructureSetup(setup) || strings.TrimSpace(setup.Setup) != "" {
+			return setup, true
+		}
+	}
+	return market.StructureSnapshot{}, false
+}
+
+func structureSetupsForTimeframes(snapshot *market.FactorSnapshot, timeframes []string) []market.StructureSnapshot {
+	out := []market.StructureSnapshot{}
+	for _, timeframe := range timeframes {
+		if setup, ok := structureSetupForTimeframe(snapshot, timeframe); ok {
+			out = append(out, setup)
+		}
+	}
+	return out
+}
+
+func structureSetupForTimeframe(snapshot *market.FactorSnapshot, timeframe string) (market.StructureSnapshot, bool) {
+	for _, setup := range snapshot.Structures["setup"] {
+		if timeframe != "" && setup.Timeframe != timeframe {
+			continue
+		}
+		if strings.TrimSpace(setup.Setup) != "" {
+			return setup, true
+		}
+	}
+	return market.StructureSnapshot{}, false
+}
+
+func actionableStructureSetup(setup market.StructureSnapshot) bool {
+	name := strings.TrimSpace(setup.Setup)
+	return setup.Valid && name != "" && !strings.HasPrefix(name, "no_trade") && actionForStructureSetup(setup) != ""
+}
+
+func structureSetupHardBlocks(setup market.StructureSnapshot) bool {
+	name := strings.TrimSpace(setup.Setup)
+	return setup.Phase == "invalidated" || name == "no_trade_structure_invalidated"
+}
+
+func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, setup market.StructureSnapshot, longConfirmOK, shortConfirmOK bool, confirmReason string) SetupEvaluationTrace {
+	name := strings.TrimSpace(setup.Setup)
+	if name == "" {
+		return trace
+	}
+	if !setup.Valid || strings.HasPrefix(name, "no_trade") {
+		trace.Setup = name
+		trace.Signals = append([]string(nil), setup.Signals...)
+		trace.Reason = fmt.Sprintf("%s: %s", name, nonEmptyReason(setup.Reason, "structure detector did not find a tradable setup"))
+		return trace
+	}
+	action := actionForStructureSetup(setup)
+	if action == "" {
+		trace.Setup = "no_trade_insufficient_evidence"
+		trace.Reason = fmt.Sprintf("structure setup %s has no actionable direction", name)
+		return trace
+	}
+	if !scoresSupportStructureSetup(action, name, trace.Primary, trace.Entry) {
+		trace.Setup = "no_trade_threshold_not_met"
+		trace.Signals = append([]string(nil), setup.Signals...)
+		trace.Reason = fmt.Sprintf("structure setup %s exists, but score evidence does not support %s: primary %.2f, entry %.2f", name, action, trace.Primary.Score, trace.Entry.Score)
+		return trace
+	}
+	if action == "open_long" && !longConfirmOK {
+		trace.Setup = "no_trade_threshold_not_met"
+		trace.Signals = append([]string(nil), setup.Signals...)
+		trace.Reason = fmt.Sprintf("structure setup %s blocked by confirmation timeframe: %s", name, confirmReason)
+		return trace
+	}
+	if action == "open_short" && !shortConfirmOK {
+		trace.Setup = "no_trade_threshold_not_met"
+		trace.Signals = append([]string(nil), setup.Signals...)
+		trace.Reason = fmt.Sprintf("structure setup %s blocked by confirmation timeframe: %s", name, confirmReason)
+		return trace
+	}
+	trace.Eligible = true
+	trace.Action = action
+	trace.Setup = name
+	trace.Signals = append([]string(nil), setup.Signals...)
+	trace.Reason = fmt.Sprintf("%s: structural setup confirmed; primary score %.2f, entry score %.2f, %s", name, trace.Primary.Score, trace.Entry.Score, confirmReason)
+	if len(trace.Signals) == 0 {
+		trace.Signals = append(trace.Signals, "deterministic market structure setup")
+	}
+	if scoring != nil && scoring.MinConfidence > 0 {
+		trace.Primary.Threshold = scoring.LongThreshold
+		if action == "open_short" {
+			trace.Primary.Threshold = scoring.ShortThreshold
+		}
 	}
 	return trace
+}
+
+func actionForStructureSetup(setup market.StructureSnapshot) string {
+	direction := strings.ToLower(strings.TrimSpace(setup.Direction))
+	name := strings.ToLower(strings.TrimSpace(setup.Setup))
+	if direction == "long" || strings.HasSuffix(name, "_long") {
+		return "open_long"
+	}
+	if direction == "short" || strings.HasSuffix(name, "_short") {
+		return "open_short"
+	}
+	return ""
+}
+
+func scoresSupportStructureSetup(action, setup string, primary, entry ScoringEvaluationTrace) bool {
+	reversal := strings.Contains(setup, "reversal") || strings.Contains(setup, "bounce") || strings.Contains(setup, "exhaustion") || strings.Contains(setup, "failed_breakout")
+	switch action {
+	case "open_long":
+		if reversal {
+			return primary.Score > -maxOppositePrimaryScoreForReversalSetup && entry.Score >= 0
+		}
+		return primary.Score > 0 && entry.Score >= -5
+	case "open_short":
+		if reversal {
+			return primary.Score < maxOppositePrimaryScoreForReversalSetup && entry.Score <= 0
+		}
+		return primary.Score < 0 && entry.Score <= 5
+	default:
+		return false
+	}
+}
+
+func nonEmptyReason(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func applyProtectiveEligibilityToSetupTrace(scoring *ScoringStrategy, symbol string, snapshot *market.FactorSnapshot, trace SetupEvaluationTrace, atrBuffer float64, timeframeConfig ProtectiveTimeframeConfig) SetupEvaluationTrace {
@@ -870,200 +906,6 @@ func confirmationDirection(confirmations []ScoringEvaluationTrace) (bool, bool, 
 	return longOK, shortOK, fmt.Sprintf("%d confirmation timeframe(s) available", available)
 }
 
-func classifySetup(side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) (string, []string) {
-	signals := []string{}
-	breakout := hasBreakoutSignal(side, roles.Primary, snapshot)
-	structureBounce := hasSupportResistanceBounce(side, roles.Entry, snapshot) || hasSupportResistanceBounce(side, roles.Primary, snapshot)
-	exhaustion := hasMomentumExhaustion(side, roles.Entry, snapshot)
-
-	if breakout {
-		signals = append(signals, "donchian breakout")
-	}
-	if structureBounce {
-		signals = append(signals, "support/resistance bounce")
-	}
-	if exhaustion {
-		signals = append(signals, "momentum exhaustion")
-	}
-
-	if side == "long" {
-		if breakout && entry.Score < primary.Score {
-			return "breakout_retest_long", signals
-		}
-		if breakout {
-			return "breakout_long", signals
-		}
-		if structureBounce {
-			return "support_resistance_bounce_long", signals
-		}
-		if exhaustion {
-			return "momentum_exhaustion_long", signals
-		}
-		if entry.Score < primary.Score {
-			signals = append(signals, "entry pullback inside bullish primary trend")
-			return "trend_pullback_long", signals
-		}
-		signals = append(signals, "entry aligned with bullish primary trend")
-		return "trend_continuation_long", signals
-	}
-	if breakout && entry.Score > primary.Score {
-		return "breakout_retest_short", signals
-	}
-	if breakout {
-		return "breakout_short", signals
-	}
-	if structureBounce {
-		return "support_resistance_bounce_short", signals
-	}
-	if exhaustion {
-		return "momentum_exhaustion_short", signals
-	}
-	if entry.Score > primary.Score {
-		signals = append(signals, "entry pullback inside bearish primary trend")
-		return "trend_pullback_short", signals
-	}
-	signals = append(signals, "entry aligned with bearish primary trend")
-	return "trend_continuation_short", signals
-}
-
-func classifyNoTradeSetup(primary, entry ScoringEvaluationTrace, confirmReason string) string {
-	if strings.Contains(confirmReason, "unavailable") {
-		return "no_trade_insufficient_evidence"
-	}
-	if absFloat(primary.Score) < 35 && absFloat(entry.Score) < 35 {
-		return "no_trade_chop"
-	}
-	return "no_trade_threshold_not_met"
-}
-
-func noTradeReason(scoring *ScoringStrategy, primary, entry ScoringEvaluationTrace, longConfirmOK, shortConfirmOK bool, confirmReason string) string {
-	reasons := []string{fmt.Sprintf("primary score %.2f, entry score %.2f", primary.Score, entry.Score)}
-	longReady := primary.Score >= scoring.LongThreshold && entry.Score >= 20
-	shortReady := primary.Score <= scoring.ShortThreshold && entry.Score <= -20
-	if !longReady {
-		reasons = append(reasons, fmt.Sprintf("long not ready: primary %.2f < %.2f or entry %.2f < 20", primary.Score, scoring.LongThreshold, entry.Score))
-	}
-	if !shortReady {
-		reasons = append(reasons, fmt.Sprintf("short not ready: primary %.2f > %.2f or entry %.2f > -20", primary.Score, scoring.ShortThreshold, entry.Score))
-	}
-	if longReady && !longConfirmOK {
-		reasons = append(reasons, "long blocked by confirmation timeframe")
-	}
-	if shortReady && !shortConfirmOK {
-		reasons = append(reasons, "short blocked by confirmation timeframe")
-	}
-	if primary.Score < 0 && entry.Score > 20 {
-		reasons = append(reasons, "entry timeframe is rebounding against bearish primary bias")
-	}
-	if primary.Score > 0 && entry.Score < -20 {
-		reasons = append(reasons, "entry timeframe is pulling back against bullish primary bias")
-	}
-	reasons = append(reasons, confirmReason)
-	return "no setup: " + strings.Join(reasons, "; ")
-}
-
-func isRangeReversalCandidate(scoring *ScoringStrategy, side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) bool {
-	maxPrimaryAbs := 35.0
-	if scoringArchetype(scoring) == "range_reversal" {
-		maxPrimaryAbs = 55
-	}
-	if absFloat(primary.Score) > maxPrimaryAbs {
-		return false
-	}
-	switch side {
-	case "long":
-		return entry.Score >= 20 && (hasSupportResistanceBounce(side, roles.Entry, snapshot) || hasMomentumExhaustion(side, roles.Entry, snapshot))
-	case "short":
-		return entry.Score <= -20 && (hasSupportResistanceBounce(side, roles.Entry, snapshot) || hasMomentumExhaustion(side, roles.Entry, snapshot))
-	default:
-		return false
-	}
-}
-
-func isVolatilityBreakoutCandidate(scoring *ScoringStrategy, side string, primary, entry ScoringEvaluationTrace, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) bool {
-	if scoringArchetype(scoring) != "volatility_breakout" {
-		return false
-	}
-	if !hasBreakoutSignal(side, roles.Primary, snapshot) {
-		return false
-	}
-	switch side {
-	case "long":
-		return primary.Score >= 35 && entry.Score >= 20
-	case "short":
-		return primary.Score <= -35 && entry.Score <= -20
-	default:
-		return false
-	}
-}
-
-func scoringArchetype(scoring *ScoringStrategy) string {
-	if scoring == nil {
-		return ""
-	}
-	return strings.ToLower(strings.TrimSpace(scoring.StrategyArchetype))
-}
-
-func hasBreakoutSignal(side, timeframe string, snapshot *market.FactorSnapshot) bool {
-	if snapshot == nil {
-		return false
-	}
-	name := "break_above_donchian"
-	if side == "short" {
-		name = "break_below_donchian"
-	}
-	value, ok := snapshot.IndicatorValue(name, timeframe, 20)
-	return ok && value >= 0.5
-}
-
-func hasMomentumExhaustion(side, timeframe string, snapshot *market.FactorSnapshot) bool {
-	if snapshot == nil {
-		return false
-	}
-	rsi, ok := snapshot.IndicatorValue("rsi", timeframe, 14)
-	if !ok {
-		return false
-	}
-	if side == "long" {
-		return rsi <= 30
-	}
-	return rsi >= 70
-}
-
-func hasSupportResistanceBounce(side, timeframe string, snapshot *market.FactorSnapshot) bool {
-	if snapshot == nil {
-		return false
-	}
-	price, ok := snapshotPrice(timeframe, snapshot)
-	if !ok || price <= 0 {
-		return false
-	}
-	for _, structure := range snapshot.Structures["support_resistance"] {
-		if timeframe != "" && structure.Timeframe != timeframe {
-			continue
-		}
-		if !structure.Valid || structure.KeyLevels == nil {
-			continue
-		}
-		if side == "long" {
-			if support := structure.KeyLevels["support"]; support > 0 {
-				distance := (price - support) / price * 100
-				if distance >= 0 && distance <= 1.5 {
-					return true
-				}
-			}
-			continue
-		}
-		if resistance := structure.KeyLevels["resistance"]; resistance > 0 {
-			distance := (resistance - price) / price * 100
-			if distance >= 0 && distance <= 1.5 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func setupConfidence(minConfidence int, trace SetupEvaluationTrace) int {
 	score := (absFloat(trace.Primary.Score) + absFloat(trace.Entry.Score)) / 2
 	return scoringConfidence(minConfidence, score)
@@ -1149,7 +991,7 @@ func calculateProtectiveLevels(setup, action string, entry float64, execution Ru
 	}
 	atr, atrTF, ok := preferredATR(snapshot, timeframes.ATR)
 	if !ok || atr <= 0 {
-		return trace, fmt.Errorf("ATR14 is required for market-based stop loss and take profit")
+		return trace, rejectSignal("ATR14 is required for market-based stop loss and take profit")
 	}
 	trace.ATR = atr
 	trace.ATRTimeframe = atrTF
@@ -1157,69 +999,45 @@ func calculateProtectiveLevels(setup, action string, entry float64, execution Ru
 	switch action {
 	case "open_long":
 		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("long", entry, snapshot, timeframes.Stop)
-		if hasStopAnchor {
-			trace.StopLoss = stopAnchor - atr*trace.ATRBuffer
-			trace.StopAnchor = stopAnchor
-			trace.StopTimeframe = stopTF
-			trace.StopSource = stopSource
-		} else {
-			trace.StopLoss = entry - atr*trace.ATRBuffer
-			trace.StopTimeframe = atrTF
-			trace.StopSource = "atr_volatility"
+		if !hasStopAnchor {
+			return trace, rejectSignal("long setup %q has no structural stop-loss anchor", setup)
 		}
+		trace.StopLoss = stopAnchor - atr*trace.ATRBuffer
+		trace.StopAnchor = stopAnchor
+		trace.StopTimeframe = stopTF
+		trace.StopSource = stopSource
 		if trace.StopLoss <= 0 || trace.StopLoss >= entry {
 			return trace, fmt.Errorf("long stop loss %.8f is not below entry %.8f", trace.StopLoss, entry)
 		}
 		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("long", entry, snapshot, timeframes.Target)
 		if hasTargetAnchor && targetAnchor > entry {
-			actualRR := protectiveRiskReward(action, entry, trace.StopLoss, targetAnchor)
-			if actualRR < trace.TargetRiskReward {
-				return trace, rejectSignal("long structural target %.8f risk/reward %.4f is below required %.4f", targetAnchor, actualRR, trace.TargetRiskReward)
-			}
 			trace.TakeProfit = targetAnchor
 			trace.TargetAnchor = targetAnchor
 			trace.TargetTimeframe = targetTF
 			trace.TargetSource = targetSource
 		} else {
-			if !allowsRiskRewardProjection(setup) {
-				return trace, rejectSignal("long setup %q has no structural target, risk/reward projection is not allowed", setup)
-			}
-			trace.TakeProfit = entry * (1 + execution.TakeProfitPct/100)
-			trace.TargetTimeframe = trace.ATRTimeframe
-			trace.TargetSource = "execution_take_profit_pct"
+			return trace, rejectSignal("long setup %q has no structural take-profit target", setup)
 		}
 	case "open_short":
 		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("short", entry, snapshot, timeframes.Stop)
-		if hasStopAnchor {
-			trace.StopLoss = stopAnchor + atr*trace.ATRBuffer
-			trace.StopAnchor = stopAnchor
-			trace.StopTimeframe = stopTF
-			trace.StopSource = stopSource
-		} else {
-			trace.StopLoss = entry + atr*trace.ATRBuffer
-			trace.StopTimeframe = atrTF
-			trace.StopSource = "atr_volatility"
+		if !hasStopAnchor {
+			return trace, rejectSignal("short setup %q has no structural stop-loss anchor", setup)
 		}
+		trace.StopLoss = stopAnchor + atr*trace.ATRBuffer
+		trace.StopAnchor = stopAnchor
+		trace.StopTimeframe = stopTF
+		trace.StopSource = stopSource
 		if trace.StopLoss <= entry {
 			return trace, fmt.Errorf("short stop loss %.8f is not above entry %.8f", trace.StopLoss, entry)
 		}
 		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("short", entry, snapshot, timeframes.Target)
 		if hasTargetAnchor && targetAnchor > 0 && targetAnchor < entry {
-			actualRR := protectiveRiskReward(action, entry, trace.StopLoss, targetAnchor)
-			if actualRR < trace.TargetRiskReward {
-				return trace, rejectSignal("short structural target %.8f risk/reward %.4f is below required %.4f", targetAnchor, actualRR, trace.TargetRiskReward)
-			}
 			trace.TakeProfit = targetAnchor
 			trace.TargetAnchor = targetAnchor
 			trace.TargetTimeframe = targetTF
 			trace.TargetSource = targetSource
 		} else {
-			if !allowsRiskRewardProjection(setup) {
-				return trace, rejectSignal("short setup %q has no structural target, risk/reward projection is not allowed", setup)
-			}
-			trace.TakeProfit = entry * (1 - execution.TakeProfitPct/100)
-			trace.TargetTimeframe = trace.ATRTimeframe
-			trace.TargetSource = "execution_take_profit_pct"
+			return trace, rejectSignal("short setup %q has no structural take-profit target", setup)
 		}
 		if trace.TakeProfit <= 0 {
 			return trace, fmt.Errorf("short take profit %.8f is not positive", trace.TakeProfit)
@@ -1245,14 +1063,6 @@ func signalRejectionReason(err error) (string, bool) {
 		return msg[idx+len(marker):], true
 	}
 	return msg, true
-}
-
-func allowsRiskRewardProjection(setup string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(setup))
-	if normalized == "" {
-		return false
-	}
-	return strings.Contains(normalized, "trend") || strings.Contains(normalized, "breakout")
 }
 
 func executionRiskReward(execution RuleExecution) float64 {
@@ -1381,6 +1191,9 @@ func protectiveStopAnchor(side string, entry float64, snapshot *market.FactorSna
 		if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "support", timeframes, entry, false); ok {
 			return level, timeframe, "support_resistance.support", true
 		}
+		if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "support", timeframes, entry, false); ok {
+			return level, timeframe, "market_structure.support", true
+		}
 		if level, timeframe, ok := nearestFibonacciStop(snapshot, "long", timeframes, entry); ok {
 			return level, timeframe, "fibonacci.stop_anchor", true
 		}
@@ -1388,6 +1201,9 @@ func protectiveStopAnchor(side string, entry float64, snapshot *market.FactorSna
 	}
 	if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "resistance", timeframes, entry, true); ok {
 		return level, timeframe, "support_resistance.resistance", true
+	}
+	if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "resistance", timeframes, entry, true); ok {
+		return level, timeframe, "market_structure.resistance", true
 	}
 	if level, timeframe, ok := nearestFibonacciStop(snapshot, "short", timeframes, entry); ok {
 		return level, timeframe, "fibonacci.stop_anchor", true
@@ -1400,6 +1216,9 @@ func protectiveTargetAnchor(side string, entry float64, snapshot *market.FactorS
 		if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "resistance", timeframes, entry, true); ok {
 			return level, timeframe, "support_resistance.resistance", true
 		}
+		if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "resistance", timeframes, entry, true); ok {
+			return level, timeframe, "market_structure.resistance", true
+		}
 		if level, timeframe, ok := nearestFibonacciTarget(snapshot, "long", timeframes, entry); ok {
 			return level, timeframe, "fibonacci.target_level", true
 		}
@@ -1407,6 +1226,9 @@ func protectiveTargetAnchor(side string, entry float64, snapshot *market.FactorS
 	}
 	if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "support", timeframes, entry, false); ok {
 		return level, timeframe, "support_resistance.support", true
+	}
+	if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "support", timeframes, entry, false); ok {
+		return level, timeframe, "market_structure.support", true
 	}
 	if level, timeframe, ok := nearestFibonacciTarget(snapshot, "short", timeframes, entry); ok {
 		return level, timeframe, "fibonacci.target_level", true

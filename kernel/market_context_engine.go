@@ -3,12 +3,39 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"math"
 	"nofx/market"
 	"strings"
 	"time"
 )
 
 type DefaultMarketContextEngine struct{}
+
+const (
+	marketContextShortVolPeriod    = 20
+	marketContextBaselineVolPeriod = 60
+	marketContextATRPeriod         = 14
+
+	highNormalizedRealizedVol      = 0.45
+	elevatedNormalizedRealizedVol  = 0.25
+	highNormalizedATRPercent       = 0.90
+	elevatedNormalizedATRPercent   = 0.50
+	highVolatilityExpansionRatio   = 1.80
+	raisedVolatilityExpansionRatio = 1.50
+)
+
+type volatilityAggregate struct {
+	State                          string
+	AverageRealizedVol20           float64
+	AverageRealizedVol60           float64
+	AverageNormalizedRealizedVol20 float64
+	AverageATRPercent14            float64
+	AverageNormalizedATRPercent14  float64
+	AverageExpansionRatio          float64
+	SampleCount                    int
+	BaselineSampleCount            int
+	ATRSampleCount                 int
+}
 
 func NewDefaultMarketContextEngine() *DefaultMarketContextEngine {
 	return &DefaultMarketContextEngine{}
@@ -26,7 +53,8 @@ func (e *DefaultMarketContextEngine) Build(ctx context.Context, req MarketContex
 	ethTrend := assetTrend(req.FactorSnapshot["ETHUSDT"])
 	fundingState, fundingHotRatio := aggregateFundingState(req.FactorSnapshot)
 	breadthState, bullishRatio := aggregateBreadth(req.FactorSnapshot)
-	volatilityState, avgRealizedVol := aggregateVolatility(req.FactorSnapshot)
+	volatility := aggregateVolatility(req.FactorSnapshot)
+	volatilityState := volatility.State
 	externalState, externalScore := aggregateExternalSignals(req.FactorSnapshot)
 	directionBias := classifyDirectionBias(btcTrend, ethTrend, bullishRatio)
 
@@ -60,10 +88,18 @@ func (e *DefaultMarketContextEngine) Build(ctx context.Context, req MarketContex
 		FundingState:     fundingState,
 		BreadthState:     breadthState,
 		Metrics: map[string]interface{}{
-			"funding_hot_ratio":       fundingHotRatio,
-			"bullish_breadth_ratio":   bullishRatio,
-			"average_realized_vol_20": avgRealizedVol,
-			"external_signal_score":   externalScore,
+			"funding_hot_ratio":                      fundingHotRatio,
+			"bullish_breadth_ratio":                  bullishRatio,
+			"average_realized_vol_20":                volatility.AverageRealizedVol20,
+			"average_realized_vol_60":                volatility.AverageRealizedVol60,
+			"average_realized_vol_20_15m_equivalent": volatility.AverageNormalizedRealizedVol20,
+			"average_atr_percent_14":                 volatility.AverageATRPercent14,
+			"average_atr_percent_14_15m_equivalent":  volatility.AverageNormalizedATRPercent14,
+			"average_realized_vol_expansion_ratio":   volatility.AverageExpansionRatio,
+			"volatility_sample_count":                volatility.SampleCount,
+			"volatility_baseline_sample_count":       volatility.BaselineSampleCount,
+			"volatility_atr_sample_count":            volatility.ATRSampleCount,
+			"external_signal_score":                  externalScore,
 		},
 	}, nil
 }
@@ -189,29 +225,106 @@ func aggregateBreadth(snapshots map[string]*market.FactorSnapshot) (string, floa
 	}
 }
 
-func aggregateVolatility(snapshots map[string]*market.FactorSnapshot) (string, float64) {
+func aggregateVolatility(snapshots map[string]*market.FactorSnapshot) volatilityAggregate {
 	total := 0
-	sum := 0.0
+	shortSum := 0.0
+	normalizedShortSum := 0.0
+	baselineTotal := 0
+	baselineSum := 0.0
+	expansionTotal := 0
+	expansionSum := 0.0
+	atrTotal := 0
+	atrPercentSum := 0.0
+	normalizedATRPercentSum := 0.0
 	for _, snapshot := range snapshots {
 		if snapshot == nil {
 			continue
 		}
 		timeframe := dominantTimeframe(snapshot)
-		vol, ok := snapshot.IndicatorValue("realized_vol", timeframe, 20)
+		vol, ok := snapshot.IndicatorValue("realized_vol", timeframe, marketContextShortVolPeriod)
 		if !ok {
 			continue
 		}
 		total++
-		sum += vol
+		shortSum += vol
+		normalizedShortSum += normalizeVolatilityTo15m(timeframe, vol)
+		if baseline, ok := snapshot.IndicatorValue("realized_vol", timeframe, marketContextBaselineVolPeriod); ok && baseline > 0 {
+			baselineTotal++
+			baselineSum += baseline
+			expansionTotal++
+			expansionSum += vol / baseline
+		}
+		if price, ok := snapshotPrice(timeframe, snapshot); ok && price > 0 {
+			if atr, ok := snapshot.IndicatorValue("atr", timeframe, marketContextATRPeriod); ok && atr > 0 {
+				atrTotal++
+				atrPercent := atr / price * 100
+				atrPercentSum += atrPercent
+				normalizedATRPercentSum += normalizeVolatilityTo15m(timeframe, atrPercent)
+			}
+		}
 	}
 	if total == 0 {
-		return "unavailable", 0
+		return volatilityAggregate{State: "unavailable"}
 	}
-	avg := sum / float64(total)
-	if avg >= 0.035 {
-		return "high_volatility", avg
+	result := volatilityAggregate{
+		State:                          "normal",
+		AverageRealizedVol20:           shortSum / float64(total),
+		AverageNormalizedRealizedVol20: normalizedShortSum / float64(total),
+		SampleCount:                    total,
+		BaselineSampleCount:            baselineTotal,
+		ATRSampleCount:                 atrTotal,
 	}
-	return "normal", avg
+	if baselineTotal > 0 {
+		result.AverageRealizedVol60 = baselineSum / float64(baselineTotal)
+	}
+	if expansionTotal > 0 {
+		result.AverageExpansionRatio = expansionSum / float64(expansionTotal)
+	}
+	if atrTotal > 0 {
+		result.AverageATRPercent14 = atrPercentSum / float64(atrTotal)
+		result.AverageNormalizedATRPercent14 = normalizedATRPercentSum / float64(atrTotal)
+	}
+	if isHighVolatility(result) {
+		result.State = "high_volatility"
+	}
+	return result
+}
+
+func isHighVolatility(vol volatilityAggregate) bool {
+	if vol.AverageNormalizedRealizedVol20 >= highNormalizedRealizedVol {
+		return true
+	}
+	if vol.ATRSampleCount > 0 && vol.AverageNormalizedATRPercent14 >= highNormalizedATRPercent {
+		return true
+	}
+	if vol.AverageExpansionRatio >= highVolatilityExpansionRatio && vol.AverageNormalizedRealizedVol20 >= elevatedNormalizedRealizedVol {
+		return true
+	}
+	if vol.AverageExpansionRatio >= raisedVolatilityExpansionRatio &&
+		vol.ATRSampleCount > 0 &&
+		vol.AverageNormalizedATRPercent14 >= elevatedNormalizedATRPercent {
+		return true
+	}
+	return false
+}
+
+func normalizeVolatilityTo15m(timeframe string, value float64) float64 {
+	if value <= 0 {
+		return value
+	}
+	duration, err := market.TFDuration(timeframe)
+	if err != nil || duration <= 0 {
+		return value
+	}
+	minutes := duration.Minutes()
+	if minutes <= 0 {
+		return value
+	}
+	scale := math.Sqrt(minutes / 15)
+	if scale <= 0 {
+		return value
+	}
+	return value / scale
 }
 
 func aggregateExternalSignals(snapshots map[string]*market.FactorSnapshot) (string, float64) {

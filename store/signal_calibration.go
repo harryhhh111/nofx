@@ -42,9 +42,10 @@ type SignalCalibrationSample struct {
 	RiskReason                 string    `gorm:"column:risk_reason;default:''" json:"risk_reason,omitempty"`
 	FactorSnapshotJSON         string    `gorm:"column:factor_snapshot_json;type:text" json:"factor_snapshot_json,omitempty"`
 	SetupTraceJSON             string    `gorm:"column:setup_trace_json;type:text" json:"setup_trace_json,omitempty"`
-	ScoringTraceJSON           string    `gorm:"column:scoring_trace_json;type:text" json:"scoring_trace_json,omitempty"`
+	EvidenceTraceJSON          string    `gorm:"column:evidence_trace_json;type:text" json:"evidence_trace_json,omitempty"`
 	SignalJSON                 string    `gorm:"column:signal_json;type:text" json:"signal_json,omitempty"`
 	MarketContextJSON          string    `gorm:"column:market_context_json;type:text" json:"market_context_json,omitempty"`
+	KlineWindowsJSON           string    `gorm:"column:kline_windows_json;type:text" json:"kline_windows_json,omitempty"`
 	AsOf                       time.Time `gorm:"column:as_of;not null;index:idx_signal_calib_trader_time,sort:desc;index:idx_signal_calib_symbol_time,sort:desc" json:"as_of"`
 	CreatedAt                  time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
@@ -114,13 +115,6 @@ func NewSignalCalibrationStore(db *gorm.DB) *SignalCalibrationStore {
 }
 
 func (s *SignalCalibrationStore) initTables() error {
-	if s.db.Dialector.Name() == "postgres" {
-		var tableExists int64
-		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'signal_calibration_samples'`).Scan(&tableExists)
-		if tableExists > 0 {
-			return nil
-		}
-	}
 	return s.db.AutoMigrate(&SignalCalibrationSample{})
 }
 
@@ -165,7 +159,16 @@ func (s *SignalCalibrationStore) CreateMany(samples []*SignalCalibrationSample) 
 }
 
 func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*SignalCalibrationReport, error) {
+	return s.buildReport(strategyID, "", limit)
+}
+
+func (s *SignalCalibrationStore) BuildReportForVersion(strategyID string, strategyVersion string, limit int) (*SignalCalibrationReport, error) {
+	return s.buildReport(strategyID, strategyVersion, limit)
+}
+
+func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion string, limit int) (*SignalCalibrationReport, error) {
 	strategyID = strings.TrimSpace(strategyID)
+	strategyVersion = strings.TrimSpace(strategyVersion)
 	if strategyID == "" {
 		return nil, fmt.Errorf("strategy_id is required")
 	}
@@ -173,8 +176,11 @@ func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*Sig
 		limit = 1000
 	}
 	var samples []SignalCalibrationSample
-	err := s.db.Where("strategy_id = ?", strategyID).
-		Order("as_of DESC").
+	query := s.db.Where("strategy_id = ?", strategyID)
+	if strategyVersion != "" {
+		query = query.Where("strategy_version = ?", strategyVersion)
+	}
+	err := query.Order("as_of DESC").
 		Limit(limit).
 		Find(&samples).Error
 	if err != nil {
@@ -183,6 +189,7 @@ func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*Sig
 
 	report := &SignalCalibrationReport{
 		StrategyID:          strategyID,
+		StrategyVersion:     strategyVersion,
 		MinRequiredSamples:  100,
 		MinRequiredOutcomes: 30,
 		RiskStatusCounts:    map[string]int{},
@@ -274,9 +281,11 @@ func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*Sig
 	if !latest.IsZero() {
 		report.LatestSampleAt = &latest
 	}
-	report.StrategyVersion = mostCommonString(versionCounts)
+	if report.StrategyVersion == "" {
+		report.StrategyVersion = mostCommonString(versionCounts)
+	}
 	report.EnoughSamples = report.SampleCount >= report.MinRequiredSamples
-	if err := s.applyClosedPositionOutcomes(report, setupStats, strategyID, limit); err != nil {
+	if err := s.applyClosedPositionOutcomes(report, setupStats, strategyID, strategyVersion, limit); err != nil {
 		return nil, err
 	}
 	report.QualityGate, report.Recommendation = calibrationGate(report)
@@ -299,16 +308,26 @@ func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*Sig
 }
 
 func (s *SignalCalibrationStore) RecentSamples(strategyID string, limit int) ([]SignalCalibrationSample, error) {
+	return s.RecentSamplesForVersion(strategyID, "", limit)
+}
+
+func (s *SignalCalibrationStore) RecentSamplesForVersion(strategyID string, strategyVersion string, limit int) ([]SignalCalibrationSample, error) {
 	strategyID = strings.TrimSpace(strategyID)
+	strategyVersion = strings.TrimSpace(strategyVersion)
 	if strategyID == "" {
 		return nil, fmt.Errorf("strategy_id is required")
 	}
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 {
 		limit = 50
+	} else if limit > 1000 {
+		limit = 1000
 	}
 	var samples []SignalCalibrationSample
-	err := s.db.Where("strategy_id = ?", strategyID).
-		Order("as_of DESC").
+	query := s.db.Where("strategy_id = ?", strategyID)
+	if strategyVersion != "" {
+		query = query.Where("strategy_version = ?", strategyVersion)
+	}
+	err := query.Order("as_of DESC").
 		Limit(limit).
 		Find(&samples).Error
 	if err != nil {
@@ -318,7 +337,12 @@ func (s *SignalCalibrationStore) RecentSamples(strategyID string, limit int) ([]
 }
 
 func (s *SignalCalibrationStore) RecentClosedPositions(strategyID string, limit int) ([]TraderPosition, error) {
+	return s.RecentClosedPositionsForVersion(strategyID, "", limit)
+}
+
+func (s *SignalCalibrationStore) RecentClosedPositionsForVersion(strategyID string, strategyVersion string, limit int) ([]TraderPosition, error) {
 	strategyID = strings.TrimSpace(strategyID)
+	strategyVersion = strings.TrimSpace(strategyVersion)
 	if strategyID == "" {
 		return nil, fmt.Errorf("strategy_id is required")
 	}
@@ -326,8 +350,11 @@ func (s *SignalCalibrationStore) RecentClosedPositions(strategyID string, limit 
 		limit = 50
 	}
 	var positions []TraderPosition
-	err := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED").
-		Order("exit_time DESC").
+	query := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED")
+	if strategyVersion != "" {
+		query = query.Where("strategy_version = ?", strategyVersion)
+	}
+	err := query.Order("exit_time DESC").
 		Limit(limit).
 		Find(&positions).Error
 	if err != nil {
@@ -336,10 +363,13 @@ func (s *SignalCalibrationStore) RecentClosedPositions(strategyID string, limit 
 	return positions, nil
 }
 
-func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalibrationReport, setupStats map[string]*SignalCalibrationSetupStat, strategyID string, limit int) error {
+func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalibrationReport, setupStats map[string]*SignalCalibrationSetupStat, strategyID string, strategyVersion string, limit int) error {
 	var positions []TraderPosition
-	err := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED").
-		Order("exit_time DESC").
+	query := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED")
+	if strings.TrimSpace(strategyVersion) != "" {
+		query = query.Where("strategy_version = ?", strings.TrimSpace(strategyVersion))
+	}
+	err := query.Order("exit_time DESC").
 		Limit(limit).
 		Find(&positions).Error
 	if err != nil {

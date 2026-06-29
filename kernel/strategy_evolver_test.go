@@ -10,6 +10,9 @@ import (
 func TestApplyStrategyEvolutionPatchNormalizesSafeFields(t *testing.T) {
 	config := store.GetDefaultStrategyConfig("zh")
 	config.StrategyMode = "scoring"
+	config.Structure.EnableMarketStructure = true
+	config.Structure.MarketStructure.SwingWindow = 3
+	config.Structure.MarketStructure.ZigZagThresholdPct = 1
 	config.ScoringConfig = &store.ScoringStrategyConfig{
 		Enabled:                 true,
 		SelectedFactors:         []string{"trend", "momentum", "structure", "derivatives"},
@@ -24,18 +27,21 @@ func TestApplyStrategyEvolutionPatchNormalizesSafeFields(t *testing.T) {
 		},
 	}
 
-	shortThreshold := 55.0
-	longThreshold := 62.0
 	minConfidence := 58
 	risk := 0.6
 	lookback := 800
+	swingWindow := 50
+	zigzagThreshold := 0.05
 	proposed, warnings, err := ApplyStrategyEvolutionPatch(&config, StrategyEvolutionConfigPatch{
 		RiskProfile: "aggressive",
-		ScoringConfig: &ScoringEvolutionPatch{
-			FactorWeights:  map[string]float64{"trend": 3, "momentum": 1, "structure": 1, "derivatives": 0},
-			LongThreshold:  &longThreshold,
-			ShortThreshold: &shortThreshold,
-			MinConfidence:  &minConfidence,
+		EvidenceFilters: &EvidenceFilterEvolutionPatch{
+			FactorWeights: map[string]float64{"trend": 3, "momentum": 1, "structure": 1, "derivatives": 0},
+			MinConfidence: &minConfidence,
+		},
+		MarketStructure: &MarketStructureEvolutionPatch{
+			Timeframe:          "5m",
+			SwingWindow:        &swingWindow,
+			ZigZagThresholdPct: &zigzagThreshold,
 		},
 		RiskControl: &RiskControlEvolutionPatch{
 			RiskPerTradePct: &risk,
@@ -53,11 +59,20 @@ func TestApplyStrategyEvolutionPatchNormalizesSafeFields(t *testing.T) {
 	if proposed.RiskProfile != "aggressive" {
 		t.Fatalf("expected risk profile to update, got %q", proposed.RiskProfile)
 	}
-	if proposed.ScoringConfig.ShortThreshold != -55 {
-		t.Fatalf("expected positive short threshold to normalize to -55, got %.2f", proposed.ScoringConfig.ShortThreshold)
+	if proposed.ScoringConfig.LongThreshold != 70 || proposed.ScoringConfig.ShortThreshold != -70 {
+		t.Fatalf("expected evolution patch not to change signed evidence guardrails, got long=%.2f short=%.2f", proposed.ScoringConfig.LongThreshold, proposed.ScoringConfig.ShortThreshold)
 	}
-	if len(warnings) == 0 {
-		t.Fatal("expected normalization warning")
+	if proposed.Structure.MarketStructure.Timeframe != "5m" {
+		t.Fatalf("expected market_structure timeframe to update, got %q", proposed.Structure.MarketStructure.Timeframe)
+	}
+	if proposed.Structure.MarketStructure.SwingWindow != 20 {
+		t.Fatalf("expected swing_window to be clamped to 20, got %d", proposed.Structure.MarketStructure.SwingWindow)
+	}
+	if proposed.Structure.MarketStructure.ZigZagThresholdPct != 0.1 {
+		t.Fatalf("expected zigzag threshold to be clamped to 0.1, got %.2f", proposed.Structure.MarketStructure.ZigZagThresholdPct)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("did not expect warnings for clamped structure/evidence patch, got %v", warnings)
 	}
 	sum := 0.0
 	for _, factor := range proposed.ScoringConfig.SelectedFactors {
@@ -115,11 +130,50 @@ func TestBuildStrategyEvolutionSystemPromptProtectsOpportunityFrequency(t *testi
 		"Do not \"optimize\" by blindly tightening",
 		"If a change may reduce trade frequency",
 		"Prefer targeted improvements that preserve useful opportunities",
+		"Use replay.parameter_scans",
+		"preserve approved setups",
+		"market_structure.enable_market_structure",
+		"evidence_filters.factor_weights",
 		"stop_loss_atr_buffer is an explicit ATR multiple",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("expected prompt to contain %q, got %s", expected, prompt)
 		}
+	}
+	if strings.Contains(prompt, "long_threshold") || strings.Contains(prompt, "short_threshold") {
+		t.Fatalf("strategy evolution prompt must not expose signed evidence guardrails, got %s", prompt)
+	}
+}
+
+func TestBuildStrategyEvolutionEvidenceIncludesReplayReport(t *testing.T) {
+	config := store.GetDefaultStrategyConfig("zh")
+	replay := &StrategyReplayReport{
+		StrategyID:              "strategy-1",
+		StrategyVersion:         "cfg_test",
+		SampleCount:             10,
+		ReplayableSampleCount:   8,
+		MissingKlineWindowCount: 2,
+		ParameterScans: []StrategyReplayScanResult{{
+			VariantID:     "baseline",
+			ReplayedCount: 8,
+			TradableCount: 3,
+			SetupCounts:   map[string]int{"breakout_long": 2},
+			Parameters:    map[string]any{"swing_window": 3},
+		}},
+	}
+
+	evidence := BuildStrategyEvolutionEvidence(StrategyEvolutionRequest{
+		StrategyID:      "strategy-1",
+		StrategyVersion: "cfg_test",
+		CurrentConfig:   &config,
+		Replay:          replay,
+	})
+
+	if evidence.Replay == nil || evidence.Replay.ReplayableSampleCount != 8 {
+		t.Fatalf("expected replay report in evidence, got %+v", evidence.Replay)
+	}
+	if len(evidence.Replay.ParameterScans) != 1 || evidence.Replay.ParameterScans[0].VariantID != "baseline" {
+		t.Fatalf("expected replay parameter scans in evidence, got %+v", evidence.Replay.ParameterScans)
 	}
 }
 
@@ -128,6 +182,12 @@ func TestSummarizeEvolutionConfigNormalizesATRBuffer(t *testing.T) {
 	config.RiskControl.StopLossATRBuffer = 0
 
 	summary := summarizeEvolutionConfig(&config)
+	if len(summary.MarketStructure) == 0 {
+		t.Fatal("expected market_structure summary to be included")
+	}
+	if _, ok := summary.EvidenceFilters["long_threshold"]; ok {
+		t.Fatalf("did not expect signed evidence guardrail in evidence filter summary: %#v", summary.EvidenceFilters)
+	}
 	risk := summary.RiskControl
 	if risk["stop_loss_atr_buffer"] != store.DefaultStopLossATRBuffer {
 		t.Fatalf("expected normalized ATR buffer %.2f, got %#v", store.DefaultStopLossATRBuffer, risk["stop_loss_atr_buffer"])

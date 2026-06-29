@@ -8,10 +8,10 @@ import (
 )
 
 type StrategySignalPreview struct {
-	Signals            []CandidateSignal        `json:"signals"`
-	RuleEvaluations    []RuleEvaluationTrace    `json:"rule_evaluations"`
-	ScoringEvaluations []ScoringEvaluationTrace `json:"scoring_evaluations"`
-	SetupEvaluations   []SetupEvaluationTrace   `json:"setup_evaluations"`
+	Signals             []CandidateSignal        `json:"signals"`
+	RuleEvaluations     []RuleEvaluationTrace    `json:"rule_evaluations"`
+	EvidenceEvaluations []ScoringEvaluationTrace `json:"evidence_evaluations"`
+	SetupEvaluations    []SetupEvaluationTrace   `json:"setup_evaluations"`
 }
 
 func PreviewStrategySignals(config *store.StrategyConfig, candidates []CandidateCoin, factorSnapshots map[string]*market.FactorSnapshot, now time.Time) (*StrategySignalPreview, error) {
@@ -31,10 +31,11 @@ func PreviewStrategySignals(config *store.StrategyConfig, candidates []Candidate
 	if err != nil {
 		return nil, err
 	}
+	evidenceEvaluations := TraceEvidenceEvaluations(req)
 	return &StrategySignalPreview{
-		Signals:            signals,
-		RuleEvaluations:    TraceRuleEvaluations(req),
-		ScoringEvaluations: TraceScoringEvaluations(req),
-		SetupEvaluations:   TraceSetupEvaluations(req),
+		Signals:             signals,
+		RuleEvaluations:     TraceRuleEvaluations(req),
+		EvidenceEvaluations: evidenceEvaluations,
+		SetupEvaluations:    TraceSetupEvaluations(req),
 	}, nil
 }

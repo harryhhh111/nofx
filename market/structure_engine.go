@@ -12,10 +12,12 @@ import (
 // StructureRequest describes structure indicators that need anchors, not just
 // periods. Specific algorithms can be implemented behind this stable contract.
 type StructureRequest struct {
-	Fibonacci  *FibonacciRequest  `json:"fibonacci,omitempty"`
-	Support    *SupportRequest    `json:"support,omitempty"`
-	Fibonaccis []FibonacciRequest `json:"fibonaccis,omitempty"`
-	Supports   []SupportRequest   `json:"supports,omitempty"`
+	Fibonacci        *FibonacciRequest        `json:"fibonacci,omitempty"`
+	Support          *SupportRequest          `json:"support,omitempty"`
+	MarketStructure  *MarketStructureRequest  `json:"market_structure,omitempty"`
+	Fibonaccis       []FibonacciRequest       `json:"fibonaccis,omitempty"`
+	Supports         []SupportRequest         `json:"supports,omitempty"`
+	MarketStructures []MarketStructureRequest `json:"market_structures,omitempty"`
 }
 
 type FibonacciRequest struct {
@@ -36,6 +38,18 @@ type SupportRequest struct {
 	ZoneWidthATR    float64 `json:"zone_width_atr"`
 	MinTouches      int     `json:"min_touches"`
 	MinDistanceBars int     `json:"min_distance_bars"`
+}
+
+type MarketStructureRequest struct {
+	Timeframe           string  `json:"timeframe"`
+	Lookback            int     `json:"lookback"`
+	SwingWindow         int     `json:"swing_window"`
+	MinLegBars          int     `json:"min_leg_bars"`
+	MinLegATRMultiple   float64 `json:"min_leg_atr_multiple"`
+	ZigZagThresholdPct  float64 `json:"zigzag_threshold_pct"`
+	BreakoutBufferATR   float64 `json:"breakout_buffer_atr"`
+	RetestToleranceATR  float64 `json:"retest_tolerance_atr"`
+	ExhaustionRSIPeriod int     `json:"exhaustion_rsi_period"`
 }
 
 // StructureEngine identifies market structure from OHLCV data. It should
@@ -86,6 +100,20 @@ func (e *DefaultStructureEngine) Calculate(ctx context.Context, input MarketInpu
 			return nil, err
 		}
 		out = append(out, snapshot)
+	}
+	if req.MarketStructure != nil {
+		snapshots, err := calculateMarketStructure(input, *req.MarketStructure)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, snapshots...)
+	}
+	for _, structure := range req.MarketStructures {
+		snapshots, err := calculateMarketStructure(input, structure)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, snapshots...)
 	}
 	return out, nil
 }

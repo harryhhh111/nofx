@@ -93,7 +93,7 @@ func DefaultIndicatorRequest() IndicatorRequest {
 		VWAPPeriods:        []int{20},
 		VolumePeriods:      []int{20},
 		DonchianPeriods:    []int{20},
-		RealizedVolPeriods: []int{20},
+		RealizedVolPeriods: []int{20, 60},
 		PriceChangeWindows: []int{12, 48},
 		Sessions:           []SessionSpec{{Timezone: "UTC", Offset: "00:00", Duration: 1440}},
 	}

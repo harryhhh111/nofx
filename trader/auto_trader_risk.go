@@ -122,15 +122,10 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			at.UpdatePeakPnL(symbol, side, currentPnLPct)
 		}
 
-		// Calculate drawdown (magnitude of decline from peak)
-		var drawdownPct float64
-		if peakPnLPct > 0 && currentPnLPct < peakPnLPct {
-			drawdownPct = ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
-		}
+		drawdownPct := profitProtectionDrawdownPct(peakPnLPct, currentPnLPct)
 
-		// Check close position condition
-		if currentPnLPct > minProfitPct && drawdownPct >= triggerPct {
-			logger.Infof("🚨 Drawdown condition triggered: %s %s | Current profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
+		if profitProtectionTriggered(peakPnLPct, currentPnLPct, minProfitPct, triggerPct) {
+			logger.Infof("🚨 Profit protection triggered: %s %s | Current profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct, map[bool]string{true: "ai-decide", false: "auto-close"}[useAI])
 
 			if useAI {
@@ -173,15 +168,28 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				} else {
 					logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
 					at.ClearPeakPnLCache(symbol, side)
-					at.saveRiskCloseDecision(symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
+					at.saveRiskCloseDecision(symbol, side, currentPnLPct, peakPnLPct, drawdownPct, triggerPct)
 				}
 			}
-		} else if currentPnLPct > minProfitPct {
-			// Record situations close to close position condition (for debugging)
-			logger.Infof("📊 Drawdown monitoring: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
+		} else if peakPnLPct >= minProfitPct {
+			logger.Infof("📊 Profit protection armed: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 		}
 	}
+}
+
+func profitProtectionTriggered(peakPnLPct, currentPnLPct, activationPct, triggerPct float64) bool {
+	if peakPnLPct < activationPct {
+		return false
+	}
+	return profitProtectionDrawdownPct(peakPnLPct, currentPnLPct) >= triggerPct
+}
+
+func profitProtectionDrawdownPct(peakPnLPct, currentPnLPct float64) float64 {
+	if peakPnLPct <= 0 || currentPnLPct >= peakPnLPct {
+		return 0
+	}
+	return ((peakPnLPct - currentPnLPct) / peakPnLPct) * 100
 }
 
 func (at *AutoTrader) recordPositionExcursion(symbol, side string, markPrice, unrealizedPnL, unrealizedPnLPct float64) {
@@ -292,7 +300,7 @@ func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 
 // saveRiskCloseDecision saves a decision record for a risk-monitor-triggered position close.
 // This makes the close visible in the frontend decision card history.
-func (at *AutoTrader) saveRiskCloseDecision(symbol, side string, currentPnLPct, peakPnLPct, drawdownPct float64) {
+func (at *AutoTrader) saveRiskCloseDecision(symbol, side string, currentPnLPct, peakPnLPct, drawdownPct, triggerPct float64) {
 	if at.store == nil {
 		return
 	}
@@ -303,8 +311,8 @@ func (at *AutoTrader) saveRiskCloseDecision(symbol, side string, currentPnLPct, 
 	}
 	normalizedSymbol := market.Normalize(symbol)
 	reasoning := fmt.Sprintf(
-		"[风控自动平仓] %s %s — 当前收益 %.2f%%，峰值收益 %.2f%%，回撤幅度 %.2f%%，超过40%%阈值，触发强制平仓。",
-		normalizedSymbol, strings.ToUpper(side), currentPnLPct, peakPnLPct, drawdownPct,
+		"[持仓保护自动平仓] %s %s — 当前收益 %.2f%%，峰值收益 %.2f%%，回撤幅度 %.2f%%，达到 %.2f%% 保护阈值，触发强制平仓。",
+		normalizedSymbol, strings.ToUpper(side), currentPnLPct, peakPnLPct, drawdownPct, triggerPct,
 	)
 
 	actionRecord := store.DecisionAction{
@@ -319,7 +327,7 @@ func (at *AutoTrader) saveRiskCloseDecision(symbol, side string, currentPnLPct, 
 		CycleNumber:  0, // 0 indicates a system-generated (non-AI) record
 		Timestamp:    time.Now().UTC(),
 		CotSummary:   reasoning,
-		ExecutionLog: []string{fmt.Sprintf("✅ 风控平仓: %s %s", normalizedSymbol, strings.ToUpper(side))},
+		ExecutionLog: []string{fmt.Sprintf("✅ 持仓保护平仓: %s %s", normalizedSymbol, strings.ToUpper(side))},
 		Decisions:    []store.DecisionAction{actionRecord},
 		Success:      true,
 	}
