@@ -156,7 +156,9 @@ func normalizeSymbol(symbol string) string {
 	if s == "" {
 		return ""
 	}
-	if !strings.HasSuffix(s, "USDT") {
+	s = strings.ReplaceAll(s, "-", "")
+	s = strings.ReplaceAll(s, " ", "")
+	if !strings.HasSuffix(s, "USDT") && !strings.HasSuffix(s, "USDC") && !strings.HasSuffix(s, "USD") {
 		s += "USDT"
 	}
 	return s

@@ -28,7 +28,9 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		PageSize:       envInt("SUPPLY_REFRESH_PAGE_SIZE", 250),
-		SleepInterval:  envDuration("SUPPLY_REFRESH_INTERVAL", 60*time.Second),
+		// Conservative interval: the observed CoinGecko free-tier limit for this
+		// IP is roughly 2 requests per minute, so 90s keeps us well under it.
+		SleepInterval:  envDuration("SUPPLY_REFRESH_INTERVAL", 90*time.Second),
 		MaxPagesPerRun: envInt("SUPPLY_REFRESH_MAX_PAGES_PER_RUN", 10),
 		Order:          envString("SUPPLY_REFRESH_ORDER", "market_cap_asc"),
 	}
@@ -209,7 +211,9 @@ func normalizeSymbol(symbol string) string {
 	if s == "" {
 		return ""
 	}
-	if !strings.HasSuffix(s, "USDT") {
+	s = strings.ReplaceAll(s, "-", "")
+	s = strings.ReplaceAll(s, " ", "")
+	if !strings.HasSuffix(s, "USDT") && !strings.HasSuffix(s, "USDC") && !strings.HasSuffix(s, "USD") {
 		s += "USDT"
 	}
 	return s

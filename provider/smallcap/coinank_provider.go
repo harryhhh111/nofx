@@ -295,6 +295,7 @@ func normalizeSymbol(symbol, baseCoin string) string {
 		symbol = baseCoin
 	}
 	symbol = strings.ReplaceAll(symbol, "-", "")
+	symbol = strings.ReplaceAll(symbol, " ", "")
 	// CoinGecko returns bare base symbols (e.g. "pepe"); ensure a stablecoin
 	// quote suffix so downstream symbol formatting matches exchange perps.
 	if !strings.HasSuffix(symbol, "USDT") && !strings.HasSuffix(symbol, "USDC") && !strings.HasSuffix(symbol, "USD") {

@@ -100,13 +100,14 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 		// Local-supply fast path: avoid CoinGecko entirely if we have cached supply.
 		if p.supplyStore != nil {
 			result, localErr := p.fetchRankingFromLocal(ctx, req, limit)
-			if localErr == nil && len(result.Coins) > 0 {
+			if localErr == nil {
+				// Use local result even if it returns zero coins (e.g. no small-cap
+				// matches the current filters). Do not fall back to CoinGecko and
+				// risk 429 errors.
 				p.saveCache(cacheKey, result)
 				return result, nil
 			}
-			if localErr != nil {
-				logger.Infof("local coin_supply ranking unavailable: %v; falling back to CoinGecko", localErr)
-			}
+			logger.Infof("local coin_supply ranking unavailable: %v; falling back to CoinGecko", localErr)
 		}
 
 		result, fetchErr := p.fetchRankingFromCoinGecko(ctx, req, limit)
@@ -165,10 +166,11 @@ func (p *CoinGeckoProvider) fetchRankingFromLocal(ctx context.Context, req Small
 	}
 
 	// Pull enough small-cap candidates from local DB. We fetch more than the
-	// final limit because liquidity filters will drop some of them.
-	fetchLimit := limit * 10
-	if fetchLimit < 100 {
-		fetchLimit = 100
+	// final limit because liquidity filters and Binance-tradability checks
+	// will drop many of them, especially for very small coins.
+	fetchLimit := limit * 50
+	if fetchLimit < 2000 {
+		fetchLimit = 2000
 	}
 
 	var rows []store.CoinSupply
