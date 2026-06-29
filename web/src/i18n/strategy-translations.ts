@@ -30,7 +30,7 @@ export const coinSource = {
   min24hVolume: { zh: '最小 24h 成交额 (USD)', en: 'Min 24h Volume (USD)', es: 'Volumen 24h Mín. (USD)' },
   minOpenInterest: { zh: '最小持仓量 (USD)', en: 'Min Open Interest (USD)', es: 'Interés Abierto Mín. (USD)' },
   minDepth: { zh: '最小深度 (USD)', en: 'Min Depth (USD)', es: 'Profundidad Mín. (USD)' },
-  smallMarketValueDepthNote: { zh: '当前数据源（CoinAnk）暂不提供深度数据，深度阈值不会参与筛选。', en: 'The current CoinAnk source does not provide depth data, so depth is not used for filtering.', es: 'La fuente CoinAnk actual no proporciona datos de profundidad, por lo que la profundidad no se usa para filtrar.' },
+  smallMarketValueDepthNote: { zh: '当前数据源（CoinGecko）暂不提供深度数据，深度阈值不会参与筛选。', en: 'The current CoinGecko source does not provide depth data, so depth is not used for filtering.', es: 'La fuente CoinGecko actual no proporciona datos de profundidad, por lo que la profundidad no se usa para filtrar.' },
   staticDesc: { zh: '手动指定交易币种列表', en: 'Manually specify trading coins', es: 'Especificar monedas manualmente' },
   mixedConfig: { zh: '组合数据源配置', en: 'Combined Sources Configuration', es: 'Configuración Combinada' },
   mixedSummary: { zh: '已选组合', en: 'Selected Sources', es: 'Fuentes Seleccionadas' },

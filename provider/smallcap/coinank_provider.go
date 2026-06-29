@@ -127,6 +127,7 @@ func (p *CoinAnkProvider) GetSmallMarketValueRanking(ctx context.Context, req Sm
 		Coins:          filtered,
 		FilterStats:    computeFilterStats(coins, filtered),
 		DepthAvailable: false,
+		OIAvailable:    true,
 		FetchedAt:      time.Now().UTC(),
 	}
 
@@ -286,14 +287,20 @@ func matchesExchange(requested, actual string) bool {
 
 func normalizeSymbol(symbol, baseCoin string) string {
 	symbol = strings.ToUpper(strings.TrimSpace(symbol))
-	if symbol != "" {
-		return strings.ReplaceAll(symbol, "-", "")
+	if symbol == "" {
+		baseCoin = strings.ToUpper(strings.TrimSpace(baseCoin))
+		if baseCoin == "" {
+			return ""
+		}
+		symbol = baseCoin
 	}
-	baseCoin = strings.ToUpper(strings.TrimSpace(baseCoin))
-	if baseCoin == "" {
-		return ""
+	symbol = strings.ReplaceAll(symbol, "-", "")
+	// CoinGecko returns bare base symbols (e.g. "pepe"); ensure a stablecoin
+	// quote suffix so downstream symbol formatting matches exchange perps.
+	if !strings.HasSuffix(symbol, "USDT") && !strings.HasSuffix(symbol, "USDC") && !strings.HasSuffix(symbol, "USD") {
+		symbol += "USDT"
 	}
-	return baseCoin + "USDT"
+	return symbol
 }
 
 func baseFromSymbol(symbol string) string {

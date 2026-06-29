@@ -65,6 +65,7 @@ type SmallMarketValueRankingData struct {
 	Coins          []SmallMarketValueCoin `json:"coins"`
 	FilterStats    FilterStats            `json:"filter_stats"`
 	DepthAvailable bool                   `json:"depth_available"`
+	OIAvailable    bool                   `json:"oi_available"`
 	FetchedAt      time.Time              `json:"fetched_at"`
 }
 
@@ -104,6 +105,7 @@ func (p *MockProvider) GetSmallMarketValueRanking(_ context.Context, req SmallMa
 		Coins:          filtered,
 		FilterStats:    computeFilterStats(p.Coins, filtered),
 		DepthAvailable: true,
+		OIAvailable:    true,
 		FetchedAt:      time.Now().UTC(),
 	}, nil
 }

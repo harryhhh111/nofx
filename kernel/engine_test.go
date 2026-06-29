@@ -96,6 +96,27 @@ func TestGetCandidateCoinsSmallMarketValueProviderError(t *testing.T) {
 	}
 }
 
+func TestStrategyEnginesShareSmallMarketValueProvider(t *testing.T) {
+	config1 := store.GetDefaultStrategyConfig("en")
+	config1.CoinSource.SourceType = "small_market_value"
+	config1.CoinSource.UseSmallMarketValue = true
+	config1.CoinSource.MinDepthUSD = 0
+	config1.ClampLimits()
+
+	config2 := store.GetDefaultStrategyConfig("en")
+	config2.CoinSource.SourceType = "small_market_value"
+	config2.CoinSource.UseSmallMarketValue = true
+	config2.CoinSource.MinDepthUSD = 0
+	config2.ClampLimits()
+
+	engine1 := NewStrategyEngine(&config1)
+	engine2 := NewStrategyEngine(&config2)
+
+	if engine1.smallcapProvider != engine2.smallcapProvider {
+		t.Fatal("expected StrategyEngines to share the same small market value provider")
+	}
+}
+
 func TestGetCandidateCoinsMixedWithSmallMarketValue(t *testing.T) {
 	config := store.GetDefaultStrategyConfig("en")
 	config.CoinSource.SourceType = "mixed"
