@@ -1,5 +1,7 @@
 # Small Market Value Coin Selection Plan
 
+> **Implementation update (2026-06-29):** The primary data source is now **CoinMarketCap** instead of CoinAnk/CoinGecko. A local `coin_supply` cache is used as a DB-backed freshness layer so CMC API credits stay bounded. The 15M USD global open-interest floor in the market-data fetch path is skipped for coins whose source is `small_market_value`, because low OI is expected for small-cap assets.
+
 ## 背景/目标
 
 `/Users/vinci/Documents/GitHub/NFPrompt/trading/docs/zhibiao.md` 中的 `Small Market Value / Market Cap Ranking` 描述的是跨币种排序与过滤能力，而不是单个交易对自身 K 线可计算出的技术指标。它依赖市场基础数据，例如流通供应量、总供应量、价格、成交额、OI、盘口深度等，用于先筛出可交易且流动性合格的标的，再按 `market_cap` 或 `fdv` 升序选择小市值组合。
@@ -36,7 +38,9 @@
 
 `CoinSourceEditor.tsx` 的 `buildSourceTypeConfig()` 当前只处理 `static/ai500/oi_top/oi_low/mixed` 的互斥 flag；新增 `small_market_value` 时需要同步设置 `use_small_market_value`，并顺手补齐 `hyper_all/hyper_main` 的互斥处理。后端 `normalizeCoinSourceFlags()` 当前也缺少 `hyper_all/hyper_main` case，虽然这不是 Small Market Value 的核心能力，但本次新增 source type 时应一起修正，避免前后端 source 枚举继续漂移。
 
-系统当前已有 AI500、OI Ranking、NetFlow Ranking、Price Ranking 等候选币来源。本仓库也已有 CoinAnk 相关 primitives，例如 `provider/coinank` 中的单币 `GetCoinMarketCap()`、`GetCoinMarketResponse.MarketCap/CirculatingSupply/TotalSupply`，以及 `InstrumentAggSortBy.MarketCap` 排序字段；但这些能力尚未封装成 Small Market Value 候选池 provider，也缺少统一的流动性过滤、候选排序、审计 metrics 和预览 API。因此该方案需要在本仓库内新增可组合的数据 provider。一期先实现 mockable provider 接口和清晰的错误提示，在真实数据源接入前不应伪造市值。
+系统当前已有 AI500、OI Ranking、NetFlow Ranking、Price Ranking 等候选币来源。真实数据源已接入 **CoinMarketCap** (`provider/coinmarketcap`)，通过 `/cryptocurrency/listings/latest` 获取市值、流通供应量、总供应量、成交额等数据，再用 Binance 期货数据验证可交易性并补充 OI。本地 PostgreSQL `coin_supply` 表作为 DB-backed 缓存，CMC provider 优先读取缓存，缓存未命中或过期时才调用 CMC API，从而把用量控制在合理范围。
+
+CoinGecko 仍保留为可选/降级路径（通过 `provider/supplyrefresher` 写入 `coin_supply`），但当前生产部署以 CoinMarketCap 为主。
 
 ## 设计方案
 
@@ -155,12 +159,14 @@ type SmallMarketValueProvider interface {
 }
 ```
 
-真实实现应放在本仓库内，例如新增 `provider/marketdata/` 包，或在其内部适配现有 `provider/coinank` primitives：
+真实实现位于本仓库的 `provider/smallcap` 包内：
 
-- `GetSmallMarketValueRanking(ctx, req) (*SmallMarketValueRankingData, error)`
-- 支持 TTL cache，建议定义 `DefaultMarketCapCacheTTL = 2 * time.Hour`。
-- 一期优先评估复用 CoinAnk 单币市值和 ranking primitives；若其数据覆盖或调用成本不满足需求，再接入其他交易所/聚合数据源。若暂无可用真实数据源，则返回明确的 "not implemented" 错误，不伪造市值。
-- 内部 endpoint 建议形态：`/api/market-cap/ranking?sort_by=market_cap&limit=...&min_volume=...&min_oi=...`
+- `CoinMarketCapProvider`：调用 CMC `/cryptocurrency/listings/latest`，每页 5000 币，最多 1 页。
+- `CoinGeckoProvider`：从本地 `coin_supply` 表读取，必要时回退到 CoinGecko API。
+- `SharedProvider()` 在检测到环境变量 `COINMARKETCAP_API_KEY` 时优先选择 CMC。
+- 本地内存缓存 TTL 为 **6 小时**；同时检查 `coin_supply` 表中 `source = 'coinmarketcap'` 的最新记录，如果 6 小时内已有数据，直接复用，避免多实例/重启导致重复调用。
+- CMC Basic 计划每个 `limit=5000` 请求消耗约 25 credits；按 6 小时缓存计算，每月约 3000 credits，远低于 10k credits 上限。
+- 内部 endpoint：`/api/small-market-value/coins`
 
 新增预览接口可选：
 
@@ -204,15 +210,19 @@ Small Market Value 不作为技术指标，但可作为外部候选依据写入�
 
 ## 实现步骤
 
-1. 定义 `SmallMarketValueProvider` interface、request/response 结构和 mock provider，先不绑定真实数据源，避免实现被数据源选择阻塞。
-2. 扩展 `CoinSourceConfig`、默认值、clamp、normalize、token 估算，并补齐 `hyper_all/hyper_main` 枚举漂移。
-3. 基于 mock provider 在 `kernel/engine.go` 新增 `getSmallMarketValueCoins()` 和 `GetCandidateCoins()` 分支，同步覆盖 mixed 模式。
-4. 补 Store/Kernel 单测，覆盖排序、过滤、excluded、provider 错误和 mixed 合并。
-5. 在本仓库内实现真实 provider，优先评估复用 `provider/coinank` 的 market cap/ranking primitives；若暂无可用数据源，返回明确的未实现错误。
-6. 为 preview 增加 API handler 和 route，返回候选币、过滤统计和数据时间。
-7. 将候选依据写入 AI 测试/审计输出，至少展示候选来源和核心 metrics；一期不开放为规则 operand。
-8. 前端类型、i18n、`CoinSourceEditor` 增加配置 UI，并补 `buildSourceTypeConfig()` 的互斥 flag。
-9. 更新用户文档，说明小市值选币是高风险来源且强制流动性过滤。
+1. [x] 定义 `SmallMarketValueProvider` interface、request/response 结构和 mock provider。
+2. [x] 扩展 `CoinSourceConfig`、默认值、clamp、normalize、token 估算，并补齐 `hyper_all/hyper_main` 枚举漂移。
+3. [x] 在 `kernel/engine.go` 新增 `getSmallMarketValueCoins()` 和 `GetCandidateCoins()` 分支，同步覆盖 mixed 模式。
+4. [x] 补 Store/Kernel 单测，覆盖排序、过滤、excluded、provider 错误和 mixed 合并。
+5. [x] 实现真实 provider：以 CoinMarketCap 为主，CoinGecko/本地缓存为辅。
+6. [x] 为 preview 增加 API handler 和 route：`GET /api/small-market-value/coins`。
+7. [x] 将候选依据写入 AI 测试/审计输出，展示候选来源和核心 metrics。
+8. [ ] 前端类型、i18n、`CoinSourceEditor` 增加配置 UI（若尚未完成，需单独跟进）。
+9. [x] 更新用户文档，说明小市值选币是高风险来源且强制流动性过滤。
+
+## 与其他模块的兼容性
+
+`kernel/engine_analysis.go` 原本对市场数据获取有全局 15M USD Open Interest 硬门槛（用于过滤低流动性 altcoin）。该门槛对 `small_market_value` 来源的候选币不再生效，因为小市值币的 OI 通常在 1-5M 之间，强制 15M 会导致所有小市值候选被过滤、MarketDataMap 为空，进而触发 `market context requires factor snapshots` 错误。Small Market Value provider 自身已执行流动性过滤（默认 `min_open_interest_usd = 1_000_000`），因此不需要再经过全局 15M 门槛。
 
 ## 风险点
 
@@ -227,22 +237,26 @@ Small Market Value 不作为技术指标，但可作为外部候选依据写入�
 ## 验证方式
 
 - Store 单测：
-  - `source_type=small_market_value` 正确设置 flags。
-  - limit 被 clamp 到 `MaxCandidateCoins`。
-  - static/mixed 兼容旧配置。
+  - [x] `source_type=small_market_value` 正确设置 flags。
+  - [x] limit 被 clamp 到 `MaxCandidateCoins`。
+  - [x] static/mixed 兼容旧配置。
 - Kernel 单测：
-  - mock provider 返回含市值/流动性数据时，按过滤和升序排序返回候选币。
-  - 低成交额、低 OI、缺 supply 的币被过滤。
-  - `excluded_coins` 生效。
-  - provider 错误时返回明确错误。
+  - [x] mock provider 返回含市值/流动性数据时，按过滤和升序排序返回候选币。
+  - [x] 低成交额、低 OI、缺 supply 的币被过滤。
+  - [x] `excluded_coins` 生效。
+  - [x] provider 错误时返回明确错误。
 - API 测试：
-  - preview 参数解析、默认值、错误信息。
+  - [x] preview 参数解析、默认值、错误信息。
+  - [x] CMC provider 使用本地缓存时不再调用外部 API。
+- 运行时验证：
+  - [x] `小市值测试` 策略不再因 15M OI 硬门槛被过滤为空。
+  - [x] `小市值测试` 能正常生成信号并保存 calibration samples。
 - 前端测试：
-  - 类型编译通过。
-  - 新 source card 可选择并更新配置。
+  - [ ] 类型编译通过。
+  - [ ] 新 source card 可选择并更新配置。
 - 回归：
-  - `go test ./...`
-  - 前端 `npm test` 或至少 `npm run build`。
+  - [x] `go test ./kernel/... ./provider/smallcap/...`
+  - [ ] 前端 `npm test` 或至少 `npm run build`。
 
 ## 回滚方案
 

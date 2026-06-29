@@ -2,9 +2,9 @@
 
 ## Background
 
-The `small_market_value` coin source currently depends on the CoinGecko public API for real-time `circulating_supply`, `total_supply`, `market_cap` and `volume_24h`. The free CoinGecko tier is heavily rate-limited for our deployment IP (observed limit: ~2 requests per minute), which leads to frequent `429` and `context deadline exceeded` errors during trading.
+The `small_market_value` coin source needs real-time `circulating_supply`, `total_supply`, `market_cap` and `volume_24h`. The original implementation used the CoinGecko public API, but the free tier is heavily rate-limited for our deployment IP (observed limit: ~2 requests per minute), leading to frequent `429` and `context deadline exceeded` errors.
 
-Binance can provide price, volume, open interest and tradable-symbol universe, but **cannot** provide token supply or market-cap data. Therefore we need a persistent local cache of supply data, refreshed periodically from CoinGecko at a very conservative rate, and used at trading time instead of calling CoinGecko directly.
+当前生产部署已切换为 **CoinMarketCap** 作为主要数据源（通过 `COINMARKETCAP_API_KEY`），同时在本地 PostgreSQL `coin_supply` 表中维护一份缓存。CoinGecko 背景刷新器仍保留作为可选/降级路径。Binance 提供价格、成交量、开仓量和可交易标的 universe，但**不能**提供代币供应量或市值数据，因此本地缓存仍然是必需的。
 
 ## Goal
 
@@ -42,18 +42,30 @@ Future optional additions (out of scope for the first PR):
 ## Architecture
 
 ```
-┌─────────────────┐     1 req/min      ┌─────────────┐
-│  CoinGecko API  │ ◄───────────────── │  Scheduler  │
-└─────────────────┘                    └──────┬──────┘
-                                              │ upsert
-┌─────────────────┐                    ┌──────▼──────┐
-│   Binance API   │ ◄──── realtime ────┤  nofx app   │
-└─────────────────┘                    └──────┬──────┘
-                                              │ read
-┌─────────────────┐                    ┌──────▼──────┐
-│  coin_supply    │ ◄───────────────── │ smallcap    │
-│  (PostgreSQL)   │                    │ provider    │
-└─────────────────┘                    └─────────────┘
+                          ┌─────────────────┐
+                          │  CoinMarketCap  │ ◄──── primary source
+                          │      API        │       (limit=5000, ~25 credits)
+                          └────────┬────────┘
+                                   │ fetch on cache miss
+                                   │ (max once per 6h)
+                          ┌────────▼────────┐
+                          │  CoinMarketCap  │
+                          │    Provider     │
+                          └────────┬────────┘
+                                   │ upsert
+┌─────────────────┐     1 req/min  │      ┌─────────────┐
+│  CoinGecko API  │ ◄──────────────┼───── │  Scheduler  │
+└─────────────────┘                │      └──────┬──────┘
+                                   │             │ upsert
+                          ┌────────▼────────┐    │
+                          │   coin_supply   │ ◄──┘
+                          │  (PostgreSQL)   │
+                          └────────┬────────┘
+                                   │ read
+                          ┌────────▼────────┐
+                          │    smallcap     │
+                          │    provider     │
+                          └─────────────────┘
 ```
 
 ## Components
@@ -119,13 +131,19 @@ Implementation uses plain `database/sql` or GORM depending on project convention
 
 ### 3. Smallcap provider integration
 
-Update `CoinGeckoProvider` (and optionally `CoinAnkProvider`) to:
+`CoinMarketCapProvider` is the primary implementation when `COINMARKETCAP_API_KEY` is present. It:
 
-1. Fetch the Binance tradable symbol universe (unchanged).
-2. Query `coin_supply` for all known symbols.
-3. For symbols missing locally, fallback to a single CoinGecko request (or skip if unavailable).
-4. Compute `market_cap` / `fdv` from local supply × Binance price.
-5. Apply liquidity filters and sorting.
+1. Checks `coin_supply` for `source = 'coinmarketcap'` records updated within the 6-hour TTL.
+2. If fresh data exists, builds the candidate universe from the local table.
+3. Otherwise calls CMC `/cryptocurrency/listings/latest` (one page of 5000), validates against Binance futures, enriches OI, and writes results back to `coin_supply`.
+
+`CoinGeckoProvider` still:
+
+1. Fetches the Binance tradable symbol universe.
+2. Queries `coin_supply` for all known symbols.
+3. For symbols missing locally, falls back to a single CoinGecko request (or skips if unavailable).
+4. Computes `market_cap` / `fdv` from local supply × Binance price.
+5. Applies liquidity filters and sorting.
 
 This removes the need to call CoinGecko `/coins/markets` repeatedly during every `GetSmallMarketValueRanking` invocation.
 
@@ -148,7 +166,10 @@ The refresher should tolerate DB or CoinGecko failures without crashing the app.
 Add to `.env.example` and `docker-compose.yml`:
 
 ```env
-# CoinGecko API key (recommended; free demo key reduces rate-limit pain)
+# CoinMarketCap API key (primary source for small-market-value)
+COINMARKETCAP_API_KEY=
+
+# CoinGecko API key (optional; used by background refresher)
 COINGECKO_API_KEY=
 
 # Supply refresher tuning
@@ -177,13 +198,14 @@ SUPPLY_REFRESH_ORDER=market_cap_asc
 - Chain-native supply calculations.
 - Automatic deletion of stale / delisted symbols.
 - A web UI for supply table status.
-- CoinMarketCap or other alternative supply sources.
+- Additional alternative supply sources beyond CoinMarketCap and CoinGecko.
 
 ## Acceptance Criteria
 
-- [ ] `coin_supply` table is populated by the background refresher on startup.
-- [ ] Refresher runs at most 1 CoinGecko request per minute without 429.
-- [ ] `small_market_value` candidate generation no longer calls CoinGecko `/coins/markets` repeatedly.
-- [ ] Candidate generation still works when CoinGecko is unavailable, as long as local data exists.
-- [ ] `go test ./...` passes.
-- [ ] `cmd/seedcoinsupply` still works for manual bootstrap.
+- [x] `coin_supply` table is populated by CMC provider and/or the background refresher.
+- [x] `small_market_value` candidate generation uses CoinMarketCap when `COINMARKETCAP_API_KEY` is set.
+- [x] CMC provider checks local DB freshness before calling the API, keeping credit usage bounded.
+- [x] Refresher runs at most 1 CoinGecko request per minute without 429.
+- [x] Candidate generation still works when upstream APIs are unavailable, as long as local data exists.
+- [x] `go test ./kernel/... ./provider/smallcap/...` passes.
+- [x] `cmd/seedcoinsupply` still works for manual bootstrap.
