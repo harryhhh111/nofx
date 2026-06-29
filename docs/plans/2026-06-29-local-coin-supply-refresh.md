@@ -95,12 +95,12 @@ Recommended default:
 Config{
     PageSize:       250,
     SleepInterval:  60 * time.Second,
-    MaxPagesPerRun: 10,  // one small-cap batch per 10 minutes
+    MaxPagesPerRun: 10,  // enough for the small-market-value use case
     Order:          "market_cap_asc",
 }
 ```
 
-Over time the refresher can page through the full CoinGecko universe (e.g. 40 pages) in a loop, returning to page 1 after the last page. Because supply changes slowly, a symbol that is missing on one cycle will likely be filled on the next.
+> **Note:** 10 pages (~2,500 raw rows, typically 700+ valid symbols after normalization) is enough for the small-market-value strategy. There is no need to crawl the full CoinGecko universe. After reaching page 10, the refresher resets to page 1 and starts the next cycle, keeping the local cache fresh for the same small-cap universe.
 
 ### 2. Store layer (`store/coin_supply.go`)
 
@@ -160,7 +160,7 @@ SUPPLY_REFRESH_ORDER=market_cap_asc
 
 ## Migration Path
 
-1. **Bootstrap** (one-time): run `go run ./cmd/seedcoinsupply` with `SEED_MAX_PAGES=10` to populate the table.
+1. **Bootstrap** (one-time): run `SEED_MAX_PAGES=10 go run ./cmd/seedcoinsupply` to populate the table. Ten pages is sufficient; full universe coverage is not required.
 2. **Deploy** the app with the new background refresher.
 3. **Monitor**: check logs for `supply_refresher` insert/update counts and any CoinGecko 429 errors.
 4. **Fallback**: if the local table is empty for a symbol, the provider can still call CoinGecko on demand as a last resort.

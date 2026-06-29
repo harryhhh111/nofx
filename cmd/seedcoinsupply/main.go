@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log"
 	"os"
@@ -12,14 +11,16 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/lib/pq"
+	"gorm.io/gorm"
+
 	"nofx/provider/coingecko"
+	"nofx/store"
 )
 
 const (
 	defaultPageSize = 250
 	defaultSleep    = 60 * time.Second
-	defaultMaxPages = 100
+	defaultMaxPages = 10
 )
 
 func main() {
@@ -31,6 +32,16 @@ func main() {
 func run() error {
 	ctx := context.Background()
 
+	db, err := openGORM()
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+
+	supplyStore := store.NewCoinSupplyStore(db)
+	if err := supplyStore.InitTables(); err != nil {
+		return fmt.Errorf("ensure table: %w", err)
+	}
+
 	apiKey := os.Getenv("COINGECKO_API_KEY")
 	var client *coingecko.Client
 	if apiKey != "" {
@@ -41,31 +52,20 @@ func run() error {
 		log.Println("using CoinGecko free API (1 request per minute)")
 	}
 
-	db, err := openDB()
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer db.Close()
-
-	if err := ensureTable(db); err != nil {
-		return fmt.Errorf("ensure table: %w", err)
-	}
-
 	maxPages := envInt("SEED_MAX_PAGES", defaultMaxPages)
 	pageSize := envInt("SEED_PAGE_SIZE", defaultPageSize)
 	sleep := envDuration("SEED_SLEEP", defaultSleep)
+	order := envString("SEED_ORDER", "market_cap_asc")
 
-	log.Printf("starting seed: page_size=%d sleep=%s max_pages=%d", pageSize, sleep, maxPages)
+	log.Printf("starting seed: page_size=%d sleep=%s max_pages=%d order=%s", pageSize, sleep, maxPages, order)
 
-	totalInserted := 0
-	totalUpdated := 0
+	totalRows := 0
 	for page := 1; page <= maxPages; page++ {
 		log.Printf("fetching page %d...", page)
-		data, err := fetchWithRetry(ctx, client, page, pageSize)
+		data, err := fetchWithRetry(ctx, client, page, pageSize, order)
 		if err != nil {
 			log.Printf("page %d failed: %v", page, err)
-			// If we got some data already, continue to next page; otherwise stop.
-			if totalInserted == 0 && totalUpdated == 0 {
+			if totalRows == 0 {
 				return err
 			}
 			break
@@ -75,25 +75,33 @@ func run() error {
 			break
 		}
 
-		inserted, updated, err := upsertPage(db, data)
-		if err != nil {
-			return fmt.Errorf("upsert page %d: %w", page, err)
+		records := toRecords(data)
+		if len(records) > 0 {
+			if err := supplyStore.Upsert(records); err != nil {
+				return fmt.Errorf("upsert page %d: %w", page, err)
+			}
 		}
-		totalInserted += inserted
-		totalUpdated += updated
-		log.Printf("page %d: inserted=%d updated=%d total_rows=%d", page, inserted, updated, totalInserted+totalUpdated)
+		totalRows += len(records)
+		log.Printf("page %d: rows=%d total_rows=%d", page, len(records), totalRows)
 
-		if page < maxPages && len(data) == pageSize {
+		if page < maxPages {
 			log.Printf("sleeping %s before next page...", sleep)
 			time.Sleep(sleep)
 		}
 	}
 
-	log.Printf("seed complete: inserted=%d updated=%d", totalInserted, totalUpdated)
+	count, err := supplyStore.Count()
+	if err != nil {
+		log.Printf("failed to count: %v", err)
+	} else {
+		log.Printf("coin_supply table now has %d rows", count)
+	}
+
+	log.Printf("seed complete: total_rows=%d", totalRows)
 	return nil
 }
 
-func fetchWithRetry(ctx context.Context, client *coingecko.Client, page, pageSize int) ([]coingecko.MarketData, error) {
+func fetchWithRetry(ctx context.Context, client *coingecko.Client, page, pageSize int, order string) ([]coingecko.MarketData, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
@@ -103,7 +111,7 @@ func fetchWithRetry(ctx context.Context, client *coingecko.Client, page, pageSiz
 		}
 		data, err := client.CoinsMarkets(ctx, coingecko.CoinsMarketsRequest{
 			VSCCurrency: "usd",
-			Order:       "market_cap_asc",
+			Order:       order,
 			PerPage:     pageSize,
 			Page:        page,
 		})
@@ -116,38 +124,26 @@ func fetchWithRetry(ctx context.Context, client *coingecko.Client, page, pageSiz
 	return nil, lastErr
 }
 
-func upsertPage(db *sql.DB, data []coingecko.MarketData) (int, int, error) {
-	inserted := 0
-	updated := 0
+func toRecords(data []coingecko.MarketData) []store.CoinSupply {
+	records := make([]store.CoinSupply, 0, len(data))
 	for _, d := range data {
 		symbol := normalizeSymbol(d.Symbol)
 		if symbol == "" {
 			continue
 		}
-		res, err := db.Exec(`
-			INSERT INTO coin_supply (symbol, coingecko_id, name, circulating_supply, total_supply, market_cap_usd, volume_24h_usd, last_updated_at, source)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), 'coingecko')
-			ON CONFLICT (symbol) DO UPDATE SET
-				coingecko_id = EXCLUDED.coingecko_id,
-				name = EXCLUDED.name,
-				circulating_supply = EXCLUDED.circulating_supply,
-				total_supply = EXCLUDED.total_supply,
-				market_cap_usd = EXCLUDED.market_cap_usd,
-				volume_24h_usd = EXCLUDED.volume_24h_usd,
-				last_updated_at = NOW(),
-				source = 'coingecko'
-		`, symbol, d.ID, d.Name, nullIfZero(d.CirculatingSupply), nullIfZero(d.TotalSupply), nullIfZero(d.MarketCap), nullIfZero(d.TotalVolume))
-		if err != nil {
-			return 0, 0, err
-		}
-		rows, _ := res.RowsAffected()
-		if rows == 1 {
-			inserted++
-		} else {
-			updated++
-		}
+		records = append(records, store.CoinSupply{
+			Symbol:            symbol,
+			CoingeckoID:       d.ID,
+			Name:              d.Name,
+			CirculatingSupply: d.CirculatingSupply,
+			TotalSupply:       d.TotalSupply,
+			MarketCapUSD:      d.MarketCap,
+			Volume24hUSD:      d.TotalVolume,
+			LastUpdatedAt:     time.Now().UTC(),
+			Source:            "coingecko",
+		})
 	}
-	return inserted, updated, nil
+	return records
 }
 
 func normalizeSymbol(symbol string) string {
@@ -161,61 +157,14 @@ func normalizeSymbol(symbol string) string {
 	return s
 }
 
-func nullIfZero(v float64) interface{} {
-	if v == 0 {
-		return nil
-	}
-	return v
-}
-
-func openDB() (*sql.DB, error) {
-	connStr := os.Getenv("DATABASE_URL")
-	if connStr == "" {
-		host := os.Getenv("DB_HOST")
-		port := os.Getenv("DB_PORT")
-		user := os.Getenv("DB_USER")
-		pass := os.Getenv("DB_PASSWORD")
-		dbName := os.Getenv("DB_NAME")
-		sslMode := os.Getenv("DB_SSLMODE")
-		if host == "" {
-			host = "172.17.0.1"
-		}
-		if port == "" {
-			port = "5432"
-		}
-		if user == "" {
-			user = "nfp"
-		}
-		if pass == "" {
-			pass = "123456"
-		}
-		if dbName == "" {
-			dbName = "nofx-v2"
-		}
-		if sslMode == "" {
-			sslMode = "disable"
-		}
-		connStr = fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", host, port, user, pass, dbName, sslMode)
-	}
-	return sql.Open("postgres", connStr)
-}
-
-func ensureTable(db *sql.DB) error {
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS coin_supply (
-			symbol TEXT PRIMARY KEY,
-			coingecko_id TEXT,
-			name TEXT,
-			circulating_supply NUMERIC,
-			total_supply NUMERIC,
-			max_supply NUMERIC,
-			market_cap_usd NUMERIC,
-			volume_24h_usd NUMERIC,
-			last_updated_at TIMESTAMPTZ DEFAULT NOW(),
-			source TEXT DEFAULT 'coingecko'
-		)
-	`)
-	return err
+func openGORM() (*gorm.DB, error) {
+	host := envString("DB_HOST", "172.17.0.1")
+	port := envInt("DB_PORT", 5432)
+	user := envString("DB_USER", "nfp")
+	pass := envString("DB_PASSWORD", "123456")
+	dbName := envString("DB_NAME", "nofx-v2")
+	sslMode := envString("DB_SSLMODE", "disable")
+	return store.InitGormPostgres(host, port, user, pass, dbName, sslMode)
 }
 
 func keyType(key string) string {
@@ -247,4 +196,12 @@ func envDuration(name string, def time.Duration) time.Duration {
 		return def
 	}
 	return d
+}
+
+func envString(name, def string) string {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	return v
 }

@@ -10,7 +10,10 @@ import (
 	"sync"
 	"time"
 
+	"nofx/logger"
 	"nofx/provider/coingecko"
+	"nofx/store"
+	"gorm.io/gorm"
 	"golang.org/x/sync/singleflight"
 )
 
@@ -43,6 +46,10 @@ type CoinGeckoProvider struct {
 	symbolsFetchedAt time.Time
 
 	flight singleflight.Group
+
+	// supplyStore is optional. When set, the provider first tries to build the
+	// ranking from the local coin_supply table, avoiding CoinGecko rate limits.
+	supplyStore *store.CoinSupplyStore
 }
 
 // NewCoinGeckoProvider creates the default free small market value provider.
@@ -59,8 +66,14 @@ func NewCoinGeckoProviderWithClient(client *coingecko.Client) *CoinGeckoProvider
 	}
 }
 
+// WithSupplyStore enables the local-supply fast path.
+func (p *CoinGeckoProvider) WithSupplyStore(s *store.CoinSupplyStore) *CoinGeckoProvider {
+	p.supplyStore = s
+	return p
+}
+
 func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req SmallMarketValueRequest) (*SmallMarketValueRankingData, error) {
-	if p == nil || p.client == nil {
+	if p == nil {
 		return nil, fmt.Errorf("small market value CoinGecko provider is not configured")
 	}
 
@@ -84,7 +97,19 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 			return data, nil
 		}
 
-		result, fetchErr := p.fetchRanking(ctx, req, limit)
+		// Local-supply fast path: avoid CoinGecko entirely if we have cached supply.
+		if p.supplyStore != nil {
+			result, localErr := p.fetchRankingFromLocal(ctx, req, limit)
+			if localErr == nil && len(result.Coins) > 0 {
+				p.saveCache(cacheKey, result)
+				return result, nil
+			}
+			if localErr != nil {
+				logger.Infof("local coin_supply ranking unavailable: %v; falling back to CoinGecko", localErr)
+			}
+		}
+
+		result, fetchErr := p.fetchRankingFromCoinGecko(ctx, req, limit)
 		if fetchErr != nil {
 			// Fallback: return stale cached data if we have any, so a rate-limit
 			// burst does not leave traders without candidates.
@@ -99,6 +124,15 @@ func (p *CoinGeckoProvider) GetSmallMarketValueRanking(ctx context.Context, req 
 		return nil, err
 	}
 	return v.(*SmallMarketValueRankingData), nil
+}
+
+func (p *CoinGeckoProvider) saveCache(key string, data *SmallMarketValueRankingData) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cache[key] = cacheEntry{
+		data:      data,
+		expiresAt: time.Now().Add(p.ttl),
+	}
 }
 
 // loadCache returns a fresh cached result if available.
@@ -120,7 +154,98 @@ func (p *CoinGeckoProvider) loadCacheStale(key string) (*SmallMarketValueRanking
 	return entry.data, ok
 }
 
-func (p *CoinGeckoProvider) fetchRanking(ctx context.Context, req SmallMarketValueRequest, limit int) (*SmallMarketValueRankingData, error) {
+func (p *CoinGeckoProvider) fetchRankingFromLocal(ctx context.Context, req SmallMarketValueRequest, limit int) (*SmallMarketValueRankingData, error) {
+	if p.supplyStore == nil {
+		return nil, fmt.Errorf("no local supply store configured")
+	}
+
+	binanceSymbols, err := p.getBinanceSymbols(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch Binance tradable symbols: %w", err)
+	}
+
+	// Pull enough small-cap candidates from local DB. We fetch more than the
+	// final limit because liquidity filters will drop some of them.
+	fetchLimit := limit * 10
+	if fetchLimit < 100 {
+		fetchLimit = 100
+	}
+
+	var rows []store.CoinSupply
+	err = p.supplyStore.DB().WithContext(ctx).
+		Order("market_cap_usd ASC NULLS LAST").
+		Limit(fetchLimit).
+		Find(&rows).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("local coin_supply table is empty")
+		}
+		return nil, fmt.Errorf("query local coin_supply: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("local coin_supply table is empty")
+	}
+
+	filterReq := req
+	filterReq.Limit = limit
+	filterReq.MinDepthUSD = 0
+
+	var allCoins []SmallMarketValueCoin
+	var oiAttemptCount int
+	var oiSuccessCount int
+	for _, r := range rows {
+		symbol := normalizeSymbol(r.Symbol, "")
+		if symbol == "" {
+			continue
+		}
+		if _, tradable := binanceSymbols[symbol]; !tradable {
+			continue
+		}
+		coin := SmallMarketValueCoin{
+			Symbol:            symbol,
+			CirculatingSupply: r.CirculatingSupply,
+			TotalSupply:       r.TotalSupply,
+			MarketCap:         r.MarketCapUSD,
+			FDV:               fdvFromSupply(r.TotalSupply, r.MarketCapUSD, r.CirculatingSupply),
+			Volume24hUSD:      r.Volume24hUSD,
+		}
+		allCoins = append(allCoins, coin)
+	}
+
+	raw := make([]*SmallMarketValueCoin, len(allCoins))
+	for i := range allCoins {
+		raw[i] = &allCoins[i]
+	}
+	attempts, successes := p.enrichOpenInterest(ctx, raw)
+	oiAttemptCount += attempts
+	oiSuccessCount += successes
+	if attempts > 0 && successes == 0 && oiSuccessCount == 0 {
+		filterReq.MinOpenInterestUSD = 0
+	}
+
+	filtered := filterAndScore(allCoins, filterReq)
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	return &SmallMarketValueRankingData{
+		Coins:          filtered,
+		FilterStats:    computeFilterStats(allCoins, filtered),
+		DepthAvailable: false,
+		OIAvailable:    oiAttemptCount == 0 || oiSuccessCount > 0,
+		FetchedAt:      time.Now().UTC(),
+	}, nil
+}
+
+func fdvFromSupply(totalSupply, marketCap, circulatingSupply float64) float64 {
+	if totalSupply > 0 && circulatingSupply > 0 {
+		price := marketCap / circulatingSupply
+		return price * totalSupply
+	}
+	return 0
+}
+
+func (p *CoinGeckoProvider) fetchRankingFromCoinGecko(ctx context.Context, req SmallMarketValueRequest, limit int) (*SmallMarketValueRankingData, error) {
 	binanceSymbols, err := p.getBinanceSymbols(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch Binance tradable symbols: %w", err)

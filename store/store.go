@@ -33,6 +33,7 @@ type Store struct {
 	tradeMemory    *TradeMemoryStore
 	execution      *ExecutionAnalyticsStore
 	calibration    *SignalCalibrationStore
+	coinSupply     *CoinSupplyStore
 	telegramConfig TelegramConfigStore
 
 	mu sync.RWMutex
@@ -179,6 +180,9 @@ func (s *Store) initTables() error {
 	}
 	if err := s.SignalCalibration().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize signal calibration tables: %w", err)
+	}
+	if err := s.CoinSupply().InitTables(); err != nil {
+		return fmt.Errorf("failed to initialize coin supply tables: %w", err)
 	}
 	return nil
 }
@@ -351,6 +355,16 @@ func (s *Store) SignalCalibration() *SignalCalibrationStore {
 		s.calibration = NewSignalCalibrationStore(s.gdb)
 	}
 	return s.calibration
+}
+
+// CoinSupply gets coin supply cache storage
+func (s *Store) CoinSupply() *CoinSupplyStore {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.coinSupply == nil {
+		s.coinSupply = NewCoinSupplyStore(s.gdb)
+	}
+	return s.coinSupply
 }
 
 // TelegramConfig gets Telegram bot configuration storage

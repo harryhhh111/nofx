@@ -10,6 +10,8 @@ import (
 	"nofx/manager"
 	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
+	"nofx/provider/smallcap"
+	"nofx/provider/supplyrefresher"
 	"nofx/store"
 	"nofx/telegram"
 	"os"
@@ -79,6 +81,23 @@ func main() {
 		logger.Fatalf("❌ Failed to initialize database: %v", err)
 	}
 	defer st.Close()
+
+	// Start the background coin-supply refresher so the small-market-value
+	// source can avoid hitting CoinGecko rate limits during trading.
+	refresher := supplyrefresher.New(
+		st.CoinSupply(),
+		os.Getenv("COINGECKO_API_KEY"),
+		supplyrefresher.DefaultConfig(),
+	)
+	if err := refresher.Start(); err != nil {
+		logger.Fatalf("❌ Failed to start coin supply refresher: %v", err)
+	}
+	defer refresher.Stop()
+
+	// Wire the local supply store into the shared smallcap provider if applicable.
+	if p, ok := smallcap.SharedProvider().(*smallcap.CoinGeckoProvider); ok {
+		p.WithSupplyStore(st.CoinSupply())
+	}
 
 	// Initialize installation ID for experience improvement (anonymous statistics)
 	initInstallationID(st)
