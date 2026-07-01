@@ -30,22 +30,32 @@ ORDER BY id;
 
 BEGIN;
 
+DROP TABLE IF EXISTS _slash_model_fix;
+DROP TABLE IF EXISTS _slash_trader_fix;
+
 -- Build a fixed mapping from the original ai_model ids. We use a temporary
 -- table so the mapping survives the UPDATE on ai_models itself.
-CREATE TEMP TABLE _slash_model_fix ON COMMIT DROP AS
+CREATE TEMP TABLE _slash_model_fix AS
 SELECT
     id AS old_id,
     regexp_replace(id, '^([^_]+_[^_]+)_(.+)$', '\1')
     || '_'
-    || split_part(regexp_replace(id, '^([^_]+_[^_]+)_(.+)$', '\2'), '/', array_length(string_to_array(regexp_replace(id, '^([^_]+_[^_]+)_(.+)$', '\2'), '/'), 1)) AS new_id
+    || regexp_replace(
+        split_part(
+            regexp_replace(id, '^([^_]+_[^_]+)_(.+)$', '\2'),
+            '/',
+            array_length(string_to_array(regexp_replace(id, '^([^_]+_[^_]+)_(.+)$', '\2'), '/'), 1)
+        ),
+        '[^A-Za-z0-9._-]', '-', 'g'
+    ) AS new_id
 FROM ai_models
 WHERE id LIKE '%/%';
 
 -- Also build the trader id mapping up front, before we modify any table.
-CREATE TEMP TABLE _slash_trader_fix ON COMMIT DROP AS
+CREATE TEMP TABLE _slash_trader_fix AS
 SELECT
     t.id AS old_trader_id,
-    replace(t.id, m.old_id, m.new_id) AS new_trader_id
+    regexp_replace(replace(t.id, m.old_id, m.new_id), '[^A-Za-z0-9._-]', '-', 'g') AS new_trader_id
 FROM traders t
 JOIN _slash_model_fix m ON t.id LIKE '%' || m.old_id || '%'
 WHERE t.id LIKE '%/%';
@@ -56,12 +66,48 @@ SELECT * FROM _slash_model_fix ORDER BY old_id;
 \echo '=== Planned trader id changes ==='
 SELECT * FROM _slash_trader_fix ORDER BY old_trader_id;
 
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM _slash_model_fix
+        GROUP BY new_id
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'AI model id migration would create duplicate target ids';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM _slash_trader_fix
+        GROUP BY new_trader_id
+        HAVING COUNT(*) > 1
+    ) THEN
+        RAISE EXCEPTION 'Trader id migration would create duplicate target ids';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM _slash_model_fix f
+        JOIN ai_models existing ON existing.id = f.new_id AND existing.id <> f.old_id
+    ) THEN
+        RAISE EXCEPTION 'AI model id migration target already exists; resolve conflicts before running this script';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM _slash_trader_fix f
+        JOIN traders existing ON existing.id = f.new_trader_id AND existing.id <> f.old_trader_id
+    ) THEN
+        RAISE EXCEPTION 'Trader id migration target already exists; resolve conflicts before running this script';
+    END IF;
+END $$;
+
 -- 1. Rename the AI model records.
 UPDATE ai_models m
 SET id = f.new_id
 FROM _slash_model_fix f
-WHERE m.id = f.old_id
-  AND NOT EXISTS (SELECT 1 FROM ai_models ex WHERE ex.id = f.new_id AND ex.id != m.id);
+WHERE m.id = f.old_id;
 
 -- 2. Update traders.ai_model_id to point to the renamed AI models.
 UPDATE traders t
@@ -73,8 +119,7 @@ WHERE t.ai_model_id = f.old_id;
 UPDATE traders t
 SET id = f.new_trader_id
 FROM _slash_trader_fix f
-WHERE t.id = f.old_trader_id
-  AND NOT EXISTS (SELECT 1 FROM traders ex WHERE ex.id = f.new_trader_id AND ex.id != t.id);
+WHERE t.id = f.old_trader_id;
 
 -- 4. Cascade the trader id change to all known related tables.
 UPDATE trader_positions          SET trader_id = f.new_trader_id FROM _slash_trader_fix f WHERE trader_id = f.old_trader_id;

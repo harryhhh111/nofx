@@ -46,6 +46,20 @@ type UpdateTraderRequest struct {
 	TradingSymbols      string  `json:"trading_symbols"`
 }
 
+func sanitizeTraderIDPart(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
 func formatTraderCreationError(reason, nextStep string) string {
 	if nextStep == "" {
 		return fmt.Sprintf("Failed to create trader: %s.", reason)
@@ -376,7 +390,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	if len(exchangeIDShort) > 8 {
 		exchangeIDShort = exchangeIDShort[:8]
 	}
-	traderID := fmt.Sprintf("%s_%s_%d", exchangeIDShort, req.AIModelID, time.Now().Unix())
+	traderID := fmt.Sprintf("%s_%s_%d", sanitizeTraderIDPart(exchangeIDShort), sanitizeTraderIDPart(req.AIModelID), time.Now().Unix())
 
 	// Set default values
 	isCrossMargin := true // Default to cross margin mode

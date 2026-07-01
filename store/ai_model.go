@@ -278,8 +278,7 @@ func providerFromModelID(userID, id string) string {
 // buildModelID builds a stable primary-key id. If the customModelName contains
 // a namespace prefix separated by "/" (e.g. "qwen/qwen3.5-plus"), only the
 // model name after the last "/" is used in the id so the primary key stays
-// short and URL-safe. The raw name is still stored in the custom_model_name
-// column.
+// short and URL-safe. The raw name is still stored in custom_model_name.
 func buildModelID(userID, provider, customModelName string) string {
 	if customModelName == "" {
 		return fmt.Sprintf("%s_%s", userID, provider)
