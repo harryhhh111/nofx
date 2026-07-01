@@ -275,14 +275,20 @@ func providerFromModelID(userID, id string) string {
 	return rest
 }
 
-// buildModelID builds a stable primary-key id. The customModelName is sanitized
-// so characters that are unsafe inside an identifier/URL (notably "/") never leak
-// into the primary key — the raw name is still stored in the custom_model_name column.
+// buildModelID builds a stable primary-key id. If the customModelName contains
+// a namespace prefix separated by "/" (e.g. "qwen/qwen3.5-plus"), only the
+// model name after the last "/" is used in the id so the primary key stays
+// short and URL-safe. The raw name is still stored in the custom_model_name
+// column.
 func buildModelID(userID, provider, customModelName string) string {
 	if customModelName == "" {
 		return fmt.Sprintf("%s_%s", userID, provider)
 	}
-	return fmt.Sprintf("%s_%s_%s", userID, provider, sanitizeModelIDPart(customModelName))
+	idPart := customModelName
+	if idx := strings.LastIndex(customModelName, "/"); idx >= 0 {
+		idPart = customModelName[idx+1:]
+	}
+	return fmt.Sprintf("%s_%s_%s", userID, provider, sanitizeModelIDPart(idPart))
 }
 
 // sanitizeModelIDPart keeps [A-Za-z0-9._-] and replaces every other character

@@ -45,7 +45,7 @@ func TestAIModelUpdateSanitizesSlashAndIsIdempotent(t *testing.T) {
 	if strings.Contains(m.ID, "/") {
 		t.Fatalf("id must not contain a slash, got %q", m.ID)
 	}
-	if want := "user-1_qwen_qwen3-qwen37-plus"; m.ID != want {
+	if want := "user-1_qwen_qwen37-plus"; m.ID != want {
 		t.Fatalf("id = %q, want %q", m.ID, want)
 	}
 	if m.Provider != "qwen" {
@@ -197,6 +197,23 @@ func TestSanitizeModelIDPart(t *testing.T) {
 	for _, c := range cases {
 		if got := sanitizeModelIDPart(c.in); got != c.want {
 			t.Errorf("sanitizeModelIDPart(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestBuildModelIDUsesPartAfterSlash(t *testing.T) {
+	cases := []struct {
+		userID, provider, customModelName, want string
+	}{
+		{"user-1", "qwen", "qwen3/qwen37-plus", "user-1_qwen_qwen37-plus"},
+		{"user-1", "qwen", "qwen3.5-plus", "user-1_qwen_qwen3.5-plus"},
+		{"user-1", "deepseek", "", "user-1_deepseek"},
+		{"default", "openai", "openai/gpt-5.2", "default_openai_gpt-5.2"},
+		{"u", "x", "a/b/c-model", "u_x_c-model"},
+	}
+	for _, c := range cases {
+		if got := buildModelID(c.userID, c.provider, c.customModelName); got != c.want {
+			t.Errorf("buildModelID(%q, %q, %q) = %q, want %q", c.userID, c.provider, c.customModelName, got, c.want)
 		}
 	}
 }

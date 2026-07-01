@@ -48,13 +48,13 @@ export const traderApi = {
   },
 
   async deleteTrader(traderId: string): Promise<void> {
-    const result = await httpClient.delete(`${API_BASE}/traders/${traderId}`)
+    const result = await httpClient.delete(`${API_BASE}/traders/${encodeURIComponent(traderId)}`)
     if (!result.success) throw new Error('Failed to delete trader')
   },
 
   async startTrader(traderId: string): Promise<void> {
     const result = await httpClient.post(
-      `${API_BASE}/traders/${traderId}/start`
+      `${API_BASE}/traders/${encodeURIComponent(traderId)}/start`
     )
     if (!result.success) {
       throwApiError(
@@ -67,13 +67,13 @@ export const traderApi = {
   },
 
   async stopTrader(traderId: string): Promise<void> {
-    const result = await httpClient.post(`${API_BASE}/traders/${traderId}/stop`)
+    const result = await httpClient.post(`${API_BASE}/traders/${encodeURIComponent(traderId)}/stop`)
     if (!result.success) throw new Error('Failed to stop trader')
   },
 
   async toggleCompetition(traderId: string, showInCompetition: boolean): Promise<void> {
     const result = await httpClient.put(
-      `${API_BASE}/traders/${traderId}/competition`,
+      `${API_BASE}/traders/${encodeURIComponent(traderId)}/competition`,
       { show_in_competition: showInCompetition }
     )
     if (!result.success) throw new Error('Failed to update competition visibility')
@@ -81,7 +81,7 @@ export const traderApi = {
 
   async closePosition(traderId: string, symbol: string, side: string): Promise<{ message: string }> {
     const result = await httpClient.post<{ message: string }>(
-      `${API_BASE}/traders/${traderId}/close-position`,
+      `${API_BASE}/traders/${encodeURIComponent(traderId)}/close-position`,
       { symbol, side }
     )
     if (!result.success) throw new Error('Failed to close position')
@@ -90,7 +90,7 @@ export const traderApi = {
 
   async getTraderConfig(traderId: string): Promise<TraderConfigData> {
     const result = await httpClient.get<TraderConfigData>(
-      `${API_BASE}/traders/${traderId}/config`
+      `${API_BASE}/traders/${encodeURIComponent(traderId)}/config`
     )
     if (!result.success) throw new Error('Failed to fetch trader config')
     return result.data!
@@ -101,7 +101,7 @@ export const traderApi = {
     request: CreateTraderRequest
   ): Promise<TraderInfo> {
     const result = await httpClient.put<TraderInfo>(
-      `${API_BASE}/traders/${traderId}`,
+      `${API_BASE}/traders/${encodeURIComponent(traderId)}`,
       request
     )
     if (!result.success) {
