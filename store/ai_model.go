@@ -18,16 +18,16 @@ type AIModelStore struct {
 
 // AIModel AI model configuration
 type AIModel struct {
-	ID              string          `gorm:"primaryKey" json:"id"`
-	UserID          string          `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
-	Name            string          `gorm:"not null" json:"name"`
-	Provider        string          `gorm:"not null" json:"provider"`
-	Enabled         bool            `gorm:"default:false" json:"enabled"`
+	ID              string                 `gorm:"primaryKey" json:"id"`
+	UserID          string                 `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
+	Name            string                 `gorm:"not null" json:"name"`
+	Provider        string                 `gorm:"not null" json:"provider"`
+	Enabled         bool                   `gorm:"default:false" json:"enabled"`
 	APIKey          crypto.EncryptedString `gorm:"column:api_key;default:''" json:"apiKey"`
-	CustomAPIURL    string          `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
-	CustomModelName string          `gorm:"column:custom_model_name;default:''" json:"customModelName"`
-	CreatedAt       time.Time       `json:"created_at"`
-	UpdatedAt       time.Time       `json:"updated_at"`
+	CustomAPIURL    string                 `gorm:"column:custom_api_url;default:''" json:"customApiUrl"`
+	CustomModelName string                 `gorm:"column:custom_model_name;default:''" json:"customModelName"`
+	CreatedAt       time.Time              `json:"created_at"`
+	UpdatedAt       time.Time              `json:"updated_at"`
 }
 
 func (AIModel) TableName() string { return "ai_models" }
@@ -150,88 +150,60 @@ func (s *AIModelStore) GetAnyEnabled() (*AIModel, error) {
 	return &model, nil
 }
 
-// Update updates AI model, creates if not exists
+// Update updates AI model, creates if not exists.
+//
+// The incoming id is either a bare provider name (e.g. "qwen", when configuring
+// from the supported-models template) or a full stored id in the format
+// {userID}_{provider}_{customModelName}. To stay robust regardless of which one
+// the caller sends, matching is done in this order:
+//  1. exact id match;
+//  2. natural-key match on (userID, provider, customModelName) — this is what makes
+//     re-saves idempotent instead of trying to INSERT a duplicate primary key;
+//  3. legacy old-format id {userID}_{provider}.
+//
+// Only if none match do we create a new record, with a slash-free sanitized id.
+//
 // IMPORTANT: If apiKey is empty string, the existing API key will be preserved (not overwritten)
 // IMPORTANT: If displayName is empty string, the existing name will be preserved (not overwritten)
 func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPIURL, customModelName, displayName string) error {
-	// Try exact ID match first
+	// 1. Exact ID match first (caller passed a concrete stored id).
 	var existingModel AIModel
 	err := s.db.Where("user_id = ? AND id = ?", userID, id).First(&existingModel).Error
 	if err == nil {
-		// Update existing model
-		updates := map[string]interface{}{
-			"enabled":           enabled,
-			"custom_api_url":    customAPIURL,
-			"custom_model_name": customModelName,
-			"updated_at":        time.Now().UTC(),
-		}
-		// If apiKey is not empty, update it (encryption handled by crypto.EncryptedString)
-		if apiKey != "" {
-			updates["api_key"] = crypto.EncryptedString(apiKey)
-		}
-		// If displayName is not empty, update it
-		if displayName != "" {
-			updates["name"] = displayName
-		}
-		return s.db.Model(&existingModel).Updates(updates).Error
+		return s.applyModelUpdate(&existingModel, enabled, apiKey, customAPIURL, customModelName, displayName)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 
-	// Determine provider from id
-	provider := id
-	if id != "deepseek" && id != "qwen" {
-		parts := strings.Split(id, "_")
-		if len(parts) >= 2 {
-			provider = parts[len(parts)-1]
-		}
+	provider := providerFromModelID(userID, id)
+
+	// 2. Idempotent match on the natural key so re-saving the same config updates
+	//    in place instead of colliding on the primary key.
+	err = s.db.Where("user_id = ? AND provider = ? AND custom_model_name = ?", userID, provider, customModelName).
+		First(&existingModel).Error
+	if err == nil {
+		return s.applyModelUpdate(&existingModel, enabled, apiKey, customAPIURL, customModelName, displayName)
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 
-	// Backward compatibility: if id is a standard provider name, try old format ID {userID}_{provider}
+	// 3. Backward compatibility: legacy old-format id {userID}_{provider}.
 	if id == provider {
 		oldFormatID := fmt.Sprintf("%s_%s", userID, provider)
 		err = s.db.Where("user_id = ? AND id = ?", userID, oldFormatID).First(&existingModel).Error
 		if err == nil {
-			updates := map[string]interface{}{
-				"enabled":           enabled,
-				"custom_api_url":    customAPIURL,
-				"custom_model_name": customModelName,
-				"updated_at":        time.Now().UTC(),
-			}
-			if apiKey != "" {
-				updates["api_key"] = crypto.EncryptedString(apiKey)
-			}
-			if displayName != "" {
-				updates["name"] = displayName
-			}
-			return s.db.Model(&existingModel).Updates(updates).Error
+			return s.applyModelUpdate(&existingModel, enabled, apiKey, customAPIURL, customModelName, displayName)
+		}
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
 		}
 	}
 
-	// Create new record
-	// Try to get name from existing model with same provider
-	var refModel AIModel
-	var name string
-	if err := s.db.Where("provider = ?", provider).First(&refModel).Error; err == nil {
-		name = refModel.Name
-	} else {
-		if provider == "deepseek" {
-			name = "DeepSeek AI"
-		} else if provider == "qwen" {
-			name = "Qwen AI"
-		} else {
-			name = provider + " AI"
-		}
-	}
-
-	var newModelID string
-	if id == provider {
-		if customModelName != "" {
-			newModelID = fmt.Sprintf("%s_%s_%s", userID, provider, customModelName)
-		} else {
-			newModelID = fmt.Sprintf("%s_%s", userID, provider)
-		}
-	} else {
-		newModelID = fmt.Sprintf("%s_%s_%s", userID, provider, customModelName)
-	}
+	// 4. Create new record with a safe, slash-free id.
+	name := s.resolveProviderName(provider)
+	newModelID := buildModelID(userID, provider, customModelName)
 
 	logger.Infof("✓ Creating new AI model configuration: ID=%s, Provider=%s, Name=%s", newModelID, provider, name)
 	newModel := &AIModel{
@@ -245,6 +217,88 @@ func (s *AIModelStore) Update(userID, id string, enabled bool, apiKey, customAPI
 		CustomModelName: customModelName,
 	}
 	return s.db.Create(newModel).Error
+}
+
+// applyModelUpdate applies a partial update to an existing model.
+// apiKey / displayName are only overwritten when non-empty (preserve-on-empty semantics).
+func (s *AIModelStore) applyModelUpdate(m *AIModel, enabled bool, apiKey, customAPIURL, customModelName, displayName string) error {
+	updates := map[string]interface{}{
+		"enabled":        enabled,
+		"custom_api_url": customAPIURL,
+		"updated_at":     time.Now().UTC(),
+	}
+	if enabled || customModelName != "" || m.CustomModelName == "" {
+		updates["custom_model_name"] = customModelName
+	}
+	if apiKey != "" {
+		updates["api_key"] = crypto.EncryptedString(apiKey)
+	}
+	if displayName != "" {
+		updates["name"] = displayName
+	}
+	return s.db.Model(m).Updates(updates).Error
+}
+
+// resolveProviderName derives a display name for a provider, reusing an existing
+// record's name when one exists.
+func (s *AIModelStore) resolveProviderName(provider string) string {
+	var refModel AIModel
+	if err := s.db.Where("provider = ?", provider).First(&refModel).Error; err == nil {
+		return refModel.Name
+	}
+	switch provider {
+	case "deepseek":
+		return "DeepSeek AI"
+	case "qwen":
+		return "Qwen AI"
+	default:
+		return provider + " AI"
+	}
+}
+
+// providerFromModelID extracts the provider from a model id.
+//
+// A bare id (no {userID}_ prefix) is itself the provider name (e.g. "qwen").
+// A full id is {userID}_{provider}_{customModelName}; the provider is the first
+// segment after the userID prefix. The customModelName tail may contain "_" or
+// "/", so we must NOT take the last "_"-separated segment (the pre-fix bug that
+// mis-parsed provider as the model name).
+func providerFromModelID(userID, id string) string {
+	prefix := userID + "_"
+	rest := id
+	if strings.HasPrefix(id, prefix) {
+		rest = strings.TrimPrefix(id, prefix)
+	}
+	if idx := strings.Index(rest, "_"); idx >= 0 {
+		return rest[:idx]
+	}
+	return rest
+}
+
+// buildModelID builds a stable primary-key id. The customModelName is sanitized
+// so characters that are unsafe inside an identifier/URL (notably "/") never leak
+// into the primary key — the raw name is still stored in the custom_model_name column.
+func buildModelID(userID, provider, customModelName string) string {
+	if customModelName == "" {
+		return fmt.Sprintf("%s_%s", userID, provider)
+	}
+	return fmt.Sprintf("%s_%s_%s", userID, provider, sanitizeModelIDPart(customModelName))
+}
+
+// sanitizeModelIDPart keeps [A-Za-z0-9._-] and replaces every other character
+// (slashes, spaces, colons, etc.) with "-".
+func sanitizeModelIDPart(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
 }
 
 // Create creates an AI model

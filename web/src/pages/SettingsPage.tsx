@@ -143,7 +143,7 @@ export function SettingsPage() {
 
       const request = {
         models: Object.fromEntries(
-          updatedModels.map((m) => [m.provider, {
+          updatedModels.map((m) => [m.id, {
             enabled: m.enabled,
             api_key: m.apiKey || '',
             custom_api_url: m.customApiUrl || '',
@@ -169,7 +169,7 @@ export function SettingsPage() {
       )
       const request = {
         models: Object.fromEntries(
-          updatedModels.map((m) => [m.provider, {
+          updatedModels.map((m) => [m.id, {
             enabled: m.enabled,
             api_key: m.apiKey || '',
             custom_api_url: m.customApiUrl || '',
