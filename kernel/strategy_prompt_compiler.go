@@ -236,7 +236,7 @@ func buildStrategyCompilerSystemPrompt() string {
 - position_size_usd is a required minimum-order placeholder for schema compatibility. The program recalculates final notional size from account equity, configured risk per trade, and stop distance; do not invent position size.
 - Close and wait actions must include confidence.
 - For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution. long_threshold and short_threshold are signed evidence safeguards required by the schema; do not describe them as the primary trade trigger.
-- factor_weights are proportions from 0 to 1 and should sum to about 1 across selected_factors. If the user gives percentages, convert them to proportions.
+- factor_weights must include all supported evidence factors: trend, momentum, structure, derivatives. Selected factors should have proportions from 0 to 1 and should sum to about 1 across selected_factors. Set unselected factor weights to 0. If the user gives percentages, convert them to proportions.
 - Evidence scores are signed from -100 to 100. long_threshold must be positive, short_threshold must be negative. Example: long_threshold=60, short_threshold=-60. Never output short_threshold as a positive magnitude.
 - min_available_weight_ratio should normally be 0.5 or higher so scoring does not trade from one missing-heavy factor snapshot.
 - Supported evidence factors: trend, momentum, structure, derivatives.
@@ -253,6 +253,17 @@ func strategyCompileResponseFormat() map[string]any {
 	stringArray := map[string]any{
 		"type":  "array",
 		"items": map[string]any{"type": "string"},
+	}
+	factorWeightsSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"trend":       map[string]any{"type": "number"},
+			"momentum":    map[string]any{"type": "number"},
+			"structure":   map[string]any{"type": "number"},
+			"derivatives": map[string]any{"type": "number"},
+		},
+		"required":             []string{"trend", "momentum", "structure", "derivatives"},
+		"additionalProperties": false,
 	}
 	executionSchema := map[string]any{
 		"type": "object",
@@ -311,7 +322,7 @@ func strategyCompileResponseFormat() map[string]any {
 			"enabled":                    map[string]any{"type": "boolean"},
 			"version":                    map[string]any{"type": "string"},
 			"selected_factors":           map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"trend", "momentum", "structure", "derivatives"}}},
-			"factor_weights":             map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "number"}},
+			"factor_weights":             factorWeightsSchema,
 			"long_threshold":             map[string]any{"type": "number"},
 			"short_threshold":            map[string]any{"type": "number"},
 			"min_available_weight_ratio": map[string]any{"type": "number"},

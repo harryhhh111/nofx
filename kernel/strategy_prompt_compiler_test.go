@@ -2,6 +2,7 @@ package kernel
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +83,89 @@ func TestBuildStrategyCompileLLMRequestKeepsResponseFormatForOpenAI(t *testing.T
 	if req.ResponseFormat == nil {
 		t.Fatal("expected OpenAI request to include response_format")
 	}
+}
+
+func TestStrategyCompileResponseFormatUsesOpenAIStrictObjects(t *testing.T) {
+	format := strategyCompileResponseFormat()
+	jsonSchema, ok := format["json_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("response format missing json_schema: %#v", format)
+	}
+	schema, ok := jsonSchema["schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("response format missing schema: %#v", jsonSchema)
+	}
+	assertOpenAIStrictObjects(t, "schema", schema)
+}
+
+func assertOpenAIStrictObjects(t *testing.T, path string, node any) {
+	t.Helper()
+
+	switch v := node.(type) {
+	case map[string]any:
+		if schemaType, _ := v["type"].(string); schemaType == "object" {
+			properties, _ := v["properties"].(map[string]any)
+			if len(properties) > 0 {
+				if additional, ok := v["additionalProperties"].(bool); !ok || additional {
+					t.Fatalf("%s must set additionalProperties=false", path)
+				}
+				required, err := requiredStringSet(v["required"])
+				if err != nil {
+					t.Fatalf("%s has invalid required: %v", path, err)
+				}
+				for key := range properties {
+					if !required[key] {
+						t.Fatalf("%s required is missing property %q", path, key)
+					}
+				}
+				for key := range required {
+					if _, ok := properties[key]; !ok {
+						t.Fatalf("%s required includes extra key %q", path, key)
+					}
+				}
+			}
+		}
+		if properties, ok := v["properties"].(map[string]any); ok {
+			for key, child := range properties {
+				assertOpenAIStrictObjects(t, path+".properties."+key, child)
+			}
+		}
+		if items, ok := v["items"]; ok {
+			assertOpenAIStrictObjects(t, path+".items", items)
+		}
+		if variants, ok := v["anyOf"].([]any); ok {
+			for i, variant := range variants {
+				assertOpenAIStrictObjects(t, fmt.Sprintf("%s.anyOf.%d", path, i), variant)
+			}
+		}
+	case []any:
+		for i, child := range v {
+			assertOpenAIStrictObjects(t, fmt.Sprintf("%s.%d", path, i), child)
+		}
+	}
+}
+
+func requiredStringSet(value any) (map[string]bool, error) {
+	required, ok := value.([]string)
+	if !ok {
+		raw, ok := value.([]any)
+		if !ok {
+			return nil, fmt.Errorf("must be a string array")
+		}
+		required = make([]string, 0, len(raw))
+		for _, item := range raw {
+			s, ok := item.(string)
+			if !ok {
+				return nil, fmt.Errorf("contains non-string item %#v", item)
+			}
+			required = append(required, s)
+		}
+	}
+	out := make(map[string]bool, len(required))
+	for _, key := range required {
+		out[key] = true
+	}
+	return out, nil
 }
 
 type testCompileClient struct {
