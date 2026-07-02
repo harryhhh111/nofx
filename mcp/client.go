@@ -241,12 +241,7 @@ func (client *Client) BuildMCPRequestBody(systemPrompt, userPrompt string) map[s
 		"messages":    messages,
 		"temperature": client.Cfg.Temperature, // Use configured temperature
 	}
-	// OpenAI newer models use max_completion_tokens instead of max_tokens
-	if client.Provider == ProviderOpenAI {
-		requestBody["max_completion_tokens"] = client.MaxTokens
-	} else {
-		requestBody["max_tokens"] = client.MaxTokens
-	}
+	requestBody[client.maxTokensParameterName()] = client.MaxTokens
 	return requestBody
 }
 
@@ -618,18 +613,14 @@ func (client *Client) BuildRequestBodyFromRequest(req *Request) map[string]any {
 	}
 
 	// Add optional parameters (only add non-nil parameters)
-	if req.Temperature != nil {
+	if req.Temperature != nil && !req.MinimalParameters {
 		requestBody["temperature"] = *req.Temperature
-	} else {
+	} else if !req.MinimalParameters {
 		// If not set in Request, use Client's configuration
 		requestBody["temperature"] = client.Cfg.Temperature
 	}
 
-	// OpenAI newer models use max_completion_tokens instead of max_tokens
-	tokenKey := "max_tokens"
-	if client.Provider == ProviderOpenAI {
-		tokenKey = "max_completion_tokens"
-	}
+	tokenKey := client.maxTokensParameterName()
 	if req.MaxTokens != nil {
 		requestBody[tokenKey] = *req.MaxTokens
 	} else {
@@ -637,19 +628,19 @@ func (client *Client) BuildRequestBodyFromRequest(req *Request) map[string]any {
 		requestBody[tokenKey] = client.MaxTokens
 	}
 
-	if req.TopP != nil {
+	if req.TopP != nil && !req.MinimalParameters {
 		requestBody["top_p"] = *req.TopP
 	}
 
-	if req.FrequencyPenalty != nil {
+	if req.FrequencyPenalty != nil && !req.MinimalParameters {
 		requestBody["frequency_penalty"] = *req.FrequencyPenalty
 	}
 
-	if req.PresencePenalty != nil {
+	if req.PresencePenalty != nil && !req.MinimalParameters {
 		requestBody["presence_penalty"] = *req.PresencePenalty
 	}
 
-	if len(req.Stop) > 0 {
+	if len(req.Stop) > 0 && !req.MinimalParameters {
 		requestBody["stop"] = req.Stop
 	}
 
@@ -674,6 +665,23 @@ func (client *Client) BuildRequestBodyFromRequest(req *Request) map[string]any {
 	}
 
 	return requestBody
+}
+
+func (client *Client) maxTokensParameterName() string {
+	if client.isOpenRouterBaseURL() {
+		return "max_tokens"
+	}
+	if client.Provider == ProviderOpenAI {
+		return "max_completion_tokens"
+	}
+	return "max_tokens"
+}
+
+func (client *Client) isOpenRouterBaseURL() bool {
+	if client == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(client.BaseURL), "openrouter.ai")
 }
 
 // CallWithRequestStream streams the LLM response via SSE (Server-Sent Events).

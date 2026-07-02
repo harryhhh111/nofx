@@ -52,12 +52,13 @@ type Request struct {
 	Stream   bool      `json:"stream,omitempty"` // Whether to stream response
 
 	// Optional parameters (for fine-grained control)
-	Temperature      *float64 `json:"temperature,omitempty"`       // Temperature (0-2), controls randomness
-	MaxTokens        *int     `json:"max_tokens,omitempty"`        // Maximum token count
-	TopP             *float64 `json:"top_p,omitempty"`             // Nucleus sampling parameter (0-1)
-	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"` // Frequency penalty (-2 to 2)
-	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`  // Presence penalty (-2 to 2)
-	Stop             []string `json:"stop,omitempty"`              // Stop sequences
+	Temperature       *float64 `json:"temperature,omitempty"`       // Temperature (0-2), controls randomness
+	MaxTokens         *int     `json:"max_tokens,omitempty"`        // Maximum token count
+	TopP              *float64 `json:"top_p,omitempty"`             // Nucleus sampling parameter (0-1)
+	FrequencyPenalty  *float64 `json:"frequency_penalty,omitempty"` // Frequency penalty (-2 to 2)
+	PresencePenalty   *float64 `json:"presence_penalty,omitempty"`  // Presence penalty (-2 to 2)
+	Stop              []string `json:"stop,omitempty"`              // Stop sequences
+	MinimalParameters bool     `json:"-"`                           // Send only necessary generation controls for strict provider routing
 
 	// Advanced features
 	Tools          []Tool         `json:"tools,omitempty"`           // Available tools list

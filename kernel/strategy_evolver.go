@@ -256,9 +256,7 @@ func (e *LLMStrategyEvolver) Evolve(ctx context.Context, req StrategyEvolutionRe
 	temperature := 0.0
 	requestBody.MaxTokens = &maxTokens
 	requestBody.Temperature = &temperature
-	if base, ok := e.client.(mcp.ClientEmbedder); ok && isOpenRouterBaseURL(base.BaseClient().BaseURL) {
-		requestBody.Provider = map[string]any{"require_parameters": true}
-	}
+	prepareOpenRouterStructuredRequest(e.client, requestBody)
 
 	type response struct {
 		text string

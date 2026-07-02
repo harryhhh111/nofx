@@ -85,6 +85,25 @@ func TestBuildStrategyCompileLLMRequestKeepsResponseFormatForOpenAI(t *testing.T
 	}
 }
 
+func TestPrepareOpenRouterStructuredRequestUsesStrictRouting(t *testing.T) {
+	client := &testCompileClient{
+		base: &mcp.Client{
+			Provider: mcp.ProviderOpenAI,
+			BaseURL:  "https://openrouter.ai/api/v1",
+			Model:    "openai/gpt-5.4",
+		},
+	}
+
+	req := &mcp.Request{}
+	prepareOpenRouterStructuredRequest(client, req)
+	if !req.MinimalParameters {
+		t.Fatal("expected OpenRouter structured output request to use minimal parameters")
+	}
+	if got := req.Provider["require_parameters"]; got != true {
+		t.Fatalf("expected require_parameters=true, got %#v", req.Provider)
+	}
+}
+
 func TestStrategyCompileResponseFormatUsesOpenAIStrictObjects(t *testing.T) {
 	format := strategyCompileResponseFormat()
 	jsonSchema, ok := format["json_schema"].(map[string]any)

@@ -89,10 +89,18 @@ func buildStrategyCompileLLMRequest(ctx context.Context, client mcp.AIClient, sy
 	temperature := 0.0
 	reqBody.MaxTokens = &maxTokens
 	reqBody.Temperature = &temperature
+	prepareOpenRouterStructuredRequest(client, reqBody)
+	return reqBody, nil
+}
+
+func prepareOpenRouterStructuredRequest(client mcp.AIClient, reqBody *mcp.Request) {
+	if reqBody == nil {
+		return
+	}
 	if base, ok := client.(mcp.ClientEmbedder); ok && isOpenRouterBaseURL(base.BaseClient().BaseURL) {
 		reqBody.Provider = map[string]any{"require_parameters": true}
+		reqBody.MinimalParameters = true
 	}
-	return reqBody, nil
 }
 
 func strategyCompileUsesResponseFormat(client mcp.AIClient) bool {
