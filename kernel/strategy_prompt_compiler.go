@@ -221,8 +221,6 @@ func buildStrategyCompilerSystemPrompt() string {
       "execution": {
         "leverage": 3,
         "position_size_usd": 12,
-        "stop_loss_pct": 2,
-        "take_profit_pct": 6,
         "confidence": 70
       },
       "enabled": true
@@ -240,7 +238,7 @@ func buildStrategyCompilerSystemPrompt() string {
 - If the user only selects indicators/factors but gives no exact trigger conditions, output strategy_mode="scoring" as the deterministic structure-setup mode and provide scoring_config only as evidence-filter settings.
 - If both exact rules and factor scoring are useful, output strategy_mode="hybrid".
 - Supported actions: open_long, open_short, close_long, close_short, wait.
-- Open actions must include leverage, position_size_usd, stop_loss_pct, take_profit_pct, confidence.
+- Open actions must include leverage, position_size_usd, confidence.
 - position_size_usd is a required minimum-order placeholder for schema compatibility. The program recalculates final notional size from account equity, configured risk per trade, and stop distance; do not invent position size.
 - Close and wait actions must include confidence.
 - For scoring_config, include enabled, selected_factors, factor_weights, long_threshold, short_threshold, min_available_weight_ratio, min_confidence, timeframe, execution. long_threshold and short_threshold are signed evidence safeguards required by the schema; do not describe them as the primary trade trigger.
@@ -278,11 +276,9 @@ func strategyCompileResponseFormat() map[string]any {
 		"properties": map[string]any{
 			"leverage":          map[string]any{"type": "integer"},
 			"position_size_usd": map[string]any{"type": "number"},
-			"stop_loss_pct":     map[string]any{"type": "number"},
-			"take_profit_pct":   map[string]any{"type": "number"},
 			"confidence":        map[string]any{"type": "integer"},
 		},
-		"required":             []string{"leverage", "position_size_usd", "stop_loss_pct", "take_profit_pct", "confidence"},
+		"required":             []string{"leverage", "position_size_usd", "confidence"},
 		"additionalProperties": false,
 	}
 	operandSchema := map[string]any{
@@ -545,12 +541,6 @@ func validateCompiledRule(rule StrategyRule) error {
 		}
 		if rule.Execution.PositionSizeUSD <= 0 {
 			return fmt.Errorf("rule %s missing execution.position_size_usd", rule.ID)
-		}
-		if rule.Execution.StopLossPct <= 0 {
-			return fmt.Errorf("rule %s missing execution.stop_loss_pct", rule.ID)
-		}
-		if rule.Execution.TakeProfitPct <= 0 {
-			return fmt.Errorf("rule %s missing execution.take_profit_pct", rule.ID)
 		}
 	}
 	return nil

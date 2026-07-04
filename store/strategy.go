@@ -1512,8 +1512,6 @@ func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
 		Execution: CompiledRuleExecution{
 			Leverage:        config.RiskControl.BTCETHMaxLeverage,
 			PositionSizeUSD: config.RiskControl.MinPositionSize,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      config.RiskControl.MinConfidence,
 		},
 	}

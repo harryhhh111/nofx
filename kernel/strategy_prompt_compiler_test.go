@@ -32,8 +32,6 @@ func TestValidateCompiledStrategyNormalizesPositiveShortThreshold(t *testing.T) 
 			Execution: RuleExecution{
 				Leverage:        2,
 				PositionSizeUSD: 12,
-				StopLossPct:     2,
-				TakeProfitPct:   5,
 			},
 		},
 	}
@@ -224,9 +222,7 @@ func TestParseStrategyCompileResponseRequiresStrictJSON(t *testing.T) {
     "timeframe": "15m",
     "execution": {
       "leverage": 2,
-      "position_size_usd": 12,
-      "stop_loss_pct": 2,
-      "take_profit_pct": 5
+      "position_size_usd": 12
     }
   },
   "warnings": [],
@@ -259,9 +255,7 @@ func TestParseStrategyCompileResponseAcceptsCompleteJSONFence(t *testing.T) {
     "timeframe": "15m",
     "execution": {
       "leverage": 2,
-      "position_size_usd": 12,
-      "stop_loss_pct": 2,
-      "take_profit_pct": 5
+      "position_size_usd": 12
     }
   },
   "warnings": [],

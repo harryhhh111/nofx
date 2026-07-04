@@ -581,17 +581,27 @@ func (at *AutoTrader) saveGridDecisionRecord(decision *kernel.FullDecision) {
 		// Convert kernel.Decision to store.DecisionAction for frontend display
 		for _, d := range decision.Decisions {
 			actionRecord := store.DecisionAction{
-				Action:     d.Action,
-				Symbol:     d.Symbol,
-				Quantity:   d.Quantity,
-				Leverage:   d.Leverage,
-				Price:      d.Price,
-				StopLoss:   d.StopLoss,
-				TakeProfit: d.TakeProfit,
-				Confidence: d.Confidence,
-				Reasoning:  d.Reasoning,
-				Timestamp:  time.Now().UTC(),
-				Success:    true, // Grid decisions are executed inline
+				Action:               d.Action,
+				Symbol:               d.Symbol,
+				Quantity:             d.Quantity,
+				Leverage:             d.Leverage,
+				Price:                d.Price,
+				StopLoss:             d.StopLoss,
+				TakeProfit:           d.TakeProfit,
+				StopLossSource:       d.StopLossSource,
+				StopLossTimeframe:    d.StopLossTF,
+				StopLossAnchor:       d.StopLossAnchor,
+				TakeProfitSource:     d.TakeProfitSource,
+				TakeProfitTimeframe:  d.TakeProfitTF,
+				TakeProfitAnchor:     d.TakeProfitAnchor,
+				ProtectiveATR:        d.ProtectiveATR,
+				ProtectiveATRTF:      d.ProtectiveATRTF,
+				ProtectiveATRBuffer:  d.ProtectiveATRBuffer,
+				ProtectiveRiskReward: d.ProtectiveRiskReward,
+				Confidence:           d.Confidence,
+				Reasoning:            d.Reasoning,
+				Timestamp:            time.Now().UTC(),
+				Success:              true, // Grid decisions are executed inline
 			}
 			record.Decisions = append(record.Decisions, actionRecord)
 		}

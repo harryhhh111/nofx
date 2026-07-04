@@ -137,6 +137,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		Rules:                rules,
 		Scoring:              scoring,
 		PositionSizing:       positionSizingFromRiskControl(riskConfig),
+		MinRiskRewardRatio:   riskConfig.MinRiskRewardRatio,
 		ProtectiveATRBuffer:  riskConfig.StopLossATRBuffer,
 		ProtectiveTimeframes: protectiveTimeframesFromRiskControl(riskConfig),
 		FactorSnapshot:       factorSnapshots,

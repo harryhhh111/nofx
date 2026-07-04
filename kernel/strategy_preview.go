@@ -22,6 +22,7 @@ func PreviewStrategySignals(config *store.StrategyConfig, candidates []Candidate
 		Candidates:           candidates,
 		Rules:                rulesFromStrategyConfig(config),
 		Scoring:              scoringFromStrategyConfig(config),
+		MinRiskRewardRatio:   config.RiskControl.MinRiskRewardRatio,
 		ProtectiveATRBuffer:  config.RiskControl.StopLossATRBuffer,
 		ProtectiveTimeframes: protectiveTimeframesFromRiskControl(config.RiskControl),
 		FactorSnapshot:       factorSnapshots,

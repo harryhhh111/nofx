@@ -519,7 +519,7 @@ export interface RiskControlConfig {
   max_margin_usage: number;        // Max margin utilization, e.g. 0.9 = 90% (CODE ENFORCED)
   risk_per_trade_pct?: number;     // Risk budget per new position, e.g. 1 = 1% equity
   min_position_size: number;       // Min position size in USDT (CODE ENFORCED)
-  min_risk_reward_ratio: number;   // Min take_profit / stop_loss ratio (AI guided)
+  min_risk_reward_ratio: number;   // Min structural target / stop anchor ratio (AI guided)
   min_confidence: number;          // Min AI confidence to open position (AI guided)
   min_close_confidence: number;    // Min AI confidence to proactively close early (AI guided)
   stop_loss_atr_buffer?: number;   // Stop loss ATR buffer multiplier (default: 2)

@@ -76,6 +76,9 @@ Strict boundaries:
 - Only use the provided structured factor snapshots, candidate signals, current positions, and memory.
 - Market context can warn or reject a signal, but must not create new trades or rewrite strategy parameters.
 - If a required factor is unavailable, treat it as unavailable, not zero.
+- For open signals, use evidence.protective_levels.risk_reward as the authoritative structural risk/reward.
+- candidate.stop_loss is the execution stop with ATR buffer; do not use it to reduce structural risk/reward.
+- evidence.protective_levels.target_risk_reward is the configured minimum RR, not an execution percentage placeholder.
 
 Output only JSON inside <reviews> tags:
 <reviews>
@@ -107,7 +110,7 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 		FactorSummary:     compactReviewFactorSnapshots(req.FactorSnapshot, req.Signals, req.CurrentPositions),
 		RelevantMemory:    req.RelevantMemory,
 		CurrentPositions:  req.CurrentPositions,
-		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades.",
+		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades. For open signals, use evidence.protective_levels.risk_reward as the structural RR; candidate.stop_loss includes ATR execution buffer.",
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

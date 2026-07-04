@@ -360,7 +360,7 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForLong(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 1.5)
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -374,8 +374,24 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForLong(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected protective level trace, got %#v", signal.Evidence["protective_levels"])
 	}
-	if levels.StopSource != "support_resistance.support" || levels.TargetSource != "support_resistance.resistance" || levels.RiskReward < 2.5 {
+	if levels.StopSource != "support_resistance.support" || levels.TargetSource != "support_resistance.resistance" {
 		t.Fatalf("unexpected protective trace: %+v", levels)
+	}
+	if levels.RiskReward != 16 {
+		t.Fatalf("expected structural risk reward to ignore ATR execution buffer, got %+v", levels)
+	}
+	if levels.TargetRiskReward != 1.5 {
+		t.Fatalf("expected configured target risk reward 1.5, got %+v", levels)
+	}
+	execution, ok := signal.Evidence["execution"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected sanitized execution evidence, got %#v", signal.Evidence["execution"])
+	}
+	if _, ok := execution["stop_loss_pct"]; ok {
+		t.Fatalf("execution evidence must not expose legacy stop_loss_pct: %#v", execution)
+	}
+	if _, ok := execution["take_profit_pct"]; ok {
+		t.Fatalf("execution evidence must not expose legacy take_profit_pct: %#v", execution)
 	}
 }
 
@@ -388,8 +404,6 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForShort(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -409,7 +423,7 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForShort(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 0)
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -429,14 +443,7 @@ func TestCandidateSignalUsesStructureATRAndRiskRewardForShort(t *testing.T) {
 }
 
 func TestCandidateSignalRequiresATRForMarketBasedProtection(t *testing.T) {
-	execution := RuleExecution{
-		Leverage:        2,
-		PositionSizeUSD: 100,
-		StopLossPct:     2,
-		TakeProfitPct:   5,
-		Confidence:      80,
-	}
-	_, err := calculateProtectiveLevels("trend_continuation_long", "open_long", 100, execution, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	_, err := calculateProtectiveLevels("trend_continuation_long", "open_long", 100, &market.FactorSnapshot{}, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 0)
 	if err == nil {
 		t.Fatalf("expected missing ATR to fail market-based protective level calculation")
 	}
@@ -454,8 +461,6 @@ func TestRuleSignalEngineSkipsCandidateWhenATRUnavailable(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 		Enabled: true,
@@ -500,8 +505,6 @@ func TestCandidateSignalRejectsProjectionForNonTrendSetup(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -513,7 +516,7 @@ func TestCandidateSignalRejectsProjectionForNonTrendSetup(t *testing.T) {
 		},
 	}
 
-	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 0)
 	if !errors.Is(err, errSignalRejected) {
 		t.Fatalf("expected non-trend setup without structure target to be rejected, got %v", err)
 	}
@@ -528,8 +531,6 @@ func TestCandidateSignalRequiresStructuralStopForTrendSetup(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -541,7 +542,7 @@ func TestCandidateSignalRequiresStructuralStopForTrendSetup(t *testing.T) {
 		},
 	}
 
-	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 0)
 	if !errors.Is(err, errSignalRejected) {
 		t.Fatalf("expected missing structural stop to reject trend setup, got %v", err)
 	}
@@ -559,8 +560,6 @@ func TestCandidateSignalRequiresStructuralTargetForTrendSetup(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -580,7 +579,7 @@ func TestCandidateSignalRequiresStructuralTargetForTrendSetup(t *testing.T) {
 		},
 	}
 
-	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	_, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 0)
 	if !errors.Is(err, errSignalRejected) {
 		t.Fatalf("expected missing structural target to reject trend setup, got %v", err)
 	}
@@ -598,8 +597,6 @@ func TestCandidateSignalKeepsNearStructuralTargetForBreakoutSetup(t *testing.T) 
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -619,7 +616,7 @@ func TestCandidateSignalKeepsNearStructuralTargetForBreakoutSetup(t *testing.T) 
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{})
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "5m"}, 0, ProtectiveTimeframeConfig{}, 0)
 	if err != nil {
 		t.Fatalf("breakout signal should keep near structural target for later risk review, got error: %v", err)
 	}
@@ -644,8 +641,6 @@ func TestCandidateSignalUsesPrimaryTimeframeForProtectiveLevels(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -676,7 +671,7 @@ func TestCandidateSignalUsesPrimaryTimeframeForProtectiveLevels(t *testing.T) {
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{})
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{}, 0)
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
 	}
@@ -701,8 +696,6 @@ func TestCandidateSignalCanUseEntryTimeframeForProtectiveLevels(t *testing.T) {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -743,6 +736,7 @@ func TestCandidateSignalCanUseEntryTimeframeForProtectiveLevels(t *testing.T) {
 		TimeframeRoleTrace{Entry: "5m", Primary: "15m"},
 		3,
 		ProtectiveTimeframeConfig{StopLossMode: store.StopLossTimeframeModeEntry},
+		0,
 	)
 	if err != nil {
 		t.Fatalf("buildCandidateSignal returned error: %v", err)
@@ -768,8 +762,6 @@ func TestCandidateSignalKeepsTechnicalTargetWhenATRBufferWidensStop(t *testing.T
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   5,
 			Confidence:      80,
 		},
 	}
@@ -789,7 +781,7 @@ func TestCandidateSignalKeepsTechnicalTargetWhenATRBufferWidensStop(t *testing.T
 		},
 	}
 
-	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{})
+	signal, err := buildCandidateSignal(rule, "BTCUSDT", 100, "test", time.Unix(2, 0).UTC(), snapshot, TimeframeRoleTrace{Entry: "5m", Primary: "15m"}, 3, ProtectiveTimeframeConfig{}, 0)
 	if err != nil {
 		t.Fatalf("expected technical target to remain unchanged for downstream risk gate, got err=%v", err)
 	}
@@ -800,8 +792,8 @@ func TestCandidateSignalKeepsTechnicalTargetWhenATRBufferWidensStop(t *testing.T
 	if signal.TakeProfit != 120 || levels.TargetSource != "support_resistance.resistance" {
 		t.Fatalf("expected ATR buffer to widen stop without moving structural take profit, got signal=%+v levels=%+v", signal, levels)
 	}
-	if levels.RiskReward >= levels.TargetRiskReward {
-		t.Fatalf("fixture should expose low RR to risk gate instead of moving target, got %+v", levels)
+	if levels.RiskReward != 4 {
+		t.Fatalf("expected structural RR to ignore ATR buffer while keeping the target unchanged, got %+v", levels)
 	}
 }
 
@@ -1137,8 +1129,6 @@ func testScoringStrategy() *ScoringStrategy {
 		Execution: RuleExecution{
 			Leverage:        2,
 			PositionSizeUSD: 100,
-			StopLossPct:     2,
-			TakeProfitPct:   4,
 			Confidence:      70,
 		},
 	}

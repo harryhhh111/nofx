@@ -71,6 +71,9 @@ type SignalRequest struct {
 	Rules          []StrategyRule        `json:"rules"`
 	Scoring        *ScoringStrategy      `json:"scoring,omitempty"`
 	PositionSizing *PositionSizingConfig `json:"position_sizing,omitempty"`
+	// MinRiskRewardRatio is the configured structural RR floor. It is separate
+	// from execution SL/TP percentage placeholders used by compiled rules.
+	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio,omitempty"`
 	// ProtectiveATRBuffer controls stop-loss distance as ATR14 multiples.
 	// Strategy configs should provide the explicit default; the signal engine still guards unset values.
 	ProtectiveATRBuffer  float64                              `json:"protective_atr_buffer,omitempty"`

@@ -10,9 +10,10 @@ import (
 // ============================================================================
 
 // validateDecisions validates all decisions in place.
-// 1. Invalid action types are rejected for ALL decisions (not just open).
-// 2. Open decisions failing risk checks are converted to "wait" so they don't block
-//    valid close/hold actions in the same batch.
+//  1. Invalid action types are rejected for ALL decisions (not just open).
+//  2. Open decisions failing risk checks are converted to "wait" so they don't block
+//     valid close/hold actions in the same batch.
+//
 // Returns the number of rejected decisions (0 = all passed).
 func validateDecisions(decisions []Decision, accountEquity float64, btcEthLeverage, altcoinLeverage int, btcEthPosRatio, altcoinPosRatio, minRiskRewardRatio float64, marketPrices map[string]float64, minSLDistances map[string]float64) int {
 	rejected := 0
@@ -114,15 +115,25 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 			entryPrice = (d.StopLoss + d.TakeProfit) / 2
 		}
 
+		rrStop := d.StopLoss
+		if d.StopLossAnchor > 0 {
+			if d.Action == "open_long" && d.StopLossAnchor < entryPrice {
+				rrStop = d.StopLossAnchor
+			}
+			if d.Action == "open_short" && d.StopLossAnchor > entryPrice {
+				rrStop = d.StopLossAnchor
+			}
+		}
+
 		var riskPercent, rewardPercent, riskRewardRatio float64
 		if d.Action == "open_long" {
-			riskPercent = (entryPrice - d.StopLoss) / entryPrice * 100
+			riskPercent = (entryPrice - rrStop) / entryPrice * 100
 			rewardPercent = (d.TakeProfit - entryPrice) / entryPrice * 100
 			if riskPercent > 0 {
 				riskRewardRatio = rewardPercent / riskPercent
 			}
 		} else {
-			riskPercent = (d.StopLoss - entryPrice) / entryPrice * 100
+			riskPercent = (rrStop - entryPrice) / entryPrice * 100
 			rewardPercent = (entryPrice - d.TakeProfit) / entryPrice * 100
 			if riskPercent > 0 {
 				riskRewardRatio = rewardPercent / riskPercent
@@ -130,13 +141,13 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		}
 
 		if minRiskRewardRatio <= 0 {
-			minRiskRewardRatio = 2.0
+			minRiskRewardRatio = defaultProtectiveRiskReward
 		}
 		// Match prompt tolerance: AI is told ≥80% of target is acceptable with strong signals
 		hardFloor := minRiskRewardRatio * 0.8
 		if riskRewardRatio < hardFloor {
-			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [entry≈%.2f risk: %.2f%% reward: %.2f%%] [stop loss: %.2f take profit: %.2f]",
-				riskRewardRatio, minRiskRewardRatio, hardFloor, entryPrice, riskPercent, rewardPercent, d.StopLoss, d.TakeProfit)
+			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [entry≈%.2f risk: %.2f%% reward: %.2f%%] [risk basis: %.2f execution stop: %.2f take profit: %.2f]",
+				riskRewardRatio, minRiskRewardRatio, hardFloor, entryPrice, riskPercent, rewardPercent, rrStop, d.StopLoss, d.TakeProfit)
 		}
 
 		// Check SL distance ≥ ATR buffer (prevent AI from setting SL too tight)

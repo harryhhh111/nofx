@@ -3,6 +3,7 @@ import type { RiskControlConfig } from '../../types'
 import { riskControl, ts } from '../../i18n/strategy-translations'
 
 const DEFAULT_STOP_LOSS_ATR_BUFFER = 2
+const DEFAULT_MIN_RISK_REWARD_RATIO = 2.5
 
 interface RiskControlEditorProps {
   config: RiskControlConfig
@@ -253,9 +254,12 @@ export function RiskControlEditor({
               <span style={{ color: '#848E9C' }}>1:</span>
               <input
                 type="number"
-                value={config.min_risk_reward_ratio ?? 3}
+                value={config.min_risk_reward_ratio ?? DEFAULT_MIN_RISK_REWARD_RATIO}
                 onChange={(e) =>
-                  updateField('min_risk_reward_ratio', parseFloat(e.target.value) || 3)
+                  updateField(
+                    'min_risk_reward_ratio',
+                    parseFloat(e.target.value) || DEFAULT_MIN_RISK_REWARD_RATIO
+                  )
                 }
                 disabled={disabled}
                 min={1}
