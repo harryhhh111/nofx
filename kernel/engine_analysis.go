@@ -166,7 +166,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		Reviews:             result.Reviews,
 		Risk:                result.Risk,
 		InputAudit:          buildTradingInputAudit(ctx, engineConfig),
-		UserDecisionSummary: buildUserDecisionSummary(result),
+		UserDecisionSummary: buildUserDecisionSummary(result, engineConfig.Language),
 		CalibrationSamples:  BuildSignalCalibrationSamples(signalRequest, result),
 	}
 	if len(result.Signals) > 0 {
@@ -998,11 +998,12 @@ func tradingResultSummary(result *TradingEngineResult, ruleCount int) string {
 	)
 }
 
-func buildUserDecisionSummary(result *TradingEngineResult) *UserDecisionSummary {
+func buildUserDecisionSummary(result *TradingEngineResult, langs ...string) *UserDecisionSummary {
+	lang := summaryLang(langs...)
 	if result == nil {
 		return &UserDecisionSummary{
 			Status:   "error",
-			Headline: "本轮没有可用的交易评估结果。",
+			Headline: summaryText(lang, "本轮没有可用的交易评估结果。", "No trading evaluation result is available for this cycle."),
 		}
 	}
 
@@ -1014,48 +1015,48 @@ func buildUserDecisionSummary(result *TradingEngineResult) *UserDecisionSummary 
 	}
 
 	status := "no_trade"
-	headline := "本轮没有产生可执行交易。"
+	headline := summaryText(lang, "本轮没有产生可执行交易。", "No executable trade was produced in this cycle.")
 	switch {
 	case approved > 0:
 		status = "trade"
-		headline = fmt.Sprintf("本轮通过风控，生成 %d 个可执行交易动作。", approved)
+		headline = fmt.Sprintf(summaryText(lang, "本轮通过风控，生成 %d 个可执行交易动作。", "Risk checks passed and %d executable trade action(s) were produced."), approved)
 	case len(result.Signals) > 0 && rejected > 0:
 		status = "rejected"
-		headline = fmt.Sprintf("本轮识别到 %d 个候选信号，但未通过最终复核或风控。", len(result.Signals))
+		headline = fmt.Sprintf(summaryText(lang, "本轮识别到 %d 个候选信号，但未通过最终复核或风控。", "%d candidate signal(s) were identified, but none passed final review or risk checks."), len(result.Signals))
 	case len(result.Signals) > 0:
 		status = "reviewed"
-		headline = fmt.Sprintf("本轮识别到 %d 个候选信号，但没有形成可执行动作。", len(result.Signals))
+		headline = fmt.Sprintf(summaryText(lang, "本轮识别到 %d 个候选信号，但没有形成可执行动作。", "%d candidate signal(s) were identified, but no executable action was formed."), len(result.Signals))
 	case len(result.SetupEvaluations) > 0:
-		headline = "本轮完成市场评估，但没有满足开仓条件的信号。"
+		headline = summaryText(lang, "本轮完成市场评估，但没有满足开仓条件的信号。", "Market evaluation completed, but no signal met the entry requirements.")
 	}
 
 	steps := []UserDecisionSummaryStep{
 		{
-			Title:   "数据与候选",
+			Title:   summaryText(lang, "数据与候选", "Data & Candidates"),
 			Status:  "ok",
-			Summary: fmt.Sprintf("完成 %d 个交易对象的代码评估。", maxInt(len(result.SetupEvaluations), len(result.Signals))),
+			Summary: fmt.Sprintf(summaryText(lang, "完成 %d 个交易对象的代码评估。", "Completed code evaluation for %d trading object(s)."), maxInt(len(result.SetupEvaluations), len(result.Signals))),
 		},
 	}
 	if len(result.Signals) == 0 {
 		steps = append(steps, UserDecisionSummaryStep{
-			Title:   "机会识别",
+			Title:   summaryText(lang, "机会识别", "Opportunity Detection"),
 			Status:  "skip",
-			Summary: "代码没有生成可执行开仓或平仓候选信号，因此没有进入 AI 复核和下单流程。",
+			Summary: summaryText(lang, "代码没有生成可执行开仓或平仓候选信号，因此没有进入 AI 复核和下单流程。", "The code produced no executable open or close candidate signal, so AI review and order flow were skipped."),
 		})
 	} else {
 		steps = append(steps, UserDecisionSummaryStep{
-			Title:   "机会识别",
+			Title:   summaryText(lang, "机会识别", "Opportunity Detection"),
 			Status:  "ok",
-			Summary: fmt.Sprintf("代码生成 %d 个候选信号，后续进入 AI 复核和风控校验。", len(result.Signals)),
+			Summary: fmt.Sprintf(summaryText(lang, "代码生成 %d 个候选信号，后续进入 AI 复核和风控校验。", "The code produced %d candidate signal(s), then sent them to AI review and risk validation."), len(result.Signals)),
 		})
 	}
 
 	if len(result.Reviews) > 0 {
 		pass, warn, reject := reviewStatusCounts(result.Reviews)
 		steps = append(steps, UserDecisionSummaryStep{
-			Title:   "AI 复核",
+			Title:   summaryText(lang, "AI 复核", "AI Review"),
 			Status:  reviewStepStatus(pass, warn, reject),
-			Summary: fmt.Sprintf("AI 复核结果：通过 %d，警告 %d，拒绝 %d。", pass, warn, reject),
+			Summary: fmt.Sprintf(summaryText(lang, "AI 复核结果：通过 %d，警告 %d，拒绝 %d。", "AI review results: pass %d, warn %d, reject %d."), pass, warn, reject),
 		})
 	}
 
@@ -1067,9 +1068,9 @@ func buildUserDecisionSummary(result *TradingEngineResult) *UserDecisionSummary 
 			riskStatus = "skip"
 		}
 		steps = append(steps, UserDecisionSummaryStep{
-			Title:   "风控结果",
+			Title:   summaryText(lang, "风控结果", "Risk Gate"),
 			Status:  riskStatus,
-			Summary: fmt.Sprintf("风控通过 %d 个信号，拒绝 %d 个信号。", approved, rejected),
+			Summary: fmt.Sprintf(summaryText(lang, "风控通过 %d 个信号，拒绝 %d 个信号。", "Risk gate approved %d signal(s) and rejected %d."), approved, rejected),
 		})
 	}
 
@@ -1077,7 +1078,23 @@ func buildUserDecisionSummary(result *TradingEngineResult) *UserDecisionSummary 
 		Status:   status,
 		Headline: headline,
 		Steps:    steps,
-		Symbols:  buildUserDecisionSymbolSummaries(result),
+		Symbols:  buildUserDecisionSymbolSummaries(result, lang),
+	}
+}
+
+func summaryText(lang, zh, en string) string {
+	if isChineseSummaryLanguage(lang) {
+		return zh
+	}
+	return en
+}
+
+func isChineseSummaryLanguage(lang string) bool {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "zh", "zh-cn", "cn":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1108,7 +1125,7 @@ func reviewStepStatus(pass, warn, reject int) string {
 	}
 }
 
-func buildUserDecisionSymbolSummaries(result *TradingEngineResult) []UserDecisionSymbolSummary {
+func buildUserDecisionSymbolSummaries(result *TradingEngineResult, lang string) []UserDecisionSymbolSummary {
 	if result == nil {
 		return nil
 	}
@@ -1135,7 +1152,7 @@ func buildUserDecisionSymbolSummaries(result *TradingEngineResult) []UserDecisio
 		reason := signal.TriggerReason
 		if approved[signal.ID] {
 			decision = signal.Action
-			reason = "通过 AI 复核和风控校验"
+			reason = summaryText(lang, "通过 AI 复核和风控校验", "Passed AI review and risk validation")
 		} else if rejectReason := rejected[signal.ID]; rejectReason != "" {
 			decision = "skip"
 			reason = rejectReason
@@ -1144,7 +1161,7 @@ func buildUserDecisionSymbolSummaries(result *TradingEngineResult) []UserDecisio
 			Symbol:   signal.Symbol,
 			Decision: decision,
 			Reason:   reason,
-			Details:  signalUserDetails(signal),
+			Details:  signalUserDetails(signal, lang),
 		})
 	}
 	for _, trace := range result.SetupEvaluations {
@@ -1155,18 +1172,19 @@ func buildUserDecisionSymbolSummaries(result *TradingEngineResult) []UserDecisio
 		out = append(out, UserDecisionSymbolSummary{
 			Symbol:   trace.Symbol,
 			Decision: "skip",
-			Reason:   userFriendlyNoTradeReason(trace),
+			Reason:   userFriendlyNoTradeReason(trace, lang),
 			Details: []string{
-				fmt.Sprintf("主周期评分 %.1f，入场周期评分 %.1f", trace.Primary.Score, trace.Entry.Score),
-				fmt.Sprintf("场景：%s", emptyAs(trace.Setup, "未满足交易场景")),
-				"技术原因：" + trace.Reason,
+				fmt.Sprintf(summaryText(lang, "主周期评分 %.1f，入场周期评分 %.1f", "Primary score %.1f, entry score %.1f"), trace.Primary.Score, trace.Entry.Score),
+				fmt.Sprintf(summaryText(lang, "场景：%s", "Scenario: %s"), emptyAs(trace.Setup, summaryText(lang, "未满足交易场景", "No trade setup met"))),
+				summaryText(lang, "技术原因：", "Technical reason: ") + trace.Reason,
 			},
 		})
 	}
 	return out
 }
 
-func userFriendlyNoTradeReason(trace SetupEvaluationTrace) string {
+func userFriendlyNoTradeReason(trace SetupEvaluationTrace, langs ...string) string {
+	lang := summaryLang(langs...)
 	const (
 		neutralScoreBand  = 35.0
 		directionalScore  = 60.0
@@ -1174,14 +1192,14 @@ func userFriendlyNoTradeReason(trace SetupEvaluationTrace) string {
 	)
 
 	if !trace.Primary.Eligible {
-		return "主周期的行情证据还不完整，暂时无法判断是否有稳定机会。"
+		return summaryText(lang, "主周期的行情证据还不完整，暂时无法判断是否有稳定机会。", "Primary timeframe evidence is incomplete, so no stable opportunity can be judged yet.")
 	}
 	if !trace.Entry.Eligible {
-		return "入场周期的触发证据还不完整，暂时不适合进场。"
+		return summaryText(lang, "入场周期的触发证据还不完整，暂时不适合进场。", "Entry timeframe trigger evidence is incomplete, so entry is not suitable yet.")
 	}
 	for _, confirmation := range trace.Confirmations {
 		if !confirmation.Eligible {
-			return "确认周期的方向证据不足，本轮先观望。"
+			return summaryText(lang, "确认周期的方向证据不足，本轮先观望。", "Confirmation timeframe direction evidence is insufficient; stay out this cycle.")
 		}
 	}
 
@@ -1189,42 +1207,49 @@ func userFriendlyNoTradeReason(trace SetupEvaluationTrace) string {
 	entryScore := trace.Entry.Score
 	switch {
 	case trace.Setup == "no_trade_chop":
-		return "当前价格波动偏震荡，方向优势不明显，暂时不追单。"
+		return summaryText(lang, "当前价格波动偏震荡，方向优势不明显，暂时不追单。", "Price action is choppy and directional edge is weak, so the system avoids chasing.")
 	case primaryScore >= neutralScoreBand && primaryScore < directionalScore && entryScore < entryTriggerScore:
-		return "主周期有一些偏多迹象，但入场触发还不够明确。"
+		return summaryText(lang, "主周期有一些偏多迹象，但入场触发还不够明确。", "Primary timeframe has some bullish evidence, but the entry trigger is not clear enough.")
 	case primaryScore <= -neutralScoreBand && primaryScore > -directionalScore && entryScore > -entryTriggerScore:
-		return "主周期有一些偏空迹象，但入场触发还不够明确。"
+		return summaryText(lang, "主周期有一些偏空迹象，但入场触发还不够明确。", "Primary timeframe has some bearish evidence, but the entry trigger is not clear enough.")
 	case primaryScore > 0 && entryScore < -entryTriggerScore:
-		return "主周期偏多，但入场周期正在回落，等待回调结束更稳妥。"
+		return summaryText(lang, "主周期偏多，但入场周期正在回落，等待回调结束更稳妥。", "Primary timeframe is bullish, but the entry timeframe is pulling back; waiting for the pullback to finish is safer.")
 	case primaryScore < 0 && entryScore > entryTriggerScore:
-		return "主周期偏空，但入场周期正在反弹，暂时不逆着主方向开仓。"
+		return summaryText(lang, "主周期偏空，但入场周期正在反弹，暂时不逆着主方向开仓。", "Primary timeframe is bearish, but the entry timeframe is rebounding; avoid trading against the primary direction for now.")
 	case primaryScore > -neutralScoreBand && primaryScore < neutralScoreBand:
-		return "主周期方向不够清晰，还没有形成值得执行的交易机会。"
+		return summaryText(lang, "主周期方向不够清晰，还没有形成值得执行的交易机会。", "Primary direction is not clear enough and no executable trade opportunity has formed.")
 	case primaryScore >= neutralScoreBand:
-		return "行情偏多，但还没有达到策略要求的开仓强度。"
+		return summaryText(lang, "行情偏多，但还没有达到策略要求的开仓强度。", "Market is bullish, but it has not reached the strategy's required entry strength.")
 	case primaryScore <= -neutralScoreBand:
-		return "行情偏空，但还没有达到策略要求的开仓强度。"
+		return summaryText(lang, "行情偏空，但还没有达到策略要求的开仓强度。", "Market is bearish, but it has not reached the strategy's required entry strength.")
 	default:
-		return "本轮条件不完整，系统选择继续观察。"
+		return summaryText(lang, "本轮条件不完整，系统选择继续观察。", "Conditions are incomplete this cycle, so the system continues to observe.")
 	}
 }
 
-func signalUserDetails(signal CandidateSignal) []string {
+func summaryLang(langs ...string) string {
+	if len(langs) == 0 {
+		return "zh"
+	}
+	return langs[0]
+}
+
+func signalUserDetails(signal CandidateSignal, lang string) []string {
 	details := []string{}
 	if signal.Setup != "" {
-		details = append(details, "交易场景："+signal.Setup)
+		details = append(details, summaryText(lang, "交易场景：", "Setup: ")+signal.Setup)
 	}
 	if signal.EntryPrice > 0 {
-		details = append(details, fmt.Sprintf("入场参考 %.4f", signal.EntryPrice))
+		details = append(details, fmt.Sprintf(summaryText(lang, "入场参考 %.4f", "Entry reference %.4f"), signal.EntryPrice))
 	}
 	if signal.StopLoss > 0 {
-		details = append(details, fmt.Sprintf("止损 %.4f", signal.StopLoss))
+		details = append(details, fmt.Sprintf(summaryText(lang, "止损 %.4f", "Stop loss %.4f"), signal.StopLoss))
 	}
 	if signal.TakeProfit > 0 {
-		details = append(details, fmt.Sprintf("止盈 %.4f", signal.TakeProfit))
+		details = append(details, fmt.Sprintf(summaryText(lang, "止盈 %.4f", "Take profit %.4f"), signal.TakeProfit))
 	}
 	if levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace); ok {
-		details = append(details, fmt.Sprintf("止损来源：%s，止盈来源：%s，实际盈亏比 %.2f", levels.StopSource, levels.TargetSource, levels.RiskReward))
+		details = append(details, fmt.Sprintf(summaryText(lang, "止损来源：%s，止盈来源：%s，实际盈亏比 %.2f", "Stop source: %s, target source: %s, actual risk/reward %.2f"), levels.StopSource, levels.TargetSource, levels.RiskReward))
 	}
 	return details
 }

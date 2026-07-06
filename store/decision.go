@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"gorm.io/gorm"
 )
@@ -51,6 +52,7 @@ type DecisionRecord struct {
 	CoTTrace            string             `json:"cot_trace"`
 	CotSummary          string             `json:"cot_summary"`
 	JudgementSummary    string             `json:"judgement_summary,omitempty"`
+	JudgmentSummary     string             `json:"judgment_summary,omitempty"`
 	DecisionJSON        string             `json:"decision_json"`
 	RawResponse         string             `json:"raw_response"` // Raw AI response for debugging
 	CandidateCoins      []string           `json:"candidate_coins"`
@@ -169,6 +171,7 @@ func (db *DecisionRecordDB) toRecord() *DecisionRecord {
 	json.Unmarshal([]byte(db.AccountState), &record.AccountState)
 	json.Unmarshal([]byte(db.Positions), &record.Positions)
 	json.Unmarshal([]byte(db.Decisions), &record.Decisions)
+	record.JudgmentSummary = record.JudgementSummary
 	return record
 }
 
@@ -375,6 +378,7 @@ type DecisionDigest struct {
 	CoTTrace            string           `json:"cot_trace"`
 	CotSummary          string           `json:"cot_summary"`
 	JudgementSummary    string           `json:"judgement_summary,omitempty"`
+	JudgmentSummary     string           `json:"judgment_summary,omitempty"`
 	RecentCoTTraces     []CoTTraceEntry  `json:"recent_cot_traces"`
 	Decisions           []DecisionAction `json:"decisions"`
 	Success             bool             `json:"success"`
@@ -395,6 +399,7 @@ func (db *DecisionRecordDB) toDigest() *DecisionDigest {
 	}
 	json.Unmarshal([]byte(db.Decisions), &digest.Decisions)
 	digest.JudgementSummary = buildDecisionDigestJudgementSummary(db.DecisionJSON)
+	digest.JudgmentSummary = digest.JudgementSummary
 	return digest
 }
 
@@ -444,8 +449,10 @@ func buildDecisionDigestJudgementSummary(decisionJSON string) string {
 
 	reasonBySymbol := map[string]string{}
 	headline := ""
+	english := false
 	if parsed.UserDecisionSummary != nil {
 		headline = parsed.UserDecisionSummary.Headline
+		english = isEnglishDecisionDigest(headline)
 		for _, item := range parsed.UserDecisionSummary.Symbols {
 			if item.Symbol != "" && item.Reason != "" {
 				reasonBySymbol[item.Symbol] = item.Reason
@@ -458,7 +465,7 @@ func buildDecisionDigestJudgementSummary(decisionJSON string) string {
 		if trace.Symbol == "" {
 			continue
 		}
-		parts = append(parts, buildDecisionDigestSymbolJudgement(trace, reasonBySymbol[trace.Symbol]))
+		parts = append(parts, buildDecisionDigestSymbolJudgement(trace, reasonBySymbol[trace.Symbol], english))
 		if len(parts) == 2 {
 			break
 		}
@@ -467,22 +474,45 @@ func buildDecisionDigestJudgementSummary(decisionJSON string) string {
 		return headline
 	}
 	if headline == "" {
-		headline = "本轮完成市场评估。"
+		if english {
+			headline = "Market evaluation completed."
+		} else {
+			headline = "本轮完成市场评估。"
+		}
+	}
+	if english {
+		return strings.TrimRight(headline, ".; ") + ". " + strings.Join(parts, "; ") + "."
 	}
 	return strings.TrimRight(headline, "。；; ") + "。 " + strings.Join(parts, "；") + "。"
 }
 
-func buildDecisionDigestSymbolJudgement(trace decisionDigestSetupTrace, friendlyReason string) string {
+func isEnglishDecisionDigest(headline string) bool {
+	headline = strings.TrimSpace(headline)
+	if headline == "" {
+		return false
+	}
+	for _, r := range headline {
+		if unicode.Is(unicode.Han, r) {
+			return false
+		}
+	}
+	return true
+}
+
+func buildDecisionDigestSymbolJudgement(trace decisionDigestSetupTrace, friendlyReason string, english bool) string {
 	reason := friendlyReason
 	if reason == "" {
-		reason = digestReasonFromSetup(trace)
+		reason = digestReasonFromSetup(trace, english)
 	}
-	reason = strings.TrimRight(reason, "。；; ")
-	scores := []string{fmt.Sprintf("主周期 %.1f", trace.Primary.Score), fmt.Sprintf("入场 %.1f", trace.Entry.Score)}
+	reason = strings.TrimRight(reason, "。；; .")
+	scores := []string{fmt.Sprintf(decisionDigestText(english, "主周期 %.1f", "primary %.1f"), trace.Primary.Score), fmt.Sprintf(decisionDigestText(english, "入场 %.1f", "entry %.1f"), trace.Entry.Score)}
 	if confirmation := firstDigestConfirmationScore(trace.Confirmations); confirmation != "" {
 		scores = append(scores, confirmation)
 	}
-	return fmt.Sprintf("%s %s（%s），%s", trace.Symbol, digestBias(trace), strings.Join(scores, "，"), reason)
+	if english {
+		return fmt.Sprintf("%s %s (%s), %s", trace.Symbol, digestBias(trace, true), strings.Join(scores, ", "), reason)
+	}
+	return fmt.Sprintf("%s %s（%s），%s", trace.Symbol, digestBias(trace, false), strings.Join(scores, "，"), reason)
 }
 
 func firstDigestConfirmationScore(confirmations []decisionDigestEvidenceTrace) string {
@@ -494,43 +524,50 @@ func firstDigestConfirmationScore(confirmations []decisionDigestEvidenceTrace) s
 	return ""
 }
 
-func digestReasonFromSetup(trace decisionDigestSetupTrace) string {
+func digestReasonFromSetup(trace decisionDigestSetupTrace, english bool) string {
 	if !trace.Primary.Eligible {
-		return "主周期证据不足，暂时无法确认交易机会"
+		return decisionDigestText(english, "主周期证据不足，暂时无法确认交易机会", "Primary timeframe evidence is insufficient; no trade opportunity is confirmed yet")
 	}
 	if !trace.Entry.Eligible {
-		return "入场周期证据不足，暂时不适合进场"
+		return decisionDigestText(english, "入场周期证据不足，暂时不适合进场", "Entry timeframe evidence is insufficient, so entry is not suitable yet")
 	}
 	if trace.Setup == "no_trade_chop" {
-		return "价格偏震荡，方向优势不明显"
+		return decisionDigestText(english, "价格偏震荡，方向优势不明显", "Price action is choppy and directional edge is weak")
 	}
 	if trace.Setup != "" && !strings.HasPrefix(trace.Setup, "no_trade_") && !trace.Eligible {
-		return "保护位或风险回报没有通过"
+		return decisionDigestText(english, "保护位或风险回报没有通过", "Protective levels or risk/reward did not pass")
 	}
 	if absFloat64(trace.Primary.Score) < 35 {
-		return "主周期方向分偏低，还没有形成清晰机会"
+		return decisionDigestText(english, "主周期方向分偏低，还没有形成清晰机会", "Primary direction score is low and no clear opportunity has formed")
 	}
 	if absFloat64(trace.Entry.Score) < 20 {
-		return "入场触发分不足"
+		return decisionDigestText(english, "入场触发分不足", "Entry trigger score is insufficient")
 	}
-	return "未达到策略设定的开仓条件"
+	return decisionDigestText(english, "未达到策略设定的开仓条件", "Strategy entry requirements were not met")
 }
 
-func digestBias(trace decisionDigestSetupTrace) string {
+func digestBias(trace decisionDigestSetupTrace, english bool) string {
 	if !trace.Primary.Eligible {
-		return "证据不足"
+		return decisionDigestText(english, "证据不足", "insufficient evidence")
 	}
 	if trace.Setup == "no_trade_chop" {
-		return "震荡"
+		return decisionDigestText(english, "震荡", "choppy")
 	}
 	switch {
 	case trace.Primary.Score >= 35:
-		return "偏多"
+		return decisionDigestText(english, "偏多", "bullish")
 	case trace.Primary.Score <= -35:
-		return "偏空"
+		return decisionDigestText(english, "偏空", "bearish")
 	default:
-		return "不明朗"
+		return decisionDigestText(english, "不明朗", "unclear")
 	}
+}
+
+func decisionDigestText(english bool, zh, en string) string {
+	if english {
+		return en
+	}
+	return zh
 }
 
 func absFloat64(value float64) float64 {

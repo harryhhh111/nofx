@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const defaultEstimatedCloseFeeRate = 0.00055
+
 // runCycle runs one trading cycle (using AI full decision-making)
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
@@ -541,9 +543,11 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 		var updateTime int64
 		var accumulatedFee float64
+		var dbPosition *store.TraderPosition
 		// Priority 1: Get from database (trader_positions table) - most accurate
 		if at.store != nil {
 			if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, symbol, side); err == nil && dbPos != nil {
+				dbPosition = dbPos
 				if dbPos.EntryTime > 0 {
 					updateTime = dbPos.EntryTime
 				}
@@ -571,7 +575,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 		// Estimate closing fee and calculate net PnL
 		positionNotional := quantity * markPrice
-		estimatedCloseFee := positionNotional * 0.00055 // taker fee ~5.5bps
+		estimatedCloseFee := estimateCloseFee(positionNotional, accumulatedFee, dbPosition)
 		netPnL := unrealizedPnl - accumulatedFee - estimatedCloseFee
 
 		condEntry := activeCondOrders[posKey]
@@ -1014,6 +1018,27 @@ func matchingOpenPositionQuantity(pos map[string]interface{}, normalizedSymbol, 
 		qty = -qty
 	}
 	return qty, qty > 0
+}
+
+func estimateCloseFee(positionNotional, accumulatedFee float64, dbPosition *store.TraderPosition) float64 {
+	if positionNotional <= 0 {
+		return 0
+	}
+	rate := defaultEstimatedCloseFeeRate
+	if dbPosition != nil && accumulatedFee > 0 {
+		entryQuantity := dbPosition.EntryQuantity
+		if entryQuantity <= 0 {
+			entryQuantity = dbPosition.Quantity
+		}
+		entryNotional := dbPosition.EntryPrice * entryQuantity
+		if entryNotional > 0 {
+			observedRate := accumulatedFee / entryNotional
+			if observedRate > rate && observedRate <= 0.01 {
+				rate = observedRate
+			}
+		}
+	}
+	return positionNotional * rate
 }
 
 func (at *AutoTrader) saveOpeningProtectiveMetadata(decision *kernel.Decision) {

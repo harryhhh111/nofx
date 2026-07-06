@@ -79,6 +79,7 @@ Strict boundaries:
 - For open signals, use evidence.protective_levels.risk_reward as the authoritative structural risk/reward.
 - candidate.stop_loss is the execution stop with ATR buffer; do not use it to reduce structural risk/reward.
 - evidence.protective_levels.target_risk_reward is the configured minimum RR, not an execution percentage placeholder.
+- For close signals that are profit-taking or elective exits, use current_positions.net_pnl as the profitability source after fees. Reject profit-taking closes when net_pnl <= 0, but do not block stop-loss, liquidation-risk, or thesis-invalidated risk exits only because net_pnl is negative.
 
 Output only JSON inside <reviews> tags:
 <reviews>
@@ -110,7 +111,7 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 		FactorSummary:     compactReviewFactorSnapshots(req.FactorSnapshot, req.Signals, req.CurrentPositions),
 		RelevantMemory:    req.RelevantMemory,
 		CurrentPositions:  req.CurrentPositions,
-		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades. For open signals, use evidence.protective_levels.risk_reward as the structural RR; candidate.stop_loss includes ATR execution buffer.",
+		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades. For open signals, use evidence.protective_levels.risk_reward as the structural RR; candidate.stop_loss includes ATR execution buffer. For profit-taking close signals, use current_positions.net_pnl after accumulated and estimated closing fees; do not treat gross unrealized_pnl as profit if net_pnl <= 0.",
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

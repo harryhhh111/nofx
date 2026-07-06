@@ -108,6 +108,9 @@ export interface DecisionRecord {
   system_prompt: string
   input_prompt: string
   cot_trace: string
+  cot_summary?: string
+  judgement_summary?: string
+  judgment_summary?: string
   user_decision_summary?: UserDecisionSummary
   decision_json: string
   account_state: AccountSnapshot
