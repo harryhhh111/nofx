@@ -255,23 +255,53 @@ export function TraderDashboardPage({
         if (!source) return ''
         if (source.includes('support_resistance.support')) return 'Support'
         if (source.includes('support_resistance.resistance')) return 'Resistance'
+        if (source.includes('market_structure.support')) return 'Structure Support'
+        if (source.includes('market_structure.resistance')) return 'Structure Resistance'
         if (source.includes('fibonacci')) return 'Fibonacci'
+        if (source.includes('mean_reversion')) return 'Mean Reversion'
         if (source.includes('atr_volatility')) return 'ATR'
         if (source.includes('risk_reward_projection')) return 'R:R'
         return source.replace(/_/g, ' ')
+    }
+
+    const positionExecutionRiskReward = (pos: Position) => {
+        if (pos.execution_risk_reward && pos.execution_risk_reward > 0) {
+            return pos.execution_risk_reward
+        }
+        if (!pos.entry_price || !pos.stop_loss_price || !pos.take_profit_price) return 0
+        const side = String(pos.side || '').toUpperCase()
+        const risk =
+            side === 'LONG'
+                ? pos.entry_price - pos.stop_loss_price
+                : pos.stop_loss_price - pos.entry_price
+        const reward =
+            side === 'LONG'
+                ? pos.take_profit_price - pos.entry_price
+                : pos.entry_price - pos.take_profit_price
+        return risk > 0 && reward > 0 ? reward / risk : 0
     }
 
     const protectiveDetailTitle = (pos: Position, type: 'sl' | 'tp') => {
         const source = type === 'sl' ? pos.stop_loss_source : pos.take_profit_source
         const timeframe = type === 'sl' ? pos.stop_loss_timeframe : pos.take_profit_timeframe
         const anchor = type === 'sl' ? pos.stop_loss_anchor : pos.take_profit_anchor
+        const policy = type === 'sl' ? pos.stop_loss_policy : pos.take_profit_policy
+        const executionRR = positionExecutionRiskReward(pos)
         const parts = [
+            policy ? `Policy: ${policy}` : '',
             source ? `Source: ${source}` : '',
             timeframe ? `TF: ${timeframe}` : '',
             anchor && anchor > 0 ? `Anchor: ${formatPrice(anchor)}` : '',
+            type === 'tp' && pos.take_profit_candidate_count && pos.take_profit_candidate_count > 0 ? `Candidates: ${pos.take_profit_candidate_count}` : '',
+            type === 'tp' && pos.take_profit_min_risk_reward && pos.take_profit_min_risk_reward > 0 ? `Min R:R: ${pos.take_profit_min_risk_reward.toFixed(2)}` : '',
+            type === 'tp' && pos.take_profit_min_atr_distance && pos.take_profit_min_atr_distance > 0 ? `Min distance: ${pos.take_profit_min_atr_distance.toFixed(2)} ATR` : '',
+            type === 'tp' && pos.take_profit_selected_risk_reward && pos.take_profit_selected_risk_reward > 0 ? `Selected R:R: ${pos.take_profit_selected_risk_reward.toFixed(2)}` : '',
+            type === 'tp' && pos.take_profit_selected_atr_distance && pos.take_profit_selected_atr_distance > 0 ? `Selected distance: ${pos.take_profit_selected_atr_distance.toFixed(2)} ATR` : '',
+            type === 'tp' && pos.nearest_take_profit && pos.nearest_take_profit > 0 ? `Nearest target: ${formatPrice(pos.nearest_take_profit)}${pos.nearest_take_profit_risk_reward && pos.nearest_take_profit_risk_reward > 0 ? ` (R:R ${pos.nearest_take_profit_risk_reward.toFixed(2)})` : ''}` : '',
             pos.protective_atr && pos.protective_atr > 0 ? `ATR: ${formatPrice(pos.protective_atr)}${pos.protective_atr_timeframe ? ` (${pos.protective_atr_timeframe})` : ''}` : '',
             pos.protective_atr_buffer && pos.protective_atr_buffer > 0 ? `ATR buffer: ${pos.protective_atr_buffer}x` : '',
-            pos.protective_risk_reward && pos.protective_risk_reward > 0 ? `R:R: ${pos.protective_risk_reward.toFixed(2)}` : '',
+            pos.protective_risk_reward && pos.protective_risk_reward > 0 ? `Structural R:R: ${pos.protective_risk_reward.toFixed(2)}` : '',
+            executionRR > 0 ? `Execution R:R: ${executionRR.toFixed(2)}` : '',
         ].filter(Boolean)
         return parts.join('\n')
     }

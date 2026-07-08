@@ -318,6 +318,7 @@ func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.Close
 		ProtectiveATRTimeframe: pos.ProtectiveATRTimeframe,
 		ProtectiveATRBuffer:    pos.ProtectiveATRBuffer,
 		ProtectiveRiskReward:   pos.ProtectiveRiskReward,
+		ExecutionRiskReward:    pos.ExecutionRiskReward,
 	}
 }
 

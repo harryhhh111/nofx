@@ -198,23 +198,37 @@ type TimeframeRoleTrace struct {
 }
 
 type ProtectiveLevelTrace struct {
-	Action           string  `json:"action"`
-	Entry            float64 `json:"entry"`
-	StopLoss         float64 `json:"stop_loss"`
-	TakeProfit       float64 `json:"take_profit"`
-	StopSource       string  `json:"stop_source"`
-	StopTimeframe    string  `json:"stop_timeframe,omitempty"`
-	StopAnchor       float64 `json:"stop_anchor,omitempty"`
-	TargetSource     string  `json:"target_source"`
-	TargetTimeframe  string  `json:"target_timeframe,omitempty"`
-	TargetAnchor     float64 `json:"target_anchor,omitempty"`
-	ATR              float64 `json:"atr,omitempty"`
-	ATRTimeframe     string  `json:"atr_timeframe,omitempty"`
-	ATRBuffer        float64 `json:"atr_buffer"`
-	StopMode         string  `json:"stop_mode,omitempty"`
-	RequestedStopTF  string  `json:"requested_stop_timeframe,omitempty"`
-	TargetRiskReward float64 `json:"target_risk_reward"`
-	RiskReward       float64 `json:"risk_reward"`
+	Action                string  `json:"action"`
+	Entry                 float64 `json:"entry"`
+	StopLoss              float64 `json:"stop_loss"`
+	TakeProfit            float64 `json:"take_profit"`
+	StopSource            string  `json:"stop_source"`
+	StopTimeframe         string  `json:"stop_timeframe,omitempty"`
+	StopAnchor            float64 `json:"stop_anchor,omitempty"`
+	StopPolicy            string  `json:"stop_policy,omitempty"`
+	StopReason            string  `json:"stop_reason,omitempty"`
+	TargetSource          string  `json:"target_source"`
+	TargetTimeframe       string  `json:"target_timeframe,omitempty"`
+	TargetAnchor          float64 `json:"target_anchor,omitempty"`
+	ATR                   float64 `json:"atr,omitempty"`
+	ATRTimeframe          string  `json:"atr_timeframe,omitempty"`
+	ATRBuffer             float64 `json:"atr_buffer"`
+	StopMode              string  `json:"stop_mode,omitempty"`
+	RequestedStopTF       string  `json:"requested_stop_timeframe,omitempty"`
+	TargetRiskReward      float64 `json:"target_risk_reward"`
+	RiskReward            float64 `json:"risk_reward"`
+	ExecutionRiskReward   float64 `json:"execution_risk_reward,omitempty"`
+	TargetPolicy          string  `json:"target_policy,omitempty"`
+	TargetReason          string  `json:"target_reason,omitempty"`
+	TargetCandidateCount  int     `json:"target_candidate_count,omitempty"`
+	TargetMinRiskReward   float64 `json:"target_min_risk_reward,omitempty"`
+	TargetMinATRDistance  float64 `json:"target_min_atr_distance,omitempty"`
+	TargetSelectedRR      float64 `json:"target_selected_risk_reward,omitempty"`
+	TargetSelectedATRs    float64 `json:"target_selected_atr_distance,omitempty"`
+	TargetQualified       bool    `json:"target_qualified,omitempty"`
+	NearestTarget         float64 `json:"nearest_target,omitempty"`
+	NearestTargetRR       float64 `json:"nearest_target_risk_reward,omitempty"`
+	NearestTargetDistance float64 `json:"nearest_target_atr_distance,omitempty"`
 }
 
 type PositionLifecycleTrace struct {
@@ -999,6 +1013,11 @@ func calculateProtectiveLevels(setup, action string, entry float64, snapshot *ma
 	}
 	trace.ATR = atr
 	trace.ATRTimeframe = atrTF
+	policy := protectivePolicyForSetup(setup, trace.TargetRiskReward)
+	trace.TargetPolicy = policy.Name
+	trace.TargetMinRiskReward = policy.MinRiskReward
+	trace.TargetMinATRDistance = policy.MinATRDistance
+	trace.StopPolicy = protectiveStopPolicyForSetup(setup)
 
 	switch action {
 	case "open_long":
@@ -1010,15 +1029,18 @@ func calculateProtectiveLevels(setup, action string, entry float64, snapshot *ma
 		trace.StopAnchor = stopAnchor
 		trace.StopTimeframe = stopTF
 		trace.StopSource = stopSource
+		trace.StopReason = fmt.Sprintf("%s uses %s %.8f with %.2f ATR buffer", trace.StopPolicy, stopSource, stopAnchor, trace.ATRBuffer)
 		if trace.StopLoss <= 0 || trace.StopLoss >= entry {
 			return trace, fmt.Errorf("long stop loss %.8f is not below entry %.8f", trace.StopLoss, entry)
 		}
-		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("long", entry, snapshot, timeframes.Target)
-		if hasTargetAnchor && targetAnchor > entry {
-			trace.TakeProfit = targetAnchor
-			trace.TargetAnchor = targetAnchor
-			trace.TargetTimeframe = targetTF
-			trace.TargetSource = targetSource
+		targetSelection := protectiveTargetAnchor("long", entry, stopAnchor, snapshot, timeframes.Target, atr, policy)
+		applyTargetSelectionTrace(&trace, targetSelection)
+		if targetSelection.HasTarget && targetSelection.Target.Price > entry {
+			trace.TakeProfit = targetSelection.Target.Price
+			trace.TargetAnchor = targetSelection.Target.Price
+			trace.TargetTimeframe = targetSelection.Target.Timeframe
+			trace.TargetSource = targetSelection.Target.Source
+			trace.TargetReason = targetSelection.Reason
 		} else {
 			return trace, rejectSignal("long setup %q has no structural take-profit target", setup)
 		}
@@ -1031,15 +1053,18 @@ func calculateProtectiveLevels(setup, action string, entry float64, snapshot *ma
 		trace.StopAnchor = stopAnchor
 		trace.StopTimeframe = stopTF
 		trace.StopSource = stopSource
+		trace.StopReason = fmt.Sprintf("%s uses %s %.8f with %.2f ATR buffer", trace.StopPolicy, stopSource, stopAnchor, trace.ATRBuffer)
 		if trace.StopLoss <= entry {
 			return trace, fmt.Errorf("short stop loss %.8f is not above entry %.8f", trace.StopLoss, entry)
 		}
-		targetAnchor, targetTF, targetSource, hasTargetAnchor := protectiveTargetAnchor("short", entry, snapshot, timeframes.Target)
-		if hasTargetAnchor && targetAnchor > 0 && targetAnchor < entry {
-			trace.TakeProfit = targetAnchor
-			trace.TargetAnchor = targetAnchor
-			trace.TargetTimeframe = targetTF
-			trace.TargetSource = targetSource
+		targetSelection := protectiveTargetAnchor("short", entry, stopAnchor, snapshot, timeframes.Target, atr, policy)
+		applyTargetSelectionTrace(&trace, targetSelection)
+		if targetSelection.HasTarget && targetSelection.Target.Price > 0 && targetSelection.Target.Price < entry {
+			trace.TakeProfit = targetSelection.Target.Price
+			trace.TargetAnchor = targetSelection.Target.Price
+			trace.TargetTimeframe = targetSelection.Target.Timeframe
+			trace.TargetSource = targetSelection.Target.Source
+			trace.TargetReason = targetSelection.Reason
 		} else {
 			return trace, rejectSignal("short setup %q has no structural take-profit target", setup)
 		}
@@ -1050,6 +1075,7 @@ func calculateProtectiveLevels(setup, action string, entry float64, snapshot *ma
 		return trace, fmt.Errorf("unsupported open action %q", action)
 	}
 	trace.RiskReward = protectiveRiskReward(action, entry, trace.StopAnchor, trace.TakeProfit)
+	trace.ExecutionRiskReward = protectiveRiskReward(action, entry, trace.StopLoss, trace.TakeProfit)
 	return trace, nil
 }
 
@@ -1101,6 +1127,62 @@ func protectiveTargetTimeframes(roles TimeframeRoleTrace) []string {
 	values := []string{roles.Primary, roles.Entry}
 	values = append(values, roles.Confirmations...)
 	return uniqueTimeframes(values...)
+}
+
+type protectiveTargetPolicy struct {
+	Name                   string
+	MinRiskReward          float64
+	MinATRDistance         float64
+	RequireQualifiedTarget bool
+	IncludeMeanReversion   bool
+}
+
+func protectivePolicyForSetup(setup string, targetRiskReward float64) protectiveTargetPolicy {
+	if targetRiskReward <= 0 {
+		targetRiskReward = defaultProtectiveRiskReward
+	}
+	name := strings.ToLower(strings.TrimSpace(setup))
+	policy := protectiveTargetPolicy{
+		Name:           "balanced_structure",
+		MinRiskReward:  targetRiskReward,
+		MinATRDistance: 0.8,
+	}
+	switch {
+	case strings.Contains(name, "breakout"):
+		policy.Name = "breakout_extension"
+		policy.MinATRDistance = 1.5
+	case strings.Contains(name, "trend_continuation"), strings.Contains(name, "trend_pullback"):
+		policy.Name = "trend_next_structure"
+		policy.MinATRDistance = 1.2
+		policy.RequireQualifiedTarget = true
+	case strings.Contains(name, "range_reversal"), strings.Contains(name, "support_resistance_bounce"), strings.Contains(name, "failed_breakout"):
+		policy.Name = "range_near_or_opposite_structure"
+		policy.MinRiskReward = targetRiskReward * 0.8
+		policy.MinATRDistance = 0.5
+		policy.IncludeMeanReversion = true
+	case strings.Contains(name, "momentum_exhaustion"):
+		policy.Name = "mean_reversion_structure"
+		policy.MinRiskReward = targetRiskReward * 0.8
+		policy.MinATRDistance = 0.5
+		policy.IncludeMeanReversion = true
+	}
+	return policy
+}
+
+func protectiveStopPolicyForSetup(setup string) string {
+	name := strings.ToLower(strings.TrimSpace(setup))
+	switch {
+	case strings.Contains(name, "breakout"):
+		return "breakout_invalidation"
+	case strings.Contains(name, "trend_continuation"), strings.Contains(name, "trend_pullback"):
+		return "trend_structure_invalidation"
+	case strings.Contains(name, "range_reversal"), strings.Contains(name, "support_resistance_bounce"), strings.Contains(name, "failed_breakout"):
+		return "range_boundary_invalidation"
+	case strings.Contains(name, "momentum_exhaustion"):
+		return "exhaustion_invalidation"
+	default:
+		return "structure_invalidation"
+	}
 }
 
 func protectiveATRTimeframes(roles TimeframeRoleTrace) []string {
@@ -1212,29 +1294,193 @@ func protectiveStopAnchor(side string, entry float64, snapshot *market.FactorSna
 	return 0, "", "", false
 }
 
-func protectiveTargetAnchor(side string, entry float64, snapshot *market.FactorSnapshot, timeframes []string) (float64, string, string, bool) {
+type protectiveTargetCandidate struct {
+	Price     float64
+	Timeframe string
+	Source    string
+	RR        float64
+	ATRs      float64
+}
+
+type protectiveTargetSelection struct {
+	Target         protectiveTargetCandidate
+	Nearest        protectiveTargetCandidate
+	CandidateCount int
+	Reason         string
+	HasTarget      bool
+	Qualified      bool
+}
+
+func applyTargetSelectionTrace(trace *ProtectiveLevelTrace, selection protectiveTargetSelection) {
+	trace.TargetCandidateCount = selection.CandidateCount
+	trace.TargetQualified = selection.Qualified
+	if selection.Target.Price > 0 {
+		trace.TargetSelectedRR = selection.Target.RR
+		trace.TargetSelectedATRs = selection.Target.ATRs
+	}
+	if selection.Nearest.Price > 0 {
+		trace.NearestTarget = selection.Nearest.Price
+		trace.NearestTargetRR = selection.Nearest.RR
+		trace.NearestTargetDistance = selection.Nearest.ATRs
+	}
+}
+
+func protectiveTargetAnchor(side string, entry, stopAnchor float64, snapshot *market.FactorSnapshot, timeframes []string, atr float64, policy protectiveTargetPolicy) protectiveTargetSelection {
+	candidates := protectiveTargetCandidates(side, entry, stopAnchor, snapshot, timeframes, atr, policy)
+	if len(candidates) == 0 {
+		return protectiveTargetSelection{}
+	}
+	nearest := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if targetCloserToEntry(side, candidate.Price, nearest.Price) {
+			nearest = candidate
+		}
+	}
+
+	best := protectiveTargetCandidate{}
+	for _, candidate := range candidates {
+		if candidate.RR < policy.MinRiskReward {
+			continue
+		}
+		if policy.MinATRDistance > 0 && candidate.ATRs < policy.MinATRDistance {
+			continue
+		}
+		if best.Price == 0 || targetCloserToEntry(side, candidate.Price, best.Price) {
+			best = candidate
+		}
+	}
+	if best.Price > 0 {
+		reason := fmt.Sprintf("%s qualified target: rr %.2f >= %.2f, distance %.2f ATR >= %.2f", policy.Name, best.RR, policy.MinRiskReward, best.ATRs, policy.MinATRDistance)
+		return protectiveTargetSelection{Target: best, Nearest: nearest, CandidateCount: len(candidates), Reason: reason, HasTarget: true, Qualified: true}
+	}
+	if policy.RequireQualifiedTarget {
+		return protectiveTargetSelection{Nearest: nearest, CandidateCount: len(candidates), Reason: fmt.Sprintf("%s found nearest target %.8f but rr %.2f or ATR distance %.2f did not qualify", policy.Name, nearest.Price, nearest.RR, nearest.ATRs)}
+	}
+	reason := fmt.Sprintf("%s fallback nearest target: rr %.2f, distance %.2f ATR", policy.Name, nearest.RR, nearest.ATRs)
+	return protectiveTargetSelection{Target: nearest, Nearest: nearest, CandidateCount: len(candidates), Reason: reason, HasTarget: true}
+}
+
+func protectiveTargetCandidates(side string, entry, stopAnchor float64, snapshot *market.FactorSnapshot, timeframes []string, atr float64, policy protectiveTargetPolicy) []protectiveTargetCandidate {
+	out := []protectiveTargetCandidate{}
+	above := side == "long"
+	structureField := "resistance"
+	if side == "short" {
+		structureField = "support"
+	}
+	for _, timeframe := range timeframes {
+		out = append(out, structureTargetCandidates(snapshot, "support_resistance", structureField, timeframe, entry, stopAnchor, atr, above)...)
+		out = append(out, structureTargetCandidates(snapshot, "market_structure", structureField, timeframe, entry, stopAnchor, atr, above)...)
+		out = append(out, fibonacciTargetCandidates(snapshot, side, timeframe, entry, stopAnchor, atr)...)
+		if policy.IncludeMeanReversion {
+			out = append(out, meanReversionTargetCandidates(snapshot, timeframe, entry, stopAnchor, atr, above)...)
+		}
+	}
+	return dedupeTargetCandidates(out)
+}
+
+func structureTargetCandidates(snapshot *market.FactorSnapshot, name, field, timeframe string, entry, stopAnchor, atr float64, above bool) []protectiveTargetCandidate {
+	out := []protectiveTargetCandidate{}
+	if snapshot == nil || snapshot.Structures == nil {
+		return out
+	}
+	for _, structure := range snapshot.Structures[name] {
+		if timeframe != "" && structure.Timeframe != timeframe {
+			continue
+		}
+		if !structure.Valid || structure.KeyLevels == nil {
+			continue
+		}
+		level := structure.KeyLevels[field]
+		if !isCandidateLevel(level, entry, above) {
+			continue
+		}
+		out = append(out, targetCandidate(level, structure.Timeframe, name+"."+field, entry, stopAnchor, atr, above))
+	}
+	return out
+}
+
+func fibonacciTargetCandidates(snapshot *market.FactorSnapshot, side, timeframe string, entry, stopAnchor, atr float64) []protectiveTargetCandidate {
+	out := []protectiveTargetCandidate{}
+	if snapshot == nil || snapshot.Structures == nil {
+		return out
+	}
+	above := side == "long"
+	for _, structure := range snapshot.Structures["fibonacci"] {
+		if timeframe != "" && structure.Timeframe != timeframe {
+			continue
+		}
+		if !structure.Valid || structure.KeyLevels == nil {
+			continue
+		}
+		for name, level := range structure.KeyLevels {
+			if !strings.HasPrefix(name, "fib_") || !isCandidateLevel(level, entry, above) {
+				continue
+			}
+			out = append(out, targetCandidate(level, structure.Timeframe, "fibonacci."+name, entry, stopAnchor, atr, above))
+		}
+	}
+	return out
+}
+
+func meanReversionTargetCandidates(snapshot *market.FactorSnapshot, timeframe string, entry, stopAnchor, atr float64, above bool) []protectiveTargetCandidate {
+	out := []protectiveTargetCandidate{}
+	if snapshot == nil || snapshot.Technical == nil {
+		return out
+	}
+	for _, name := range []string{"vwap", "boll_middle", "ema"} {
+		for _, point := range snapshot.Technical[name] {
+			if timeframe != "" && point.Timeframe != timeframe {
+				continue
+			}
+			if !isCandidateLevel(point.Value, entry, above) {
+				continue
+			}
+			source := "mean_reversion." + point.Name
+			if point.Period > 0 {
+				source = fmt.Sprintf("%s%d", source, point.Period)
+			}
+			out = append(out, targetCandidate(point.Value, point.Timeframe, source, entry, stopAnchor, atr, above))
+		}
+	}
+	return out
+}
+
+func targetCandidate(price float64, timeframe, source string, entry, stopAnchor, atr float64, above bool) protectiveTargetCandidate {
+	rr := 0.0
+	if above {
+		rr = protectiveRiskReward("open_long", entry, stopAnchor, price)
+	} else {
+		rr = protectiveRiskReward("open_short", entry, stopAnchor, price)
+	}
+	atrDistance := 0.0
+	if atr > 0 {
+		atrDistance = absFloat(price-entry) / atr
+	}
+	return protectiveTargetCandidate{Price: price, Timeframe: timeframe, Source: source, RR: rr, ATRs: atrDistance}
+}
+
+func dedupeTargetCandidates(candidates []protectiveTargetCandidate) []protectiveTargetCandidate {
+	out := []protectiveTargetCandidate{}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate.Price <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s|%s|%.8f", candidate.Timeframe, candidate.Source, candidate.Price)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func targetCloserToEntry(side string, candidate, current float64) bool {
 	if side == "long" {
-		if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "resistance", timeframes, entry, true); ok {
-			return level, timeframe, "support_resistance.resistance", true
-		}
-		if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "resistance", timeframes, entry, true); ok {
-			return level, timeframe, "market_structure.resistance", true
-		}
-		if level, timeframe, ok := nearestFibonacciTarget(snapshot, "long", timeframes, entry); ok {
-			return level, timeframe, "fibonacci.target_level", true
-		}
-		return 0, "", "", false
+		return candidate < current
 	}
-	if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "support", timeframes, entry, false); ok {
-		return level, timeframe, "support_resistance.support", true
-	}
-	if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "support", timeframes, entry, false); ok {
-		return level, timeframe, "market_structure.support", true
-	}
-	if level, timeframe, ok := nearestFibonacciTarget(snapshot, "short", timeframes, entry); ok {
-		return level, timeframe, "fibonacci.target_level", true
-	}
-	return 0, "", "", false
+	return candidate > current
 }
 
 func nearestStructureLevel(snapshot *market.FactorSnapshot, name, field string, timeframes []string, entry float64, above bool) (float64, string, bool) {
@@ -1275,33 +1521,6 @@ func nearestFibonacciStop(snapshot *market.FactorSnapshot, side string, timefram
 			}
 			if isCandidateLevel(structure.InvalidPrice, entry, above) && (best == 0 || closerLevel(structure.InvalidPrice, best, above)) {
 				best = structure.InvalidPrice
-			}
-			for name, level := range structure.KeyLevels {
-				if !strings.HasPrefix(name, "fib_") || !isCandidateLevel(level, entry, above) {
-					continue
-				}
-				if best == 0 || closerLevel(level, best, above) {
-					best = level
-				}
-			}
-		}
-		if best > 0 {
-			return best, timeframe, true
-		}
-	}
-	return 0, "", false
-}
-
-func nearestFibonacciTarget(snapshot *market.FactorSnapshot, side string, timeframes []string, entry float64) (float64, string, bool) {
-	above := side == "long"
-	for _, timeframe := range timeframes {
-		best := 0.0
-		for _, structure := range snapshot.Structures["fibonacci"] {
-			if timeframe != "" && structure.Timeframe != timeframe {
-				continue
-			}
-			if !structure.Valid || structure.KeyLevels == nil {
-				continue
 			}
 			for name, level := range structure.KeyLevels {
 				if !strings.HasPrefix(name, "fib_") || !isCandidateLevel(level, entry, above) {

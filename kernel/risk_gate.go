@@ -3,6 +3,7 @@ package kernel
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 // DefaultRiskGate reuses the existing decision validator as the hard
@@ -101,11 +102,19 @@ func marketContextRiskAssessment(context *MarketContext, signal CandidateSignal)
 	switch context.DirectionBias {
 	case "bearish":
 		if signal.Action == "open_long" {
+			if marketContextDirectionConflictIsSoft(signal) {
+				risk.SoftWarnings = append(risk.SoftWarnings, "direction_bias_bearish_countertrend_setup")
+				break
+			}
 			risk.HardRejectReason = "direction_bias_bearish"
 			return risk
 		}
 	case "bullish":
 		if signal.Action == "open_short" {
+			if marketContextDirectionConflictIsSoft(signal) {
+				risk.SoftWarnings = append(risk.SoftWarnings, "direction_bias_bullish_countertrend_setup")
+				break
+			}
 			risk.HardRejectReason = "direction_bias_bullish"
 			return risk
 		}
@@ -130,6 +139,17 @@ func marketContextRiskAssessment(context *MarketContext, signal CandidateSignal)
 		}
 	}
 	return risk
+}
+
+func marketContextDirectionConflictIsSoft(signal CandidateSignal) bool {
+	setup := strings.ToLower(strings.TrimSpace(signal.Setup))
+	if setup == "" {
+		setup = strings.ToLower(strings.TrimSpace(signal.RuleID))
+	}
+	return strings.Contains(setup, "range_reversal") ||
+		strings.Contains(setup, "failed_breakout") ||
+		strings.Contains(setup, "support_resistance_bounce") ||
+		strings.Contains(setup, "momentum_exhaustion")
 }
 
 func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
@@ -159,13 +179,25 @@ func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
 		decision.StopLossSource = levels.StopSource
 		decision.StopLossTF = levels.StopTimeframe
 		decision.StopLossAnchor = levels.StopAnchor
+		decision.StopLossPolicy = levels.StopPolicy
 		decision.TakeProfitSource = levels.TargetSource
 		decision.TakeProfitTF = levels.TargetTimeframe
 		decision.TakeProfitAnchor = levels.TargetAnchor
+		decision.TakeProfitPolicy = levels.TargetPolicy
+		decision.TakeProfitCandidates = levels.TargetCandidateCount
+		decision.TakeProfitMinRR = levels.TargetMinRiskReward
+		decision.TakeProfitMinATRs = levels.TargetMinATRDistance
+		decision.TakeProfitSelectedRR = levels.TargetSelectedRR
+		decision.TakeProfitSelectedATRs = levels.TargetSelectedATRs
+		decision.TakeProfitQualified = levels.TargetQualified
+		decision.NearestTakeProfit = levels.NearestTarget
+		decision.NearestTakeProfitRR = levels.NearestTargetRR
+		decision.NearestTakeProfitATRs = levels.NearestTargetDistance
 		decision.ProtectiveATR = levels.ATR
 		decision.ProtectiveATRTF = levels.ATRTimeframe
 		decision.ProtectiveATRBuffer = levels.ATRBuffer
 		decision.ProtectiveRiskReward = levels.RiskReward
+		decision.ExecutionRiskReward = levels.ExecutionRiskReward
 	}
 	return decision
 }

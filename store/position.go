@@ -135,13 +135,25 @@ type TraderPosition struct {
 	StopLossSource         string  `gorm:"column:stop_loss_source;default:''" json:"stop_loss_source,omitempty"`
 	StopLossTimeframe      string  `gorm:"column:stop_loss_timeframe;default:''" json:"stop_loss_timeframe,omitempty"`
 	StopLossAnchor         float64 `gorm:"column:stop_loss_anchor;default:0" json:"stop_loss_anchor,omitempty"`
+	StopLossPolicy         string  `gorm:"column:stop_loss_policy;default:''" json:"stop_loss_policy,omitempty"`
 	TakeProfitSource       string  `gorm:"column:take_profit_source;default:''" json:"take_profit_source,omitempty"`
 	TakeProfitTimeframe    string  `gorm:"column:take_profit_timeframe;default:''" json:"take_profit_timeframe,omitempty"`
 	TakeProfitAnchor       float64 `gorm:"column:take_profit_anchor;default:0" json:"take_profit_anchor,omitempty"`
+	TakeProfitPolicy       string  `gorm:"column:take_profit_policy;default:''" json:"take_profit_policy,omitempty"`
+	TakeProfitCandidates   int     `gorm:"column:take_profit_candidate_count;default:0" json:"take_profit_candidate_count,omitempty"`
+	TakeProfitMinRR        float64 `gorm:"column:take_profit_min_risk_reward;default:0" json:"take_profit_min_risk_reward,omitempty"`
+	TakeProfitMinATRs      float64 `gorm:"column:take_profit_min_atr_distance;default:0" json:"take_profit_min_atr_distance,omitempty"`
+	TakeProfitSelectedRR   float64 `gorm:"column:take_profit_selected_risk_reward;default:0" json:"take_profit_selected_risk_reward,omitempty"`
+	TakeProfitSelectedATRs float64 `gorm:"column:take_profit_selected_atr_distance;default:0" json:"take_profit_selected_atr_distance,omitempty"`
+	TakeProfitQualified    bool    `gorm:"column:take_profit_qualified;default:false" json:"take_profit_qualified,omitempty"`
+	NearestTakeProfit      float64 `gorm:"column:nearest_take_profit;default:0" json:"nearest_take_profit,omitempty"`
+	NearestTakeProfitRR    float64 `gorm:"column:nearest_take_profit_risk_reward;default:0" json:"nearest_take_profit_risk_reward,omitempty"`
+	NearestTakeProfitATRs  float64 `gorm:"column:nearest_take_profit_atr_distance;default:0" json:"nearest_take_profit_atr_distance,omitempty"`
 	ProtectiveATR          float64 `gorm:"column:protective_atr;default:0" json:"protective_atr,omitempty"`
 	ProtectiveATRTimeframe string  `gorm:"column:protective_atr_timeframe;default:''" json:"protective_atr_timeframe,omitempty"`
 	ProtectiveATRBuffer    float64 `gorm:"column:protective_atr_buffer;default:0" json:"protective_atr_buffer,omitempty"`
 	ProtectiveRiskReward   float64 `gorm:"column:protective_risk_reward;default:0" json:"protective_risk_reward,omitempty"`
+	ExecutionRiskReward    float64 `gorm:"column:execution_risk_reward;default:0" json:"execution_risk_reward,omitempty"`
 	MaxFavorablePnL        float64 `gorm:"column:max_favorable_pnl;default:0" json:"max_favorable_pnl,omitempty"`
 	MaxFavorablePnLPct     float64 `gorm:"column:max_favorable_pnl_pct;default:0" json:"max_favorable_pnl_pct,omitempty"`
 	MaxFavorablePrice      float64 `gorm:"column:max_favorable_price;default:0" json:"max_favorable_price,omitempty"`
@@ -215,13 +227,25 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_source TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_timeframe TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_anchor DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_policy TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_source TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_timeframe TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_anchor DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_policy TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_candidate_count INTEGER DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_min_risk_reward DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_min_atr_distance DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_selected_risk_reward DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_selected_atr_distance DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS take_profit_qualified BOOLEAN DEFAULT FALSE`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS nearest_take_profit DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS nearest_take_profit_risk_reward DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS nearest_take_profit_atr_distance DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr_timeframe TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_atr_buffer DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS protective_risk_reward DOUBLE PRECISION DEFAULT 0`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS execution_risk_reward DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_pnl DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_pnl_pct DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_favorable_price DOUBLE PRECISION DEFAULT 0`)
@@ -292,13 +316,25 @@ type PositionProtectiveLevelMetadata struct {
 	StopLossSource         string
 	StopLossTimeframe      string
 	StopLossAnchor         float64
+	StopLossPolicy         string
 	TakeProfitSource       string
 	TakeProfitTimeframe    string
 	TakeProfitAnchor       float64
+	TakeProfitPolicy       string
+	TakeProfitCandidates   int
+	TakeProfitMinRR        float64
+	TakeProfitMinATRs      float64
+	TakeProfitSelectedRR   float64
+	TakeProfitSelectedATRs float64
+	TakeProfitQualified    bool
+	NearestTakeProfit      float64
+	NearestTakeProfitRR    float64
+	NearestTakeProfitATRs  float64
 	ProtectiveATR          float64
 	ProtectiveATRTimeframe string
 	ProtectiveATRBuffer    float64
 	ProtectiveRiskReward   float64
+	ExecutionRiskReward    float64
 }
 
 // UpdatePositionOpeningSignalMetadata links an OPEN position to the deterministic
@@ -328,17 +364,29 @@ func (s *PositionStore) UpdatePositionOpeningSignalMetadata(traderID, symbol, si
 // UpdatePositionProtectiveLevelMetadata stores how the initial SL/TP levels were derived.
 func (s *PositionStore) UpdatePositionProtectiveLevelMetadata(traderID, symbol, side string, meta PositionProtectiveLevelMetadata) error {
 	updates := map[string]interface{}{
-		"stop_loss_source":         meta.StopLossSource,
-		"stop_loss_timeframe":      meta.StopLossTimeframe,
-		"stop_loss_anchor":         meta.StopLossAnchor,
-		"take_profit_source":       meta.TakeProfitSource,
-		"take_profit_timeframe":    meta.TakeProfitTimeframe,
-		"take_profit_anchor":       meta.TakeProfitAnchor,
-		"protective_atr":           meta.ProtectiveATR,
-		"protective_atr_timeframe": meta.ProtectiveATRTimeframe,
-		"protective_atr_buffer":    meta.ProtectiveATRBuffer,
-		"protective_risk_reward":   meta.ProtectiveRiskReward,
-		"updated_at":               time.Now().UnixMilli(),
+		"stop_loss_source":                  meta.StopLossSource,
+		"stop_loss_timeframe":               meta.StopLossTimeframe,
+		"stop_loss_anchor":                  meta.StopLossAnchor,
+		"stop_loss_policy":                  meta.StopLossPolicy,
+		"take_profit_source":                meta.TakeProfitSource,
+		"take_profit_timeframe":             meta.TakeProfitTimeframe,
+		"take_profit_anchor":                meta.TakeProfitAnchor,
+		"take_profit_policy":                meta.TakeProfitPolicy,
+		"take_profit_candidate_count":       meta.TakeProfitCandidates,
+		"take_profit_min_risk_reward":       meta.TakeProfitMinRR,
+		"take_profit_min_atr_distance":      meta.TakeProfitMinATRs,
+		"take_profit_selected_risk_reward":  meta.TakeProfitSelectedRR,
+		"take_profit_selected_atr_distance": meta.TakeProfitSelectedATRs,
+		"take_profit_qualified":             meta.TakeProfitQualified,
+		"nearest_take_profit":               meta.NearestTakeProfit,
+		"nearest_take_profit_risk_reward":   meta.NearestTakeProfitRR,
+		"nearest_take_profit_atr_distance":  meta.NearestTakeProfitATRs,
+		"protective_atr":                    meta.ProtectiveATR,
+		"protective_atr_timeframe":          meta.ProtectiveATRTimeframe,
+		"protective_atr_buffer":             meta.ProtectiveATRBuffer,
+		"protective_risk_reward":            meta.ProtectiveRiskReward,
+		"execution_risk_reward":             meta.ExecutionRiskReward,
+		"updated_at":                        time.Now().UnixMilli(),
 	}
 	result := s.db.Model(&TraderPosition{}).
 		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").

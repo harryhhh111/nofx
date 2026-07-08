@@ -89,33 +89,45 @@ type PositionSnapshot struct {
 
 // DecisionAction decision action
 type DecisionAction struct {
-	Action               string    `json:"action"`
-	Symbol               string    `json:"symbol"`
-	Quantity             float64   `json:"quantity"`
-	Leverage             int       `json:"leverage"`
-	Price                float64   `json:"price"`
-	StopLoss             float64   `json:"stop_loss,omitempty"`   // Stop loss price
-	TakeProfit           float64   `json:"take_profit,omitempty"` // Take profit price
-	StopLossSource       string    `json:"stop_loss_source,omitempty"`
-	StopLossTimeframe    string    `json:"stop_loss_timeframe,omitempty"`
-	StopLossAnchor       float64   `json:"stop_loss_anchor,omitempty"`
-	TakeProfitSource     string    `json:"take_profit_source,omitempty"`
-	TakeProfitTimeframe  string    `json:"take_profit_timeframe,omitempty"`
-	TakeProfitAnchor     float64   `json:"take_profit_anchor,omitempty"`
-	ProtectiveATR        float64   `json:"protective_atr,omitempty"`
-	ProtectiveATRTF      string    `json:"protective_atr_timeframe,omitempty"`
-	ProtectiveATRBuffer  float64   `json:"protective_atr_buffer,omitempty"`
-	ProtectiveRiskReward float64   `json:"protective_risk_reward,omitempty"`
-	Confidence           int       `json:"confidence,omitempty"` // AI confidence (0-100)
-	Reasoning            string    `json:"reasoning,omitempty"`  // Brief reasoning
-	SignalID             string    `json:"signal_id,omitempty"`
-	RuleID               string    `json:"rule_id,omitempty"`
-	Setup                string    `json:"setup,omitempty"`
-	Version              string    `json:"strategy_version,omitempty"`
-	OrderID              int64     `json:"order_id"`
-	Timestamp            time.Time `json:"timestamp"`
-	Success              bool      `json:"success"`
-	Error                string    `json:"error"`
+	Action                 string    `json:"action"`
+	Symbol                 string    `json:"symbol"`
+	Quantity               float64   `json:"quantity"`
+	Leverage               int       `json:"leverage"`
+	Price                  float64   `json:"price"`
+	StopLoss               float64   `json:"stop_loss,omitempty"`   // Stop loss price
+	TakeProfit             float64   `json:"take_profit,omitempty"` // Take profit price
+	StopLossSource         string    `json:"stop_loss_source,omitempty"`
+	StopLossTimeframe      string    `json:"stop_loss_timeframe,omitempty"`
+	StopLossAnchor         float64   `json:"stop_loss_anchor,omitempty"`
+	StopLossPolicy         string    `json:"stop_loss_policy,omitempty"`
+	TakeProfitSource       string    `json:"take_profit_source,omitempty"`
+	TakeProfitTimeframe    string    `json:"take_profit_timeframe,omitempty"`
+	TakeProfitAnchor       float64   `json:"take_profit_anchor,omitempty"`
+	TakeProfitPolicy       string    `json:"take_profit_policy,omitempty"`
+	TakeProfitCandidates   int       `json:"take_profit_candidate_count,omitempty"`
+	TakeProfitMinRR        float64   `json:"take_profit_min_risk_reward,omitempty"`
+	TakeProfitMinATRs      float64   `json:"take_profit_min_atr_distance,omitempty"`
+	TakeProfitSelectedRR   float64   `json:"take_profit_selected_risk_reward,omitempty"`
+	TakeProfitSelectedATRs float64   `json:"take_profit_selected_atr_distance,omitempty"`
+	TakeProfitQualified    bool      `json:"take_profit_qualified,omitempty"`
+	NearestTakeProfit      float64   `json:"nearest_take_profit,omitempty"`
+	NearestTakeProfitRR    float64   `json:"nearest_take_profit_risk_reward,omitempty"`
+	NearestTakeProfitATRs  float64   `json:"nearest_take_profit_atr_distance,omitempty"`
+	ProtectiveATR          float64   `json:"protective_atr,omitempty"`
+	ProtectiveATRTF        string    `json:"protective_atr_timeframe,omitempty"`
+	ProtectiveATRBuffer    float64   `json:"protective_atr_buffer,omitempty"`
+	ProtectiveRiskReward   float64   `json:"protective_risk_reward,omitempty"`
+	ExecutionRiskReward    float64   `json:"execution_risk_reward,omitempty"`
+	Confidence             int       `json:"confidence,omitempty"` // AI confidence (0-100)
+	Reasoning              string    `json:"reasoning,omitempty"`  // Brief reasoning
+	SignalID               string    `json:"signal_id,omitempty"`
+	RuleID                 string    `json:"rule_id,omitempty"`
+	Setup                  string    `json:"setup,omitempty"`
+	Version                string    `json:"strategy_version,omitempty"`
+	OrderID                int64     `json:"order_id"`
+	Timestamp              time.Time `json:"timestamp"`
+	Success                bool      `json:"success"`
+	Error                  string    `json:"error"`
 }
 
 // Statistics statistics information

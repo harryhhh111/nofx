@@ -7,6 +7,8 @@ import { Pencil, Plus, X as IconX, Sparkles, ExternalLink, UserPlus } from 'luci
 import { httpClient } from '../../lib/httpClient'
 import { NofxSelect } from '../ui/select'
 
+const DEFAULT_PAPER_INITIAL_BALANCE = 10000
+
 // 提取下划线后面的名称部分
 function getShortName(fullName: string): string {
   const parts = fullName.split('_')
@@ -106,14 +108,19 @@ export function TraderConfigModal({
         strategy_id: traderData.strategy_id || '',
       })
     } else if (!isEditMode) {
+      const defaultExchange = availableExchanges[0]
       setFormData({
         trader_name: '',
         ai_model: availableModels[0]?.id || '',
-        exchange_id: availableExchanges[0]?.id || '',
+        exchange_id: defaultExchange?.id || '',
         strategy_id: '',
         is_cross_margin: true,
         show_in_competition: true,
         scan_interval_minutes: 3,
+        initial_balance:
+          defaultExchange?.exchange_type?.toLowerCase() === 'paper'
+            ? DEFAULT_PAPER_INITIAL_BALANCE
+            : undefined,
       })
     }
   }, [traderData, isEditMode, availableModels, availableExchanges])
@@ -132,10 +139,16 @@ export function TraderConfigModal({
       }
 
       const next: FormState = { ...prev, exchange_id: exchangeId }
+      const selectedExchange = availableExchanges.find((exchange) => exchange.id === exchangeId)
+      const isPaper = selectedExchange?.exchange_type?.toLowerCase() === 'paper'
 
       // Exchange balance belongs to the selected exchange, not the trader record.
       // Clear the old baseline so we don't carry Exchange B's balance into Exchange A.
-      if (isEditMode) {
+      if (isPaper && !isEditMode) {
+        next.initial_balance = prev.initial_balance && prev.initial_balance > 0
+          ? prev.initial_balance
+          : DEFAULT_PAPER_INITIAL_BALANCE
+      } else if (isEditMode || !isPaper) {
         next.initial_balance = undefined
       }
 
@@ -200,8 +213,7 @@ export function TraderConfigModal({
         scan_interval_minutes: formData.scan_interval_minutes,
       }
 
-      // 只在编辑模式时包含initial_balance
-      if (isEditMode && formData.initial_balance !== undefined) {
+      if (formData.initial_balance !== undefined) {
         saveData.initial_balance = formData.initial_balance
       }
 
@@ -214,6 +226,8 @@ export function TraderConfigModal({
   }
 
   const selectedStrategy = strategies.find(s => s.id === formData.strategy_id)
+  const selectedExchange = availableExchanges.find(e => e.id === formData.exchange_id)
+  const isPaperExchange = selectedExchange?.exchange_type?.toLowerCase() === 'paper'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -495,25 +509,29 @@ export function TraderConfigModal({
                 </p>
               </div>
 
-              {/* Initial Balance (Edit mode only) */}
-              {isEditMode && (
+              {/* Initial Balance */}
+              {(isEditMode || isPaperExchange) && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm text-[#EAECEF]">
-                      {t('initialBalanceLabel', language)}
+                      {isPaperExchange && !isEditMode
+                        ? t('paperInitialBalanceLabel', language)
+                        : t('initialBalanceLabel', language)}
                     </label>
-                    <button
-                      type="button"
-                      onClick={handleFetchCurrentBalance}
-                      disabled={isFetchingBalance}
-                      className="px-3 py-1 text-xs bg-[#F0B90B] text-black rounded hover:bg-[#E1A706] transition-colors disabled:bg-[#848E9C] disabled:cursor-not-allowed"
-                    >
-                      {isFetchingBalance ? t('fetching', language) : t('fetchCurrentBalance', language)}
-                    </button>
+                    {isEditMode && (
+                      <button
+                        type="button"
+                        onClick={handleFetchCurrentBalance}
+                        disabled={isFetchingBalance}
+                        className="px-3 py-1 text-xs bg-[#F0B90B] text-black rounded hover:bg-[#E1A706] transition-colors disabled:bg-[#848E9C] disabled:cursor-not-allowed"
+                      >
+                        {isFetchingBalance ? t('fetching', language) : t('fetchCurrentBalance', language)}
+                      </button>
+                    )}
                   </div>
                   <input
                     type="number"
-                    value={formData.initial_balance || 0}
+                    value={formData.initial_balance ?? ''}
                     onChange={(e) =>
                       handleInputChange(
                         'initial_balance',
@@ -525,7 +543,9 @@ export function TraderConfigModal({
                     step="0.01"
                   />
                     <p className="text-xs text-[#848E9C] mt-1">
-                      {t('balanceUpdateHint', language)}
+                      {isPaperExchange && !isEditMode
+                        ? t('paperInitialBalanceHint', language)
+                        : t('balanceUpdateHint', language)}
                   </p>
                   {balanceFetchError && (
                     <p className="text-xs text-red-500 mt-1">

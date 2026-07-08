@@ -1249,7 +1249,27 @@ func signalUserDetails(signal CandidateSignal, lang string) []string {
 		details = append(details, fmt.Sprintf(summaryText(lang, "止盈 %.4f", "Take profit %.4f"), signal.TakeProfit))
 	}
 	if levels, ok := signal.Evidence["protective_levels"].(ProtectiveLevelTrace); ok {
-		details = append(details, fmt.Sprintf(summaryText(lang, "止损来源：%s，止盈来源：%s，实际盈亏比 %.2f", "Stop source: %s, target source: %s, actual risk/reward %.2f"), levels.StopSource, levels.TargetSource, levels.RiskReward))
+		details = append(details, fmt.Sprintf(summaryText(lang, "止损来源：%s，止盈来源：%s，结构盈亏比 %.2f，执行盈亏比 %.2f", "Stop source: %s, target source: %s, structural risk/reward %.2f, execution risk/reward %.2f"), levels.StopSource, levels.TargetSource, levels.RiskReward, levels.ExecutionRiskReward))
+		if levels.StopPolicy != "" {
+			details = append(details, fmt.Sprintf(summaryText(lang, "止损策略：%s，ATR 缓冲 %.2f", "Stop policy: %s, ATR buffer %.2f"), levels.StopPolicy, levels.ATRBuffer))
+		}
+		if levels.TargetPolicy != "" {
+			details = append(details, fmt.Sprintf(summaryText(lang,
+				"止盈策略：%s，候选 %d 个，要求盈亏比 %.2f、距离 %.2f ATR",
+				"Target policy: %s, %d candidate(s), requires RR %.2f and %.2f ATR distance"),
+				levels.TargetPolicy, levels.TargetCandidateCount, levels.TargetMinRiskReward, levels.TargetMinATRDistance))
+		}
+		if levels.TargetSelectedRR > 0 {
+			details = append(details, fmt.Sprintf(summaryText(lang,
+				"已选目标盈亏比 %.2f，距离 %.2f ATR",
+				"Selected target RR %.2f, distance %.2f ATR"),
+				levels.TargetSelectedRR, levels.TargetSelectedATRs))
+		} else if levels.TargetReason != "" {
+			details = append(details, summaryText(lang, "目标选择：", "Target selection: ")+levels.TargetReason)
+		}
+		if levels.NearestTarget > 0 && levels.TargetAnchor > 0 && levels.NearestTarget != levels.TargetAnchor {
+			details = append(details, fmt.Sprintf(summaryText(lang, "最近目标 %.4f 未作为主止盈，最近目标盈亏比 %.2f", "Nearest target %.4f was not used as main TP; nearest target RR %.2f"), levels.NearestTarget, levels.NearestTargetRR))
+		}
 	}
 	return details
 }

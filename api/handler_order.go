@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -249,19 +250,39 @@ func enrichOpenPositions(st *store.Store, traderID string, positions []map[strin
 			pos["stop_loss_source"] = local.StopLossSource
 			pos["stop_loss_timeframe"] = local.StopLossTimeframe
 			pos["stop_loss_anchor"] = local.StopLossAnchor
+			pos["stop_loss_policy"] = local.StopLossPolicy
 			pos["take_profit_source"] = local.TakeProfitSource
 			pos["take_profit_timeframe"] = local.TakeProfitTimeframe
 			pos["take_profit_anchor"] = local.TakeProfitAnchor
+			pos["take_profit_policy"] = local.TakeProfitPolicy
+			pos["take_profit_candidate_count"] = local.TakeProfitCandidates
+			pos["take_profit_min_risk_reward"] = local.TakeProfitMinRR
+			pos["take_profit_min_atr_distance"] = local.TakeProfitMinATRs
+			pos["take_profit_selected_risk_reward"] = local.TakeProfitSelectedRR
+			pos["take_profit_selected_atr_distance"] = local.TakeProfitSelectedATRs
+			pos["take_profit_qualified"] = local.TakeProfitQualified
+			pos["nearest_take_profit"] = local.NearestTakeProfit
+			pos["nearest_take_profit_risk_reward"] = local.NearestTakeProfitRR
+			pos["nearest_take_profit_atr_distance"] = local.NearestTakeProfitATRs
 			pos["protective_atr"] = local.ProtectiveATR
 			pos["protective_atr_timeframe"] = local.ProtectiveATRTimeframe
 			pos["protective_atr_buffer"] = local.ProtectiveATRBuffer
 			pos["protective_risk_reward"] = local.ProtectiveRiskReward
+			pos["execution_risk_reward"] = local.ExecutionRiskReward
 		}
 		if protective := protectiveByKey[key]; protective != nil {
 			pos["stop_loss_price"] = protective.StopLossPrice
 			pos["take_profit_price"] = protective.TakeProfitPrice
 			pos["stop_loss_order_id"] = protective.StopLossOrderID
 			pos["take_profit_order_id"] = protective.TakeProfitID
+		}
+		if executionRR := executionRiskRewardFromPosition(
+			side,
+			floatFromMap(pos, "entry_price"),
+			floatFromMap(pos, "stop_loss_price"),
+			floatFromMap(pos, "take_profit_price"),
+		); executionRR > 0 {
+			pos["execution_risk_reward"] = executionRR
 		}
 	}
 
@@ -290,6 +311,44 @@ func stringFromMap(values map[string]interface{}, key string) string {
 		return v
 	default:
 		return ""
+	}
+}
+
+func floatFromMap(values map[string]interface{}, key string) float64 {
+	if values == nil {
+		return 0
+	}
+	switch v := values[key].(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case json.Number:
+		out, _ := v.Float64()
+		return out
+	default:
+		return 0
+	}
+}
+
+func executionRiskRewardFromPosition(side string, entry, stopLoss, takeProfit float64) float64 {
+	switch strings.ToUpper(strings.TrimSpace(side)) {
+	case "LONG":
+		if entry <= stopLoss {
+			return 0
+		}
+		return (takeProfit - entry) / (entry - stopLoss)
+	case "SHORT":
+		if stopLoss <= entry {
+			return 0
+		}
+		return (entry - takeProfit) / (stopLoss - entry)
+	default:
+		return 0
 	}
 }
 

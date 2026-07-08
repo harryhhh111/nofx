@@ -51,13 +51,25 @@ export interface Position {
   stop_loss_source?: string
   stop_loss_timeframe?: string
   stop_loss_anchor?: number
+  stop_loss_policy?: string
   take_profit_source?: string
   take_profit_timeframe?: string
   take_profit_anchor?: number
+  take_profit_policy?: string
+  take_profit_candidate_count?: number
+  take_profit_min_risk_reward?: number
+  take_profit_min_atr_distance?: number
+  take_profit_selected_risk_reward?: number
+  take_profit_selected_atr_distance?: number
+  take_profit_qualified?: boolean
+  nearest_take_profit?: number
+  nearest_take_profit_risk_reward?: number
+  nearest_take_profit_atr_distance?: number
   protective_atr?: number
   protective_atr_timeframe?: string
   protective_atr_buffer?: number
   protective_risk_reward?: number
+  execution_risk_reward?: number
   exit_price?: number
   exit_order_id?: string
   exit_time?: number
@@ -79,13 +91,25 @@ export interface DecisionAction {
   stop_loss_source?: string
   stop_loss_timeframe?: string
   stop_loss_anchor?: number
+  stop_loss_policy?: string
   take_profit_source?: string
   take_profit_timeframe?: string
   take_profit_anchor?: number
+  take_profit_policy?: string
+  take_profit_candidate_count?: number
+  take_profit_min_risk_reward?: number
+  take_profit_min_atr_distance?: number
+  take_profit_selected_risk_reward?: number
+  take_profit_selected_atr_distance?: number
+  take_profit_qualified?: boolean
+  nearest_take_profit?: number
+  nearest_take_profit_risk_reward?: number
+  nearest_take_profit_atr_distance?: number
   protective_atr?: number
   protective_atr_timeframe?: string
   protective_atr_buffer?: number
   protective_risk_reward?: number
+  execution_risk_reward?: number
   confidence?: number // AI confidence (0-100)
   reasoning?: string // Brief reasoning
   order_id: number
@@ -379,13 +403,25 @@ export interface HistoricalPosition {
   stop_loss_source?: string
   stop_loss_timeframe?: string
   stop_loss_anchor?: number
+  stop_loss_policy?: string
   take_profit_source?: string
   take_profit_timeframe?: string
   take_profit_anchor?: number
+  take_profit_policy?: string
+  take_profit_candidate_count?: number
+  take_profit_min_risk_reward?: number
+  take_profit_min_atr_distance?: number
+  take_profit_selected_risk_reward?: number
+  take_profit_selected_atr_distance?: number
+  take_profit_qualified?: boolean
+  nearest_take_profit?: number
+  nearest_take_profit_risk_reward?: number
+  nearest_take_profit_atr_distance?: number
   protective_atr?: number
   protective_atr_timeframe?: string
   protective_atr_buffer?: number
   protective_risk_reward?: number
+  execution_risk_reward?: number
   created_at: string
   updated_at: string
 }

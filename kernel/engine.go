@@ -159,20 +159,32 @@ type Decision struct {
 	// Grid actions: "place_buy_limit", "place_sell_limit", "cancel_order", "cancel_all_orders", "pause_grid", "resume_grid", "adjust_grid"
 
 	// Opening position parameters
-	Leverage             int     `json:"leverage,omitempty"`
-	PositionSizeUSD      float64 `json:"position_size_usd,omitempty"`
-	StopLoss             float64 `json:"stop_loss,omitempty"`
-	TakeProfit           float64 `json:"take_profit,omitempty"`
-	StopLossSource       string  `json:"stop_loss_source,omitempty"`
-	StopLossTF           string  `json:"stop_loss_timeframe,omitempty"`
-	StopLossAnchor       float64 `json:"stop_loss_anchor,omitempty"`
-	TakeProfitSource     string  `json:"take_profit_source,omitempty"`
-	TakeProfitTF         string  `json:"take_profit_timeframe,omitempty"`
-	TakeProfitAnchor     float64 `json:"take_profit_anchor,omitempty"`
-	ProtectiveATR        float64 `json:"protective_atr,omitempty"`
-	ProtectiveATRTF      string  `json:"protective_atr_timeframe,omitempty"`
-	ProtectiveATRBuffer  float64 `json:"protective_atr_buffer,omitempty"`
-	ProtectiveRiskReward float64 `json:"protective_risk_reward,omitempty"`
+	Leverage               int     `json:"leverage,omitempty"`
+	PositionSizeUSD        float64 `json:"position_size_usd,omitempty"`
+	StopLoss               float64 `json:"stop_loss,omitempty"`
+	TakeProfit             float64 `json:"take_profit,omitempty"`
+	StopLossSource         string  `json:"stop_loss_source,omitempty"`
+	StopLossTF             string  `json:"stop_loss_timeframe,omitempty"`
+	StopLossAnchor         float64 `json:"stop_loss_anchor,omitempty"`
+	StopLossPolicy         string  `json:"stop_loss_policy,omitempty"`
+	TakeProfitSource       string  `json:"take_profit_source,omitempty"`
+	TakeProfitTF           string  `json:"take_profit_timeframe,omitempty"`
+	TakeProfitAnchor       float64 `json:"take_profit_anchor,omitempty"`
+	TakeProfitPolicy       string  `json:"take_profit_policy,omitempty"`
+	TakeProfitCandidates   int     `json:"take_profit_candidate_count,omitempty"`
+	TakeProfitMinRR        float64 `json:"take_profit_min_risk_reward,omitempty"`
+	TakeProfitMinATRs      float64 `json:"take_profit_min_atr_distance,omitempty"`
+	TakeProfitSelectedRR   float64 `json:"take_profit_selected_risk_reward,omitempty"`
+	TakeProfitSelectedATRs float64 `json:"take_profit_selected_atr_distance,omitempty"`
+	TakeProfitQualified    bool    `json:"take_profit_qualified,omitempty"`
+	NearestTakeProfit      float64 `json:"nearest_take_profit,omitempty"`
+	NearestTakeProfitRR    float64 `json:"nearest_take_profit_risk_reward,omitempty"`
+	NearestTakeProfitATRs  float64 `json:"nearest_take_profit_atr_distance,omitempty"`
+	ProtectiveATR          float64 `json:"protective_atr,omitempty"`
+	ProtectiveATRTF        string  `json:"protective_atr_timeframe,omitempty"`
+	ProtectiveATRBuffer    float64 `json:"protective_atr_buffer,omitempty"`
+	ProtectiveRiskReward   float64 `json:"protective_risk_reward,omitempty"`
+	ExecutionRiskReward    float64 `json:"execution_risk_reward,omitempty"`
 
 	// Grid trading parameters
 	Price      float64 `json:"price,omitempty"`       // Limit order price (for grid)

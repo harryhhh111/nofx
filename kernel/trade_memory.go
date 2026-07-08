@@ -123,6 +123,7 @@ type ClosedTradeOutcome struct {
 	ProtectiveATRTimeframe string  `json:"protective_atr_timeframe,omitempty"`
 	ProtectiveATRBuffer    float64 `json:"protective_atr_buffer,omitempty"`
 	ProtectiveRiskReward   float64 `json:"protective_risk_reward,omitempty"`
+	ExecutionRiskReward    float64 `json:"execution_risk_reward,omitempty"`
 }
 
 type TradeMemorySummary struct {

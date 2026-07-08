@@ -68,6 +68,7 @@ type StrategyEvolutionClosedTrade struct {
 	ProtectiveATRTimeframe string  `json:"protective_atr_timeframe,omitempty"`
 	ProtectiveATRBuffer    float64 `json:"protective_atr_buffer,omitempty"`
 	ProtectiveRiskReward   float64 `json:"protective_risk_reward,omitempty"`
+	ExecutionRiskReward    float64 `json:"execution_risk_reward,omitempty"`
 	MaxFavorablePnL        float64 `json:"max_favorable_pnl,omitempty"`
 	MaxFavorablePnLPct     float64 `json:"max_favorable_pnl_pct,omitempty"`
 	MaxFavorablePrice      float64 `json:"max_favorable_price,omitempty"`
@@ -669,6 +670,7 @@ func summarizeClosedTrade(pos store.TraderPosition) StrategyEvolutionClosedTrade
 		ProtectiveATRTimeframe: pos.ProtectiveATRTimeframe,
 		ProtectiveATRBuffer:    pos.ProtectiveATRBuffer,
 		ProtectiveRiskReward:   pos.ProtectiveRiskReward,
+		ExecutionRiskReward:    pos.ExecutionRiskReward,
 		MaxFavorablePnL:        round2(pos.MaxFavorablePnL),
 		MaxFavorablePnLPct:     round2(pos.MaxFavorablePnLPct),
 		MaxFavorablePrice:      pos.MaxFavorablePrice,
