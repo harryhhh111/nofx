@@ -125,9 +125,13 @@ func (s *Server) setupRoutes() {
 		s.route(api, "GET", "/strategies/public", s.handlePublicStrategies)
 		s.route(api, "POST", "/strategies/estimate-tokens", s.handleEstimateTokens)
 
-		// Decision digest (lightweight, no authentication required)
+		// Public decision endpoints (no authentication required)
 		decisions := api.Group("/decisions")
 		{
+			decisions.GET("/latest", s.handleLatestDecisions)
+			// Deprecated: these digest endpoints are no longer used. Use
+			// /api/decisions/latest instead. They will be removed in a future
+			// release.
 			decisions.GET("/digest", s.handleGetDecisionDigest)
 			decisions.GET("/digest/list", s.handleGetDecisionDigestList)
 		}
@@ -262,8 +266,6 @@ func (s *Server) setupRoutes() {
 				s.handleOpenOrders)
 			s.route(protected, "GET", "/decisions",
 				s.handleDecisions)
-			s.route(protected, "GET", "/decisions/latest",
-				s.handleLatestDecisions)
 			s.route(protected, "GET", "/decisions/:id",
 				s.handleDecisionByID)
 			s.route(protected, "GET", "/trade-memories",
@@ -435,10 +437,18 @@ func (s *Server) getTraderFromQuery(c *gin.Context) (*manager.TraderManager, str
 	userID := c.GetString("user_id")
 	traderID := c.Query("trader_id")
 
-	// Ensure user's traders are loaded into memory
-	err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
-	if err != nil {
-		logger.Infof("Failed to load traders for user %s: %v", userID, err)
+	// For unauthenticated requests, trader_id is required so we don't fall back
+	// to an arbitrary trader from the global trader manager.
+	if userID == "" && traderID == "" {
+		return nil, "", fmt.Errorf("trader_id is required")
+	}
+
+	// Ensure authenticated user's traders are loaded into memory.
+	if userID != "" {
+		err := s.traderManager.LoadUserTradersFromStore(s.store, userID)
+		if err != nil {
+			logger.Infof("Failed to load traders for user %s: %v", userID, err)
+		}
 	}
 
 	if traderID == "" {
@@ -562,6 +572,7 @@ func (s *Server) SetTelegramReloadCh(ch chan<- struct{}) {
 }
 
 // handleGetDecisionDigest gets the latest decision digest for a specific trader.
+// Deprecated: use handleLatestDecisions (/api/decisions/latest) instead.
 func (s *Server) handleGetDecisionDigest(c *gin.Context) {
 	traderID := c.Query("trader_id")
 	if traderID == "" {
@@ -585,6 +596,7 @@ func (s *Server) handleGetDecisionDigest(c *gin.Context) {
 }
 
 // handleGetDecisionDigestList gets a sorted list of latest decision digests for all traders.
+// Deprecated: use handleLatestDecisions (/api/decisions/latest) instead.
 func (s *Server) handleGetDecisionDigestList(c *gin.Context) {
 	sortBy := c.DefaultQuery("sort_by", "timestamp")
 	order := c.DefaultQuery("order", "desc")
