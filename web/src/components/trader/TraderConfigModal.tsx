@@ -36,6 +36,7 @@ interface FormState {
   strategy_id: string
   is_cross_margin: boolean
   show_in_competition: boolean
+  decision_language: '' | 'en' | 'zh'
   scan_interval_minutes: number
   initial_balance?: number
 }
@@ -67,6 +68,7 @@ export function TraderConfigModal({
     strategy_id: '',
     is_cross_margin: true,
     show_in_competition: true,
+    decision_language: '',
     scan_interval_minutes: 3,
   })
   const [isSaving, setIsSaving] = useState(false)
@@ -106,6 +108,7 @@ export function TraderConfigModal({
       setFormData({
         ...traderData,
         strategy_id: traderData.strategy_id || '',
+        decision_language: traderData.decision_language || '',
       })
     } else if (!isEditMode) {
       const defaultExchange = availableExchanges[0]
@@ -116,6 +119,7 @@ export function TraderConfigModal({
         strategy_id: '',
         is_cross_margin: true,
         show_in_competition: true,
+        decision_language: '',
         scan_interval_minutes: 3,
         initial_balance:
           defaultExchange?.exchange_type?.toLowerCase() === 'paper'
@@ -210,6 +214,7 @@ export function TraderConfigModal({
         strategy_id: formData.strategy_id,
         is_cross_margin: formData.is_cross_margin,
         show_in_competition: formData.show_in_competition,
+        decision_language: formData.decision_language,
         scan_interval_minutes: formData.scan_interval_minutes,
       }
 
@@ -506,6 +511,51 @@ export function TraderConfigModal({
                 </div>
                   <p className="text-xs text-[#848E9C] mt-1">
                     {t('hiddenInCompetition', language)}
+                </p>
+              </div>
+
+              {/* Decision output language */}
+              <div>
+                <label className="text-sm text-[#EAECEF] block mb-2">
+                  AI Decision Language
+                </label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleInputChange('decision_language', '')}
+                    className={`flex-1 px-3 py-2 rounded text-sm ${
+                      formData.decision_language === ''
+                        ? 'bg-[#F0B90B] text-black'
+                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                    }`}
+                  >
+                    Follow Strategy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInputChange('decision_language', 'en')}
+                    className={`flex-1 px-3 py-2 rounded text-sm ${
+                      formData.decision_language === 'en'
+                        ? 'bg-[#F0B90B] text-black'
+                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                    }`}
+                  >
+                    English
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleInputChange('decision_language', 'zh')}
+                    className={`flex-1 px-3 py-2 rounded text-sm ${
+                      formData.decision_language === 'zh'
+                        ? 'bg-[#F0B90B] text-black'
+                        : 'bg-[#0B0E11] text-[#848E9C] border border-[#2B3139]'
+                    }`}
+                  >
+                    中文
+                  </button>
+                </div>
+                <p className="text-xs text-[#848E9C] mt-1">
+                  CoT language for AI decisions. &quot;Follow Strategy&quot; keeps the strategy&apos;s own language.
                 </p>
               </div>
 

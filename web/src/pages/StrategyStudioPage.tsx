@@ -846,10 +846,11 @@ export function StrategyStudioPage() {
     }
     setIsSaving(true)
     try {
-      // Always sync the config language with the current interface language
+      // Preserve the strategy's own language. The trader's decision_language
+      // overrides it at runtime, so the UI language must not overwrite it here.
       const configWithLanguage = {
         ...editingConfig,
-        language: language as 'zh' | 'en',
+        language: editingConfig.language || 'en',
       }
       const response = await fetch(
         `${API_BASE}/api/strategies/${selectedStrategy.id}`,

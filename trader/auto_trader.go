@@ -112,8 +112,9 @@ type AutoTraderConfig struct {
 	ShowInCompetition bool // Whether to show in competition page
 
 	// Strategy configuration (use complete strategy config)
-	StrategyID     string                // Strategy ID from database
-	StrategyConfig *store.StrategyConfig // Strategy configuration (coin sources, indicators, risk control, compiled rules, etc.)
+	StrategyID       string                // Strategy ID from database
+	StrategyConfig   *store.StrategyConfig // Strategy configuration (coin sources, indicators, risk control, compiled rules, etc.)
+	DecisionLanguage string                // "en" or "zh": output language for AI decision chain-of-thought (defaults to "en")
 }
 
 // AutoTrader automatic trader
@@ -338,6 +339,14 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	}
 	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig, config.Claw402WalletKey)
 	strategyEngine.SetTraderInfo(config.ID, config.Name)
+
+	// Trader-level decision output language optionally overrides the strategy config so
+	// the same strategy can produce its chain-of-thought in different languages per trader.
+	// Empty means "follow the strategy's own language"; only an explicit "en"/"zh"
+	// overrides it. Never follows the frontend UI language.
+	if config.DecisionLanguage == "en" || config.DecisionLanguage == "zh" {
+		strategyEngine.GetConfig().Language = config.DecisionLanguage
+	}
 	logger.Infof("✓ [%s] Using strategy engine (strategy configuration loaded)", config.Name)
 
 	return &AutoTrader{

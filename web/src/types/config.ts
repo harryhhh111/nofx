@@ -93,6 +93,7 @@ export interface CreateTraderRequest {
   is_cross_margin?: boolean
   show_in_competition?: boolean // 鏄惁鍦ㄧ珵鎶€鍦烘樉绀?
   // 浠ヤ笅瀛楁涓哄悜鍚庡吋瀹逛繚鐣欙紝鏂扮増浣跨敤绛栫暐閰嶇疆
+  decision_language?: '' | 'en' | 'zh' // CoT language; "" (default) follows the strategy's own language
   btc_eth_leverage?: number
   altcoin_leverage?: number
   trading_symbols?: string

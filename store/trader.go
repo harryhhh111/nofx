@@ -25,6 +25,7 @@ type Trader struct {
 	AIModelID           string    `gorm:"column:ai_model_id;not null" json:"ai_model_id"`
 	ExchangeID          string    `gorm:"column:exchange_id;not null" json:"exchange_id"`
 	StrategyID          string    `gorm:"column:strategy_id;default:''" json:"strategy_id"`
+	DecisionLanguage    string    `gorm:"column:decision_language;default:''" json:"decision_language,omitempty"` // "en"/"zh" overrides strategy language; empty = follow strategy
 	InitialBalance      float64   `gorm:"column:initial_balance;not null" json:"initial_balance"`
 	ScanIntervalMinutes int       `gorm:"column:scan_interval_minutes;default:3" json:"scan_interval_minutes"`
 	IsRunning           bool      `gorm:"column:is_running;default:false" json:"is_running"`
@@ -148,6 +149,7 @@ func (s *TraderStore) Update(trader *Trader) error {
 		"ai_model_id":         trader.AIModelID,
 		"exchange_id":         trader.ExchangeID,
 		"strategy_id":         trader.StrategyID,
+		"decision_language":   trader.DecisionLanguage,
 		"is_cross_margin":     trader.IsCrossMargin,
 		"show_in_competition": trader.ShowInCompetition,
 	}
