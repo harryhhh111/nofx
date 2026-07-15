@@ -27,7 +27,7 @@ type StrategyReplayReport struct {
 	MissingKlineWindowCount int                        `json:"missing_kline_window_count"`
 	BaselineMatchCount      int                        `json:"baseline_match_count"`
 	BaselineMatchRate       float64                    `json:"baseline_match_rate"`
-	ApprovedSampleCount     int                        `json:"approved_sample_count"`
+	ExecutedSampleCount     int                        `json:"executed_sample_count"`
 	ParameterScans          []StrategyReplayScanResult `json:"parameter_scans"`
 	QualityNotes            []string                   `json:"quality_notes,omitempty"`
 	GeneratedAt             time.Time                  `json:"generated_at"`
@@ -42,8 +42,8 @@ type StrategyReplayScanResult struct {
 	NoTradeCount             int            `json:"no_trade_count"`
 	MatchRecordedCount       int            `json:"match_recorded_count"`
 	ChangedFromBaselineCount int            `json:"changed_from_baseline_count"`
-	ApprovedPreservedCount   int            `json:"approved_preserved_count"`
-	ApprovedChangedCount     int            `json:"approved_changed_count"`
+	ExecutedPreservedCount   int            `json:"executed_preserved_count"`
+	ExecutedChangedCount     int            `json:"executed_changed_count"`
 	SetupCounts              map[string]int `json:"setup_counts"`
 	ErrorCount               int            `json:"error_count,omitempty"`
 }
@@ -94,8 +94,8 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 	}
 
 	for _, sample := range samples {
-		if sample.RiskStatus == "approved" {
-			report.ApprovedSampleCount++
+		if sample.ExecutionStatus == "executed" {
+			report.ExecutedSampleCount++
 		}
 		windows, ok := parseReplayKlineWindows(sample.KlineWindowsJSON)
 		if !ok {
@@ -130,11 +130,11 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 			}
 			if i > 0 && normalizedReplaySetup(setupName) != normalizedReplaySetup(baseline.Setup) {
 				scan.ChangedFromBaselineCount++
-				if sample.RiskStatus == "approved" {
-					scan.ApprovedChangedCount++
+				if sample.ExecutionStatus == "executed" {
+					scan.ExecutedChangedCount++
 				}
-			} else if sample.RiskStatus == "approved" {
-				scan.ApprovedPreservedCount++
+			} else if sample.ExecutionStatus == "executed" {
+				scan.ExecutedPreservedCount++
 			}
 		}
 	}
@@ -294,7 +294,7 @@ func cloneReplayStrategyConfig(config *store.StrategyConfig) (*store.StrategyCon
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, err
 	}
-	out.ClampLimits()
+	out.NormalizeForExecution()
 	return &out, nil
 }
 
@@ -315,7 +315,7 @@ func setReplayMarketStructure(config *store.StrategyConfig, structure store.Stru
 	config.Structure.EnableMarketStructure = true
 	config.Structure.MarketStructure = structure
 	config.ResolvedParameters.Structure.MarketStructure = &config.Structure.MarketStructure
-	config.ClampLimits()
+	config.NormalizeForExecution()
 }
 
 func replayMarketStructureParameters(config *store.StrategyConfig) map[string]any {
@@ -394,8 +394,8 @@ func sortReplayScans(scans []StrategyReplayScanResult) {
 	baseline := scans[0]
 	rest := append([]StrategyReplayScanResult(nil), scans[1:]...)
 	sort.Slice(rest, func(i, j int) bool {
-		if rest[i].ApprovedChangedCount != rest[j].ApprovedChangedCount {
-			return rest[i].ApprovedChangedCount < rest[j].ApprovedChangedCount
+		if rest[i].ExecutedChangedCount != rest[j].ExecutedChangedCount {
+			return rest[i].ExecutedChangedCount < rest[j].ExecutedChangedCount
 		}
 		if rest[i].ChangedFromBaselineCount != rest[j].ChangedFromBaselineCount {
 			return rest[i].ChangedFromBaselineCount < rest[j].ChangedFromBaselineCount

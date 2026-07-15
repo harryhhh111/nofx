@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"nofx/market"
 	"nofx/store"
+	"sort"
 	"strings"
 	"time"
 )
@@ -14,6 +15,7 @@ const defaultMinScoringAvailableWeightRatio = 0.5
 const defaultProtectiveATRBuffer = 2.0
 const defaultProtectiveRiskReward = store.DefaultMinRiskRewardRatio
 const maxOppositePrimaryScoreForReversalSetup = 25.0
+const maxStructureLevelCandidates = 8
 
 var errSignalRejected = errors.New("signal rejected")
 
@@ -144,6 +146,59 @@ func GeneratePositionLifecycleSignals(req SignalRequest, existing []CandidateSig
 	return out
 }
 
+func GenerateDrawdownAlertSignals(req SignalRequest, existing []CandidateSignal) []CandidateSignal {
+	if len(req.DrawdownAlerts) == 0 || len(req.Positions) == 0 {
+		return nil
+	}
+	now := req.Now
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	existingClose := existingCloseSignalKeys(existing)
+	out := []CandidateSignal{}
+	for _, alert := range req.DrawdownAlerts {
+		symbol := market.Normalize(alert.Symbol)
+		side := normalizedPositionSide(alert.Side)
+		if symbol == "" || side == "" {
+			continue
+		}
+		position, ok := matchingPosition(req.Positions, symbol, side)
+		if !ok {
+			continue
+		}
+		closeAction := closeActionForPositionSide(side)
+		if existingClose[symbol+":"+closeAction] {
+			continue
+		}
+		referencePrice := position.MarkPrice
+		if referencePrice <= 0 {
+			referencePrice = position.EntryPrice
+		}
+		signal := CandidateSignal{
+			ID:              fmt.Sprintf("profit_protection_drawdown:%s:%s:%d", symbol, side, now.UnixMilli()),
+			RuleID:          "profit_protection_drawdown",
+			Setup:           "profit_protection_drawdown",
+			StrategyVersion: position.StrategyVersion,
+			Symbol:          symbol,
+			Action:          closeAction,
+			EntryPrice:      referencePrice,
+			Confidence:      95,
+			TriggerReason: fmt.Sprintf(
+				"profit protection drawdown: net PnL %.2f USDT, current net return %.2f%%, peak %.2f%%, drawdown %.2f%%",
+				alert.CurrentNetPnL, alert.CurrentPnLPct, alert.PeakPnLPct, alert.DrawdownPct,
+			),
+			Evidence: map[string]interface{}{
+				"drawdown_alert": alert,
+				"opening_thesis": openingThesisEvidence(position),
+			},
+			GeneratedAt: now,
+		}
+		out = append(out, signal)
+		existingClose[symbol+":"+closeAction] = true
+	}
+	return out
+}
+
 func mergePositionLifecycleSignals(signals, lifecycleSignals []CandidateSignal) []CandidateSignal {
 	closeBySymbol := map[string]bool{}
 	for _, signal := range lifecycleSignals {
@@ -198,37 +253,52 @@ type TimeframeRoleTrace struct {
 }
 
 type ProtectiveLevelTrace struct {
-	Action                string  `json:"action"`
-	Entry                 float64 `json:"entry"`
-	StopLoss              float64 `json:"stop_loss"`
-	TakeProfit            float64 `json:"take_profit"`
-	StopSource            string  `json:"stop_source"`
-	StopTimeframe         string  `json:"stop_timeframe,omitempty"`
-	StopAnchor            float64 `json:"stop_anchor,omitempty"`
-	StopPolicy            string  `json:"stop_policy,omitempty"`
-	StopReason            string  `json:"stop_reason,omitempty"`
-	TargetSource          string  `json:"target_source"`
-	TargetTimeframe       string  `json:"target_timeframe,omitempty"`
-	TargetAnchor          float64 `json:"target_anchor,omitempty"`
-	ATR                   float64 `json:"atr,omitempty"`
-	ATRTimeframe          string  `json:"atr_timeframe,omitempty"`
-	ATRBuffer             float64 `json:"atr_buffer"`
-	StopMode              string  `json:"stop_mode,omitempty"`
-	RequestedStopTF       string  `json:"requested_stop_timeframe,omitempty"`
-	TargetRiskReward      float64 `json:"target_risk_reward"`
-	RiskReward            float64 `json:"risk_reward"`
-	ExecutionRiskReward   float64 `json:"execution_risk_reward,omitempty"`
-	TargetPolicy          string  `json:"target_policy,omitempty"`
-	TargetReason          string  `json:"target_reason,omitempty"`
-	TargetCandidateCount  int     `json:"target_candidate_count,omitempty"`
-	TargetMinRiskReward   float64 `json:"target_min_risk_reward,omitempty"`
-	TargetMinATRDistance  float64 `json:"target_min_atr_distance,omitempty"`
-	TargetSelectedRR      float64 `json:"target_selected_risk_reward,omitempty"`
-	TargetSelectedATRs    float64 `json:"target_selected_atr_distance,omitempty"`
-	TargetQualified       bool    `json:"target_qualified,omitempty"`
-	NearestTarget         float64 `json:"nearest_target,omitempty"`
-	NearestTargetRR       float64 `json:"nearest_target_risk_reward,omitempty"`
-	NearestTargetDistance float64 `json:"nearest_target_atr_distance,omitempty"`
+	Action                string            `json:"action"`
+	Entry                 float64           `json:"entry"`
+	StopLoss              float64           `json:"stop_loss"`
+	TakeProfit            float64           `json:"take_profit"`
+	StopSource            string            `json:"stop_source"`
+	StopTimeframe         string            `json:"stop_timeframe,omitempty"`
+	StopAnchor            float64           `json:"stop_anchor,omitempty"`
+	StopPolicy            string            `json:"stop_policy,omitempty"`
+	StopReason            string            `json:"stop_reason,omitempty"`
+	StopQuality           *StopQualityTrace `json:"stop_quality,omitempty"`
+	TargetSource          string            `json:"target_source"`
+	TargetTimeframe       string            `json:"target_timeframe,omitempty"`
+	TargetAnchor          float64           `json:"target_anchor,omitempty"`
+	ATR                   float64           `json:"atr,omitempty"`
+	ATRTimeframe          string            `json:"atr_timeframe,omitempty"`
+	ATRBuffer             float64           `json:"atr_buffer"`
+	StopMode              string            `json:"stop_mode,omitempty"`
+	RequestedStopTF       string            `json:"requested_stop_timeframe,omitempty"`
+	TargetRiskReward      float64           `json:"target_risk_reward"`
+	RiskReward            float64           `json:"risk_reward"`
+	ExecutionRiskReward   float64           `json:"execution_risk_reward,omitempty"`
+	TargetPolicy          string            `json:"target_policy,omitempty"`
+	TargetReason          string            `json:"target_reason,omitempty"`
+	TargetCandidateCount  int               `json:"target_candidate_count,omitempty"`
+	TargetMinRiskReward   float64           `json:"target_min_risk_reward,omitempty"`
+	TargetMinATRDistance  float64           `json:"target_min_atr_distance,omitempty"`
+	TargetSelectedRR      float64           `json:"target_selected_risk_reward,omitempty"`
+	TargetSelectedATRs    float64           `json:"target_selected_atr_distance,omitempty"`
+	TargetQualified       bool              `json:"target_qualified,omitempty"`
+	NearestTarget         float64           `json:"nearest_target,omitempty"`
+	NearestTargetRR       float64           `json:"nearest_target_risk_reward,omitempty"`
+	NearestTargetDistance float64           `json:"nearest_target_atr_distance,omitempty"`
+}
+
+type StopQualityTrace struct {
+	Source              string   `json:"source,omitempty"`
+	Timeframe           string   `json:"timeframe,omitempty"`
+	InvalidationType    string   `json:"invalidation_type,omitempty"`
+	DistanceATR         float64  `json:"distance_atr,omitempty"`
+	Fragility           string   `json:"fragility,omitempty"`
+	StructureConfirmed  bool     `json:"structure_confirmed,omitempty"`
+	ConfirmedSwingCount int      `json:"confirmed_swing_count,omitempty"`
+	CandidateCount      int      `json:"candidate_count,omitempty"`
+	SkippedCandidates   []string `json:"skipped_candidates,omitempty"`
+	Warnings            []string `json:"warnings,omitempty"`
+	RejectReason        string   `json:"reject_reason,omitempty"`
 }
 
 type PositionLifecycleTrace struct {
@@ -242,6 +312,10 @@ type PositionLifecycleTrace struct {
 	EntryScore         float64                `json:"entry_score"`
 	ConfirmationScores map[string]float64     `json:"confirmation_scores,omitempty"`
 	OppositeSetup      string                 `json:"opposite_setup,omitempty"`
+	OpeningSetup       string                 `json:"opening_setup,omitempty"`
+	OpeningRuleID      string                 `json:"opening_rule_id,omitempty"`
+	OpeningSignalID    string                 `json:"opening_signal_id,omitempty"`
+	OpeningReasoning   string                 `json:"opening_reasoning,omitempty"`
 	EntryPrice         float64                `json:"entry_price,omitempty"`
 	MarkPrice          float64                `json:"mark_price,omitempty"`
 	UnrealizedPnLPct   float64                `json:"unrealized_pnl_pct,omitempty"`
@@ -252,6 +326,7 @@ type PositionLifecycleTrace struct {
 type SetupEvaluationTrace struct {
 	Symbol        string                   `json:"symbol"`
 	Setup         string                   `json:"setup,omitempty"`
+	Route         SetupRouteTrace          `json:"route"`
 	Action        string                   `json:"action,omitempty"`
 	Signals       []string                 `json:"signals,omitempty"`
 	Timeframes    TimeframeRoleTrace       `json:"timeframes"`
@@ -260,6 +335,14 @@ type SetupEvaluationTrace struct {
 	Primary       ScoringEvaluationTrace   `json:"primary"`
 	Entry         ScoringEvaluationTrace   `json:"entry"`
 	Confirmations []ScoringEvaluationTrace `json:"confirmations,omitempty"`
+}
+
+type SetupRouteTrace struct {
+	Regime           string             `json:"regime"`
+	Family           string             `json:"family"`
+	Status           string             `json:"status"`
+	Reason           string             `json:"reason"`
+	EffectiveWeights map[string]float64 `json:"effective_weights,omitempty"`
 }
 
 func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]CandidateSignal, error) {
@@ -505,6 +588,10 @@ func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace
 		UnrealizedPnLPct:   pos.UnrealizedPnLPct,
 		PrimaryEvaluation:  trace.Primary,
 		EntryEvaluation:    trace.Entry,
+		OpeningSetup:       pos.OpeningSetup,
+		OpeningRuleID:      pos.OpeningRuleID,
+		OpeningSignalID:    pos.OpeningSignalID,
+		OpeningReasoning:   pos.OpeningReasoning,
 	}
 	if !trace.Primary.Eligible || !trace.Entry.Eligible {
 		return PositionLifecycleTrace{}, false
@@ -512,12 +599,21 @@ func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace
 
 	closeAction := closeActionForPositionSide(side)
 	oppositeOpenAction := oppositeOpenActionForPositionSide(side)
+	if strings.TrimSpace(pos.OpeningSetup) != "" && (trace.Route.Status == "blocked" || trace.Setup == "no_trade_structure_invalidated") {
+		lifecycle.State = "thesis_invalidated"
+		lifecycle.Action = closeAction
+		lifecycle.Reason = fmt.Sprintf("position lifecycle: opening setup %s is invalidated by the current confirmed primary structure", pos.OpeningSetup)
+		return lifecycle, true
+	}
 	if trace.Eligible && trace.Action == oppositeOpenAction {
 		lifecycle.State = "opposite_setup"
 		lifecycle.Action = closeAction
 		lifecycle.OppositeSetup = trace.Setup
-		lifecycle.Reason = fmt.Sprintf("position lifecycle: existing %s thesis is invalidated by opposite setup %s; close first, do not reverse in the same cycle", side, trace.Setup)
+		lifecycle.Reason = fmt.Sprintf("position lifecycle: opening setup %s for existing %s is invalidated by opposite setup %s; close first, do not reverse in the same cycle", nonEmptyReason(pos.OpeningSetup, "unclassified"), side, trace.Setup)
 		return lifecycle, true
+	}
+	if strings.TrimSpace(pos.OpeningSetup) != "" {
+		return PositionLifecycleTrace{}, false
 	}
 
 	longConfirmOK, shortConfirmOK, confirmReason := confirmationDirection(trace.Confirmations)
@@ -538,6 +634,32 @@ func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace
 		}
 	}
 	return PositionLifecycleTrace{}, false
+}
+
+func matchingPosition(positions []PositionInfo, symbol, side string) (PositionInfo, bool) {
+	for _, position := range positions {
+		if market.Normalize(position.Symbol) == symbol && normalizedPositionSide(position.Side) == side {
+			return position, true
+		}
+	}
+	return PositionInfo{}, false
+}
+
+func openingThesisEvidence(position PositionInfo) map[string]interface{} {
+	return map[string]interface{}{
+		"setup":                 position.OpeningSetup,
+		"rule_id":               position.OpeningRuleID,
+		"signal_id":             position.OpeningSignalID,
+		"strategy_version":      position.StrategyVersion,
+		"reasoning":             position.OpeningReasoning,
+		"last_review_summary":   position.LastReviewSummary,
+		"stop_loss_anchor":      position.StopLossAnchor,
+		"stop_loss_source":      position.StopLossSource,
+		"stop_loss_timeframe":   position.StopLossTimeframe,
+		"take_profit_anchor":    position.TakeProfitAnchor,
+		"take_profit_source":    position.TakeProfitSource,
+		"take_profit_timeframe": position.TakeProfitTF,
+	}
 }
 
 func existingCloseSignalKeys(signals []CandidateSignal) map[string]bool {
@@ -631,22 +753,32 @@ func absScore(score float64) float64 {
 
 func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *market.FactorSnapshot) SetupEvaluationTrace {
 	roles := scoringTimeframeRoles(scoring)
-	primaryScoring := scoringForTimeframe(scoring, roles.Primary)
-	entryScoring := scoringForTimeframe(scoring, roles.Entry)
+	setup, hasPrimarySetup := structureSetupForTimeframe(snapshot, roles.Primary)
+	route := routeSetupForSnapshot(scoring, snapshot, roles.Primary, setup, hasPrimarySetup)
+	effectiveScoring := scoringForSetupRoute(scoring, route)
+	primaryScoring := scoringForTimeframe(effectiveScoring, roles.Primary)
+	entryScoring := scoringForTimeframe(effectiveScoring, roles.Entry)
 	primary := evaluateScoringSnapshot(primaryScoring, symbol, snapshot)
 	entry := evaluateScoringSnapshot(entryScoring, symbol, snapshot)
 	confirmations := make([]ScoringEvaluationTrace, 0, len(roles.Confirmations))
 	for _, tf := range roles.Confirmations {
-		confirmations = append(confirmations, evaluateScoringSnapshot(scoringForTimeframe(scoring, tf), symbol, snapshot))
+		confirmations = append(confirmations, evaluateScoringSnapshot(scoringForTimeframe(effectiveScoring, tf), symbol, snapshot))
 	}
 
 	trace := SetupEvaluationTrace{
 		Symbol:        symbol,
+		Route:         route,
 		Timeframes:    roles,
 		Eligible:      false,
 		Primary:       primary,
 		Entry:         entry,
 		Confirmations: confirmations,
+	}
+	if route.Status == "blocked" {
+		trace.Setup = "no_trade_structure_invalidated"
+		trace.Signals = append([]string(nil), setup.Signals...)
+		trace.Reason = route.Reason
+		return trace
 	}
 	if !primary.Eligible {
 		trace.Setup = "no_trade_insufficient_evidence"
@@ -658,66 +790,190 @@ func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *ma
 		trace.Reason = "entry timeframe evidence is incomplete: " + entry.Reason
 		return trace
 	}
-
 	longConfirmOK, shortConfirmOK, confirmReason := confirmationDirection(confirmations)
-	if setup, ok := preferredStructureSetup(snapshot, roles); ok {
-		trace = applyStructureSetup(scoring, trace, setup, longConfirmOK, shortConfirmOK, confirmReason)
-		if trace.Setup != "" {
-			return trace
+	if !hasPrimarySetup {
+		trace.Setup = "no_trade_no_structure_setup"
+		trace.Reason = fmt.Sprintf("primary timeframe %s has no deterministic structure setup; score evidence only: primary %.2f, entry %.2f, %s", roles.Primary, primary.Score, entry.Score, confirmReason)
+		return trace
+	}
+	entryTriggerOK, entryTriggerReason := entryTriggerSupportsSetup(snapshot, roles, setup)
+	trace = applyStructureSetup(scoring, trace, setup, entryTriggerOK, entryTriggerReason, longConfirmOK, shortConfirmOK, confirmReason)
+	return trace
+}
+
+func routeSetupForSnapshot(scoring *ScoringStrategy, snapshot *market.FactorSnapshot, primaryTimeframe string, setup market.StructureSnapshot, hasSetup bool) SetupRouteTrace {
+	family := setupFamily(setup.Setup)
+	regime := symbolStructureRegime(snapshot, primaryTimeframe)
+	route := SetupRouteTrace{
+		Regime: regime,
+		Family: family,
+		Status: "active",
+		Reason: "setup family selected from confirmed primary-timeframe structure",
+	}
+	if !hasSetup || family == "none" {
+		route.Status = "inactive"
+		route.Reason = "primary timeframe has no actionable setup family"
+	}
+	if setup.Phase == "invalidated" || setup.Setup == "no_trade_structure_invalidated" {
+		route.Status = "blocked"
+		route.Reason = "primary structure is invalidated"
+	}
+	if family == "trend" && regime == "late_trend" {
+		route.Status = "caution"
+		route.Reason = "trend setup is late in the confirmed primary structure"
+	}
+	if family == "reversal" && regime == "trend" {
+		route.Status = "caution"
+		route.Reason = "reversal setup is counter to the confirmed primary trend"
+	}
+	route.EffectiveWeights = adaptiveFactorWeights(scoring, family)
+	return route
+}
+
+func setupFamily(setup string) string {
+	name := strings.ToLower(strings.TrimSpace(setup))
+	switch {
+	case strings.Contains(name, "trend_continuation"), strings.Contains(name, "trend_pullback"):
+		return "trend"
+	case strings.HasPrefix(name, "breakout"):
+		return "breakout"
+	case strings.Contains(name, "failed_breakout"), strings.Contains(name, "range_reversal"), strings.Contains(name, "support_resistance_bounce"):
+		return "reversal"
+	case strings.Contains(name, "momentum_exhaustion"):
+		return "exhaustion"
+	default:
+		return "none"
+	}
+}
+
+func symbolStructureRegime(snapshot *market.FactorSnapshot, timeframe string) string {
+	if snapshot == nil {
+		return "unavailable"
+	}
+	if aggregateVolatility(map[string]*market.FactorSnapshot{snapshot.Symbol: snapshot}).State == "high_volatility" {
+		return "high_volatility"
+	}
+	for _, structure := range snapshot.Structures["market_structure"] {
+		if timeframe != "" && structure.Timeframe != timeframe {
+			continue
+		}
+		if structure.Phase == "invalidated" {
+			return "invalidated"
+		}
+		direction := strings.ToLower(strings.TrimSpace(structure.Direction))
+		if direction == "up" || direction == "down" {
+			if structure.Phase == "late" {
+				return "late_trend"
+			}
+			return "trend"
+		}
+		if direction == "range" || direction == "neutral" {
+			return "range"
 		}
 	}
-	trace.Setup = "no_trade_no_structure_setup"
-	trace.Reason = fmt.Sprintf("no deterministic structure setup available; score evidence only: primary %.2f, entry %.2f, %s", primary.Score, entry.Score, confirmReason)
-	return trace
+	return "transitional"
+}
+
+func scoringForSetupRoute(scoring *ScoringStrategy, route SetupRouteTrace) *ScoringStrategy {
+	next := *scoring
+	next.FactorWeights = copyFloatMap(route.EffectiveWeights)
+	return &next
+}
+
+func adaptiveFactorWeights(scoring *ScoringStrategy, family string) map[string]float64 {
+	if scoring == nil {
+		return nil
+	}
+	profiles := map[string]map[string]float64{
+		"trend":      {"trend": 0.45, "momentum": 0.25, "structure": 0.20, "derivatives": 0.10},
+		"breakout":   {"trend": 0.30, "momentum": 0.30, "structure": 0.30, "derivatives": 0.10},
+		"reversal":   {"trend": 0.15, "momentum": 0.30, "structure": 0.45, "derivatives": 0.10},
+		"exhaustion": {"trend": 0.15, "momentum": 0.45, "structure": 0.30, "derivatives": 0.10},
+	}
+	target := profiles[family]
+	if target == nil {
+		return copyFloatMap(scoring.FactorWeights)
+	}
+	out := map[string]float64{}
+	total := 0.0
+	for _, factor := range scoring.SelectedFactors {
+		base := scoring.FactorWeights[factor]
+		weight := (base + target[factor]) / 2
+		if weight <= 0 {
+			continue
+		}
+		out[factor] = weight
+		total += weight
+	}
+	if total <= 0 {
+		return copyFloatMap(scoring.FactorWeights)
+	}
+	for factor, weight := range out {
+		out[factor] = weight / total
+	}
+	return out
+}
+
+func copyFloatMap(values map[string]float64) map[string]float64 {
+	out := make(map[string]float64, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func entryTriggerSupportsSetup(snapshot *market.FactorSnapshot, roles TimeframeRoleTrace, primarySetup market.StructureSnapshot) (bool, string) {
+	if roles.Entry == "" || roles.Entry == roles.Primary {
+		return true, "entry timeframe shares the primary structure"
+	}
+	entrySetup, ok := structureSetupForTimeframe(snapshot, roles.Entry)
+	if !ok {
+		return false, fmt.Sprintf("entry timeframe %s has no structure trigger", roles.Entry)
+	}
+	if structureSetupHardBlocks(entrySetup) {
+		return false, fmt.Sprintf("entry timeframe %s structure is invalidated", roles.Entry)
+	}
+	if !actionableStructureSetup(entrySetup) {
+		return false, fmt.Sprintf("entry timeframe %s is waiting for a trigger (%s)", roles.Entry, nonEmptyReason(entrySetup.Setup, "no actionable setup"))
+	}
+	primaryAction := actionForStructureSetup(primarySetup)
+	entryAction := actionForStructureSetup(entrySetup)
+	if primaryAction == "" || entryAction != primaryAction {
+		return false, fmt.Sprintf("entry timeframe %s trigger %s conflicts with primary setup %s", roles.Entry, entrySetup.Setup, primarySetup.Setup)
+	}
+	return true, fmt.Sprintf("entry timeframe %s confirmed by %s", roles.Entry, entrySetup.Setup)
 }
 
 func preferredStructureSetup(snapshot *market.FactorSnapshot, roles TimeframeRoleTrace) (market.StructureSnapshot, bool) {
 	if snapshot == nil || snapshot.Structures == nil {
 		return market.StructureSnapshot{}, false
 	}
-	primaryEntrySetups := structureSetupsForTimeframes(snapshot, uniqueTimeframes(roles.Primary, roles.Entry))
-	for _, setup := range primaryEntrySetups {
-		if structureSetupHardBlocks(setup) {
+	if roles.Primary != "" {
+		if setup, ok := structureSetupForTimeframe(snapshot, roles.Primary); ok {
 			return setup, true
 		}
 	}
-	for _, setup := range primaryEntrySetups {
-		if actionableStructureSetup(setup) {
-			return setup, true
-		}
-	}
-	for _, setup := range primaryEntrySetups {
-		if strings.TrimSpace(setup.Setup) != "" {
-			return setup, true
-		}
-	}
-	confirmationSetups := structureSetupsForTimeframes(snapshot, roles.Confirmations)
-	for _, setup := range confirmationSetups {
-		if actionableStructureSetup(setup) {
-			return setup, true
-		}
-	}
-	for _, setup := range append(primaryEntrySetups, confirmationSetups...) {
-		if strings.TrimSpace(setup.Setup) != "" {
+	if roles.Entry != "" {
+		if setup, ok := structureSetupForTimeframe(snapshot, roles.Entry); ok {
 			return setup, true
 		}
 	}
 	for _, setup := range snapshot.Structures["setup"] {
-		if actionableStructureSetup(setup) || strings.TrimSpace(setup.Setup) != "" {
+		if structureSetupHardBlocks(setup) {
+			return setup, true
+		}
+	}
+	for _, setup := range snapshot.Structures["setup"] {
+		if actionableStructureSetup(setup) {
+			return setup, true
+		}
+	}
+	for _, setup := range snapshot.Structures["setup"] {
+		if strings.TrimSpace(setup.Setup) != "" {
 			return setup, true
 		}
 	}
 	return market.StructureSnapshot{}, false
-}
-
-func structureSetupsForTimeframes(snapshot *market.FactorSnapshot, timeframes []string) []market.StructureSnapshot {
-	out := []market.StructureSnapshot{}
-	for _, timeframe := range timeframes {
-		if setup, ok := structureSetupForTimeframe(snapshot, timeframe); ok {
-			out = append(out, setup)
-		}
-	}
-	return out
 }
 
 func structureSetupForTimeframe(snapshot *market.FactorSnapshot, timeframe string) (market.StructureSnapshot, bool) {
@@ -742,7 +998,7 @@ func structureSetupHardBlocks(setup market.StructureSnapshot) bool {
 	return setup.Phase == "invalidated" || name == "no_trade_structure_invalidated"
 }
 
-func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, setup market.StructureSnapshot, longConfirmOK, shortConfirmOK bool, confirmReason string) SetupEvaluationTrace {
+func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, setup market.StructureSnapshot, entryTriggerOK bool, entryTriggerReason string, longConfirmOK, shortConfirmOK bool, confirmReason string) SetupEvaluationTrace {
 	name := strings.TrimSpace(setup.Setup)
 	if name == "" {
 		return trace
@@ -765,6 +1021,12 @@ func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, s
 		trace.Reason = fmt.Sprintf("structure setup %s exists, but score evidence does not support %s: primary %.2f, entry %.2f", name, action, trace.Primary.Score, trace.Entry.Score)
 		return trace
 	}
+	if !entryTriggerOK {
+		trace.Setup = "no_trade_wait_trigger"
+		trace.Signals = append([]string(nil), setup.Signals...)
+		trace.Reason = fmt.Sprintf("structure setup %s exists on %s, but %s", name, trace.Timeframes.Primary, entryTriggerReason)
+		return trace
+	}
 	if action == "open_long" && !longConfirmOK {
 		trace.Setup = "no_trade_threshold_not_met"
 		trace.Signals = append([]string(nil), setup.Signals...)
@@ -781,7 +1043,7 @@ func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, s
 	trace.Action = action
 	trace.Setup = name
 	trace.Signals = append([]string(nil), setup.Signals...)
-	trace.Reason = fmt.Sprintf("%s: structural setup confirmed; primary score %.2f, entry score %.2f, %s", name, trace.Primary.Score, trace.Entry.Score, confirmReason)
+	trace.Reason = fmt.Sprintf("%s: primary structure confirmed; %s; primary score %.2f, entry score %.2f, %s", name, entryTriggerReason, trace.Primary.Score, trace.Entry.Score, confirmReason)
 	if len(trace.Signals) == 0 {
 		trace.Signals = append(trace.Signals, "deterministic market structure setup")
 	}
@@ -1021,15 +1283,23 @@ func calculateProtectiveLevels(setup, action string, entry float64, snapshot *ma
 
 	switch action {
 	case "open_long":
-		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("long", entry, snapshot, timeframes.Stop)
+		stopSelection, hasStopAnchor := protectiveStopAnchor(setup, "long", entry, snapshot, timeframes.Stop, atr)
 		if !hasStopAnchor {
 			return trace, rejectSignal("long setup %q has no structural stop-loss anchor", setup)
 		}
+		stopAnchor := stopSelection.Price
 		trace.StopLoss = stopAnchor - atr*trace.ATRBuffer
 		trace.StopAnchor = stopAnchor
-		trace.StopTimeframe = stopTF
-		trace.StopSource = stopSource
-		trace.StopReason = fmt.Sprintf("%s uses %s %.8f with %.2f ATR buffer", trace.StopPolicy, stopSource, stopAnchor, trace.ATRBuffer)
+		trace.StopTimeframe = stopSelection.Timeframe
+		trace.StopSource = stopSelection.Source
+		trace.StopReason = fmt.Sprintf("%s uses %s %.8f with %.2f ATR buffer", trace.StopPolicy, stopSelection.Source, stopAnchor, trace.ATRBuffer)
+		stopQuality := assessStopQuality(setup, "long", entry, stopAnchor, stopSelection.Timeframe, stopSelection.Source, snapshot, roles, atr)
+		stopQuality.CandidateCount = stopSelection.CandidateCount
+		stopQuality.SkippedCandidates = stopSelection.SkippedCandidates
+		trace.StopQuality = &stopQuality
+		if stopQuality.RejectReason != "" {
+			return trace, rejectSignal("long setup %q stop quality rejected: %s", setup, stopQuality.RejectReason)
+		}
 		if trace.StopLoss <= 0 || trace.StopLoss >= entry {
 			return trace, fmt.Errorf("long stop loss %.8f is not below entry %.8f", trace.StopLoss, entry)
 		}
@@ -1045,15 +1315,23 @@ func calculateProtectiveLevels(setup, action string, entry float64, snapshot *ma
 			return trace, rejectSignal("long setup %q has no structural take-profit target", setup)
 		}
 	case "open_short":
-		stopAnchor, stopTF, stopSource, hasStopAnchor := protectiveStopAnchor("short", entry, snapshot, timeframes.Stop)
+		stopSelection, hasStopAnchor := protectiveStopAnchor(setup, "short", entry, snapshot, timeframes.Stop, atr)
 		if !hasStopAnchor {
 			return trace, rejectSignal("short setup %q has no structural stop-loss anchor", setup)
 		}
+		stopAnchor := stopSelection.Price
 		trace.StopLoss = stopAnchor + atr*trace.ATRBuffer
 		trace.StopAnchor = stopAnchor
-		trace.StopTimeframe = stopTF
-		trace.StopSource = stopSource
-		trace.StopReason = fmt.Sprintf("%s uses %s %.8f with %.2f ATR buffer", trace.StopPolicy, stopSource, stopAnchor, trace.ATRBuffer)
+		trace.StopTimeframe = stopSelection.Timeframe
+		trace.StopSource = stopSelection.Source
+		trace.StopReason = fmt.Sprintf("%s uses %s %.8f with %.2f ATR buffer", trace.StopPolicy, stopSelection.Source, stopAnchor, trace.ATRBuffer)
+		stopQuality := assessStopQuality(setup, "short", entry, stopAnchor, stopSelection.Timeframe, stopSelection.Source, snapshot, roles, atr)
+		stopQuality.CandidateCount = stopSelection.CandidateCount
+		stopQuality.SkippedCandidates = stopSelection.SkippedCandidates
+		trace.StopQuality = &stopQuality
+		if stopQuality.RejectReason != "" {
+			return trace, rejectSignal("short setup %q stop quality rejected: %s", setup, stopQuality.RejectReason)
+		}
 		if trace.StopLoss <= entry {
 			return trace, fmt.Errorf("short stop loss %.8f is not above entry %.8f", trace.StopLoss, entry)
 		}
@@ -1269,29 +1547,199 @@ func preferredATR(snapshot *market.FactorSnapshot, timeframes []string) (float64
 	return 0, "", false
 }
 
-func protectiveStopAnchor(side string, entry float64, snapshot *market.FactorSnapshot, timeframes []string) (float64, string, string, bool) {
+type protectiveStopSelection struct {
+	Price             float64
+	Timeframe         string
+	Source            string
+	CandidateCount    int
+	SkippedCandidates []string
+	Qualified         bool
+}
+
+type protectiveStopCandidate struct {
+	Price     float64
+	Timeframe string
+	Source    string
+	ATRs      float64
+}
+
+func protectiveStopAnchor(setup, side string, entry float64, snapshot *market.FactorSnapshot, timeframes []string, atr float64) (protectiveStopSelection, bool) {
+	if level, timeframe, ok := setupInvalidationStop(setup, side, entry, snapshot, timeframes); ok {
+		return protectiveStopSelection{Price: level, Timeframe: timeframe, Source: "setup.invalidation", CandidateCount: 1, Qualified: true}, true
+	}
 	if side == "long" {
-		if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "support", timeframes, entry, false); ok {
-			return level, timeframe, "support_resistance.support", true
-		}
-		if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "support", timeframes, entry, false); ok {
-			return level, timeframe, "market_structure.support", true
+		if selection, ok := selectStructureStopAcrossSources(snapshot, "support", timeframes, entry, false, setup, atr); ok {
+			return selection, true
 		}
 		if level, timeframe, ok := nearestFibonacciStop(snapshot, "long", timeframes, entry); ok {
-			return level, timeframe, "fibonacci.stop_anchor", true
+			return protectiveStopSelection{Price: level, Timeframe: timeframe, Source: "fibonacci.stop_anchor", CandidateCount: 1, Qualified: true}, true
 		}
-		return 0, "", "", false
+		return protectiveStopSelection{}, false
 	}
-	if level, timeframe, ok := nearestStructureLevel(snapshot, "support_resistance", "resistance", timeframes, entry, true); ok {
-		return level, timeframe, "support_resistance.resistance", true
-	}
-	if level, timeframe, ok := nearestStructureLevel(snapshot, "market_structure", "resistance", timeframes, entry, true); ok {
-		return level, timeframe, "market_structure.resistance", true
+	if selection, ok := selectStructureStopAcrossSources(snapshot, "resistance", timeframes, entry, true, setup, atr); ok {
+		return selection, true
 	}
 	if level, timeframe, ok := nearestFibonacciStop(snapshot, "short", timeframes, entry); ok {
-		return level, timeframe, "fibonacci.stop_anchor", true
+		return protectiveStopSelection{Price: level, Timeframe: timeframe, Source: "fibonacci.stop_anchor", CandidateCount: 1, Qualified: true}, true
 	}
-	return 0, "", "", false
+	return protectiveStopSelection{}, false
+}
+
+func setupInvalidationStop(setup, side string, entry float64, snapshot *market.FactorSnapshot, timeframes []string) (float64, string, bool) {
+	if snapshot == nil || snapshot.Structures == nil {
+		return 0, "", false
+	}
+	setup = strings.ToLower(strings.TrimSpace(setup))
+	if setup == "" {
+		return 0, "", false
+	}
+	above := side == "short"
+	for _, timeframe := range timeframes {
+		for _, structure := range snapshot.Structures["setup"] {
+			if timeframe != "" && structure.Timeframe != timeframe {
+				continue
+			}
+			if !structure.Valid || strings.ToLower(strings.TrimSpace(structure.Setup)) != setup {
+				continue
+			}
+			if isCandidateLevel(structure.InvalidPrice, entry, above) {
+				return structure.InvalidPrice, structure.Timeframe, true
+			}
+		}
+	}
+	return 0, "", false
+}
+
+func assessStopQuality(setup, side string, entry, stopAnchor float64, stopTF, stopSource string, snapshot *market.FactorSnapshot, roles TimeframeRoleTrace, atr float64) StopQualityTrace {
+	name := strings.ToLower(strings.TrimSpace(setup))
+	quality := StopQualityTrace{
+		Source:           stopSource,
+		Timeframe:        stopTF,
+		InvalidationType: stopInvalidationType(name, stopSource),
+		Fragility:        "normal",
+	}
+	if atr > 0 {
+		quality.DistanceATR = absFloat(entry-stopAnchor) / atr
+	}
+	if structure, ok := matchingSetupStructure(snapshot, name, stopTF); ok {
+		quality.StructureConfirmed = structure.Confirmed
+		if structure.KeyLevels != nil {
+			quality.ConfirmedSwingCount = int(structure.KeyLevels["confirmed_swing_count"])
+		}
+	}
+
+	if setupRequiresSemanticStop(name) && stopSource != "setup.invalidation" {
+		quality.Warnings = append(quality.Warnings, fmt.Sprintf("%s_prefers_setup_invalidation_stop_but_used_%s", name, stopSource))
+	}
+	if stopSource == "setup.invalidation" && !quality.StructureConfirmed {
+		quality.Warnings = append(quality.Warnings, "setup_invalidation_not_confirmed")
+	}
+	if stopTF != "" && roles.Primary != "" && stopTF != roles.Primary && setupPrefersPrimaryStop(name) {
+		quality.Warnings = append(quality.Warnings, fmt.Sprintf("stop_timeframe_%s_differs_from_primary_%s", stopTF, roles.Primary))
+	}
+
+	minDistance := minStopDistanceATRForSetup(name)
+	if quality.DistanceATR > 0 && quality.DistanceATR < minDistance {
+		quality.Fragility = "fragile"
+		quality.Warnings = append(quality.Warnings, fmt.Sprintf("stop_distance %.2f ATR below %.2f ATR setup guideline", quality.DistanceATR, minDistance))
+		hardMin := minDistance * 0.5
+		if hardMin < 0.25 {
+			hardMin = 0.25
+		}
+		if quality.DistanceATR < hardMin {
+			quality.RejectReason = fmt.Sprintf("stop anchor %.2f ATR from entry is too fragile for %s", quality.DistanceATR, name)
+			return quality
+		}
+	}
+	maxDistance := maxStopDistanceATRForSetup(name)
+	if quality.DistanceATR > maxDistance && maxDistance > 0 {
+		quality.Fragility = "wide"
+		quality.Warnings = append(quality.Warnings, fmt.Sprintf("stop_distance %.2f ATR above %.2f ATR setup guideline", quality.DistanceATR, maxDistance))
+	}
+	if quality.ConfirmedSwingCount > 0 && quality.ConfirmedSwingCount < minConfirmedSwingCountForSetup(name) {
+		quality.Warnings = append(quality.Warnings, fmt.Sprintf("confirmed_swing_count_%d_is_limited", quality.ConfirmedSwingCount))
+	}
+	return quality
+}
+
+func matchingSetupStructure(snapshot *market.FactorSnapshot, setup, timeframe string) (market.StructureSnapshot, bool) {
+	if snapshot == nil || snapshot.Structures == nil || setup == "" {
+		return market.StructureSnapshot{}, false
+	}
+	for _, structure := range snapshot.Structures["setup"] {
+		if timeframe != "" && structure.Timeframe != timeframe {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(structure.Setup)) == setup {
+			return structure, true
+		}
+	}
+	return market.StructureSnapshot{}, false
+}
+
+func stopInvalidationType(setup, source string) string {
+	if source != "setup.invalidation" {
+		return "fallback_structure"
+	}
+	switch {
+	case strings.Contains(setup, "breakout"):
+		return "breakout_boundary"
+	case strings.Contains(setup, "trend_continuation"), strings.Contains(setup, "trend_pullback"):
+		return "trend_swing_invalidation"
+	case strings.Contains(setup, "range_reversal"), strings.Contains(setup, "support_resistance_bounce"):
+		return "range_boundary"
+	case strings.Contains(setup, "momentum_exhaustion"):
+		return "exhaustion_extreme"
+	default:
+		return "setup_invalidation"
+	}
+}
+
+func setupRequiresSemanticStop(setup string) bool {
+	return strings.Contains(setup, "trend_continuation") ||
+		strings.Contains(setup, "trend_pullback") ||
+		strings.Contains(setup, "breakout")
+}
+
+func setupPrefersPrimaryStop(setup string) bool {
+	return setupRequiresSemanticStop(setup)
+}
+
+func minStopDistanceATRForSetup(setup string) float64 {
+	switch {
+	case strings.Contains(setup, "trend_continuation"), strings.Contains(setup, "trend_pullback"):
+		return 0.8
+	case strings.Contains(setup, "breakout"):
+		return 0.6
+	case strings.Contains(setup, "range_reversal"), strings.Contains(setup, "support_resistance_bounce"), strings.Contains(setup, "failed_breakout"):
+		return 0.4
+	case strings.Contains(setup, "momentum_exhaustion"):
+		return 0.5
+	default:
+		return 0.5
+	}
+}
+
+func maxStopDistanceATRForSetup(setup string) float64 {
+	switch {
+	case strings.Contains(setup, "trend_continuation"), strings.Contains(setup, "trend_pullback"):
+		return 6.0
+	case strings.Contains(setup, "breakout"):
+		return 5.0
+	case strings.Contains(setup, "range_reversal"), strings.Contains(setup, "support_resistance_bounce"), strings.Contains(setup, "failed_breakout"):
+		return 4.0
+	case strings.Contains(setup, "momentum_exhaustion"):
+		return 5.0
+	default:
+		return 5.0
+	}
+}
+
+func minConfirmedSwingCountForSetup(setup string) int {
+	if strings.Contains(setup, "trend_continuation") || strings.Contains(setup, "trend_pullback") {
+		return 4
+	}
+	return 2
 }
 
 type protectiveTargetCandidate struct {
@@ -1390,11 +1838,12 @@ func structureTargetCandidates(snapshot *market.FactorSnapshot, name, field, tim
 		if !structure.Valid || structure.KeyLevels == nil {
 			continue
 		}
-		level := structure.KeyLevels[field]
-		if !isCandidateLevel(level, entry, above) {
-			continue
+		for _, level := range structureLevelKeyValues(structure, field) {
+			if !isCandidateLevel(level.Price, entry, above) {
+				continue
+			}
+			out = append(out, targetCandidate(level.Price, structure.Timeframe, name+"."+level.Key, entry, stopAnchor, atr, above))
 		}
-		out = append(out, targetCandidate(level, structure.Timeframe, name+"."+field, entry, stopAnchor, atr, above))
 	}
 	return out
 }
@@ -1466,7 +1915,7 @@ func dedupeTargetCandidates(candidates []protectiveTargetCandidate) []protective
 		if candidate.Price <= 0 {
 			continue
 		}
-		key := fmt.Sprintf("%s|%s|%.8f", candidate.Timeframe, candidate.Source, candidate.Price)
+		key := fmt.Sprintf("%s|%.8f", candidate.Timeframe, candidate.Price)
 		if seen[key] {
 			continue
 		}
@@ -1483,29 +1932,170 @@ func targetCloserToEntry(side string, candidate, current float64) bool {
 	return candidate > current
 }
 
-func nearestStructureLevel(snapshot *market.FactorSnapshot, name, field string, timeframes []string, entry float64, above bool) (float64, string, bool) {
-	for _, timeframe := range timeframes {
-		best := 0.0
-		for _, structure := range snapshot.Structures[name] {
-			if timeframe != "" && structure.Timeframe != timeframe {
-				continue
-			}
-			if !structure.Valid || structure.KeyLevels == nil {
-				continue
-			}
-			level := structure.KeyLevels[field]
-			if !isCandidateLevel(level, entry, above) {
-				continue
-			}
-			if best == 0 || closerLevel(level, best, above) {
-				best = level
-			}
+type structureLevelValue struct {
+	Key   string
+	Price float64
+}
+
+func selectStructureStopAcrossSources(snapshot *market.FactorSnapshot, field string, timeframes []string, entry float64, above bool, setup string, atr float64) (protectiveStopSelection, bool) {
+	sources := stopStructureSourcesForSetup(setup)
+	fallback := protectiveStopSelection{}
+	for _, name := range sources {
+		selection, ok := selectStructureStopLevel(snapshot, name, field, timeframes, entry, above, setup, atr)
+		if !ok {
+			continue
 		}
-		if best > 0 {
-			return best, timeframe, true
+		if selection.Qualified {
+			if fallback.Price > 0 {
+				selection.CandidateCount += fallback.CandidateCount
+				selection.SkippedCandidates = append(fallback.SkippedCandidates, selection.SkippedCandidates...)
+			}
+			return selection, true
+		}
+		if fallback.Price == 0 {
+			fallback = selection
+			continue
+		}
+		fallback.CandidateCount += selection.CandidateCount
+		fallback.SkippedCandidates = append(fallback.SkippedCandidates, selection.SkippedCandidates...)
+	}
+	if fallback.Price > 0 {
+		return fallback, true
+	}
+	return protectiveStopSelection{}, false
+}
+
+func stopStructureSourcesForSetup(setup string) []string {
+	name := strings.ToLower(strings.TrimSpace(setup))
+	if setupRequiresSemanticStop(name) {
+		return []string{"market_structure", "support_resistance"}
+	}
+	return []string{"support_resistance", "market_structure"}
+}
+
+func selectStructureStopLevel(snapshot *market.FactorSnapshot, name, field string, timeframes []string, entry float64, above bool, setup string, atr float64) (protectiveStopSelection, bool) {
+	candidateCount := 0
+	skipped := []string{}
+	fallback := protectiveStopCandidate{}
+	minDistance := minStopDistanceATRForSetup(strings.ToLower(strings.TrimSpace(setup)))
+	for _, timeframe := range timeframes {
+		candidates := structureStopCandidates(snapshot, name, field, timeframe, entry, above, atr)
+		if len(candidates) == 0 {
+			continue
+		}
+		candidateCount += len(candidates)
+		for _, candidate := range candidates {
+			if fallback.Price == 0 {
+				fallback = candidate
+			}
+			if atr > 0 && minDistance > 0 && candidate.ATRs < minDistance {
+				skipped = append(skipped, fmt.Sprintf("%s %.8f skipped: %.2f ATR below %.2f guideline", candidate.Source, candidate.Price, candidate.ATRs, minDistance))
+				continue
+			}
+			return protectiveStopSelection{
+				Price:             candidate.Price,
+				Timeframe:         candidate.Timeframe,
+				Source:            candidate.Source,
+				CandidateCount:    candidateCount,
+				SkippedCandidates: skipped,
+				Qualified:         true,
+			}, true
 		}
 	}
-	return 0, "", false
+	if fallback.Price > 0 {
+		return protectiveStopSelection{
+			Price:             fallback.Price,
+			Timeframe:         fallback.Timeframe,
+			Source:            fallback.Source,
+			CandidateCount:    candidateCount,
+			SkippedCandidates: skipped,
+		}, true
+	}
+	return protectiveStopSelection{}, false
+}
+
+func structureStopCandidates(snapshot *market.FactorSnapshot, name, field, timeframe string, entry float64, above bool, atr float64) []protectiveStopCandidate {
+	out := []protectiveStopCandidate{}
+	if snapshot == nil || snapshot.Structures == nil {
+		return out
+	}
+	for _, structure := range snapshot.Structures[name] {
+		if timeframe != "" && structure.Timeframe != timeframe {
+			continue
+		}
+		if !structure.Valid || structure.KeyLevels == nil {
+			continue
+		}
+		for _, level := range structureLevelKeyValues(structure, field) {
+			if !isCandidateLevel(level.Price, entry, above) {
+				continue
+			}
+			atrs := 0.0
+			if atr > 0 {
+				atrs = absFloat(entry-level.Price) / atr
+			}
+			out = append(out, protectiveStopCandidate{
+				Price:     level.Price,
+				Timeframe: structure.Timeframe,
+				Source:    name + "." + level.Key,
+				ATRs:      atrs,
+			})
+		}
+	}
+	return dedupeStopCandidates(out, above)
+}
+
+func dedupeStopCandidates(candidates []protectiveStopCandidate, above bool) []protectiveStopCandidate {
+	out := []protectiveStopCandidate{}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate.Price <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s|%.8f", candidate.Timeframe, candidate.Price)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	sortStopCandidates(out, above)
+	return out
+}
+
+func sortStopCandidates(candidates []protectiveStopCandidate, above bool) {
+	if len(candidates) < 2 {
+		return
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Price == candidates[j].Price {
+			return candidates[i].Source < candidates[j].Source
+		}
+		return closerLevel(candidates[i].Price, candidates[j].Price, above)
+	})
+}
+
+func structureLevelKeyValues(structure market.StructureSnapshot, field string) []structureLevelValue {
+	out := []structureLevelValue{}
+	add := func(key string) {
+		level := structure.KeyLevels[key]
+		if level <= 0 {
+			return
+		}
+		for _, existing := range out {
+			if existing.Price == level {
+				return
+			}
+		}
+		out = append(out, structureLevelValue{Key: key, Price: level})
+	}
+
+	add(field)
+	for i := 1; i <= maxStructureLevelCandidates; i++ {
+		add(fmt.Sprintf("%s_%d", field, i))
+	}
+	add("previous_" + field)
+	return out
 }
 
 func nearestFibonacciStop(snapshot *market.FactorSnapshot, side string, timeframes []string, entry float64) (float64, string, bool) {

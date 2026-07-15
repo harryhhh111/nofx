@@ -49,8 +49,6 @@ func scoringFromStrategyConfig(config *store.StrategyConfig) *ScoringStrategy {
 	return &ScoringStrategy{
 		Enabled:                 scoring.Enabled,
 		Version:                 version,
-		StrategyArchetype:       config.StrategyArchetype,
-		RiskProfile:             config.RiskProfile,
 		SelectedFactors:         append([]string(nil), scoring.SelectedFactors...),
 		FactorWeights:           copyKernelFloatMap(scoring.FactorWeights),
 		LongThreshold:           scoring.LongThreshold,

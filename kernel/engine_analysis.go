@@ -49,7 +49,10 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	// Clamp strategy limits to prevent token overflow
 	engineConfig := engine.GetConfig()
-	engineConfig.ClampLimits()
+	engineConfig.NormalizeForExecution()
+	if err := engineConfig.ValidateExecutableSignalSource(); err != nil {
+		return nil, err
+	}
 
 	// Token estimation check: block if exceeding the specific model's context limit
 	estimate := engineConfig.EstimateTokens()
@@ -133,6 +136,9 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	signalRequest := SignalRequest{
 		Account:              ctx.Account,
 		Positions:            ctx.Positions,
+		DrawdownAlerts:       ctx.DrawdownAlerts,
+		TradingStats:         ctx.TradingStats,
+		RecentOrders:         ctx.RecentOrders,
 		Candidates:           ctx.CandidateCoins,
 		Rules:                rules,
 		Scoring:              scoring,
@@ -177,6 +183,9 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 			MarketContext:    result.MarketContext,
 			RelevantMemory:   result.Memory,
 			CurrentPositions: ctx.Positions,
+			DrawdownAlerts:   ctx.DrawdownAlerts,
+			TradingStats:     ctx.TradingStats,
+			RecentOrders:     ctx.RecentOrders,
 		}); promptErr == nil {
 			decision.UserPrompt = userPrompt
 		}
@@ -195,6 +204,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 	timeframes := config.Indicators.Klines.SelectedTimeframes
 	primaryTimeframe := config.Indicators.Klines.PrimaryTimeframe
+	entryTimeframe := config.Indicators.Klines.EntryTimeframe
 	displayCount := config.Indicators.Klines.PromptDisplayCount
 	if displayCount <= 0 {
 		displayCount = config.Indicators.Klines.PrimaryCount
@@ -226,7 +236,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 
 	// 1. First fetch data for position coins (must fetch)
 	for _, pos := range ctx.Positions {
-		data, err := market.GetWithTimeframesWindowContextWithExchange(context.Background(), pos.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, config.Indicators.Klines.MarketDataSource)
+		data, err := market.GetWithTimeframesWindowContextWithExchangeForRoles(context.Background(), pos.Symbol, timeframes, primaryTimeframe, entryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, config.Indicators.Klines.MarketDataSource)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for position %s: %v", pos.Symbol, err)
 			continue
@@ -247,7 +257,7 @@ func fetchMarketDataWithStrategy(ctx *Context, engine *StrategyEngine) error {
 			continue
 		}
 
-		data, err := market.GetWithTimeframesWindowContextWithExchange(context.Background(), coin.Symbol, timeframes, primaryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, config.Indicators.Klines.MarketDataSource)
+		data, err := market.GetWithTimeframesWindowContextWithExchangeForRoles(context.Background(), coin.Symbol, timeframes, primaryTimeframe, entryTimeframe, displayCount, computeLookback, config.Indicators.Klines.IncludeOpenBar, config.Indicators.Klines.MarketDataSource)
 		if err != nil {
 			logger.Infof("Failed to fetch market data for %s: %v", coin.Symbol, err)
 			ctx.DataFetchErrors = append(ctx.DataFetchErrors, fmt.Sprintf("%s: market data fetch failed", coin.Symbol))
@@ -414,17 +424,18 @@ func buildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *Trading
 		GeneratedAt:    time.Now().UTC(),
 		CandidateCoins: candidates,
 		Klines: KlineInputAudit{
-			MarketDataSource: klines.MarketDataSource,
-			Timeframes:       timeframes,
-			PrimaryTimeframe: klines.PrimaryTimeframe,
-			EntryTimeframe:   klines.EntryTimeframe,
-			Confirmations:    append([]string(nil), klines.ConfirmationTimeframes...),
-			UnusedTimeframes: unusedScoringTimeframes(timeframes, klines.PrimaryTimeframe, klines.EntryTimeframe, klines.ConfirmationTimeframes),
-			DisplayCount:     displayCount,
-			ComputeLookback:  computeLookback,
-			RequiredLookback: requiredLookback,
-			WarmupTarget:     warmupTarget,
-			IncludeOpenBar:   klines.IncludeOpenBar,
+			MarketDataSource:  klines.MarketDataSource,
+			Timeframes:        timeframes,
+			PrimaryTimeframe:  klines.PrimaryTimeframe,
+			EntryTimeframe:    klines.EntryTimeframe,
+			Confirmations:     append([]string(nil), klines.ConfirmationTimeframes...),
+			UnusedTimeframes:  unusedScoringTimeframes(timeframes, klines.PrimaryTimeframe, klines.EntryTimeframe, klines.ConfirmationTimeframes),
+			DisplayCount:      displayCount,
+			ComputeLookback:   computeLookback,
+			RequiredLookback:  requiredLookback,
+			WarmupTarget:      warmupTarget,
+			IncludeOpenBar:    klines.IncludeOpenBar,
+			OpenBarTimeframes: openBarTimeframesForRoles(klines.PrimaryTimeframe, klines.EntryTimeframe, klines.IncludeOpenBar),
 		},
 		Indicators: map[string]interface{}{
 			"ema_periods":            config.Indicators.EMAPeriods,
@@ -468,6 +479,15 @@ func buildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *Trading
 		},
 		Symbols: symbols,
 	}
+}
+
+func openBarTimeframesForRoles(primaryTimeframe, entryTimeframe string, enabled bool) []string {
+	primaryTimeframe = strings.TrimSpace(primaryTimeframe)
+	entryTimeframe = strings.TrimSpace(entryTimeframe)
+	if !enabled || entryTimeframe == "" || entryTimeframe == primaryTimeframe {
+		return nil
+	}
+	return []string{entryTimeframe}
 }
 
 func BuildTradingInputAudit(ctx *Context, config *store.StrategyConfig) *TradingInputAudit {
@@ -1252,6 +1272,15 @@ func signalUserDetails(signal CandidateSignal, lang string) []string {
 		details = append(details, fmt.Sprintf(summaryText(lang, "止损来源：%s，止盈来源：%s，结构盈亏比 %.2f，执行盈亏比 %.2f", "Stop source: %s, target source: %s, structural risk/reward %.2f, execution risk/reward %.2f"), levels.StopSource, levels.TargetSource, levels.RiskReward, levels.ExecutionRiskReward))
 		if levels.StopPolicy != "" {
 			details = append(details, fmt.Sprintf(summaryText(lang, "止损策略：%s，ATR 缓冲 %.2f", "Stop policy: %s, ATR buffer %.2f"), levels.StopPolicy, levels.ATRBuffer))
+		}
+		if levels.StopQuality != nil {
+			details = append(details, fmt.Sprintf(summaryText(lang,
+				"止损质量：%s，失效类型 %s，距离 %.2f ATR，周期 %s",
+				"Stop quality: %s, invalidation %s, distance %.2f ATR, timeframe %s"),
+				levels.StopQuality.Fragility, levels.StopQuality.InvalidationType, levels.StopQuality.DistanceATR, levels.StopQuality.Timeframe))
+			if levels.StopQuality.RejectReason != "" {
+				details = append(details, summaryText(lang, "止损质量拒绝：", "Stop quality rejected: ")+levels.StopQuality.RejectReason)
+			}
 		}
 		if levels.TargetPolicy != "" {
 			details = append(details, fmt.Sprintf(summaryText(lang,

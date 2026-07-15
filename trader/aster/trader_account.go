@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"nofx/logger"
 	"nofx/trader/types"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -205,24 +208,102 @@ func (t *AsterTrader) GetTrades(startTime time.Time, limit int) ([]types.TradeRe
 	if limit <= 0 {
 		limit = 500
 	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	symbols, err := t.getTradeSymbolsFromIncome(startTime, limit)
+	if err != nil {
+		return nil, err
+	}
+	trades := make([]types.TradeRecord, 0)
+	for _, symbol := range symbols {
+		symbolTrades, err := t.GetTradesForSymbol(symbol, startTime, limit)
+		if err != nil {
+			return nil, err
+		}
+		trades = append(trades, symbolTrades...)
+	}
+	sort.Slice(trades, func(i, j int) bool {
+		return trades[i].Time.Before(trades[j].Time)
+	})
+	if len(trades) > limit {
+		trades = trades[len(trades)-limit:]
+	}
+	return trades, nil
+}
+
+type asterIncomeRecord struct {
+	Symbol     string `json:"symbol"`
+	IncomeType string `json:"incomeType"`
+}
+
+func (t *AsterTrader) getTradeSymbolsFromIncome(startTime time.Time, limit int) ([]string, error) {
+	params := map[string]interface{}{
+		"incomeType": "COMMISSION",
+		"limit":      limit,
+	}
+	if !startTime.IsZero() {
+		params["startTime"] = startTime.UnixMilli()
+	}
+	body, err := t.request("GET", "/fapi/v3/income", params)
+	if err != nil {
+		return nil, fmt.Errorf("Aster commission income API: %w", err)
+	}
+	var income []asterIncomeRecord
+	if err := json.Unmarshal(body, &income); err != nil {
+		return nil, fmt.Errorf("parse Aster commission income response: %w", err)
+	}
+	seen := make(map[string]bool)
+	symbols := make([]string, 0)
+	for _, item := range income {
+		symbol := strings.ToUpper(strings.TrimSpace(item.Symbol))
+		if symbol == "" || seen[symbol] {
+			continue
+		}
+		seen[symbol] = true
+		symbols = append(symbols, symbol)
+	}
+	sort.Strings(symbols)
+	return symbols, nil
+}
+
+// GetTradesForSymbol retrieves account fills for one Aster futures symbol.
+// Aster V3 requires symbol for userTrades; this method is also used for
+// real-time position fee accounting.
+func (t *AsterTrader) GetTradesForSymbol(symbol string, startTime time.Time, limit int) ([]types.TradeRecord, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return nil, fmt.Errorf("Aster userTrades requires symbol")
+	}
+	return t.getTradesForSymbol(symbol, startTime, limit)
+}
+
+func (t *AsterTrader) getTradesForSymbol(symbol string, startTime time.Time, limit int) ([]types.TradeRecord, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
 
 	// Build request params
 	params := map[string]interface{}{
-		"startTime": startTime.UnixMilli(),
-		"limit":     limit,
+		"symbol": symbol,
+		"limit":  limit,
+	}
+	if !startTime.IsZero() {
+		params["startTime"] = startTime.UnixMilli()
 	}
 
 	// Use existing request method with signing
 	body, err := t.request("GET", "/fapi/v3/userTrades", params)
 	if err != nil {
-		logger.Infof("⚠️  Aster userTrades API error: %v", err)
-		return []types.TradeRecord{}, nil
+		return nil, fmt.Errorf("Aster userTrades API: %w", err)
 	}
 
 	var asterTrades []AsterTradeRecord
 	if err := json.Unmarshal(body, &asterTrades); err != nil {
-		logger.Infof("⚠️  Failed to parse Aster trades response: %v", err)
-		return []types.TradeRecord{}, nil
+		return nil, fmt.Errorf("parse Aster userTrades response: %w", err)
 	}
 
 	// Convert to unified TradeRecord format
@@ -242,13 +323,63 @@ func (t *AsterTrader) GetTrades(startTime time.Time, limit int) ([]types.TradeRe
 			Price:        price,
 			Quantity:     qty,
 			RealizedPnL:  pnl,
-			Fee:          fee,
+			Fee:          math.Abs(fee),
 			Time:         time.UnixMilli(at.Time).UTC(),
 		}
 		result = append(result, trade)
 	}
 
 	return result, nil
+}
+
+type asterCommissionRate struct {
+	Symbol              string `json:"symbol"`
+	MakerCommissionRate string `json:"makerCommissionRate"`
+	TakerCommissionRate string `json:"takerCommissionRate"`
+}
+
+// GetCommissionRates returns the account's current futures maker/taker rates.
+func (t *AsterTrader) GetCommissionRates(symbol string) (float64, float64, error) {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return 0, 0, fmt.Errorf("Aster commissionRate requires symbol")
+	}
+	body, err := t.request("GET", "/fapi/v3/commissionRate", map[string]interface{}{"symbol": symbol})
+	if err != nil {
+		return 0, 0, fmt.Errorf("Aster commissionRate API: %w", err)
+	}
+	var response asterCommissionRate
+	if err := json.Unmarshal(body, &response); err != nil {
+		return 0, 0, fmt.Errorf("parse Aster commissionRate response: %w", err)
+	}
+	maker, err := strconv.ParseFloat(response.MakerCommissionRate, 64)
+	if err != nil || maker < 0 {
+		return 0, 0, fmt.Errorf("invalid Aster maker commission rate %q", response.MakerCommissionRate)
+	}
+	taker, err := strconv.ParseFloat(response.TakerCommissionRate, 64)
+	if err != nil || taker <= 0 {
+		return 0, 0, fmt.Errorf("invalid Aster taker commission rate %q", response.TakerCommissionRate)
+	}
+	return maker, taker, nil
+}
+
+// GetPositionTradingFees returns actual commissions charged since the current
+// position entry. Fees are normalized to positive costs.
+func (t *AsterTrader) GetPositionTradingFees(symbol, side string, startTime time.Time) (float64, error) {
+	trades, err := t.GetTradesForSymbol(symbol, startTime, 1000)
+	if err != nil {
+		return 0, err
+	}
+	wantedSide := strings.ToUpper(strings.TrimSpace(side))
+	total := 0.0
+	for _, trade := range trades {
+		positionSide := strings.ToUpper(strings.TrimSpace(trade.PositionSide))
+		if wantedSide != "" && positionSide != "" && positionSide != "BOTH" && positionSide != wantedSide {
+			continue
+		}
+		total += math.Abs(trade.Fee)
+	}
+	return total, nil
 }
 
 // GetOrderBook gets the order book for a symbol

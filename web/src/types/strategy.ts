@@ -128,6 +128,7 @@ export interface StrategyCalibrationReport {
   setup_count: number;
   eligible_count: number;
   approved_count: number;
+  executed_count: number;
   risk_rejected_count: number;
   review_rejected_count: number;
   no_signal_count: number;
@@ -144,11 +145,28 @@ export interface StrategyCalibrationReport {
   quality_gate: 'no_data' | 'collecting' | 'blocked' | 'paper_ready' | string;
   recommendation: string;
   risk_status_counts: Record<string, number>;
+  execution_status_counts: Record<string, number>;
   review_status_counts: Record<string, number>;
   setup_stats: StrategyCalibrationSetupStat[];
+  regime_setup_stats: StrategyCalibrationRegimeSetupStat[];
   timeframe_stats: StrategyCalibrationTimeframeStat[];
   latest_sample_at?: string;
   generated_at: string;
+}
+
+export interface StrategyCalibrationRegimeSetupStat {
+  regime: string;
+  setup: string;
+  action: string;
+  samples: number;
+  eligible: number;
+  executed: number;
+  closed_trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  total_pnl: number;
+  average_pnl: number;
 }
 
 export interface StrategyCalibrationSetupStat {
@@ -182,7 +200,7 @@ export interface StrategyReplayReport {
   missing_kline_window_count: number;
   baseline_match_count: number;
   baseline_match_rate: number;
-  approved_sample_count: number;
+  executed_sample_count: number;
   parameter_scans: StrategyReplayScanResult[];
   quality_notes?: string[];
   generated_at: string;
@@ -197,8 +215,8 @@ export interface StrategyReplayScanResult {
   no_trade_count: number;
   match_recorded_count: number;
   changed_from_baseline_count: number;
-  approved_preserved_count: number;
-  approved_changed_count: number;
+  executed_preserved_count: number;
+  executed_changed_count: number;
   setup_counts: Record<string, number>;
   error_count?: number;
 }

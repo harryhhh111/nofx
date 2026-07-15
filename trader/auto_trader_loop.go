@@ -212,6 +212,7 @@ func (at *AutoTrader) runCycle() error {
 	}
 
 	// AI succeeded — reset failure counter and deactivate safe mode
+	at.acknowledgeDrawdownAlerts(ctx.DrawdownAlerts)
 	if at.consecutiveAIFailures > 0 {
 		logger.Infof("✅ [%s] AI recovered after %d consecutive failures", at.name, at.consecutiveAIFailures)
 	}
@@ -381,31 +382,40 @@ func (at *AutoTrader) runCycle() error {
 				}
 				normalizedSymbol := market.Normalize(d.Symbol)
 				pendingKey := normalizedSymbol + "_" + side
-				// Prefer per-position reasoning from JSON, fallback to cycle-level CoTSummary
-				reasoning := d.Reasoning
-				if reasoning == "" && aiDecision != nil && aiDecision.CoTSummary != "" {
-					reasoning = aiDecision.CoTSummary
+				pending := pendingOpeningReasoning{
+					EntryNotBefore: d.SignalGeneratedAt,
 				}
-				if reasoning == "" {
-					reasoning = fmt.Sprintf("[%s %s] reasoning not provided by AI", d.Symbol, d.Action)
+				// Prefer per-position reasoning from JSON, fallback to cycle-level CoTSummary
+				pending.Reasoning = d.Reasoning
+				if pending.Reasoning == "" && aiDecision != nil && aiDecision.CoTSummary != "" {
+					pending.Reasoning = aiDecision.CoTSummary
+				}
+				if pending.Reasoning == "" {
+					pending.Reasoning = fmt.Sprintf("[%s %s] reasoning not provided by AI", d.Symbol, d.Action)
 				}
 
 				// Try immediate write (works if position record already exists)
-				if err := at.store.Position().UpdatePositionOpeningReasoning(at.id, normalizedSymbol, side, reasoning); err != nil {
+				if err := at.store.Position().UpdatePositionOpeningReasoning(at.id, normalizedSymbol, side, pending.EntryNotBefore, pending.Reasoning); err != nil {
 					// Position not yet in DB (OrderSync hasn't run), start background retry
-					at.pendingOpenReasoning[pendingKey] = reasoning
+					at.pendingOpenReasoningMu.Lock()
+					at.pendingOpenReasoning[pendingKey] = pending
+					at.pendingOpenReasoningMu.Unlock()
 					logger.Infof("📝 [%s] Position not yet in DB for %s %s, starting background retry", at.name, d.Symbol, side)
-					go func(traderID, symbol, s, r, pk string) {
+					go func(traderID, symbol, s, pk string, expected pendingOpeningReasoning) {
 						for i := 0; i < 12; i++ { // retry every 5s for up to 60s
 							time.Sleep(5 * time.Second)
-							if err := at.store.Position().UpdatePositionOpeningReasoning(traderID, symbol, s, r); err == nil {
-								delete(at.pendingOpenReasoning, pk)
+							if err := at.store.Position().UpdatePositionOpeningReasoning(traderID, symbol, s, expected.EntryNotBefore, expected.Reasoning); err == nil {
+								at.pendingOpenReasoningMu.Lock()
+								if at.pendingOpenReasoning[pk] == expected {
+									delete(at.pendingOpenReasoning, pk)
+								}
+								at.pendingOpenReasoningMu.Unlock()
 								logger.Infof("📝 [%s] Background flush: saved opening reasoning for %s %s (attempt %d)", at.name, symbol, s, i+1)
 								return
 							}
 						}
 						logger.Infof("⚠️ [%s] Background flush failed for %s %s after 60s", at.name, symbol, s)
-					}(at.id, normalizedSymbol, side, reasoning, pendingKey)
+					}(at.id, normalizedSymbol, side, pendingKey, pending)
 				} else {
 					logger.Infof("📝 [%s] Saved opening reasoning for %s %s to DB", at.name, d.Symbol, side)
 				}
@@ -558,8 +568,24 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		var dbPosition *store.TraderPosition
 		// Priority 1: Get from database (trader_positions table) - most accurate
 		if at.store != nil {
-			if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, symbol, side); err == nil && dbPos != nil {
+			normalizedSymbol := market.Normalize(symbol)
+			normalizedSide := strings.ToUpper(side)
+			if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, normalizedSide); err == nil && dbPos != nil {
 				dbPosition = dbPos
+				pendingKey := normalizedSymbol + "_" + normalizedSide
+				at.pendingOpenReasoningMu.Lock()
+				pending, hasPendingReasoning := at.pendingOpenReasoning[pendingKey]
+				at.pendingOpenReasoningMu.Unlock()
+				if hasPendingReasoning && dbPos.OpeningReasoning == "" {
+					if err := at.store.Position().UpdatePositionOpeningReasoning(at.id, dbPos.Symbol, strings.ToUpper(side), pending.EntryNotBefore, pending.Reasoning); err == nil {
+						dbPos.OpeningReasoning = pending.Reasoning
+						at.pendingOpenReasoningMu.Lock()
+						if at.pendingOpenReasoning[pendingKey] == pending {
+							delete(at.pendingOpenReasoning, pendingKey)
+						}
+						at.pendingOpenReasoningMu.Unlock()
+					}
+				}
 				if dbPos.EntryTime > 0 {
 					updateTime = dbPos.EntryTime
 				}
@@ -579,20 +605,26 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			}
 			updateTime = at.positionFirstSeenTime[posKey]
 		}
+		at.resetPeakPnLForPosition(posKey, updateTime)
 
 		// Get peak profit rate for this position
 		at.peakPnLCacheMutex.RLock()
 		peakPnlPct := at.peakPnLCache[posKey]
 		at.peakPnLCacheMutex.RUnlock()
 
-		// Estimate closing fee and calculate net PnL
+		// Use actual Aster fills and current account taker rate when available.
 		positionNotional := quantity * markPrice
-		estimatedCloseFee := estimateCloseFee(positionNotional, accumulatedFee, dbPosition)
+		feeSnapshot, feeErr := at.currentPositionFees(symbol, side, positionNotional, updateTime, dbPosition)
+		if feeErr != nil {
+			logger.Warnf("⚠️ [%s] Position fee lookup for %s %s: %v", at.name, symbol, side, feeErr)
+		}
+		accumulatedFee = feeSnapshot.AccumulatedFee
+		estimatedCloseFee := feeSnapshot.EstimatedCloseFee
 		netPnL := unrealizedPnl - accumulatedFee - estimatedCloseFee
 
 		condEntry := activeCondOrders[posKey]
 
-		positionInfos = append(positionInfos, kernel.PositionInfo{
+		positionInfo := kernel.PositionInfo{
 			Symbol:            symbol,
 			Side:              side,
 			EntryPrice:        entryPrice,
@@ -607,10 +639,26 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			UpdateTime:        updateTime,
 			AccumulatedFee:    accumulatedFee,
 			EstimatedCloseFee: estimatedCloseFee,
+			FeeSource:         feeSnapshot.Source,
 			NetPnL:            netPnL,
 			StopLossPrice:     condEntry.sl,
 			TakeProfitPrice:   condEntry.tp,
-		})
+		}
+		if dbPosition != nil {
+			positionInfo.OpeningSignalID = dbPosition.OpeningSignalID
+			positionInfo.OpeningRuleID = dbPosition.OpeningRuleID
+			positionInfo.OpeningSetup = dbPosition.OpeningSetup
+			positionInfo.StrategyVersion = dbPosition.StrategyVersion
+			positionInfo.OpeningReasoning = dbPosition.OpeningReasoning
+			positionInfo.LastReviewSummary = dbPosition.LastReviewSummary
+			positionInfo.StopLossAnchor = dbPosition.StopLossAnchor
+			positionInfo.StopLossSource = dbPosition.StopLossSource
+			positionInfo.StopLossTimeframe = dbPosition.StopLossTimeframe
+			positionInfo.TakeProfitAnchor = dbPosition.TakeProfitAnchor
+			positionInfo.TakeProfitSource = dbPosition.TakeProfitSource
+			positionInfo.TakeProfitTF = dbPosition.TakeProfitTimeframe
+		}
+		positionInfos = append(positionInfos, positionInfo)
 	}
 
 	// Clean up closed position records
@@ -619,6 +667,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			delete(at.positionFirstSeenTime, key)
 		}
 	}
+	at.clearInactivePeakPnLCache(currentPositionKeys)
 
 	// Clean up stale entries from the risk-close cache (older than 10 minutes)
 	at.recentlyClosedByRiskMu.Lock()
@@ -660,7 +709,7 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 
 	// 5. Get leverage from strategy config
 	strategyConfig := at.strategyEngine.GetConfig()
-	strategyConfig.ClampLimits()
+	strategyConfig.NormalizeForExecution()
 	btcEthLeverage := strategyConfig.RiskControl.BTCETHMaxLeverage
 	altcoinLeverage := strategyConfig.RiskControl.AltcoinMaxLeverage
 	logger.Infof("📋 [%s] Strategy leverage config: BTC/ETH=%dx, Altcoin=%dx", at.name, btcEthLeverage, altcoinLeverage)
@@ -691,12 +740,12 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		ctx.TradeMemory = kernel.NewStoreTradeMemory(at.store, at.id)
 	}
 
-	// Inject pending drawdown alerts (AI-decide mode) and clear the queue
+	// Snapshot pending drawdown alerts. They are acknowledged only after the AI
+	// review succeeds, so provider failures cannot silently discard risk events.
 	at.pendingDrawdownAlertsMu.Lock()
 	if len(at.pendingDrawdownAlerts) > 0 {
 		ctx.DrawdownAlerts = make([]kernel.DrawdownAlert, len(at.pendingDrawdownAlerts))
 		copy(ctx.DrawdownAlerts, at.pendingDrawdownAlerts)
-		at.pendingDrawdownAlerts = at.pendingDrawdownAlerts[:0]
 		logger.Infof("📋 [%s] Injected %d drawdown alert(s) into AI context", at.name, len(ctx.DrawdownAlerts))
 	}
 	at.pendingDrawdownAlertsMu.Unlock()
@@ -726,7 +775,10 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 					EntryPrice:   trade.EntryPrice,
 					ExitPrice:    trade.ExitPrice,
 					RealizedPnL:  trade.RealizedPnL,
+					Fee:          trade.Fee,
+					NetPnL:       trade.NetPnL,
 					PnLPct:       trade.PnLPct,
+					NetPnLPct:    trade.NetPnLPct,
 					EntryTime:    entryTimeStr,
 					ExitTime:     exitTimeStr,
 					HoldDuration: trade.HoldDuration,
@@ -743,58 +795,26 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 			logger.Infof("⚠️ [%s] GetFullStats returned 0 trades (traderID=%s)", at.name, at.id)
 		} else {
 			ctx.TradingStats = &kernel.TradingStats{
-				TotalTrades:    stats.TotalTrades,
-				WinRate:        stats.WinRate,
-				ProfitFactor:   stats.ProfitFactor,
-				SharpeRatio:    stats.SharpeRatio,
-				TotalPnL:       stats.TotalPnL,
-				AvgWin:         stats.AvgWin,
-				AvgLoss:        stats.AvgLoss,
-				MaxDrawdownPct: stats.MaxDrawdownPct,
+				TotalTrades:       stats.TotalTrades,
+				WinRate:           stats.WinRate,
+				ProfitFactor:      stats.ProfitFactor,
+				SharpeRatio:       stats.SharpeRatio,
+				TotalPnL:          stats.TotalPnL,
+				TotalFee:          stats.TotalFee,
+				NetPnL:            stats.NetPnL,
+				NetWinRate:        stats.NetWinRate,
+				NetProfitFactor:   stats.NetProfitFactor,
+				NetSharpeRatio:    stats.NetSharpeRatio,
+				NetMaxDrawdownPct: stats.NetMaxDrawdownPct,
+				AvgWin:            stats.AvgWin,
+				AvgLoss:           stats.AvgLoss,
+				MaxDrawdownPct:    stats.MaxDrawdownPct,
 			}
 			logger.Infof("📈 [%s] Trading stats: %d trades, %.1f%% win rate, PF=%.2f, Sharpe=%.2f, DD=%.1f%%",
 				at.name, stats.TotalTrades, stats.WinRate, stats.ProfitFactor, stats.SharpeRatio, stats.MaxDrawdownPct)
 		}
 	} else {
 		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
-	}
-
-	// 7b. Load position memories + flush pending reasoning
-	if at.store != nil {
-		for _, pos := range positionInfos {
-			dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, pos.Symbol, strings.ToUpper(pos.Side))
-			if err != nil || dbPos == nil {
-				continue
-			}
-			memory := kernel.PositionMemory{
-				Symbol: pos.Symbol,
-				Side:   pos.Side,
-			}
-
-			// Flush pending opening reasoning to DB
-			pendingKey := market.Normalize(pos.Symbol) + "_" + strings.ToUpper(pos.Side)
-			if reasoning, ok := at.pendingOpenReasoning[pendingKey]; ok && dbPos.OpeningReasoning == "" {
-				if err := at.store.Position().UpdatePositionOpeningReasoning(
-					at.id, dbPos.Symbol, strings.ToUpper(pos.Side), reasoning,
-				); err != nil {
-					logger.Infof("⚠️ [%s] Failed to flush opening reasoning for %s: %v", at.name, pos.Symbol, err)
-				} else {
-					logger.Infof("📝 [%s] Flushed opening reasoning for %s %s to DB", at.name, pos.Symbol, pos.Side)
-					dbPos.OpeningReasoning = reasoning
-				}
-				delete(at.pendingOpenReasoning, pendingKey)
-			}
-
-			memory.OpeningReasoning = dbPos.OpeningReasoning
-			memory.LastReviewSummary = dbPos.LastReviewSummary
-
-			if memory.OpeningReasoning != "" || memory.CotSummary != "" || memory.LastReviewSummary != "" {
-				ctx.PositionMemories = append(ctx.PositionMemories, memory)
-			}
-		}
-		if len(ctx.PositionMemories) > 0 {
-			logger.Infof("🧠 [%s] Loaded position memories for %d open positions", at.name, len(ctx.PositionMemories))
-		}
 	}
 
 	// 8. Get quantitative data (if enabled in strategy config)
@@ -1067,6 +1087,7 @@ func (at *AutoTrader) saveOpeningProtectiveMetadata(decision *kernel.Decision) {
 	}
 	symbol := market.Normalize(decision.Symbol)
 	meta := store.PositionProtectiveLevelMetadata{
+		EntryNotBefore:         decision.SignalGeneratedAt,
 		StopLossSource:         decision.StopLossSource,
 		StopLossTimeframe:      decision.StopLossTF,
 		StopLossAnchor:         decision.StopLossAnchor,

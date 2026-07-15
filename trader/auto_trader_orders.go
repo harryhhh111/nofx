@@ -93,6 +93,65 @@ func (at *AutoTrader) optionalExecutionPrice(symbol string) float64 {
 	return price
 }
 
+func (at *AutoTrader) freshOpenPositionSize(decision *kernel.Decision, currentPrice, equity float64) (float64, error) {
+	if decision == nil || (decision.Action != "open_long" && decision.Action != "open_short") {
+		return 0, fmt.Errorf("fresh execution risk requires an open decision")
+	}
+	if currentPrice <= 0 || equity <= 0 || decision.StopLoss <= 0 || decision.TakeProfit <= 0 {
+		return 0, fmt.Errorf("fresh execution risk has invalid price, equity, or protective levels")
+	}
+
+	structuralStop := decision.StopLossAnchor
+	if structuralStop <= 0 {
+		return 0, fmt.Errorf("fresh execution risk requires a structural stop anchor")
+	}
+	var structuralRisk, reward float64
+	if decision.Action == "open_long" {
+		if decision.StopLoss >= currentPrice || structuralStop >= currentPrice || decision.TakeProfit <= currentPrice {
+			return 0, fmt.Errorf("long signal is stale at execution price %.8f (SL %.8f, anchor %.8f, TP %.8f)", currentPrice, decision.StopLoss, structuralStop, decision.TakeProfit)
+		}
+		structuralRisk = currentPrice - structuralStop
+		reward = decision.TakeProfit - currentPrice
+	} else {
+		if decision.StopLoss <= currentPrice || structuralStop <= currentPrice || decision.TakeProfit >= currentPrice {
+			return 0, fmt.Errorf("short signal is stale at execution price %.8f (SL %.8f, anchor %.8f, TP %.8f)", currentPrice, decision.StopLoss, structuralStop, decision.TakeProfit)
+		}
+		structuralRisk = structuralStop - currentPrice
+		reward = currentPrice - decision.TakeProfit
+	}
+
+	minRR := store.DefaultMinRiskRewardRatio
+	riskPct := store.DefaultRiskPerTradePct
+	if at != nil && at.config.StrategyConfig != nil {
+		risk := at.config.StrategyConfig.RiskControl
+		if risk.MinRiskRewardRatio > 0 {
+			minRR = risk.MinRiskRewardRatio
+		}
+		if risk.RiskPerTradePct > 0 {
+			riskPct = risk.RiskPerTradePct
+		}
+	}
+	structuralRR := reward / structuralRisk
+	if structuralRisk <= 0 || structuralRR < minRR {
+		return 0, fmt.Errorf("signal is stale at execution: structural risk/reward %.2f is below %.2f", structuralRR, minRR)
+	}
+
+	executionRiskRatio := math.Abs(currentPrice-decision.StopLoss) / currentPrice
+	if executionRiskRatio <= 0 {
+		return 0, fmt.Errorf("execution stop distance is not positive")
+	}
+	maxRiskSizedNotional := equity * riskPct / 100 / executionRiskRatio
+	positionSize := decision.PositionSizeUSD
+	if positionSize <= 0 {
+		return 0, fmt.Errorf("position size must be positive")
+	}
+	if positionSize > maxRiskSizedNotional {
+		logger.Infof("  ⚠️ Fresh execution risk reduced position %.2f -> %.2f USDT at price %.8f", positionSize, maxRiskSizedNotional, currentPrice)
+		positionSize = maxRiskSizedNotional
+	}
+	return positionSize, nil
+}
+
 // placeProtectiveOrders attaches stop-loss and take-profit orders to a freshly
 // opened position.
 //
@@ -298,6 +357,12 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// [CODE ENFORCED] Position Value Ratio Check: position_value <= equity × ratio
+	freshRiskSize, err := at.freshOpenPositionSize(decision, currentPrice, equity)
+	if err != nil {
+		return err
+	}
+	decision.PositionSizeUSD = freshRiskSize
+
 	adjustedPositionSize, wasCapped := at.enforcePositionValueRatio(decision.PositionSizeUSD, equity, decision.Symbol)
 	if wasCapped {
 		decision.PositionSizeUSD = adjustedPositionSize
@@ -320,7 +385,7 @@ func (at *AutoTrader) executeOpenLongWithRecord(decision *kernel.Decision, actio
 	}
 
 	// [CODE ENFORCED] Minimum position size check
-	if err := at.enforceMinPositionSize(decision.PositionSizeUSD); err != nil {
+	if err := at.enforceMinPositionSize(decision.PositionSizeUSD, decision.Symbol); err != nil {
 		return err
 	}
 
@@ -420,6 +485,12 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// [CODE ENFORCED] Position Value Ratio Check: position_value <= equity × ratio
+	freshRiskSize, err := at.freshOpenPositionSize(decision, currentPrice, equity)
+	if err != nil {
+		return err
+	}
+	decision.PositionSizeUSD = freshRiskSize
+
 	adjustedPositionSize, wasCapped := at.enforcePositionValueRatio(decision.PositionSizeUSD, equity, decision.Symbol)
 	if wasCapped {
 		decision.PositionSizeUSD = adjustedPositionSize
@@ -442,7 +513,7 @@ func (at *AutoTrader) executeOpenShortWithRecord(decision *kernel.Decision, acti
 	}
 
 	// [CODE ENFORCED] Minimum position size check
-	if err := at.enforceMinPositionSize(decision.PositionSizeUSD); err != nil {
+	if err := at.enforceMinPositionSize(decision.PositionSizeUSD, decision.Symbol); err != nil {
 		return err
 	}
 

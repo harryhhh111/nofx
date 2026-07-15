@@ -74,13 +74,17 @@ Strict boundaries:
 - Do not infer from raw K-lines.
 - Do not choose Fibonacci anchors or support/resistance manually.
 - Only use the provided structured factor snapshots, candidate signals, current positions, and memory.
+- For position close reviews, compare the current structured evidence with the position's opening_setup, opening_reasoning, and original protective anchors.
 - Market context can warn or reject a signal, but must not create new trades or rewrite strategy parameters.
 - If a required factor is unavailable, treat it as unavailable, not zero.
 - For open signals, use evidence.protective_levels.risk_reward as the authoritative structural risk/reward.
 - candidate.stop_loss is the execution stop with ATR buffer; do not use it to reduce structural risk/reward.
 - evidence.protective_levels.execution_risk_reward, when present, is for transparency and sizing awareness only; do not reject solely because the configured ATR buffer makes it lower than structural risk/reward.
 - evidence.protective_levels.target_risk_reward is the configured minimum RR, not an execution percentage placeholder.
-- For close signals that are profit-taking or elective exits, use current_positions.net_pnl as the profitability source after fees. Reject profit-taking closes when net_pnl <= 0, but do not block stop-loss, liquidation-risk, or thesis-invalidated risk exits only because net_pnl is negative.
+- For ordinary profit-taking closes, use current_positions.net_pnl as the profitability source after fees.
+- When using trading_stats or recent_orders as historical evidence, prefer net_* fields after fees over gross realized_pnl, pnl_pct, or total_pnl.
+- profit_protection_drawdown is a risk-protection exit after a fee-adjusted peak drawdown. Consider net_pnl, but do not reject it solely because the current net_pnl has fallen to zero or below.
+- Do not block stop-loss, liquidation-risk, thesis-invalidated, or profit-protection risk exits only because net_pnl is negative.
 
 Output only JSON inside <reviews> tags:
 <reviews>
@@ -104,6 +108,9 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 		FactorSummary     map[string]compactFactorSnapshot `json:"factor_summary"`
 		RelevantMemory    []TradeLesson                    `json:"relevant_memory,omitempty"`
 		CurrentPositions  []PositionInfo                   `json:"current_positions,omitempty"`
+		DrawdownAlerts    []DrawdownAlert                  `json:"drawdown_alerts,omitempty"`
+		TradingStats      *TradingStats                    `json:"trading_stats,omitempty"`
+		RecentOrders      []RecentOrder                    `json:"recent_orders,omitempty"`
 		ReviewInstruction string                           `json:"review_instruction"`
 	}{
 		GeneratedAt:       time.Now().UTC(),
@@ -112,7 +119,10 @@ func buildLLMReviewUserPrompt(req AIReviewRequest) (string, error) {
 		FactorSummary:     compactReviewFactorSnapshots(req.FactorSnapshot, req.Signals, req.CurrentPositions),
 		RelevantMemory:    req.RelevantMemory,
 		CurrentPositions:  req.CurrentPositions,
-		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades. For open signals, use evidence.protective_levels.risk_reward as the structural RR; candidate.stop_loss includes ATR execution buffer, and evidence.protective_levels.execution_risk_reward is for transparency and sizing awareness only. Do not reject solely because the ATR buffer lowers execution RR below structural RR. For profit-taking close signals, use current_positions.net_pnl after accumulated and estimated closing fees; do not treat gross unrealized_pnl as profit if net_pnl <= 0.",
+		DrawdownAlerts:    req.DrawdownAlerts,
+		TradingStats:      req.TradingStats,
+		RecentOrders:      req.RecentOrders,
+		ReviewInstruction: "Review each candidate signal. Return one review per signal. Do not create new trades. For open signals, use evidence.protective_levels.risk_reward as the structural RR; candidate.stop_loss includes ATR execution buffer, and evidence.protective_levels.execution_risk_reward is for transparency and sizing awareness only. Do not reject solely because the ATR buffer lowers execution RR below structural RR. For position closes, compare current evidence with current_positions opening thesis fields. Use current_positions.net_pnl after accumulated and estimated closing fees. For historical evidence, prefer net_* fields after fees. Treat profit_protection_drawdown as a risk-protection exit, not as a claim that the current trade is still net-profitable.",
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

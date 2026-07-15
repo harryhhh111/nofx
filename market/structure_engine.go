@@ -125,6 +125,14 @@ type swingPoint struct {
 	Kind  string
 }
 
+type structureClusterLevel struct {
+	Level       float64
+	Touches     int
+	DistancePct float64
+}
+
+const maxSupportResistanceLevels = 5
+
 func calculateFibonacciStructure(input MarketInput, req FibonacciRequest) (StructureSnapshot, error) {
 	if err := validateFibonacciRequest(req); err != nil {
 		return StructureSnapshot{}, err
@@ -220,20 +228,22 @@ func calculateSupportResistanceStructure(input MarketInput, req SupportRequest) 
 	}
 	zoneWidth := atr * req.ZoneWidthATR
 	current := klines[len(klines)-1].Close
-	support, supportTouches := nearestCluster(swings, "low", current, zoneWidth, req.MinTouches, req.MinDistanceBars, true)
-	resistance, resistanceTouches := nearestCluster(swings, "high", current, zoneWidth, req.MinTouches, req.MinDistanceBars, false)
-	if support <= 0 && resistance <= 0 {
+	supports := clusterLevels(swings, "low", current, zoneWidth, req.MinTouches, req.MinDistanceBars, true, maxSupportResistanceLevels)
+	resistances := clusterLevels(swings, "high", current, zoneWidth, req.MinTouches, req.MinDistanceBars, false, maxSupportResistanceLevels)
+	if len(supports) == 0 && len(resistances) == 0 {
 		return invalidStructure("support_resistance", req.Timeframe, "no_level_with_required_touches", sourceTime, input.AsOf, supportParameterHash(req)), nil
 	}
 
 	levels := map[string]float64{"zone_width": zoneWidth}
-	if support > 0 {
-		levels["support"] = support
-		levels["support_touches"] = float64(supportTouches)
+	writeClusterLevels(levels, "support", supports)
+	writeClusterLevels(levels, "resistance", resistances)
+	if len(supports) > 0 {
+		levels["support"] = supports[0].Level
+		levels["support_touches"] = float64(supports[0].Touches)
 	}
-	if resistance > 0 {
-		levels["resistance"] = resistance
-		levels["resistance_touches"] = float64(resistanceTouches)
+	if len(resistances) > 0 {
+		levels["resistance"] = resistances[0].Level
+		levels["resistance_touches"] = float64(resistances[0].Touches)
 	}
 	return StructureSnapshot{
 		Name:          "support_resistance",
@@ -334,10 +344,21 @@ func findSwingPoints(klines []Kline, startIndex, window int) []swingPoint {
 	return out
 }
 
-func nearestCluster(swings []swingPoint, kind string, current, width float64, minTouches, minDistanceBars int, below bool) (float64, int) {
-	bestLevel := 0.0
-	bestDistance := math.MaxFloat64
-	bestTouches := 0
+func writeClusterLevels(levels map[string]float64, prefix string, clusters []structureClusterLevel) {
+	if len(clusters) == 0 {
+		return
+	}
+	levels[prefix+"_count"] = float64(len(clusters))
+	for i, cluster := range clusters {
+		key := fmt.Sprintf("%s_%d", prefix, i+1)
+		levels[key] = cluster.Level
+		levels[key+"_touches"] = float64(cluster.Touches)
+		levels[key+"_distance_pct"] = cluster.DistancePct
+	}
+}
+
+func clusterLevels(swings []swingPoint, kind string, current, width float64, minTouches, minDistanceBars int, below bool, limit int) []structureClusterLevel {
+	out := []structureClusterLevel{}
 	for _, pivot := range swings {
 		if pivot.Kind != kind {
 			continue
@@ -369,14 +390,52 @@ func nearestCluster(swings []swingPoint, kind string, current, width float64, mi
 			continue
 		}
 		level := sum / float64(touches)
-		distance := math.Abs(current - level)
-		if distance < bestDistance {
-			bestDistance = distance
-			bestLevel = level
-			bestTouches = touches
+		if !levelOnSide(level, current, below) {
+			continue
 		}
+		distancePct := 0.0
+		if current > 0 {
+			distancePct = math.Abs(current-level) / current
+		}
+		out = append(out, structureClusterLevel{
+			Level:       level,
+			Touches:     touches,
+			DistancePct: distancePct,
+		})
 	}
-	return bestLevel, bestTouches
+	sort.Slice(out, func(i, j int) bool {
+		left := math.Abs(current - out[i].Level)
+		right := math.Abs(current - out[j].Level)
+		if left == right {
+			return out[i].Touches > out[j].Touches
+		}
+		return left < right
+	})
+	deduped := make([]structureClusterLevel, 0, len(out))
+	for _, cluster := range out {
+		duplicate := false
+		for _, existing := range deduped {
+			if math.Abs(existing.Level-cluster.Level) <= width {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		deduped = append(deduped, cluster)
+	}
+	if limit > 0 && len(deduped) > limit {
+		return deduped[:limit]
+	}
+	return deduped
+}
+
+func levelOnSide(level, current float64, below bool) bool {
+	if below {
+		return level <= current
+	}
+	return level >= current
 }
 
 func fibonacciLevels(direction string, low, high float64, levels []float64) map[string]float64 {

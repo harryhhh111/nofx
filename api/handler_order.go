@@ -271,10 +271,18 @@ func enrichOpenPositions(st *store.Store, traderID string, positions []map[strin
 			pos["execution_risk_reward"] = local.ExecutionRiskReward
 		}
 		if protective := protectiveByKey[key]; protective != nil {
-			pos["stop_loss_price"] = protective.StopLossPrice
-			pos["take_profit_price"] = protective.TakeProfitPrice
-			pos["stop_loss_order_id"] = protective.StopLossOrderID
-			pos["take_profit_order_id"] = protective.TakeProfitID
+			if protective.StopLossPrice > 0 && floatFromMap(pos, "stop_loss_price") <= 0 {
+				pos["stop_loss_price"] = protective.StopLossPrice
+			}
+			if protective.TakeProfitPrice > 0 && floatFromMap(pos, "take_profit_price") <= 0 {
+				pos["take_profit_price"] = protective.TakeProfitPrice
+			}
+			if protective.StopLossOrderID != "" {
+				pos["stop_loss_order_id"] = protective.StopLossOrderID
+			}
+			if protective.TakeProfitID != "" {
+				pos["take_profit_order_id"] = protective.TakeProfitID
+			}
 		}
 		if executionRR := executionRiskRewardFromPosition(
 			side,

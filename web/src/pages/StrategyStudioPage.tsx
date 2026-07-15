@@ -472,7 +472,7 @@ export function StrategyStudioPage() {
 
   const [strategies, setStrategies] = useState<Strategy[]>([])
   const [strategyTemplates, setStrategyTemplates] = useState<StrategyTemplate[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState('trend_following_balanced')
+  const [selectedTemplateId, setSelectedTemplateId] = useState('adaptive_structure_balanced')
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
   const [editingConfig, setEditingConfig] = useState<StrategyConfig | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -1876,7 +1876,7 @@ export function StrategyStudioPage() {
                 }`}
             >
               <BarChart3 className="w-4 h-4" />
-              {language === 'zh' ? '样本' : 'Stats'}
+              {language === 'zh' ? '校准数据' : 'Calibration Data'}
             </button>
             <button
               onClick={() => setActiveRightTab('replay')}
@@ -1884,7 +1884,7 @@ export function StrategyStudioPage() {
                 }`}
             >
               <RefreshCw className="w-4 h-4" />
-              {language === 'zh' ? '回放' : 'Replay'}
+              {language === 'zh' ? '参数回放' : 'Parameter Replay'}
             </button>
             <button
               onClick={() => setActiveRightTab('evolution')}
@@ -1892,7 +1892,7 @@ export function StrategyStudioPage() {
                 }`}
             >
               <Sparkles className="w-4 h-4" />
-              {language === 'zh' ? 'AI复盘' : 'AI Review'}
+              {language === 'zh' ? 'AI校准' : 'AI Calibration'}
             </button>
           </div>
 
@@ -2126,8 +2126,8 @@ export function StrategyStudioPage() {
                       <div className="rounded-lg border border-white/10 bg-black/20 p-2">
                         <div className="text-[10px] text-nofx-text-muted">
                           {language === 'zh'
-                            ? '证据因子由策略模板、编译器或 AI 复盘提案维护；手动调参优先使用 market_structure / 风控 / replay 报告。'
-                            : 'Evidence factors are maintained by templates, the compiler, or AI review proposals. Manual tuning should focus on market_structure, risk controls, and replay reports.'}
+                            ? '证据因子由策略模板、编译器或 AI 校准提案维护；手动调参优先使用 market_structure / 风控 / replay 报告。'
+                            : 'Evidence factors are maintained by templates, the compiler, or AI calibration proposals. Manual tuning should focus on market_structure, risk controls, and replay reports.'}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {(editingConfig.scoring_config.selected_factors || Object.keys(editingConfig.scoring_config.factor_weights || {})).map((factor) => {
@@ -2249,7 +2249,7 @@ export function StrategyStudioPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium text-nofx-text">
-                      {language === 'zh' ? '策略样本统计' : 'Strategy Sample Statistics'}
+                      {language === 'zh' ? '策略校准数据' : 'Strategy Calibration Data'}
                     </div>
                     <div className="text-[11px] text-nofx-text-muted">
                       {language === 'zh'
@@ -2292,7 +2292,7 @@ export function StrategyStudioPage() {
 	                      {[
 	                        [language === 'zh' ? '样本数' : 'Samples', calibrationReport.sample_count],
 	                        [language === 'zh' ? '候选信号' : 'Signals', calibrationReport.signal_count],
-	                        [language === 'zh' ? '已通过' : 'Approved', calibrationReport.approved_count],
+	                        [language === 'zh' ? '已执行' : 'Executed', calibrationReport.executed_count],
 	                        [language === 'zh' ? '未触发' : 'No signal', calibrationReport.no_signal_count],
                       ].map(([label, value]) => (
                         <div key={String(label)} className="rounded-lg border border-white/10 bg-black/20 p-3">
@@ -2310,8 +2310,8 @@ export function StrategyStudioPage() {
 	                        {[
 	                          [language === 'zh' ? '已平仓' : 'Closed', calibrationReport.closed_trade_count ?? 0],
 	                          [language === 'zh' ? '胜率' : 'Win rate', `${(((calibrationReport.win_rate ?? 0) as number) * 100).toFixed(1)}%`],
-	                          [language === 'zh' ? '总 PnL' : 'Total PnL', (calibrationReport.total_pnl ?? 0).toFixed(2)],
-	                          [language === 'zh' ? '平均 PnL' : 'Avg PnL', (calibrationReport.average_pnl ?? 0).toFixed(2)],
+	                          [language === 'zh' ? '净 PnL' : 'Net PnL', (calibrationReport.total_pnl ?? 0).toFixed(2)],
+	                          [language === 'zh' ? '平均净 PnL' : 'Avg net PnL', (calibrationReport.average_pnl ?? 0).toFixed(2)],
 	                        ].map(([label, value]) => (
 	                          <div key={String(label)} className="rounded border border-white/10 bg-nofx-bg p-2">
 	                            <div className="text-[10px] text-nofx-text-muted">{label}</div>
@@ -2337,6 +2337,12 @@ export function StrategyStudioPage() {
                             <span className="text-nofx-text">{value}</span>
                           </div>
                         ))}
+						{Object.entries(calibrationReport.execution_status_counts || {}).map(([key, value]) => (
+						  <div key={`execution-${key}`} className="flex justify-between gap-3">
+						    <span className="font-mono">execution:{key}</span>
+						    <span className="text-nofx-text">{value}</span>
+						  </div>
+						))}
                       </div>
                     </div>
 
@@ -2370,6 +2376,33 @@ export function StrategyStudioPage() {
                         )}
                       </div>
                     </div>
+
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs font-medium text-nofx-text">
+                        {language === 'zh' ? '行情 / Setup 结果' : 'Regime / Setup Outcomes'}
+                      </div>
+                      <div className="space-y-2">
+                        {(calibrationReport.regime_setup_stats || []).slice(0, 10).map((stat) => (
+                          <div key={`${stat.regime}-${stat.setup}-${stat.action}`} className="border-b border-white/10 pb-2 last:border-0 last:pb-0">
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-mono text-nofx-text">{stat.regime} / {stat.setup}</span>
+                              <span className="text-nofx-text-muted">{stat.action}</span>
+                            </div>
+                            <div className="mt-1 grid grid-cols-4 gap-1 text-[10px] text-nofx-text-muted">
+                              <span>{language === 'zh' ? '样本' : 'samples'} {stat.samples}</span>
+                              <span>{language === 'zh' ? '执行' : 'executed'} {stat.executed}</span>
+                              <span>{language === 'zh' ? '平仓' : 'closed'} {stat.closed_trades}</span>
+                              <span>PnL {(stat.total_pnl ?? 0).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        ))}
+                        {(calibrationReport.regime_setup_stats || []).length === 0 && (
+                          <div className="py-4 text-center text-xs text-nofx-text-muted">
+                            {language === 'zh' ? '暂无自适应路由样本' : 'No adaptive routing samples yet'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
@@ -2385,7 +2418,7 @@ export function StrategyStudioPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium text-nofx-text">
-                      {language === 'zh' ? 'K 线回放 / 参数扫描' : 'K-line Replay / Parameter Scan'}
+                        {language === 'zh' ? '参数回放 / K 线扫描' : 'Parameter Replay / K-line Scan'}
                     </div>
                     <div className="text-[11px] leading-relaxed text-nofx-text-muted">
                       {language === 'zh'
@@ -2444,8 +2477,8 @@ export function StrategyStudioPage() {
                               <span>{language === 'zh' ? '变更' : 'changed'} {scan.changed_from_baseline_count}</span>
                             </div>
                             <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-nofx-text-muted">
-                              <span>{language === 'zh' ? '保留通过' : 'approved kept'} {scan.approved_preserved_count}</span>
-                              <span>{language === 'zh' ? '改变通过' : 'approved changed'} {scan.approved_changed_count}</span>
+                              <span>{language === 'zh' ? '保留已执行' : 'executed kept'} {scan.executed_preserved_count}</span>
+                              <span>{language === 'zh' ? '改变已执行' : 'executed changed'} {scan.executed_changed_count}</span>
                             </div>
                             <div className="mt-2 text-[10px] text-nofx-text-muted">
                               <span className="font-medium text-nofx-text">{language === 'zh' ? '主要 setup' : 'Top setups'}:</span> {topReplaySetups(scan)}
@@ -2482,12 +2515,12 @@ export function StrategyStudioPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? 'AI 结构复盘提案' : 'AI Structure Review Proposal'}
+                        {language === 'zh' ? 'AI 策略校准提案' : 'AI Strategy Calibration Proposal'}
                       </div>
                       <div className="mt-1 text-[11px] leading-relaxed text-nofx-text-muted">
                         {language === 'zh'
-                          ? '调用 AI，基于 setup 样本、失败样本、已平仓模拟盘结果、K 线回放参数扫描和当前结构参数生成复盘提案；重点调整 market_structure、证据过滤和风控，不会自动保存或改变运行中的交易员。'
-                          : 'Calls AI to review setup samples, failure samples, linked paper outcomes, K-line replay parameter scans, and current structure parameters. It focuses on market_structure, evidence filters, and risk control, without saving or changing a running trader automatically.'}
+                          ? '调用 AI，基于 setup 样本、失败样本、已平仓模拟盘结果、K 线参数回放和当前结构参数生成校准提案；重点调整 market_structure、证据过滤和风控，不会自动保存或改变运行中的交易员。'
+                          : 'Calls AI to generate a calibration proposal from setup samples, failure samples, linked paper outcomes, K-line parameter replay, and current structure parameters. It focuses on market_structure, evidence filters, and risk control without saving or changing a running trader automatically.'}
                       </div>
                     </div>
                     <button

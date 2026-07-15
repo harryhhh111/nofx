@@ -2,6 +2,7 @@ package trader
 
 import (
 	"fmt"
+	"math"
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
@@ -9,6 +10,17 @@ import (
 	"strings"
 	"time"
 )
+
+type realtimePositionFeeProvider interface {
+	GetPositionTradingFees(symbol, side string, startTime time.Time) (float64, error)
+	GetCommissionRates(symbol string) (maker, taker float64, err error)
+}
+
+type positionFeeSnapshot struct {
+	AccumulatedFee    float64
+	EstimatedCloseFee float64
+	Source            string
+}
 
 // startDrawdownMonitor starts drawdown monitoring
 func (at *AutoTrader) startDrawdownMonitor() {
@@ -66,10 +78,13 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		logger.Infof("❌ Drawdown monitoring: failed to get positions: %v", err)
 		return
 	}
+	activePositionKeys := make(map[string]bool, len(positions))
 
 	for _, pos := range positions {
 		symbol := pos["symbol"].(string)
 		side := pos["side"].(string)
+		posKey := symbol + "_" + side
+		activePositionKeys[posKey] = true
 		entryPrice := pos["entryPrice"].(float64)
 		markPrice := pos["markPrice"].(float64)
 		quantity := pos["positionAmt"].(float64)
@@ -89,11 +104,11 @@ func (at *AutoTrader) checkPositionDrawdown() {
 			leverage = int(lev)
 		}
 
-		var currentPnLPct float64
+		var grossPnLPct float64
 		if side == "long" {
-			currentPnLPct = ((markPrice - entryPrice) / entryPrice) * float64(leverage) * 100
+			grossPnLPct = ((markPrice - entryPrice) / entryPrice) * float64(leverage) * 100
 		} else {
-			currentPnLPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
+			grossPnLPct = ((entryPrice - markPrice) / entryPrice) * float64(leverage) * 100
 		}
 		unrealizedPnl := 0.0
 		if v, ok := pos["unRealizedProfit"].(float64); ok {
@@ -103,10 +118,34 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		} else {
 			unrealizedPnl = (entryPrice - markPrice) * quantity
 		}
-		at.recordPositionExcursion(symbol, side, markPrice, unrealizedPnl, currentPnLPct)
+		at.recordPositionExcursion(symbol, side, markPrice, unrealizedPnl, grossPnLPct)
 
-		// Construct unique position identifier (distinguish long/short)
-		posKey := symbol + "_" + side
+		var dbPosition *store.TraderPosition
+		if at.store != nil {
+			dbPosition, _ = at.store.Position().GetOpenPositionBySymbol(at.id, market.Normalize(symbol), strings.ToUpper(side))
+		}
+		entryTimeMs := int64(0)
+		if dbPosition != nil {
+			entryTimeMs = dbPosition.EntryTime
+		}
+		if entryTimeMs <= 0 {
+			if createdTime, ok := pos["createdTime"].(int64); ok {
+				entryTimeMs = createdTime
+			} else if createdTime, ok := pos["createdTime"].(float64); ok {
+				entryTimeMs = int64(createdTime)
+			}
+		}
+		at.resetPeakPnLForPosition(posKey, entryTimeMs)
+		fees, feeErr := at.currentPositionFees(symbol, side, quantity*markPrice, entryTimeMs, dbPosition)
+		if feeErr != nil {
+			logger.Warnf("⚠️ Drawdown monitoring fee lookup for %s %s: %v", symbol, side, feeErr)
+		}
+		netPnL := unrealizedPnl - fees.AccumulatedFee - fees.EstimatedCloseFee
+		marginBasis := entryPrice * quantity / float64(leverage)
+		currentPnLPct := grossPnLPct
+		if marginBasis > 0 {
+			currentPnLPct = netPnL / marginBasis * 100
+		}
 
 		// Get historical peak profit for this position
 		at.peakPnLCacheMutex.RLock()
@@ -125,26 +164,28 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		drawdownPct := profitProtectionDrawdownPct(peakPnLPct, currentPnLPct)
 
 		if profitProtectionTriggered(peakPnLPct, currentPnLPct, minProfitPct, triggerPct) {
-			logger.Infof("🚨 Profit protection triggered: %s %s | Current profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
-				symbol, side, currentPnLPct, peakPnLPct, drawdownPct, map[bool]string{true: "ai-decide", false: "auto-close"}[useAI])
+			logger.Infof("🚨 Profit protection triggered: %s %s | Net profit: %.2f%% (%.2f USDT) | Fees: %.4f+%.4f | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
+				symbol, side, currentPnLPct, netPnL, fees.AccumulatedFee, fees.EstimatedCloseFee, peakPnLPct, drawdownPct, map[bool]string{true: "ai-decide", false: "auto-close"}[useAI])
 
 			if useAI {
 				// AI-decide mode: queue an alert into the next AI cycle instead of closing immediately
 				normalizedSymbol := market.Normalize(symbol)
 				openingReason := ""
-				if at.store != nil {
-					sideUpper := strings.ToUpper(side)
-					if dbPos, err := at.store.Position().GetOpenPositionBySymbol(at.id, normalizedSymbol, sideUpper); err == nil && dbPos != nil {
-						openingReason = dbPos.OpeningReasoning
-					}
+				if dbPosition != nil {
+					openingReason = dbPosition.OpeningReasoning
 				}
 				alert := kernel.DrawdownAlert{
-					Symbol:        normalizedSymbol,
-					Side:          side,
-					CurrentPnLPct: currentPnLPct,
-					PeakPnLPct:    peakPnLPct,
-					DrawdownPct:   drawdownPct,
-					OpeningReason: openingReason,
+					Symbol:            normalizedSymbol,
+					Side:              side,
+					CurrentPnLPct:     currentPnLPct,
+					PeakPnLPct:        peakPnLPct,
+					DrawdownPct:       drawdownPct,
+					CurrentNetPnL:     netPnL,
+					AccumulatedFee:    fees.AccumulatedFee,
+					EstimatedCloseFee: fees.EstimatedCloseFee,
+					FeeSource:         fees.Source,
+					OpeningReason:     openingReason,
+					ObservedAt:        time.Now().UTC().UnixMilli(),
 				}
 				at.pendingDrawdownAlertsMu.Lock()
 				// Deduplicate: replace existing alert for same symbol+side
@@ -172,10 +213,90 @@ func (at *AutoTrader) checkPositionDrawdown() {
 				}
 			}
 		} else if peakPnLPct >= minProfitPct {
-			logger.Infof("📊 Profit protection armed: %s %s | Profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
+			logger.Infof("📊 Profit protection armed: %s %s | Net profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
 				symbol, side, currentPnLPct, peakPnLPct, drawdownPct)
 		}
 	}
+	at.clearInactivePeakPnLCache(activePositionKeys)
+}
+
+func (at *AutoTrader) currentPositionFees(symbol, side string, positionNotional float64, entryTimeMs int64, dbPosition *store.TraderPosition) (positionFeeSnapshot, error) {
+	snapshot := positionFeeSnapshot{}
+	accumulatedSource := "estimated"
+	closeSource := "estimated_rate"
+	if dbPosition != nil {
+		snapshot.AccumulatedFee = math.Abs(dbPosition.Fee)
+		accumulatedSource = "database"
+	}
+	var lookupErrors []string
+	if provider, ok := at.trader.(realtimePositionFeeProvider); ok {
+		if entryTime := unixTimeFromStoredTimestamp(entryTimeMs); !entryTime.IsZero() {
+			actualFee, err := provider.GetPositionTradingFees(symbol, side, entryTime)
+			if err != nil {
+				lookupErrors = append(lookupErrors, err.Error())
+			} else {
+				snapshot.AccumulatedFee = math.Abs(actualFee)
+				accumulatedSource = "exchange_trades"
+			}
+		}
+		_, takerRate, err := provider.GetCommissionRates(symbol)
+		if err != nil {
+			lookupErrors = append(lookupErrors, err.Error())
+		} else if takerRate > 0 {
+			snapshot.EstimatedCloseFee = positionNotional * takerRate
+			closeSource = "exchange_rate"
+		}
+	}
+	if snapshot.EstimatedCloseFee <= 0 {
+		snapshot.EstimatedCloseFee = estimateCloseFee(positionNotional, snapshot.AccumulatedFee, dbPosition)
+	}
+	snapshot.Source = accumulatedSource + "_and_" + closeSource
+	if len(lookupErrors) > 0 {
+		return snapshot, fmt.Errorf("%s; using %s fee fallback", strings.Join(lookupErrors, "; "), snapshot.Source)
+	}
+	return snapshot, nil
+}
+
+func unixTimeFromStoredTimestamp(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
+	}
+	if value >= 1_000_000_000_000 {
+		return time.UnixMilli(value).UTC()
+	}
+	return time.Unix(value, 0).UTC()
+}
+
+func (at *AutoTrader) acknowledgeDrawdownAlerts(processed []kernel.DrawdownAlert) {
+	if len(processed) == 0 {
+		return
+	}
+	processedAt := make(map[string]int64, len(processed))
+	for _, alert := range processed {
+		symbol := market.Normalize(alert.Symbol)
+		side := normalizeProtectivePositionSide(alert.Side)
+		if symbol == "" || (side != "LONG" && side != "SHORT") {
+			continue
+		}
+		key := symbol + "_" + side
+		if alert.ObservedAt > processedAt[key] {
+			processedAt[key] = alert.ObservedAt
+		}
+	}
+
+	at.pendingDrawdownAlertsMu.Lock()
+	defer at.pendingDrawdownAlertsMu.Unlock()
+	retained := at.pendingDrawdownAlerts[:0]
+	for _, alert := range at.pendingDrawdownAlerts {
+		symbol := market.Normalize(alert.Symbol)
+		side := normalizeProtectivePositionSide(alert.Side)
+		key := symbol + "_" + side
+		observedAt, ok := processedAt[key]
+		if !ok || alert.ObservedAt > observedAt {
+			retained = append(retained, alert)
+		}
+	}
+	at.pendingDrawdownAlerts = retained
 }
 
 func profitProtectionTriggered(peakPnLPct, currentPnLPct, activationPct, triggerPct float64) bool {
@@ -289,6 +410,29 @@ func (at *AutoTrader) UpdatePeakPnL(symbol, side string, currentPnLPct float64) 
 	}
 }
 
+func (at *AutoTrader) resetPeakPnLForPosition(posKey string, entryTimeMs int64) {
+	if posKey == "" || entryTimeMs <= 0 {
+		return
+	}
+	at.peakPnLCacheMutex.Lock()
+	defer at.peakPnLCacheMutex.Unlock()
+	if previous := at.peakPnLPositionEntry[posKey]; previous > 0 && previous != entryTimeMs {
+		delete(at.peakPnLCache, posKey)
+	}
+	at.peakPnLPositionEntry[posKey] = entryTimeMs
+}
+
+func (at *AutoTrader) clearInactivePeakPnLCache(active map[string]bool) {
+	at.peakPnLCacheMutex.Lock()
+	defer at.peakPnLCacheMutex.Unlock()
+	for key := range at.peakPnLPositionEntry {
+		if !active[key] {
+			delete(at.peakPnLCache, key)
+			delete(at.peakPnLPositionEntry, key)
+		}
+	}
+}
+
 // ClearPeakPnLCache clears peak cache for specified position
 func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 	at.peakPnLCacheMutex.Lock()
@@ -296,6 +440,7 @@ func (at *AutoTrader) ClearPeakPnLCache(symbol, side string) {
 
 	posKey := symbol + "_" + side
 	delete(at.peakPnLCache, posKey)
+	delete(at.peakPnLPositionEntry, posKey)
 }
 
 // saveRiskCloseDecision saves a decision record for a risk-monitor-triggered position close.
@@ -389,7 +534,7 @@ func (at *AutoTrader) enforcePositionValueRatio(positionSizeUSD float64, equity 
 }
 
 // enforceMinPositionSize checks minimum position size (CODE ENFORCED)
-func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64) error {
+func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64, symbol string) error {
 	if at.config.StrategyConfig == nil {
 		return nil
 	}
@@ -397,6 +542,9 @@ func (at *AutoTrader) enforceMinPositionSize(positionSizeUSD float64) error {
 	minSize := at.config.StrategyConfig.RiskControl.MinPositionSize
 	if minSize <= 0 {
 		minSize = 12 // Default: 12 USDT
+	}
+	if isBTCETH(symbol) && minSize < 60 {
+		minSize = 60
 	}
 
 	if positionSizeUSD < minSize {

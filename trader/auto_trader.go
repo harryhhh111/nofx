@@ -116,6 +116,11 @@ type AutoTraderConfig struct {
 	StrategyConfig *store.StrategyConfig // Strategy configuration (coin sources, indicators, risk control, compiled rules, etc.)
 }
 
+type pendingOpeningReasoning struct {
+	Reasoning      string
+	EntryNotBefore int64
+}
+
 // AutoTrader automatic trader
 type AutoTrader struct {
 	id                      string // Trader unique identifier
@@ -135,15 +140,17 @@ type AutoTrader struct {
 	lastResetTime           time.Time
 	stopUntil               time.Time
 	isRunning               bool
-	isRunningMutex          sync.RWMutex           // Mutex to protect isRunning flag
-	startTime               time.Time              // System start time
-	callCount               int                    // AI call count
-	positionFirstSeenTime   map[string]int64       // Position first seen time (symbol_side -> timestamp in milliseconds)
-	stopMonitorCh           chan struct{}          // Used to stop monitoring goroutine
-	monitorWg               sync.WaitGroup         // Used to wait for monitoring goroutine to finish
-	peakPnLCache            map[string]float64     // Peak profit cache (symbol -> peak P&L percentage)
-	peakPnLCacheMutex       sync.RWMutex           // Cache read-write lock
-	pendingOpenReasoning    map[string]string      // Pending opening reasoning (symbol_SIDE -> reasoning)
+	isRunningMutex          sync.RWMutex       // Mutex to protect isRunning flag
+	startTime               time.Time          // System start time
+	callCount               int                // AI call count
+	positionFirstSeenTime   map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
+	stopMonitorCh           chan struct{}      // Used to stop monitoring goroutine
+	monitorWg               sync.WaitGroup     // Used to wait for monitoring goroutine to finish
+	peakPnLCache            map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
+	peakPnLPositionEntry    map[string]int64   // Entry time associated with each peak cache entry
+	peakPnLCacheMutex       sync.RWMutex       // Cache read-write lock
+	pendingOpenReasoning    map[string]pendingOpeningReasoning
+	pendingOpenReasoningMu  sync.Mutex             // Mutex for pendingOpenReasoning
 	recentlyClosedByRisk    map[string]time.Time   // Positions recently closed by risk monitor (symbol_side -> close time)
 	recentlyClosedByRiskMu  sync.RWMutex           // Mutex for recentlyClosedByRisk
 	pendingDrawdownAlerts   []kernel.DrawdownAlert // Drawdown alerts queued for the next AI cycle (AI-decide mode)
@@ -336,6 +343,10 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	if config.StrategyConfig == nil {
 		return nil, fmt.Errorf("[%s] strategy not configured", config.Name)
 	}
+	config.StrategyConfig.NormalizeForExecution()
+	if err := config.StrategyConfig.ValidateExecutableSignalSource(); err != nil {
+		return nil, fmt.Errorf("[%s] strategy configuration invalid: %w", config.Name, err)
+	}
 	strategyEngine := kernel.NewStrategyEngine(config.StrategyConfig, config.Claw402WalletKey)
 	strategyEngine.SetTraderInfo(config.ID, config.Name)
 	logger.Infof("✓ [%s] Using strategy engine (strategy configuration loaded)", config.Name)
@@ -362,8 +373,9 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 		stopMonitorCh:         make(chan struct{}),
 		monitorWg:             sync.WaitGroup{},
 		peakPnLCache:          make(map[string]float64),
+		peakPnLPositionEntry:  make(map[string]int64),
 		peakPnLCacheMutex:     sync.RWMutex{},
-		pendingOpenReasoning:  make(map[string]string),
+		pendingOpenReasoning:  make(map[string]pendingOpeningReasoning),
 		recentlyClosedByRisk:  make(map[string]time.Time),
 		lastBalanceSyncTime:   time.Now(),
 		userID:                userID,
@@ -434,7 +446,7 @@ func (at *AutoTrader) Run() error {
 	// Start Aster order sync if using Aster exchange
 	if at.exchange == "aster" {
 		if asterTrader, ok := at.trader.(*aster.AsterTrader); ok && at.store != nil {
-			asterTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second)
+			asterTrader.StartOrderSync(at.id, at.exchangeID, at.exchange, at.store, 30*time.Second, at.stopMonitorCh)
 			logger.Infof("🔄 [%s] Aster order+position sync enabled (every 30s)", at.name)
 		}
 	}

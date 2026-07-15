@@ -333,27 +333,31 @@ func TestStrategyTemplatesKeepDistinctTradingProfiles(t *testing.T) {
 	for _, template := range ListStrategyTemplates("zh") {
 		templates[template.ID] = template
 	}
+	if len(templates) != 3 {
+		t.Fatalf("expected exactly three adaptive risk profiles, got %d", len(templates))
+	}
 
-	trend := templates["trend_following_balanced"].Config
-	pullback := templates["pullback_balanced"].Config
-	rangeReversal := templates["range_reversal_balanced"].Config
-	breakout := templates["breakout_balanced"].Config
-	volatility := templates["volatility_breakout_aggressive"].Config
+	conservative := templates["adaptive_structure_conservative"].Config
+	balanced := templates["adaptive_structure_balanced"].Config
+	aggressive := templates["adaptive_structure_aggressive"].Config
 
-	if trend.ScoringConfig.LongThreshold <= pullback.ScoringConfig.LongThreshold {
-		t.Fatalf("trend following should require stronger primary evidence than pullback: trend=%.2f pullback=%.2f", trend.ScoringConfig.LongThreshold, pullback.ScoringConfig.LongThreshold)
+	for name, config := range map[string]StrategyConfig{"conservative": conservative, "balanced": balanced, "aggressive": aggressive} {
+		if config.StrategyArchetype != "adaptive_structure" {
+			t.Fatalf("%s template should use adaptive structure routing: %+v", name, config)
+		}
+		if config.ScoringConfig.FactorWeights["structure"] != config.ScoringConfig.FactorWeights["trend"] {
+			t.Fatalf("%s template should start from the same neutral evidence baseline: %+v", name, config.ScoringConfig.FactorWeights)
+		}
 	}
-	if rangeReversal.ScoringConfig.FactorWeights["structure"] <= rangeReversal.ScoringConfig.FactorWeights["trend"] {
-		t.Fatalf("range reversal should prioritize structure over trend: %+v", rangeReversal.ScoringConfig.FactorWeights)
+	if !(conservative.RiskControl.RiskPerTradePct < balanced.RiskControl.RiskPerTradePct && balanced.RiskControl.RiskPerTradePct < aggressive.RiskControl.RiskPerTradePct) {
+		t.Fatalf("risk profiles should increase monotonically: conservative=%+v balanced=%+v aggressive=%+v", conservative.RiskControl, balanced.RiskControl, aggressive.RiskControl)
 	}
-	if breakout.ScoringConfig.FactorWeights["trend"] <= breakout.ScoringConfig.FactorWeights["structure"] {
-		t.Fatalf("breakout should prioritize directional evidence over structure: %+v", breakout.ScoringConfig.FactorWeights)
+	if !(conservative.RiskControl.BTCETHMaxLeverage < balanced.RiskControl.BTCETHMaxLeverage && balanced.RiskControl.BTCETHMaxLeverage < aggressive.RiskControl.BTCETHMaxLeverage) {
+		t.Fatalf("leverage profiles should increase monotonically: conservative=%+v balanced=%+v aggressive=%+v", conservative.RiskControl, balanced.RiskControl, aggressive.RiskControl)
 	}
-	if volatility.RiskControl.RiskPerTradePct >= trend.RiskControl.RiskPerTradePct ||
-		volatility.RiskControl.StopLossATRBuffer <= trend.RiskControl.StopLossATRBuffer {
-		t.Fatalf("volatility breakout should use smaller risk and wider ATR buffer than trend following: volatility=%+v trend=%+v", volatility.RiskControl, trend.RiskControl)
-	}
-	if volatility.RiskControl.BTCETHMaxLeverage >= trend.RiskControl.BTCETHMaxLeverage {
-		t.Fatalf("volatility breakout should cap leverage below trend following: volatility=%d trend=%d", volatility.RiskControl.BTCETHMaxLeverage, trend.RiskControl.BTCETHMaxLeverage)
+	for _, id := range []string{"adaptive_structure_conservative", "adaptive_structure_balanced", "adaptive_structure_aggressive"} {
+		if templates[id].ID == "" {
+			t.Fatalf("adaptive risk profile %q is missing", id)
+		}
 	}
 }

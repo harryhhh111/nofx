@@ -8,18 +8,23 @@ import (
 
 // TraderStats trading statistics metrics
 type TraderStats struct {
-	TotalTrades     int     `json:"total_trades"`
-	WinTrades       int     `json:"win_trades"`
-	LossTrades      int     `json:"loss_trades"`
-	WinRate         float64 `json:"win_rate"`
-	ProfitFactor    float64 `json:"profit_factor"`
-	SharpeRatio     float64 `json:"sharpe_ratio"`
-	TotalPnL        float64 `json:"total_pnl"`
-	TotalFee        float64 `json:"total_fee"`
-	AvgWin          float64 `json:"avg_win"`
-	AvgLoss         float64 `json:"avg_loss"`
-	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
-	ProfitLossRatio float64 `json:"profit_loss_ratio"`
+	TotalTrades       int     `json:"total_trades"`
+	WinTrades         int     `json:"win_trades"`
+	LossTrades        int     `json:"loss_trades"`
+	WinRate           float64 `json:"win_rate"`
+	ProfitFactor      float64 `json:"profit_factor"`
+	SharpeRatio       float64 `json:"sharpe_ratio"`
+	TotalPnL          float64 `json:"total_pnl"`
+	TotalFee          float64 `json:"total_fee"`
+	NetPnL            float64 `json:"net_pnl"`
+	NetWinRate        float64 `json:"net_win_rate"`
+	NetProfitFactor   float64 `json:"net_profit_factor"`
+	NetSharpeRatio    float64 `json:"net_sharpe_ratio"`
+	NetMaxDrawdownPct float64 `json:"net_max_drawdown_pct"`
+	AvgWin            float64 `json:"avg_win"`
+	AvgLoss           float64 `json:"avg_loss"`
+	MaxDrawdownPct    float64 `json:"max_drawdown_pct"`
+	ProfitLossRatio   float64 `json:"profit_loss_ratio"`
 }
 
 // GetPositionStats gets position statistics
@@ -76,13 +81,20 @@ func (s *PositionStore) GetFullStats(traderID string) (*TraderStats, error) {
 	}
 
 	var pnls []float64
+	var netPnls []float64
 	var totalWin, totalLoss float64
+	var netWins int
+	var netTotalWin, netTotalLoss float64
 
 	for _, pos := range positions {
 		stats.TotalTrades++
 		stats.TotalPnL += pos.RealizedPnL
-		stats.TotalFee += pos.Fee
+		fee := math.Abs(pos.Fee)
+		netPnL := pos.RealizedPnL - fee
+		stats.TotalFee += fee
+		stats.NetPnL += netPnL
 		pnls = append(pnls, pos.RealizedPnL)
+		netPnls = append(netPnls, netPnL)
 
 		if pos.RealizedPnL > 0 {
 			stats.WinTrades++
@@ -91,13 +103,23 @@ func (s *PositionStore) GetFullStats(traderID string) (*TraderStats, error) {
 			stats.LossTrades++
 			totalLoss += -pos.RealizedPnL
 		}
+		if netPnL > 0 {
+			netWins++
+			netTotalWin += netPnL
+		} else if netPnL < 0 {
+			netTotalLoss += -netPnL
+		}
 	}
 
 	if stats.TotalTrades > 0 {
 		stats.WinRate = float64(stats.WinTrades) / float64(stats.TotalTrades) * 100
+		stats.NetWinRate = float64(netWins) / float64(stats.TotalTrades) * 100
 	}
 	if totalLoss > 0 {
 		stats.ProfitFactor = totalWin / totalLoss
+	}
+	if netTotalLoss > 0 {
+		stats.NetProfitFactor = netTotalWin / netTotalLoss
 	}
 	if stats.WinTrades > 0 {
 		stats.AvgWin = totalWin / float64(stats.WinTrades)
@@ -110,9 +132,11 @@ func (s *PositionStore) GetFullStats(traderID string) (*TraderStats, error) {
 	}
 	if len(pnls) > 1 {
 		stats.SharpeRatio = calculateSharpeRatioFromPnls(pnls)
+		stats.NetSharpeRatio = calculateSharpeRatioFromPnls(netPnls)
 	}
 	if len(pnls) > 0 {
 		stats.MaxDrawdownPct = calculateMaxDrawdownFromPnls(pnls)
+		stats.NetMaxDrawdownPct = calculateMaxDrawdownFromPnls(netPnls)
 	}
 
 	return stats, nil
@@ -125,7 +149,10 @@ type RecentTrade struct {
 	EntryPrice   float64 `json:"entry_price"`
 	ExitPrice    float64 `json:"exit_price"`
 	RealizedPnL  float64 `json:"realized_pnl"`
+	Fee          float64 `json:"fee"`
+	NetPnL       float64 `json:"net_pnl"`
 	PnLPct       float64 `json:"pnl_pct"`
+	NetPnLPct    float64 `json:"net_pnl_pct"`
 	EntryTime    int64   `json:"entry_time"`
 	ExitTime     int64   `json:"exit_time"`
 	HoldDuration string  `json:"hold_duration"`
@@ -144,12 +171,15 @@ func (s *PositionStore) GetRecentTrades(traderID string, limit int) ([]RecentTra
 
 	var trades []RecentTrade
 	for _, pos := range positions {
+		fee := math.Abs(pos.Fee)
 		t := RecentTrade{
 			Symbol:      pos.Symbol,
 			Side:        strings.ToLower(pos.Side),
 			EntryPrice:  pos.EntryPrice,
 			ExitPrice:   pos.ExitPrice,
 			RealizedPnL: pos.RealizedPnL,
+			Fee:         fee,
+			NetPnL:      pos.RealizedPnL - fee,
 			EntryTime:   pos.EntryTime / 1000, // Convert ms to seconds for API compatibility
 		}
 
@@ -164,6 +194,14 @@ func (s *PositionStore) GetRecentTrades(traderID string, limit int) ([]RecentTra
 				t.PnLPct = (pos.ExitPrice - pos.EntryPrice) / pos.EntryPrice * 100 * float64(pos.Leverage)
 			} else {
 				t.PnLPct = (pos.EntryPrice - pos.ExitPrice) / pos.EntryPrice * 100 * float64(pos.Leverage)
+			}
+			leverage := pos.Leverage
+			if leverage <= 0 {
+				leverage = 1
+			}
+			marginBasis := pos.EntryPrice * pos.EntryQuantity / float64(leverage)
+			if marginBasis > 0 {
+				t.NetPnLPct = t.NetPnL / marginBasis * 100
 			}
 		}
 
@@ -315,8 +353,8 @@ func (s *PositionStore) GetHoldingTimeStats(traderID string) ([]HoldingTimeStats
 	}
 
 	rangeStats := map[string]*struct {
-		count   int
-		wins    int
+		count    int
+		wins     int
 		totalPnL float64
 	}{
 		"<1h":   {},

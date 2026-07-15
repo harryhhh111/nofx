@@ -35,3 +35,18 @@ func TestClosedKlinesOnlyUsesOpenTimeWhenCloseTimeMissing(t *testing.T) {
 		t.Fatalf("expected inferred open bar to be dropped, got %d", len(closed))
 	}
 }
+
+func TestIncludeOpenBarForRoleOnlyAllowsDistinctEntryTimeframe(t *testing.T) {
+	if !includeOpenBarForRole("5m", "15m", "5m", true) {
+		t.Fatal("expected distinct entry timeframe to allow the open bar")
+	}
+	if includeOpenBarForRole("15m", "15m", "5m", true) {
+		t.Fatal("primary timeframe must use closed bars")
+	}
+	if includeOpenBarForRole("1h", "15m", "5m", true) {
+		t.Fatal("confirmation timeframe must use closed bars")
+	}
+	if includeOpenBarForRole("15m", "15m", "15m", true) {
+		t.Fatal("shared primary and entry timeframe must use closed bars")
+	}
+}

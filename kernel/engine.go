@@ -38,19 +38,22 @@ type PositionInfo struct {
 	UpdateTime        int64   `json:"update_time"`         // Position update timestamp (milliseconds)
 	AccumulatedFee    float64 `json:"accumulated_fee"`     // Total fees paid so far (opening)
 	EstimatedCloseFee float64 `json:"estimated_close_fee"` // Estimated fee to close this position
-	NetPnL            float64 `json:"net_pnl"`             // UnrealizedPnL - AccumulatedFee - EstimatedCloseFee
-	StopLossPrice     float64 `json:"stop_loss_price"`     // Active stop-loss order price on exchange (0 if none)
-	TakeProfitPrice   float64 `json:"take_profit_price"`   // Active take-profit order price on exchange (0 if none)
-}
-
-// PositionMemory holds the AI's reasoning from when a position was originally opened,
-// plus the most recent hold-decision snapshot.
-type PositionMemory struct {
-	Symbol            string // trading pair, e.g. "BTCUSDT"
-	Side              string // "long" or "short"
-	OpeningReasoning  string // Position-specific reasoning from the AI when this trade was opened
-	CotSummary        string // AI reasoning summary from the opening cycle (fallback if OpeningReasoning is empty)
-	LastReviewSummary string // structured snapshot from the last hold decision
+	FeeSource         string  `json:"fee_source,omitempty"`
+	NetPnL            float64 `json:"net_pnl"`           // UnrealizedPnL - AccumulatedFee - EstimatedCloseFee
+	StopLossPrice     float64 `json:"stop_loss_price"`   // Active stop-loss order price on exchange (0 if none)
+	TakeProfitPrice   float64 `json:"take_profit_price"` // Active take-profit order price on exchange (0 if none)
+	OpeningSignalID   string  `json:"opening_signal_id,omitempty"`
+	OpeningRuleID     string  `json:"opening_rule_id,omitempty"`
+	OpeningSetup      string  `json:"opening_setup,omitempty"`
+	StrategyVersion   string  `json:"strategy_version,omitempty"`
+	OpeningReasoning  string  `json:"opening_reasoning,omitempty"`
+	LastReviewSummary string  `json:"last_review_summary,omitempty"`
+	StopLossAnchor    float64 `json:"stop_loss_anchor,omitempty"`
+	StopLossSource    string  `json:"stop_loss_source,omitempty"`
+	StopLossTimeframe string  `json:"stop_loss_timeframe,omitempty"`
+	TakeProfitAnchor  float64 `json:"take_profit_anchor,omitempty"`
+	TakeProfitSource  string  `json:"take_profit_source,omitempty"`
+	TakeProfitTF      string  `json:"take_profit_timeframe,omitempty"`
 }
 
 // AccountInfo account information
@@ -82,14 +85,20 @@ type OITopData struct {
 
 // TradingStats trading statistics (for AI input)
 type TradingStats struct {
-	TotalTrades    int     `json:"total_trades"`     // Total number of trades (closed)
-	WinRate        float64 `json:"win_rate"`         // Win rate (%)
-	ProfitFactor   float64 `json:"profit_factor"`    // Profit factor
-	SharpeRatio    float64 `json:"sharpe_ratio"`     // Sharpe ratio
-	TotalPnL       float64 `json:"total_pnl"`        // Total profit/loss
-	AvgWin         float64 `json:"avg_win"`          // Average win
-	AvgLoss        float64 `json:"avg_loss"`         // Average loss
-	MaxDrawdownPct float64 `json:"max_drawdown_pct"` // Maximum drawdown (%)
+	TotalTrades       int     `json:"total_trades"`         // Total number of trades (closed)
+	WinRate           float64 `json:"win_rate"`             // Win rate (%)
+	ProfitFactor      float64 `json:"profit_factor"`        // Profit factor
+	SharpeRatio       float64 `json:"sharpe_ratio"`         // Sharpe ratio
+	TotalPnL          float64 `json:"total_pnl"`            // Total profit/loss
+	TotalFee          float64 `json:"total_fee"`            // Total trading fees
+	NetPnL            float64 `json:"net_pnl"`              // Profit/loss after fees
+	NetWinRate        float64 `json:"net_win_rate"`         // Win rate after fees (%)
+	NetProfitFactor   float64 `json:"net_profit_factor"`    // Profit factor after fees
+	NetSharpeRatio    float64 `json:"net_sharpe_ratio"`     // Sharpe ratio after fees
+	NetMaxDrawdownPct float64 `json:"net_max_drawdown_pct"` // Drawdown after fees (%)
+	AvgWin            float64 `json:"avg_win"`              // Average win
+	AvgLoss           float64 `json:"avg_loss"`             // Average loss
+	MaxDrawdownPct    float64 `json:"max_drawdown_pct"`     // Maximum drawdown (%)
 }
 
 // RecentOrder recently completed order (for AI input)
@@ -99,7 +108,10 @@ type RecentOrder struct {
 	EntryPrice   float64 `json:"entry_price"`   // Entry price
 	ExitPrice    float64 `json:"exit_price"`    // Exit price
 	RealizedPnL  float64 `json:"realized_pnl"`  // Realized profit/loss
+	Fee          float64 `json:"fee"`           // Trading fees
+	NetPnL       float64 `json:"net_pnl"`       // Profit/loss after fees
 	PnLPct       float64 `json:"pnl_pct"`       // Profit/loss percentage
+	NetPnLPct    float64 `json:"net_pnl_pct"`   // Return after fees
 	EntryTime    string  `json:"entry_time"`    // Entry time
 	ExitTime     string  `json:"exit_time"`     // Exit time
 	HoldDuration string  `json:"hold_duration"` // Hold duration, e.g. "2h30m"
@@ -128,7 +140,6 @@ type Context struct {
 	BTCETHLeverage     int                                `json:"-"`
 	AltcoinLeverage    int                                `json:"-"`
 	Timeframes         []string                           `json:"-"`
-	PositionMemories   []PositionMemory                   `json:"-"` // AI reasoning from when each open position was created
 	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
 	DataFetchErrors    []string                           `json:"-"` // Non-fatal errors from candidate coin / data source fetching
 	TradeMemory        TradeMemoryStore                   `json:"-"` // Relevant post-trade lessons for structured review
@@ -137,12 +148,17 @@ type Context struct {
 // DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
 // so it can decide whether to close the position.
 type DrawdownAlert struct {
-	Symbol        string  `json:"symbol"`
-	Side          string  `json:"side"`
-	CurrentPnLPct float64 `json:"current_pnl_pct"`
-	PeakPnLPct    float64 `json:"peak_pnl_pct"`
-	DrawdownPct   float64 `json:"drawdown_pct"`
-	OpeningReason string  `json:"opening_reason,omitempty"`
+	Symbol            string  `json:"symbol"`
+	Side              string  `json:"side"`
+	CurrentPnLPct     float64 `json:"current_pnl_pct"`
+	PeakPnLPct        float64 `json:"peak_pnl_pct"`
+	DrawdownPct       float64 `json:"drawdown_pct"`
+	CurrentNetPnL     float64 `json:"current_net_pnl"`
+	AccumulatedFee    float64 `json:"accumulated_fee"`
+	EstimatedCloseFee float64 `json:"estimated_close_fee"`
+	FeeSource         string  `json:"fee_source,omitempty"`
+	OpeningReason     string  `json:"opening_reason,omitempty"`
+	ObservedAt        int64   `json:"observed_at"`
 }
 
 // ExternalDataItem holds the result of a single external data source fetch.
@@ -350,17 +366,18 @@ type TradingInputAudit struct {
 }
 
 type KlineInputAudit struct {
-	MarketDataSource string   `json:"market_data_source"`
-	Timeframes       []string `json:"timeframes"`
-	PrimaryTimeframe string   `json:"primary_timeframe"`
-	EntryTimeframe   string   `json:"entry_timeframe,omitempty"`
-	Confirmations    []string `json:"confirmations,omitempty"`
-	UnusedTimeframes []string `json:"unused_timeframes,omitempty"`
-	DisplayCount     int      `json:"display_count"`
-	ComputeLookback  int      `json:"compute_lookback"`
-	RequiredLookback int      `json:"required_lookback"`
-	WarmupTarget     int      `json:"warmup_target"`
-	IncludeOpenBar   bool     `json:"include_open_bar"`
+	MarketDataSource  string   `json:"market_data_source"`
+	Timeframes        []string `json:"timeframes"`
+	PrimaryTimeframe  string   `json:"primary_timeframe"`
+	EntryTimeframe    string   `json:"entry_timeframe,omitempty"`
+	Confirmations     []string `json:"confirmations,omitempty"`
+	UnusedTimeframes  []string `json:"unused_timeframes,omitempty"`
+	DisplayCount      int      `json:"display_count"`
+	ComputeLookback   int      `json:"compute_lookback"`
+	RequiredLookback  int      `json:"required_lookback"`
+	WarmupTarget      int      `json:"warmup_target"`
+	IncludeOpenBar    bool     `json:"include_open_bar"`
+	OpenBarTimeframes []string `json:"open_bar_timeframes,omitempty"`
 }
 
 type SymbolInputAudit struct {
@@ -440,6 +457,9 @@ type StrategyEngine struct {
 // NewStrategyEngine creates strategy execution engine.
 // claw402WalletKey is optional; if provided, NofxOS data requests are routed through claw402.
 func NewStrategyEngine(config *store.StrategyConfig, claw402WalletKey ...string) *StrategyEngine {
+	if config != nil {
+		config.NormalizeForExecution()
+	}
 	client := nofxos.NewClient(nofxos.DefaultBaseURL, "")
 
 	// If claw402 wallet key is provided (from trader's AI config), route through claw402

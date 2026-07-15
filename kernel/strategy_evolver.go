@@ -54,6 +54,7 @@ type StrategyEvolutionClosedTrade struct {
 	StrategyVersion        string  `json:"strategy_version,omitempty"`
 	RealizedPnL            float64 `json:"realized_pnl"`
 	Fee                    float64 `json:"fee"`
+	NetPnL                 float64 `json:"net_pnl"`
 	HoldDurationMinutes    int64   `json:"hold_duration_minutes,omitempty"`
 	CloseReason            string  `json:"close_reason,omitempty"`
 	EntryPrice             float64 `json:"entry_price"`
@@ -180,12 +181,10 @@ func (c *StrategyEvolutionChange) UnmarshalJSON(data []byte) error {
 }
 
 type StrategyEvolutionConfigPatch struct {
-	StrategyArchetype string                         `json:"strategy_archetype,omitempty"`
-	RiskProfile       string                         `json:"risk_profile,omitempty"`
-	EvidenceFilters   *EvidenceFilterEvolutionPatch  `json:"evidence_filters,omitempty"`
-	MarketStructure   *MarketStructureEvolutionPatch `json:"market_structure,omitempty"`
-	RiskControl       *RiskControlEvolutionPatch     `json:"risk_control,omitempty"`
-	Klines            *KlineEvolutionPatch           `json:"klines,omitempty"`
+	EvidenceFilters *EvidenceFilterEvolutionPatch  `json:"evidence_filters,omitempty"`
+	MarketStructure *MarketStructureEvolutionPatch `json:"market_structure,omitempty"`
+	RiskControl     *RiskControlEvolutionPatch     `json:"risk_control,omitempty"`
+	Klines          *KlineEvolutionPatch           `json:"klines,omitempty"`
 }
 
 type EvidenceFilterEvolutionPatch struct {
@@ -339,12 +338,6 @@ func ApplyStrategyEvolutionPatch(base *store.StrategyConfig, patch StrategyEvolu
 		return nil, nil, fmt.Errorf("clone strategy config: %w", err)
 	}
 	warnings := []string{}
-	if strings.TrimSpace(patch.StrategyArchetype) != "" {
-		next.StrategyArchetype = strings.TrimSpace(patch.StrategyArchetype)
-	}
-	if strings.TrimSpace(patch.RiskProfile) != "" {
-		next.RiskProfile = strings.TrimSpace(patch.RiskProfile)
-	}
 	if patch.EvidenceFilters != nil {
 		if next.ScoringConfig == nil {
 			next.ScoringConfig = &store.ScoringStrategyConfig{Enabled: true}
@@ -386,7 +379,10 @@ You are a strategy evolution analyst for a deterministic crypto trading system.
 
 Your task:
 - Review historical structured evidence, closed paper outcomes, and current strategy parameters.
+- Evaluate trade outcomes by net_pnl after fees; realized_pnl is the gross exchange result.
 - Use replay.parameter_scans to judge whether market_structure parameter changes are stable across persisted K-line windows before proposing them.
+- Replay is a setup-classification sensitivity scan, not a profitability backtest. Never infer higher returns from tradable_count, changed_from_baseline_count, or stability alone.
+- Connect any proposed parameter change to closed net outcomes for the affected symbol regime, setup, and side; otherwise leave that parameter unchanged.
 - Produce a conservative manual strategy improvement proposal.
 - The program calculates K-lines, indicators, market_structure, setup detection, evidence filters, risk gate decisions, and paper outcomes. Do not recalculate raw indicators.
 - Do not invent unavailable market data.
@@ -398,11 +394,10 @@ Your task:
 - Do not "optimize" by blindly tightening min_confidence, min_risk_reward_ratio, max_positions, market_structure filters, or timeframe roles just to reduce losses.
 - If a change may reduce trade frequency, explain the specific evidence: affected setup(s), sample/outcome counts, loss pattern, and why a less restrictive adjustment is insufficient.
 - Prefer targeted improvements that preserve useful opportunities: tune market_structure swing/leg filters, adjust evidence factor weights, fix mismatched timeframe roles, improve stop/target derivation, or isolate a clearly losing setup before globally tightening the strategy.
-- Do not recommend a market_structure parameter change only because one variant changes fewer signals. Prefer variants that preserve approved setups, reduce unstable/noisy classifications, and have enough replayable samples.
+- Do not recommend a market_structure parameter change only because one variant changes fewer signals. Prefer variants that preserve setups tied to executed trades, reduce unstable/noisy classifications, and have enough replayable samples.
 - In current_config.risk_control, stop_loss_atr_buffer is an explicit ATR multiple; missing values have already been normalized to the product default.
 
 Allowed config_patch fields only:
-- strategy_archetype, risk_profile
 - evidence_filters.factor_weights, min_available_weight_ratio, min_confidence
 - market_structure.enable_market_structure, timeframe, lookback, lookback_by_timeframe, swing_window, min_leg_bars, min_leg_atr_multiple, zigzag_threshold_pct, breakout_buffer_atr, retest_tolerance_atr, exhaustion_rsi_period
 - risk_control.max_positions, btc_eth_max_leverage, altcoin_max_leverage, risk_per_trade_pct, min_risk_reward_ratio, min_confidence, stop_loss_atr_buffer, stop_loss_timeframe_mode, stop_loss_timeframe
@@ -635,8 +630,8 @@ func buildEvolutionDataQualityNotes(report *store.SignalCalibrationReport) []str
 	if !report.EnoughOutcomes {
 		notes = append(notes, fmt.Sprintf("closed outcomes %d is below recommended %d", report.ClosedTradeCount, report.MinRequiredOutcomes))
 	}
-	if report.ApprovedCount == 0 {
-		notes = append(notes, "no approved signals were observed")
+	if report.ExecutedCount == 0 {
+		notes = append(notes, "no approved signals were executed")
 	}
 	if report.TotalPnL < 0 {
 		notes = append(notes, fmt.Sprintf("linked paper outcome PnL is negative: %.2f", report.TotalPnL))
@@ -656,6 +651,7 @@ func summarizeClosedTrade(pos store.TraderPosition) StrategyEvolutionClosedTrade
 		StrategyVersion:        pos.StrategyVersion,
 		RealizedPnL:            round2(pos.RealizedPnL),
 		Fee:                    round2(pos.Fee),
+		NetPnL:                 round2(pos.RealizedPnL - pos.Fee),
 		HoldDurationMinutes:    duration,
 		CloseReason:            pos.CloseReason,
 		EntryPrice:             pos.EntryPrice,
@@ -683,7 +679,8 @@ func summarizeClosedTrade(pos store.TraderPosition) StrategyEvolutionClosedTrade
 func selectFailureSamples(samples []store.SignalCalibrationSample, limit int) []store.SignalCalibrationSample {
 	out := []store.SignalCalibrationSample{}
 	for _, sample := range samples {
-		if sample.RiskStatus == "approved" {
+		if sample.RiskStatus == "approved" || sample.RiskStatus == "position_open" ||
+			strings.HasPrefix(sample.ExecutionStatus, "skipped_") || sample.ExecutionStatus == "failed" || sample.ExecutionStatus == "not_executed" {
 			continue
 		}
 		out = append(out, sample)

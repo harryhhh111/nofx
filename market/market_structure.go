@@ -309,9 +309,9 @@ func detectSetup(structure StructureSnapshot, current float64, klines []Kline, a
 	case failed == "down":
 		return setup.withSetup("failed_breakout_long", "long", true, support, []string{"failed downside breakout", "back above support"})
 	case breakout == "up":
-		return setup.withSetup("breakout_long", "long", true, support, []string{"confirmed range break", "price above resistance"})
+		return setup.withSetup("breakout_long", "long", true, resistance, []string{"confirmed range break", "price above resistance"})
 	case breakout == "down":
-		return setup.withSetup("breakout_short", "short", true, resistance, []string{"confirmed range break", "price below support"})
+		return setup.withSetup("breakout_short", "short", true, support, []string{"confirmed range break", "price below support"})
 	case structure.Direction == "up" && nearSupport:
 		return setup.withSetup("trend_pullback_long", "long", true, support, []string{"HH/HL trend", "pullback near latest support"})
 	case structure.Direction == "down" && nearResistance:

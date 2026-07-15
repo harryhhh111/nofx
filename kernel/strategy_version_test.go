@@ -29,12 +29,19 @@ func TestScoringStrategyVersionUsesConfigFingerprint(t *testing.T) {
 	if changed.Version == first {
 		t.Fatalf("expected fingerprint to change after strategy config change, still got %q", changed.Version)
 	}
+
+	config = versionedScoringConfig()
+	config.RiskProfile = "conservative"
+	metadataOnly := scoringFromStrategyConfig(config)
+	if metadataOnly.Version != first {
+		t.Fatalf("template metadata must not change executable strategy version: %q vs %q", metadataOnly.Version, first)
+	}
 }
 
 func versionedScoringConfig() *store.StrategyConfig {
 	return &store.StrategyConfig{
 		StrategyMode:      "scoring",
-		StrategyArchetype: "trend_following",
+		StrategyArchetype: "adaptive_structure",
 		RiskProfile:       "balanced",
 		Indicators: store.IndicatorConfig{
 			Klines: store.KlineConfig{

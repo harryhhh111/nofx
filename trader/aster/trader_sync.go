@@ -86,11 +86,13 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 			exchangeOrderID = trade.TradeID
 		}
 
-		// Determine order action based on side, positionSide, and realizedPnL
-		// Aster uses one-way position mode (BOTH), so we need to infer from PnL
-		// - RealizedPnL != 0 means it's a close trade
-		// - RealizedPnL == 0 means it's an open trade
-		orderAction := deriveAsterOrderAction(trade.Side, trade.PositionSide, trade.RealizedPnL)
+		orderAction, err := deriveAsterOrderActionWithPosition(
+			positionStore, traderID, symbol,
+			trade.Side, trade.PositionSide, trade.RealizedPnL,
+		)
+		if err != nil {
+			return fmt.Errorf("classify Aster trade %s: %w", trade.TradeID, err)
+		}
 		if orderAction == "close_long" || orderAction == "close_short" {
 			closedSymbols[symbol] = true
 		}
@@ -187,36 +189,32 @@ func (t *AsterTrader) SyncOrdersFromAster(traderID string, exchangeID string, ex
 	return nil
 }
 
-// deriveAsterOrderAction determines order action from trade details
-// Aster uses one-way position mode (BOTH), so we infer from:
-// - Side: BUY or SELL
-// - RealizedPnL: non-zero means closing trade
+// deriveAsterOrderAction determines order action when the fill itself contains
+// enough information. BOTH-mode zero-PnL fills need current position state and
+// are handled by deriveAsterOrderActionWithPosition.
 func deriveAsterOrderAction(side, positionSide string, realizedPnL float64) string {
 	side = strings.ToUpper(side)
 	positionSide = strings.ToUpper(positionSide)
 
-	// Check if this is a closing trade (has realized PnL)
-	isClose := realizedPnL != 0
-
 	if positionSide == "LONG" {
-		if isClose {
+		if side == "SELL" {
 			return "close_long"
 		}
 		return "open_long"
 	} else if positionSide == "SHORT" {
-		if isClose {
+		if side == "BUY" {
 			return "close_short"
 		}
 		return "open_short"
 	} else {
 		// BOTH mode - infer from side and PnL
 		if side == "BUY" {
-			if isClose {
+			if realizedPnL != 0 {
 				return "close_short" // Buying to close short
 			}
 			return "open_long" // Buying to open long
 		} else {
-			if isClose {
+			if realizedPnL != 0 {
 				return "close_long" // Selling to close long
 			}
 			return "open_short" // Selling to open short
@@ -224,13 +222,54 @@ func deriveAsterOrderAction(side, positionSide string, realizedPnL float64) stri
 	}
 }
 
+func deriveAsterOrderActionWithPosition(positionStore *store.PositionStore, traderID, symbol, side, positionSide string, realizedPnL float64) (string, error) {
+	side = strings.ToUpper(strings.TrimSpace(side))
+	positionSide = strings.ToUpper(strings.TrimSpace(positionSide))
+	if side != "BUY" && side != "SELL" {
+		return "", fmt.Errorf("unsupported side %q", side)
+	}
+	if positionSide == "LONG" || positionSide == "SHORT" || realizedPnL != 0 {
+		return deriveAsterOrderAction(side, positionSide, realizedPnL), nil
+	}
+	if positionSide != "" && positionSide != "BOTH" {
+		return "", fmt.Errorf("unsupported position side %q", positionSide)
+	}
+	if positionStore == nil {
+		return "", fmt.Errorf("position store is required for zero-PnL BOTH-mode fill")
+	}
+
+	oppositeSide := "SHORT"
+	closeAction := "close_short"
+	openAction := "open_long"
+	if side == "SELL" {
+		oppositeSide = "LONG"
+		closeAction = "close_long"
+		openAction = "open_short"
+	}
+	position, err := positionStore.GetOpenPositionBySymbol(traderID, symbol, oppositeSide)
+	if err != nil {
+		return "", err
+	}
+	if position != nil {
+		return closeAction, nil
+	}
+	return openAction, nil
+}
+
 // StartOrderSync starts background order sync task for Aster
-func (t *AsterTrader) StartOrderSync(traderID string, exchangeID string, exchangeType string, st *store.Store, interval time.Duration) {
+func (t *AsterTrader) StartOrderSync(traderID string, exchangeID string, exchangeType string, st *store.Store, interval time.Duration, stop <-chan struct{}) {
 	ticker := time.NewTicker(interval)
 	go func() {
-		for range ticker.C {
-			if err := t.SyncOrdersFromAster(traderID, exchangeID, exchangeType, st); err != nil {
-				logger.Infof("⚠️  Aster order sync failed: %v", err)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if err := t.SyncOrdersFromAster(traderID, exchangeID, exchangeType, st); err != nil {
+					logger.Infof("⚠️  Aster order sync failed: %v", err)
+				}
+			case <-stop:
+				logger.Infof("⏹ Aster order sync stopped")
+				return
 			}
 		}
 	}()

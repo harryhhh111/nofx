@@ -33,7 +33,6 @@ func TestApplyStrategyEvolutionPatchNormalizesSafeFields(t *testing.T) {
 	swingWindow := 50
 	zigzagThreshold := 0.05
 	proposed, warnings, err := ApplyStrategyEvolutionPatch(&config, StrategyEvolutionConfigPatch{
-		RiskProfile: "aggressive",
 		EvidenceFilters: &EvidenceFilterEvolutionPatch{
 			FactorWeights: map[string]float64{"trend": 3, "momentum": 1, "structure": 1, "derivatives": 0},
 			MinConfidence: &minConfidence,
@@ -55,9 +54,6 @@ func TestApplyStrategyEvolutionPatchNormalizesSafeFields(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("ApplyStrategyEvolutionPatch returned error: %v", err)
-	}
-	if proposed.RiskProfile != "aggressive" {
-		t.Fatalf("expected risk profile to update, got %q", proposed.RiskProfile)
 	}
 	if proposed.ScoringConfig.LongThreshold != 70 || proposed.ScoringConfig.ShortThreshold != -70 {
 		t.Fatalf("expected evolution patch not to change signed evidence guardrails, got long=%.2f short=%.2f", proposed.ScoringConfig.LongThreshold, proposed.ScoringConfig.ShortThreshold)
@@ -131,7 +127,9 @@ func TestBuildStrategyEvolutionSystemPromptProtectsOpportunityFrequency(t *testi
 		"If a change may reduce trade frequency",
 		"Prefer targeted improvements that preserve useful opportunities",
 		"Use replay.parameter_scans",
-		"preserve approved setups",
+		"preserve setups tied to executed trades",
+		"net_pnl after fees",
+		"not a profitability backtest",
 		"market_structure.enable_market_structure",
 		"evidence_filters.factor_weights",
 		"stop_loss_atr_buffer is an explicit ATR multiple",

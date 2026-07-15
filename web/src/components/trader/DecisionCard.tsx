@@ -1788,6 +1788,7 @@ export function DecisionCard({
               const primary = trace?.primary || {}
               const entry = trace?.entry || {}
               const timeframes = trace?.timeframes || {}
+              const route = trace?.route || {}
               const reason = getTraceReason(trace)
               return (
                 <div
@@ -1816,6 +1817,14 @@ export function DecisionCard({
                     >
                       {setupLabel(String(trace?.setup || ''), language)}
                     </div>
+                  </div>
+                  <div
+                    className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]"
+                    style={{ color: '#848E9C' }}
+                  >
+                    <span>{language === 'zh' ? '币种行情' : 'Asset regime'}: <span className="font-mono" style={{ color: '#EAECEF' }}>{String(route?.regime || '-')}</span></span>
+                    <span>{language === 'zh' ? 'Setup 家族' : 'Setup family'}: <span className="font-mono" style={{ color: '#EAECEF' }}>{String(route?.family || '-')}</span></span>
+                    <span>{language === 'zh' ? '路由状态' : 'Route'}: <span className="font-mono" style={{ color: route?.status === 'caution' ? '#F0B90B' : '#0ECB81' }}>{String(route?.status || '-')}</span></span>
                   </div>
                   <div
                     className="mt-2 grid grid-cols-3 gap-2 text-[10px]"

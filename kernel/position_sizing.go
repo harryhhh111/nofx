@@ -41,6 +41,7 @@ func applyRiskBasedPositionSizing(signals []CandidateSignal, account AccountInfo
 		}
 		size, ok := riskBasedPositionSize(signals[i], account, equity, riskPct, minSize, maxMarginUsage, sizing)
 		if !ok {
+			signals[i].PositionSizeUSD = 0
 			continue
 		}
 		signals[i].PositionSizeUSD = size
@@ -65,7 +66,7 @@ func riskBasedPositionSize(signal CandidateSignal, account AccountInfo, equity, 
 		minSize = defaultBTCETHMinNotionalUSD
 	}
 	if minSize > 0 && size < minSize {
-		size = minSize
+		return 0, false
 	}
 
 	maxPositionValue := equity * maxPositionValueRatio(signal.Symbol, sizing)

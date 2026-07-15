@@ -143,8 +143,7 @@ func validateDecision(d *Decision, accountEquity float64, btcEthLeverage, altcoi
 		if minRiskRewardRatio <= 0 {
 			minRiskRewardRatio = defaultProtectiveRiskReward
 		}
-		// Match prompt tolerance: AI is told ≥80% of target is acceptable with strong signals
-		hardFloor := minRiskRewardRatio * 0.8
+		hardFloor := minRiskRewardRatio
 		if riskRewardRatio < hardFloor {
 			return fmt.Errorf("risk/reward ratio too low (%.2f:1), must be ≥%.1f:1 (hard floor %.1f:1) [entry≈%.2f risk: %.2f%% reward: %.2f%%] [risk basis: %.2f execution stop: %.2f take profit: %.2f]",
 				riskRewardRatio, minRiskRewardRatio, hardFloor, entryPrice, riskPercent, rewardPercent, rrStop, d.StopLoss, d.TakeProfit)

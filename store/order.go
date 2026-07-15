@@ -124,14 +124,30 @@ func (s *OrderStore) InitTables() error {
 				}
 			}
 
-			// Ensure indexes exist
-			s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_exchange_unique ON trader_orders(exchange_id, exchange_order_id)`)
-			s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_fills_exchange_unique ON trader_fills(exchange_id, exchange_trade_id)`)
-			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_trader_id ON trader_orders(trader_id)`)
-			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_symbol ON trader_orders(symbol)`)
-			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_orders_status ON trader_orders(status)`)
-			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_fills_trader_id ON trader_fills(trader_id)`)
-			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_fills_order_id ON trader_fills(order_id)`)
+			indexes := []struct {
+				name string
+				sql  string
+			}{
+				{"idx_orders_exchange_unique", `CREATE UNIQUE INDEX idx_orders_exchange_unique ON trader_orders(exchange_id, exchange_order_id)`},
+				{"idx_fills_exchange_unique", `CREATE UNIQUE INDEX idx_fills_exchange_unique ON trader_fills(exchange_id, exchange_trade_id)`},
+				{"idx_orders_trader_id", `CREATE INDEX idx_orders_trader_id ON trader_orders(trader_id)`},
+				{"idx_orders_symbol", `CREATE INDEX idx_orders_symbol ON trader_orders(symbol)`},
+				{"idx_orders_status", `CREATE INDEX idx_orders_status ON trader_orders(status)`},
+				{"idx_fills_trader_id", `CREATE INDEX idx_fills_trader_id ON trader_fills(trader_id)`},
+				{"idx_fills_order_id", `CREATE INDEX idx_fills_order_id ON trader_fills(order_id)`},
+			}
+			for _, index := range indexes {
+				var count int64
+				if err := s.db.Raw(`SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, index.name).Scan(&count).Error; err != nil {
+					return fmt.Errorf("check order index %s: %w", index.name, err)
+				}
+				if count > 0 {
+					continue
+				}
+				if err := s.db.Exec(index.sql).Error; err != nil {
+					return fmt.Errorf("create order index %s: %w", index.name, err)
+				}
+			}
 			return nil
 		}
 	}

@@ -290,10 +290,13 @@ func (s *PositionStore) Create(pos *TraderPosition) error {
 }
 
 // UpdatePositionOpeningReasoning writes the AI's position-specific reasoning when opening a trade.
-func (s *PositionStore) UpdatePositionOpeningReasoning(traderID, symbol, side string, reasoning string) error {
-	result := s.db.Model(&TraderPosition{}).
-		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
-		Update("opening_reasoning", reasoning)
+func (s *PositionStore) UpdatePositionOpeningReasoning(traderID, symbol, side string, entryNotBefore int64, reasoning string) error {
+	query := s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN")
+	if entryNotBefore > 0 {
+		query = query.Where("entry_time >= ?", entryNotBefore)
+	}
+	result := query.Update("opening_reasoning", reasoning)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -310,6 +313,7 @@ type PositionOpeningSignalMetadata struct {
 	Setup           string
 	StrategyID      string
 	StrategyVersion string
+	EntryNotBefore  int64
 }
 
 type PositionProtectiveLevelMetadata struct {
@@ -335,6 +339,7 @@ type PositionProtectiveLevelMetadata struct {
 	ProtectiveATRBuffer    float64
 	ProtectiveRiskReward   float64
 	ExecutionRiskReward    float64
+	EntryNotBefore         int64
 }
 
 // UpdatePositionOpeningSignalMetadata links an OPEN position to the deterministic
@@ -349,9 +354,12 @@ func (s *PositionStore) UpdatePositionOpeningSignalMetadata(traderID, symbol, si
 		"strategy_version":    meta.StrategyVersion,
 		"updated_at":          time.Now().UnixMilli(),
 	}
-	result := s.db.Model(&TraderPosition{}).
-		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
-		Updates(updates)
+	query := s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN")
+	if meta.EntryNotBefore > 0 {
+		query = query.Where("entry_time >= ?", meta.EntryNotBefore)
+	}
+	result := query.Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}
@@ -388,9 +396,12 @@ func (s *PositionStore) UpdatePositionProtectiveLevelMetadata(traderID, symbol, 
 		"execution_risk_reward":             meta.ExecutionRiskReward,
 		"updated_at":                        time.Now().UnixMilli(),
 	}
-	result := s.db.Model(&TraderPosition{}).
-		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN").
-		Updates(updates)
+	query := s.db.Model(&TraderPosition{}).
+		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN")
+	if meta.EntryNotBefore > 0 {
+		query = query.Where("entry_time >= ?", meta.EntryNotBefore)
+	}
+	result := query.Updates(updates)
 	if result.Error != nil {
 		return result.Error
 	}

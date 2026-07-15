@@ -61,6 +61,7 @@ func (c *LLMStrategyCompiler) Compile(ctx context.Context, req StrategyCompileRe
 		if err != nil {
 			return nil, err
 		}
+		normalizeCompiledExecutionDefaults(result, req.Execution)
 		normalizeCompiledScoringConfig(result)
 		if len(result.Errors) > 0 {
 			return result, fmt.Errorf("strategy compile returned errors: %s", strings.Join(result.Errors, "; "))
@@ -480,6 +481,59 @@ func normalizeCompiledScoringConfig(result *StrategyCompileResult) {
 		result.Warnings = append(result.Warnings, "Normalized evidence long_threshold from negative value to positive signed score.")
 	}
 	normalizeCompiledFactorWeights(scoring)
+}
+
+func normalizeCompiledExecutionDefaults(result *StrategyCompileResult, defaults RuleExecution) {
+	if result == nil {
+		return
+	}
+	for i := range result.Rules {
+		if result.Rules[i].Action == "open_long" || result.Rules[i].Action == "open_short" {
+			fillCompiledExecutionDefaults(&result.Rules[i].Execution, defaults, "rule "+result.Rules[i].ID, &result.Warnings)
+			continue
+		}
+		fillCompiledConfidenceDefault(&result.Rules[i].Execution, defaults, "rule "+result.Rules[i].ID, &result.Warnings)
+	}
+	if result.ScoringConfig != nil {
+		fillCompiledExecutionDefaults(&result.ScoringConfig.Execution, defaults, "scoring_config", &result.Warnings)
+	}
+}
+
+func fillCompiledExecutionDefaults(execution *RuleExecution, defaults RuleExecution, label string, warnings *[]string) {
+	if execution == nil {
+		return
+	}
+	if execution.Leverage <= 0 && defaults.Leverage > 0 {
+		execution.Leverage = defaults.Leverage
+		appendCompileWarning(warnings, label+" missing execution.leverage; filled from strategy risk_control")
+	}
+	if execution.PositionSizeUSD <= 0 && defaults.PositionSizeUSD > 0 {
+		execution.PositionSizeUSD = defaults.PositionSizeUSD
+		appendCompileWarning(warnings, label+" missing execution.position_size_usd; filled from strategy risk_control")
+	}
+	fillCompiledConfidenceDefault(execution, defaults, label, warnings)
+}
+
+func fillCompiledConfidenceDefault(execution *RuleExecution, defaults RuleExecution, label string, warnings *[]string) {
+	if execution == nil {
+		return
+	}
+	if execution.Confidence <= 0 && defaults.Confidence > 0 {
+		execution.Confidence = defaults.Confidence
+		appendCompileWarning(warnings, label+" missing execution.confidence; filled from strategy risk_control")
+	}
+}
+
+func appendCompileWarning(warnings *[]string, warning string) {
+	if warnings == nil || strings.TrimSpace(warning) == "" {
+		return
+	}
+	for _, existing := range *warnings {
+		if existing == warning {
+			return
+		}
+	}
+	*warnings = append(*warnings, warning)
 }
 
 func normalizeCompiledFactorWeights(scoring *ScoringStrategy) {

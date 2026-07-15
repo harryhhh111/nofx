@@ -22,7 +22,11 @@ func StrategyConfigFingerprint(config *store.StrategyConfig) string {
 	if err := json.Unmarshal(encoded, &normalized); err != nil {
 		return ""
 	}
-	normalized.ClampLimits()
+	normalized.NormalizeForExecution()
+	// Template labels describe how a strategy was initialized; executable
+	// parameters already carry every value that affects runtime behavior.
+	normalized.StrategyArchetype = ""
+	normalized.RiskProfile = ""
 	encoded, err = json.Marshal(normalized)
 	if err != nil {
 		return ""

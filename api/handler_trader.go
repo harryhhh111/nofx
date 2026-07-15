@@ -371,7 +371,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	}
 
 	if req.StrategyID != "" {
-		_, err = s.store.Strategy().Get(userID, req.StrategyID)
+		selectedStrategy, err := s.store.Strategy().Get(userID, req.StrategyID)
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				SafeBadRequestWithDetails(c, formatTraderCreationError("Selected strategy does not exist or has been deleted", "Please select an available strategy and continue creating the trader"), "trader.create.strategy_not_found", nil)
@@ -380,6 +380,22 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 			SafeError(c, http.StatusInternalServerError,
 				formatTraderCreationError("Unable to read selected strategy configuration", "Please try again later; if the issue persists, check if local services are running"),
 				err,
+			)
+			return
+		}
+		strategyConfig, parseErr := selectedStrategy.ParseConfig()
+		if parseErr != nil {
+			SafeError(c, http.StatusInternalServerError,
+				formatTraderCreationError("Unable to parse selected strategy configuration", "Please check the strategy configuration and try again"),
+				parseErr,
+			)
+			return
+		}
+		if err := strategyConfig.ValidateExecutableSignalSource(); err != nil {
+			SafeBadRequestWithDetails(c,
+				formatTraderCreationError("Selected strategy is not executable", err.Error()),
+				"trader.create.strategy_not_executable",
+				nil,
 			)
 			return
 		}
@@ -627,6 +643,38 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	strategyID := req.StrategyID
 	if strategyID == "" {
 		strategyID = existingTrader.StrategyID
+	}
+	if strategyID == "" {
+		SafeBadRequestWithDetails(c, formatTraderCreationError("No trading strategy selected", "Please select a strategy before updating the trader"), "trader.update.strategy_required", nil)
+		return
+	}
+	selectedStrategy, err := s.store.Strategy().Get(userID, strategyID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			SafeBadRequestWithDetails(c, formatTraderCreationError("Selected strategy does not exist or has been deleted", "Please select an available strategy and update the trader again"), "trader.update.strategy_not_found", nil)
+			return
+		}
+		SafeError(c, http.StatusInternalServerError,
+			formatTraderCreationError("Unable to read selected strategy configuration", "Please try again later; if the issue persists, check if local services are running"),
+			err,
+		)
+		return
+	}
+	strategyConfig, parseErr := selectedStrategy.ParseConfig()
+	if parseErr != nil {
+		SafeError(c, http.StatusInternalServerError,
+			formatTraderCreationError("Unable to parse selected strategy configuration", "Please check the strategy configuration and try again"),
+			parseErr,
+		)
+		return
+	}
+	if err := strategyConfig.ValidateExecutableSignalSource(); err != nil {
+		SafeBadRequestWithDetails(c,
+			formatTraderCreationError("Selected strategy is not executable", err.Error()),
+			"trader.update.strategy_not_executable",
+			nil,
+		)
+		return
 	}
 
 	exchangeChanged := req.ExchangeID != "" && req.ExchangeID != existingTrader.ExchangeID

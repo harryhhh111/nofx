@@ -187,6 +187,27 @@ func GetWithTimeframesWindowContextWithOpenBar(ctx context.Context, symbol strin
 // configured K-line source. It does not silently substitute another source,
 // because that would make indicator snapshots inconsistent and hard to audit.
 func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int, includeOpenBar bool, exchange string) (*Data, error) {
+	return getWithTimeframesWindowContextWithExchange(ctx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, func(string) bool {
+		return includeOpenBar
+	}, exchange)
+}
+
+// GetWithTimeframesWindowContextWithExchangeForRoles keeps structural and
+// confirmation calculations on closed bars. Only a distinct entry timeframe
+// may use the currently forming bar for trigger responsiveness.
+func GetWithTimeframesWindowContextWithExchangeForRoles(ctx context.Context, symbol string, timeframes []string, primaryTimeframe, entryTimeframe string, displayCount int, computeLookback int, includeEntryOpenBar bool, exchange string) (*Data, error) {
+	primaryTimeframe = strings.TrimSpace(primaryTimeframe)
+	entryTimeframe = strings.TrimSpace(entryTimeframe)
+	return getWithTimeframesWindowContextWithExchange(ctx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, func(timeframe string) bool {
+		return includeOpenBarForRole(timeframe, primaryTimeframe, entryTimeframe, includeEntryOpenBar)
+	}, exchange)
+}
+
+func includeOpenBarForRole(timeframe, primaryTimeframe, entryTimeframe string, enabled bool) bool {
+	return enabled && entryTimeframe != "" && entryTimeframe != primaryTimeframe && timeframe == entryTimeframe
+}
+
+func getWithTimeframesWindowContextWithExchange(ctx context.Context, symbol string, timeframes []string, primaryTimeframe string, displayCount int, computeLookback int, includeOpenBarForTimeframe func(string) bool, exchange string) (*Data, error) {
 	symbol = Normalize(symbol)
 
 	if len(timeframes) == 0 {
@@ -231,12 +252,17 @@ func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol stri
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
+		includeCurrentBar := includeOpenBarForTimeframe != nil && includeOpenBarForTimeframe(tf)
+		fetchLookback := computeLookback
+		if !includeCurrentBar {
+			fetchLookback++
+		}
 		var klines []Kline
 		var err error
 
 		if isXyzAsset {
 			// Use Hyperliquid API for xyz dex assets
-			klines, err = getKlinesFromHyperliquidContext(ctx, symbol, tf, computeLookback)
+			klines, err = getKlinesFromHyperliquidContext(ctx, symbol, tf, fetchLookback)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from Hyperliquid: %v", symbol, tf, err)
 				continue
@@ -245,7 +271,7 @@ func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol stri
 			// Use official exchange public REST APIs for regular crypto assets.
 			// The configured source is preferred; public fallbacks keep analysis available.
 			var usedSource string
-			klines, usedSource, err = GetPublicKlines(ctx, exchange, symbol, tf, computeLookback, true)
+			klines, usedSource, err = GetPublicKlines(ctx, exchange, symbol, tf, fetchLookback, true)
 			if err != nil {
 				logger.Infof("⚠️ Failed to get %s %s K-line from official exchange APIs: %v", symbol, tf, err)
 				continue
@@ -259,12 +285,15 @@ func GetWithTimeframesWindowContextWithExchange(ctx context.Context, symbol stri
 			logger.Infof("⚠️ %s %s K-line data is empty", symbol, tf)
 			continue
 		}
-		if !includeOpenBar {
+		if !includeCurrentBar {
 			klines = closedKlinesOnly(klines, tf, time.Now())
 			if len(klines) == 0 {
 				logger.Infof("⚠️ %s %s K-line data has no closed bars", symbol, tf)
 				continue
 			}
+		}
+		if len(klines) > computeLookback {
+			klines = klines[len(klines)-computeLookback:]
 		}
 
 		// Save primary timeframe K-lines for calculating base indicators

@@ -237,6 +237,16 @@ func (c *StrategyConfig) ClampLimits() {
 	c.resolveParameters()
 }
 
+// NormalizeForExecution applies product limits before entering live/replay flows.
+// It intentionally does not invent trading logic; callers that execute a
+// strategy must call ValidateExecutableSignalSource and surface the error.
+func (c *StrategyConfig) NormalizeForExecution() {
+	if c == nil {
+		return
+	}
+	c.ClampLimits()
+}
+
 func (c *StrategyConfig) normalizeCoinSourceFlags() {
 	resetSourceFlags := func() {
 		c.CoinSource.UseAI500 = false
@@ -653,6 +663,53 @@ func (c *StrategyConfig) clampScoringConfig() {
 	}
 }
 
+func (c *StrategyConfig) HasExecutableSignalSource() bool {
+	if c == nil {
+		return false
+	}
+	if c.StrategyType == "grid_trading" {
+		return true
+	}
+	if len(c.CompiledRules) > 0 {
+		return true
+	}
+	return c.ScoringConfig != nil && c.ScoringConfig.Enabled
+}
+
+func (c *StrategyConfig) ValidateExecutableSignalSource() error {
+	if c == nil {
+		return fmt.Errorf("strategy config is required")
+	}
+	if c.StrategyType == "grid_trading" {
+		return nil
+	}
+	if c.HasExecutableSignalSource() {
+		return nil
+	}
+	return fmt.Errorf("ai trading strategy has no executable signal source: compile strategy rules or enable scoring_config before running")
+}
+
+func defaultScoringStrategyConfig(config *StrategyConfig) *ScoringStrategyConfig {
+	if config == nil {
+		return nil
+	}
+	return &ScoringStrategyConfig{
+		Enabled:                 true,
+		SelectedFactors:         []string{"trend", "momentum", "structure", "derivatives"},
+		FactorWeights:           map[string]float64{"trend": 0.30, "momentum": 0.25, "structure": 0.25, "derivatives": 0.20},
+		LongThreshold:           65,
+		ShortThreshold:          -60,
+		MinAvailableWeightRatio: 0.5,
+		MinConfidence:           config.RiskControl.MinConfidence,
+		Timeframe:               config.Indicators.Klines.PrimaryTimeframe,
+		Execution: CompiledRuleExecution{
+			Leverage:        config.RiskControl.BTCETHMaxLeverage,
+			PositionSizeUSD: config.RiskControl.MinPositionSize,
+			Confidence:      config.RiskControl.MinConfidence,
+		},
+	}
+}
+
 func normalizeScoringFactorWeights(scoring *ScoringStrategyConfig) {
 	if scoring == nil || len(scoring.SelectedFactors) == 0 {
 		return
@@ -926,7 +983,7 @@ func (Strategy) TableName() string { return "strategies" }
 type StrategyConfig struct {
 	// Strategy type: "ai_trading" (default) or "grid_trading"
 	StrategyType string `json:"strategy_type,omitempty"`
-	// Strategy archetype describes the market setup this strategy is designed to trade.
+	// Strategy archetype describes the runtime setup router used by this strategy.
 	StrategyArchetype string `json:"strategy_archetype,omitempty"`
 	// Risk profile tunes thresholds and sizing for the same archetype.
 	RiskProfile string `json:"risk_profile,omitempty"`
@@ -1239,8 +1296,8 @@ type KlineConfig struct {
 	// Number of raw K-lines exposed to the AI prompt. Indicator and structure
 	// calculations should use ComputeLookback instead.
 	PromptDisplayCount int `json:"prompt_display_count,omitempty"`
-	// Whether live calculations may include the currently forming candle.
-	// Replay/backtest paths should use closed candles only.
+	// Whether the distinct entry timeframe may include the currently forming
+	// candle. Primary/confirmation timeframes and replay paths use closed bars.
 	IncludeOpenBar bool `json:"include_open_bar,omitempty"`
 	// longer timeframe
 	LongerTimeframe string `json:"longer_timeframe,omitempty"`
@@ -1451,7 +1508,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MaxMarginUsage:               0.9,
 			RiskPerTradePct:              DefaultRiskPerTradePct,
 			MinPositionSize:              DefaultMinPositionSize,
-			MinRiskRewardRatio:           DefaultMinRiskRewardRatio, // Min 2.5:1 profit/loss ratio (AI guided) - adjusted for 5m/15m multi-TF
+			MinRiskRewardRatio:           DefaultMinRiskRewardRatio, // Deterministic structural reward-to-risk floor.
 			MinConfidence:                DefaultMinConfidence,
 			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits
 			StopLossATRBuffer:            DefaultStopLossATRBuffer,
@@ -1473,11 +1530,9 @@ type StrategyTemplate struct {
 
 func ListStrategyTemplates(lang string) []StrategyTemplate {
 	ids := []string{
-		"trend_following_balanced",
-		"pullback_balanced",
-		"range_reversal_balanced",
-		"breakout_balanced",
-		"volatility_breakout_aggressive",
+		"adaptive_structure_balanced",
+		"adaptive_structure_conservative",
+		"adaptive_structure_aggressive",
 	}
 	out := make([]StrategyTemplate, 0, len(ids))
 	for _, id := range ids {
@@ -1500,81 +1555,41 @@ func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
 	config.Indicators.EnableBOLL = true
 	config.Indicators.EnableVolume = true
 	config.Indicators.EnableDonchian = true
-	scoring := ScoringStrategyConfig{
-		Enabled:                 true,
-		SelectedFactors:         []string{"trend", "momentum", "structure", "derivatives"},
-		FactorWeights:           map[string]float64{"trend": 0.30, "momentum": 0.25, "structure": 0.25, "derivatives": 0.20},
-		LongThreshold:           65,
-		ShortThreshold:          -60,
-		MinAvailableWeightRatio: 0.5,
-		MinConfidence:           config.RiskControl.MinConfidence,
-		Timeframe:               config.Indicators.Klines.PrimaryTimeframe,
-		Execution: CompiledRuleExecution{
-			Leverage:        config.RiskControl.BTCETHMaxLeverage,
-			PositionSizeUSD: config.RiskControl.MinPositionSize,
-			Confidence:      config.RiskControl.MinConfidence,
-		},
-	}
-	config.ScoringConfig = &scoring
+	config.ScoringConfig = defaultScoringStrategyConfig(&config)
 
 	name := ""
 	desc := ""
-	archetype := ""
+	archetype := "adaptive_structure"
 	risk := "balanced"
+	config.ScoringConfig.LongThreshold = 65
+	config.ScoringConfig.ShortThreshold = -65
+	config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.30, "momentum": 0.25, "structure": 0.30, "derivatives": 0.15}
 	switch id {
-	case "trend_following_balanced":
-		archetype = "trend_following"
-		name, desc = templateText(lang, "趋势跟随 - 标准", "Trend Following - Balanced", "只在主周期趋势较明确、确认周期不冲突时开仓，适合顺势行情。", "Trades only when the primary timeframe trend is clear and confirmation does not conflict.")
-		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.40, "momentum": 0.25, "structure": 0.20, "derivatives": 0.15}
-		config.ScoringConfig.LongThreshold = 70
-		config.ScoringConfig.ShortThreshold = -70
-		config.RiskControl.MinConfidence = 70
-		config.RiskControl.RiskPerTradePct = 1.0
-		config.RiskControl.StopLossATRBuffer = 2.5
-	case "pullback_balanced":
-		archetype = "pullback"
-		name, desc = templateText(lang, "趋势回调 - 标准", "Pullback - Balanced", "主周期保持方向，入场周期允许回调后重新转强/转弱，适合趋势中的回踩。", "Keeps the primary trend requirement while allowing entry after a lower-timeframe pullback.")
-		config.ScoringConfig.LongThreshold = 60
-		config.ScoringConfig.ShortThreshold = -60
-		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.30, "momentum": 0.30, "structure": 0.25, "derivatives": 0.15}
-		config.RiskControl.MinConfidence = 65
-		config.RiskControl.RiskPerTradePct = 1.0
-		config.RiskControl.StopLossATRBuffer = 2.2
-	case "range_reversal_balanced":
-		archetype = "range_reversal"
-		name, desc = templateText(lang, "区间反转 - 标准", "Range Reversal - Balanced", "不追强趋势，重点等待支撑阻力、BOLL/RSI 极值附近的反转证据。", "Avoids chasing strong trends and focuses on support/resistance plus RSI/BOLL exhaustion.")
-		config.ScoringConfig.LongThreshold = 55
-		config.ScoringConfig.ShortThreshold = -55
-		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.15, "momentum": 0.30, "structure": 0.40, "derivatives": 0.15}
+	case "adaptive_structure_conservative":
+		risk = "conservative"
+		name, desc = templateText(lang, "自适应结构 - 稳健", "Adaptive Structure - Conservative", "同一策略适配趋势、突破和区间行情，使用较低单笔风险与杠杆。", "One strategy routes trend, breakout, and range setups with lower per-trade risk and leverage.")
 		config.RiskControl.BTCETHMaxLeverage = 3
 		config.RiskControl.AltcoinMaxLeverage = 3
-		config.RiskControl.MinConfidence = 60
-		config.RiskControl.RiskPerTradePct = 0.7
-		config.RiskControl.StopLossATRBuffer = 1.8
-	case "breakout_balanced":
-		archetype = "breakout"
-		name, desc = templateText(lang, "突破/回踩 - 标准", "Breakout / Retest - Balanced", "关注 Donchian、成交量和结构位突破，允许突破后回踩确认。", "Uses Donchian, volume and structure breaks, with room for retest confirmation.")
-		config.ScoringConfig.LongThreshold = 60
-		config.ScoringConfig.ShortThreshold = -60
-		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.35, "momentum": 0.30, "structure": 0.20, "derivatives": 0.15}
+		config.RiskControl.MinConfidence = 70
+		config.RiskControl.RiskPerTradePct = 0.6
+		config.RiskControl.StopLossATRBuffer = 2.5
+	case "adaptive_structure_balanced":
+		name, desc = templateText(lang, "自适应结构 - 均衡", "Adaptive Structure - Balanced", "长期运行并按币种结构选择趋势、突破、反转或衰竭 setup。", "Runs continuously and routes trend, breakout, reversal, or exhaustion setups from each asset's structure.")
 		config.RiskControl.BTCETHMaxLeverage = 4
 		config.RiskControl.AltcoinMaxLeverage = 4
 		config.RiskControl.MinConfidence = 65
 		config.RiskControl.RiskPerTradePct = 0.8
-		config.RiskControl.StopLossATRBuffer = 2.5
-	case "volatility_breakout_aggressive":
-		archetype = "volatility_breakout"
+		config.RiskControl.StopLossATRBuffer = 2.0
+	case "adaptive_structure_aggressive":
 		risk = "aggressive"
-		name, desc = templateText(lang, "波动突破 - 激进", "Volatility Breakout - Aggressive", "面向波动市场，降低趋势门槛，但要求动量/成交量/突破证据更快触发。", "For volatile markets: lower trend threshold but faster momentum, volume and breakout triggers.")
-		config.ScoringConfig.LongThreshold = 55
-		config.ScoringConfig.ShortThreshold = -55
-		config.ScoringConfig.MinConfidence = 55
-		config.RiskControl.BTCETHMaxLeverage = 3
-		config.RiskControl.AltcoinMaxLeverage = 3
-		config.RiskControl.MinConfidence = 55
-		config.RiskControl.RiskPerTradePct = 0.6
-		config.RiskControl.StopLossATRBuffer = 3.0
-		config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.25, "momentum": 0.35, "structure": 0.15, "derivatives": 0.25}
+		name, desc = templateText(lang, "自适应结构 - 积极", "Adaptive Structure - Aggressive", "保持相同结构路由，使用更高机会容忍度和单笔风险，仍受结构止损与账户风控限制。", "Uses the same structure routing with higher opportunity tolerance and risk, while retaining structural stops and account limits.")
+		config.ScoringConfig.LongThreshold = 60
+		config.ScoringConfig.ShortThreshold = -60
+		config.RiskControl.BTCETHMaxLeverage = 5
+		config.RiskControl.AltcoinMaxLeverage = 4
+		config.RiskControl.MinConfidence = 60
+		config.RiskControl.RiskPerTradePct = 1.0
+		config.RiskControl.StopLossATRBuffer = 1.8
 	default:
 		return StrategyTemplate{}, false
 	}
@@ -1728,7 +1743,7 @@ func ParseStrategyConfigWithDefaults(raw []byte, fallbackLang string) (*Strategy
 	if config.StrategyType == "grid_trading" && config.GridConfig == nil {
 		config.GridConfig = GetDefaultGridStrategyConfig()
 	}
-	config.ClampLimits()
+	config.NormalizeForExecution()
 	return &config, nil
 }
 
@@ -1899,7 +1914,7 @@ func (s *Strategy) ParseConfig() (*StrategyConfig, error) {
 // SetConfig set strategy configuration
 func (s *Strategy) SetConfig(config *StrategyConfig) error {
 	if config != nil {
-		config.ClampLimits()
+		config.NormalizeForExecution()
 	}
 	data, err := json.Marshal(config)
 	if err != nil {

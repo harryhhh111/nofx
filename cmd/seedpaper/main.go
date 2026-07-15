@@ -28,8 +28,8 @@ import (
 )
 
 const (
-	stratName  = "Playbook RegimeGrid (paper)"
-	traderName = "playbook-paper"
+	defaultStrategyName = "Playbook RegimeGrid (paper)"
+	defaultTraderName   = "playbook-paper"
 )
 
 func main() {
@@ -39,6 +39,8 @@ func main() {
 	tp := flag.Float64("tp", 4, "trend take-profit percent")
 	symbols := flag.String("symbols", "BTCUSDT,ETHUSDT", "static candidate coins")
 	scan := flag.Int("scan", 15, "scan interval minutes")
+	strategyName := flag.String("strategy-name", defaultStrategyName, "strategy name used for the upsert")
+	traderName := flag.String("trader-name", defaultTraderName, "trader name used for the upsert")
 	off := flag.Bool("off", false, "create the trader stopped (IsRunning=false)")
 	flag.Parse()
 
@@ -84,12 +86,12 @@ func main() {
 
 	// 3) Upsert the strategy (matched by name within the same user).
 	var strat store.Strategy
-	err = db.Where("user_id = ? AND name = ?", src.UserID, stratName).First(&strat).Error
+	err = db.Where("user_id = ? AND name = ?", src.UserID, *strategyName).First(&strat).Error
 	if err != nil {
 		strat = store.Strategy{
 			ID:          uuid.New().String(),
 			UserID:      src.UserID,
-			Name:        stratName,
+			Name:        *strategyName,
 			Description: "Forward-validation playbook (auto-seeded). Rule mode, regime-gated.",
 			IsActive:    true,
 			Config:      string(cfgJSON),
@@ -110,12 +112,12 @@ func main() {
 	// 4) Upsert the dedicated paper trader (matched by name within the same user).
 	running := !*off
 	var tr store.Trader
-	err = db.Where("user_id = ? AND name = ?", src.UserID, traderName).First(&tr).Error
+	err = db.Where("user_id = ? AND name = ?", src.UserID, *traderName).First(&tr).Error
 	if err != nil {
 		tr = store.Trader{
 			ID:                  uuid.New().String(),
 			UserID:              src.UserID,
-			Name:                traderName,
+			Name:                *traderName,
 			AIModelID:           src.AIModelID,
 			ExchangeID:          src.ExchangeID,
 			StrategyID:          strat.ID,

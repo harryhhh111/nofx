@@ -27,6 +27,9 @@ import (
 // validateStrategyConfig validates strategy configuration and returns warnings
 func validateStrategyConfig(config *store.StrategyConfig) []string {
 	var warnings []string
+	if config != nil && config.StrategyType != "grid_trading" && !config.HasExecutableSignalSource() {
+		warnings = append(warnings, "Strategy is not executable yet. Compile strategy rules or enable scoring_config before running a trader.")
+	}
 
 	if config.RiskControl.MinCloseConfidence > 0 &&
 		config.RiskControl.MinConfidence > 0 &&
@@ -47,7 +50,7 @@ func (s *Server) handleEstimateTokens(c *gin.Context) {
 		return
 	}
 
-	req.Config.ClampLimits()
+	req.Config.NormalizeForExecution()
 	estimate := req.Config.EstimateTokens()
 	c.JSON(http.StatusOK, estimate)
 }
@@ -510,7 +513,7 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 		SafeBadRequest(c, err.Error())
 		return
 	}
-	config.ClampLimits()
+	config.NormalizeForExecution()
 	endpoint := c.FullPath()
 	c.JSON(http.StatusOK, gin.H{
 		"endpoint":               endpoint,
@@ -594,6 +597,28 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 	if req.StrategyVersion == "" {
 		req.StrategyVersion = time.Now().UTC().Format("20060102150405")
 	}
+	defaultConfig := store.GetDefaultStrategyConfig("zh")
+	compileExecution := compileExecutionFromStrategyConfig(&defaultConfig)
+	var persistedStrategy *store.Strategy
+	var persistedConfig *store.StrategyConfig
+	if req.StrategyID != "" {
+		strategy, err := s.store.Strategy().Get(userID, req.StrategyID)
+		if err != nil {
+			if req.Persist {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found"})
+				return
+			}
+		} else {
+			config, err := strategy.ParseConfig()
+			if err != nil {
+				SafeInternalError(c, "Failed to parse strategy config", err)
+				return
+			}
+			compileExecution = compileExecutionFromStrategyConfig(config)
+			persistedStrategy = strategy
+			persistedConfig = config
+		}
+	}
 
 	aiClient, err := s.createAIClientForModel(userID, req.AIModelID)
 	if err != nil {
@@ -607,6 +632,7 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 		StrategyVersion: req.StrategyVersion,
 		Prompt:          req.Prompt,
 		Context:         req.Context,
+		Execution:       compileExecution,
 	})
 	if err != nil {
 		response := gin.H{"error": err.Error()}
@@ -624,18 +650,10 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 	compiledRules := strategyRulesToStore(result.Rules)
 	scoringConfig := scoringStrategyToStore(result.ScoringConfig)
 	if req.Persist {
-		strategy, err := s.store.Strategy().Get(userID, req.StrategyID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Strategy not found"})
-			return
-		}
+		strategy := persistedStrategy
+		config := persistedConfig
 		if strategy.IsDefault {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot modify system default strategy"})
-			return
-		}
-		config, err := strategy.ParseConfig()
-		if err != nil {
-			SafeInternalError(c, "Failed to parse strategy config", err)
 			return
 		}
 		config.StrategyPrompt = req.Prompt
@@ -665,6 +683,21 @@ func (s *Server) handleCompileStrategyPrompt(c *gin.Context) {
 	})
 }
 
+func compileExecutionFromStrategyConfig(config *store.StrategyConfig) kernel.RuleExecution {
+	if config == nil {
+		return kernel.RuleExecution{}
+	}
+	leverage := config.RiskControl.BTCETHMaxLeverage
+	if config.RiskControl.AltcoinMaxLeverage > 0 && (leverage <= 0 || config.RiskControl.AltcoinMaxLeverage < leverage) {
+		leverage = config.RiskControl.AltcoinMaxLeverage
+	}
+	return kernel.RuleExecution{
+		Leverage:        leverage,
+		PositionSizeUSD: config.RiskControl.MinPositionSize,
+		Confidence:      config.RiskControl.MinConfidence,
+	}
+}
+
 // handleStrategyTestRun runs the new structured strategy flow for preview/testing.
 func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -687,7 +720,11 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	if req.PromptVariant == "" {
 		req.PromptVariant = "balanced"
 	}
-	req.Config.ClampLimits()
+	req.Config.NormalizeForExecution()
+	if err := req.Config.ValidateExecutableSignalSource(); err != nil {
+		SafeBadRequest(c, err.Error())
+		return
+	}
 
 	engine := kernel.NewStrategyEngine(&req.Config, s.getClaw402WalletKey(userID))
 	candidates, err := engine.GetCandidateCoins()
@@ -802,7 +839,7 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 			defer marketWG.Done()
 			marketDataCtx, cancelMarketData := context.WithTimeout(c.Request.Context(), marketDataTimeout)
 			defer cancelMarketData()
-			data, err := market.GetWithTimeframesWindowContextWithExchange(marketDataCtx, symbol, timeframes, primaryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar, req.Config.Indicators.Klines.MarketDataSource)
+			data, err := market.GetWithTimeframesWindowContextWithExchangeForRoles(marketDataCtx, symbol, timeframes, primaryTimeframe, req.Config.Indicators.Klines.EntryTimeframe, displayCount, computeLookback, req.Config.Indicators.Klines.IncludeOpenBar, req.Config.Indicators.Klines.MarketDataSource)
 			if err != nil {
 				logger.Infof("Failed to get market data for %s: %v", symbol, err)
 				marketMu.Lock()

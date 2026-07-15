@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type SignalCalibrationSample struct {
 	SignalID                   string    `gorm:"column:signal_id;default:'';index" json:"signal_id,omitempty"`
 	RuleID                     string    `gorm:"column:rule_id;default:'';index" json:"rule_id,omitempty"`
 	Setup                      string    `gorm:"column:setup;default:'';index" json:"setup,omitempty"`
+	SymbolRegime               string    `gorm:"column:symbol_regime;default:'';index" json:"symbol_regime,omitempty"`
 	Action                     string    `gorm:"column:action;default:'';index" json:"action,omitempty"`
 	Eligible                   bool      `gorm:"column:eligible;default:false;index" json:"eligible"`
 	Timeframe                  string    `gorm:"column:timeframe;default:''" json:"timeframe,omitempty"`
@@ -40,6 +42,8 @@ type SignalCalibrationSample struct {
 	ReviewReasonsJSON          string    `gorm:"column:review_reasons_json;default:'[]'" json:"review_reasons_json,omitempty"`
 	RiskStatus                 string    `gorm:"column:risk_status;default:'';index" json:"risk_status,omitempty"`
 	RiskReason                 string    `gorm:"column:risk_reason;default:''" json:"risk_reason,omitempty"`
+	ExecutionStatus            string    `gorm:"column:execution_status;default:'';index" json:"execution_status,omitempty"`
+	ExecutionReason            string    `gorm:"column:execution_reason;default:''" json:"execution_reason,omitempty"`
 	FactorSnapshotJSON         string    `gorm:"column:factor_snapshot_json;type:text" json:"factor_snapshot_json,omitempty"`
 	SetupTraceJSON             string    `gorm:"column:setup_trace_json;type:text" json:"setup_trace_json,omitempty"`
 	EvidenceTraceJSON          string    `gorm:"column:evidence_trace_json;type:text" json:"evidence_trace_json,omitempty"`
@@ -57,34 +61,37 @@ type SignalCalibrationStore struct {
 }
 
 type SignalCalibrationReport struct {
-	StrategyID          string                           `json:"strategy_id"`
-	StrategyVersion     string                           `json:"strategy_version,omitempty"`
-	SampleCount         int                              `json:"sample_count"`
-	SignalCount         int                              `json:"signal_count"`
-	SetupCount          int                              `json:"setup_count"`
-	EligibleCount       int                              `json:"eligible_count"`
-	ApprovedCount       int                              `json:"approved_count"`
-	RiskRejectedCount   int                              `json:"risk_rejected_count"`
-	ReviewRejectedCount int                              `json:"review_rejected_count"`
-	NoSignalCount       int                              `json:"no_signal_count"`
-	ClosedTradeCount    int                              `json:"closed_trade_count"`
-	WinningTradeCount   int                              `json:"winning_trade_count"`
-	LosingTradeCount    int                              `json:"losing_trade_count"`
-	WinRate             float64                          `json:"win_rate"`
-	TotalPnL            float64                          `json:"total_pnl"`
-	AveragePnL          float64                          `json:"average_pnl"`
-	MinRequiredSamples  int                              `json:"min_required_samples"`
-	MinRequiredOutcomes int                              `json:"min_required_outcomes"`
-	EnoughOutcomes      bool                             `json:"enough_outcomes"`
-	EnoughSamples       bool                             `json:"enough_samples"`
-	QualityGate         string                           `json:"quality_gate"`
-	Recommendation      string                           `json:"recommendation"`
-	RiskStatusCounts    map[string]int                   `json:"risk_status_counts"`
-	ReviewStatusCounts  map[string]int                   `json:"review_status_counts"`
-	SetupStats          []SignalCalibrationSetupStat     `json:"setup_stats"`
-	TimeframeStats      []SignalCalibrationTimeframeStat `json:"timeframe_stats"`
-	LatestSampleAt      *time.Time                       `json:"latest_sample_at,omitempty"`
-	GeneratedAt         time.Time                        `json:"generated_at"`
+	StrategyID            string                             `json:"strategy_id"`
+	StrategyVersion       string                             `json:"strategy_version,omitempty"`
+	SampleCount           int                                `json:"sample_count"`
+	SignalCount           int                                `json:"signal_count"`
+	SetupCount            int                                `json:"setup_count"`
+	EligibleCount         int                                `json:"eligible_count"`
+	ApprovedCount         int                                `json:"approved_count"`
+	ExecutedCount         int                                `json:"executed_count"`
+	RiskRejectedCount     int                                `json:"risk_rejected_count"`
+	ReviewRejectedCount   int                                `json:"review_rejected_count"`
+	NoSignalCount         int                                `json:"no_signal_count"`
+	ClosedTradeCount      int                                `json:"closed_trade_count"`
+	WinningTradeCount     int                                `json:"winning_trade_count"`
+	LosingTradeCount      int                                `json:"losing_trade_count"`
+	WinRate               float64                            `json:"win_rate"`
+	TotalPnL              float64                            `json:"total_pnl"`
+	AveragePnL            float64                            `json:"average_pnl"`
+	MinRequiredSamples    int                                `json:"min_required_samples"`
+	MinRequiredOutcomes   int                                `json:"min_required_outcomes"`
+	EnoughOutcomes        bool                               `json:"enough_outcomes"`
+	EnoughSamples         bool                               `json:"enough_samples"`
+	QualityGate           string                             `json:"quality_gate"`
+	Recommendation        string                             `json:"recommendation"`
+	RiskStatusCounts      map[string]int                     `json:"risk_status_counts"`
+	ExecutionStatusCounts map[string]int                     `json:"execution_status_counts"`
+	ReviewStatusCounts    map[string]int                     `json:"review_status_counts"`
+	SetupStats            []SignalCalibrationSetupStat       `json:"setup_stats"`
+	RegimeSetupStats      []SignalCalibrationRegimeSetupStat `json:"regime_setup_stats"`
+	TimeframeStats        []SignalCalibrationTimeframeStat   `json:"timeframe_stats"`
+	LatestSampleAt        *time.Time                         `json:"latest_sample_at,omitempty"`
+	GeneratedAt           time.Time                          `json:"generated_at"`
 }
 
 type SignalCalibrationSetupStat struct {
@@ -108,6 +115,21 @@ type SignalCalibrationTimeframeStat struct {
 	EntryTimeframe   string `json:"entry_timeframe"`
 	Samples          int    `json:"samples"`
 	Approved         int    `json:"approved"`
+}
+
+type SignalCalibrationRegimeSetupStat struct {
+	Regime       string  `json:"regime"`
+	Setup        string  `json:"setup"`
+	Action       string  `json:"action"`
+	Samples      int     `json:"samples"`
+	Eligible     int     `json:"eligible"`
+	Executed     int     `json:"executed"`
+	ClosedTrades int     `json:"closed_trades"`
+	Wins         int     `json:"wins"`
+	Losses       int     `json:"losses"`
+	WinRate      float64 `json:"win_rate"`
+	TotalPnL     float64 `json:"total_pnl"`
+	AveragePnL   float64 `json:"average_pnl"`
 }
 
 func NewSignalCalibrationStore(db *gorm.DB) *SignalCalibrationStore {
@@ -188,15 +210,18 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 	}
 
 	report := &SignalCalibrationReport{
-		StrategyID:          strategyID,
-		StrategyVersion:     strategyVersion,
-		MinRequiredSamples:  100,
-		MinRequiredOutcomes: 30,
-		RiskStatusCounts:    map[string]int{},
-		ReviewStatusCounts:  map[string]int{},
-		GeneratedAt:         time.Now().UTC(),
+		StrategyID:            strategyID,
+		StrategyVersion:       strategyVersion,
+		MinRequiredSamples:    100,
+		MinRequiredOutcomes:   30,
+		RiskStatusCounts:      map[string]int{},
+		ExecutionStatusCounts: map[string]int{},
+		ReviewStatusCounts:    map[string]int{},
+		GeneratedAt:           time.Now().UTC(),
 	}
 	setupStats := map[string]*SignalCalibrationSetupStat{}
+	regimeStats := map[string]*SignalCalibrationRegimeSetupStat{}
+	outcomeRouteBySignal := map[string]calibrationOutcomeRoute{}
 	timeframeStats := map[string]*SignalCalibrationTimeframeStat{}
 	latest := time.Time{}
 	versionCounts := map[string]int{}
@@ -213,6 +238,13 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 		if sample.StrategyVersion != "" {
 			versionCounts[sample.StrategyVersion]++
 		}
+		if sample.SignalID != "" {
+			outcomeRouteBySignal[sample.SignalID] = calibrationOutcomeRoute{
+				Regime: nonEmptyCalibrationValue(sample.SymbolRegime, "unknown"),
+				Setup:  nonEmptyCalibrationValue(sample.Setup, "unclassified"),
+				Action: sample.Action,
+			}
+		}
 		if !sample.AsOf.IsZero() && (latest.IsZero() || sample.AsOf.After(latest)) {
 			latest = sample.AsOf.UTC()
 		}
@@ -227,6 +259,14 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 		}
 		report.RiskStatusCounts[riskStatus]++
 		report.ReviewStatusCounts[reviewStatus]++
+		executionStatus := strings.TrimSpace(sample.ExecutionStatus)
+		if executionStatus == "" {
+			executionStatus = "not_applicable"
+		}
+		report.ExecutionStatusCounts[executionStatus]++
+		if executionStatus == "executed" {
+			report.ExecutedCount++
+		}
 		switch riskStatus {
 		case "approved":
 			report.ApprovedCount++
@@ -264,6 +304,24 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 			stat.ReviewRejected++
 		}
 
+		regimeKey := calibrationRegimeSetupKey(sample.SymbolRegime, setupName, sample.Action)
+		regimeStat := regimeStats[regimeKey]
+		if regimeStat == nil {
+			regimeStat = &SignalCalibrationRegimeSetupStat{
+				Regime: nonEmptyCalibrationValue(sample.SymbolRegime, "unknown"),
+				Setup:  setupName,
+				Action: sample.Action,
+			}
+			regimeStats[regimeKey] = regimeStat
+		}
+		regimeStat.Samples++
+		if sample.Eligible {
+			regimeStat.Eligible++
+		}
+		if executionStatus == "executed" {
+			regimeStat.Executed++
+		}
+
 		tfKey := sample.PrimaryTimeframe + "|" + sample.EntryTimeframe
 		tfStat := timeframeStats[tfKey]
 		if tfStat == nil {
@@ -285,7 +343,7 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 		report.StrategyVersion = mostCommonString(versionCounts)
 	}
 	report.EnoughSamples = report.SampleCount >= report.MinRequiredSamples
-	if err := s.applyClosedPositionOutcomes(report, setupStats, strategyID, strategyVersion, limit); err != nil {
+	if err := s.applyClosedPositionOutcomes(report, setupStats, regimeStats, outcomeRouteBySignal, strategyID, strategyVersion, limit); err != nil {
 		return nil, err
 	}
 	report.QualityGate, report.Recommendation = calibrationGate(report)
@@ -303,6 +361,14 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 	}
 	sort.Slice(report.TimeframeStats, func(i, j int) bool {
 		return report.TimeframeStats[i].Samples > report.TimeframeStats[j].Samples
+	})
+	for _, stat := range regimeStats {
+		report.RegimeSetupStats = append(report.RegimeSetupStats, *stat)
+	}
+	sort.Slice(report.RegimeSetupStats, func(i, j int) bool {
+		left := report.RegimeSetupStats[i].Samples + report.RegimeSetupStats[i].ClosedTrades
+		right := report.RegimeSetupStats[j].Samples + report.RegimeSetupStats[j].ClosedTrades
+		return left > right
 	})
 	return report, nil
 }
@@ -363,7 +429,13 @@ func (s *SignalCalibrationStore) RecentClosedPositionsForVersion(strategyID stri
 	return positions, nil
 }
 
-func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalibrationReport, setupStats map[string]*SignalCalibrationSetupStat, strategyID string, strategyVersion string, limit int) error {
+type calibrationOutcomeRoute struct {
+	Regime string
+	Setup  string
+	Action string
+}
+
+func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalibrationReport, setupStats map[string]*SignalCalibrationSetupStat, regimeStats map[string]*SignalCalibrationRegimeSetupStat, outcomeRouteBySignal map[string]calibrationOutcomeRoute, strategyID string, strategyVersion string, limit int) error {
 	var positions []TraderPosition
 	query := s.db.Where("strategy_id = ? AND status = ?", strategyID, "CLOSED")
 	if strings.TrimSpace(strategyVersion) != "" {
@@ -377,10 +449,11 @@ func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalib
 	}
 	for _, pos := range positions {
 		report.ClosedTradeCount++
-		report.TotalPnL += pos.RealizedPnL
-		if pos.RealizedPnL > 0 {
+		netPnL := pos.RealizedPnL - math.Abs(pos.Fee)
+		report.TotalPnL += netPnL
+		if netPnL > 0 {
 			report.WinningTradeCount++
-		} else if pos.RealizedPnL < 0 {
+		} else if netPnL < 0 {
 			report.LosingTradeCount++
 		}
 		setupName := strings.TrimSpace(pos.OpeningSetup)
@@ -396,11 +469,39 @@ func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalib
 			setupStats[setupName] = stat
 		}
 		stat.ClosedTrades++
-		stat.TotalPnL += pos.RealizedPnL
-		if pos.RealizedPnL > 0 {
+		stat.TotalPnL += netPnL
+		if netPnL > 0 {
 			stat.Wins++
-		} else if pos.RealizedPnL < 0 {
+		} else if netPnL < 0 {
 			stat.Losses++
+		}
+
+		route := outcomeRouteBySignal[pos.OpeningSignalID]
+		if route.Setup == "" {
+			route.Setup = setupName
+		}
+		if route.Regime == "" {
+			route.Regime = "unknown"
+		}
+		if route.Action == "" {
+			if strings.EqualFold(pos.Side, "SHORT") {
+				route.Action = "open_short"
+			} else {
+				route.Action = "open_long"
+			}
+		}
+		regimeKey := calibrationRegimeSetupKey(route.Regime, route.Setup, route.Action)
+		regimeStat := regimeStats[regimeKey]
+		if regimeStat == nil {
+			regimeStat = &SignalCalibrationRegimeSetupStat{Regime: route.Regime, Setup: route.Setup, Action: route.Action}
+			regimeStats[regimeKey] = regimeStat
+		}
+		regimeStat.ClosedTrades++
+		regimeStat.TotalPnL += netPnL
+		if netPnL > 0 {
+			regimeStat.Wins++
+		} else if netPnL < 0 {
+			regimeStat.Losses++
 		}
 	}
 	if report.ClosedTradeCount > 0 {
@@ -413,8 +514,26 @@ func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalib
 			stat.AveragePnL = stat.TotalPnL / float64(stat.ClosedTrades)
 		}
 	}
+	for _, stat := range regimeStats {
+		if stat.ClosedTrades > 0 {
+			stat.WinRate = float64(stat.Wins) / float64(stat.ClosedTrades)
+			stat.AveragePnL = stat.TotalPnL / float64(stat.ClosedTrades)
+		}
+	}
 	report.EnoughOutcomes = report.ClosedTradeCount >= report.MinRequiredOutcomes
 	return nil
+}
+
+func calibrationRegimeSetupKey(regime, setup, action string) string {
+	return nonEmptyCalibrationValue(regime, "unknown") + "|" + nonEmptyCalibrationValue(setup, "unclassified") + "|" + strings.TrimSpace(action)
+}
+
+func nonEmptyCalibrationValue(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func calibrationGate(report *SignalCalibrationReport) (string, string) {
@@ -424,8 +543,8 @@ func calibrationGate(report *SignalCalibrationReport) (string, string) {
 	if !report.EnoughSamples {
 		return "collecting", "Calibration samples are still insufficient. Keep collecting deterministic setup/signal evidence before changing parameters."
 	}
-	if report.SignalCount == 0 || report.ApprovedCount == 0 {
-		return "blocked", "Samples exist, but no approved candidate signals were observed. Review setup thresholds and data availability before paper validation."
+	if report.ExecutedCount == 0 {
+		return "blocked", "Samples exist, but no candidate signal has been executed. Review setup triggers, execution results, and data availability before paper validation."
 	}
 	if report.ClosedTradeCount == 0 {
 		return "paper_collecting", "Candidate signal coverage is sufficient, but no closed paper trades are linked to this strategy yet. Keep paper mode running until outcomes are available."

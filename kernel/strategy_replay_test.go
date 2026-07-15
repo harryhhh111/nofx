@@ -37,6 +37,7 @@ func TestBuildStrategyReplayReportUsesPersistedKlineWindows(t *testing.T) {
 			SampleKind:       "setup",
 			Setup:            "breakout_long",
 			RiskStatus:       "approved",
+			ExecutionStatus:  "executed",
 			KlineWindowsJSON: store.MarshalCalibrationJSON(windows),
 			AsOf:             time.Unix(1, 0).UTC(),
 		},

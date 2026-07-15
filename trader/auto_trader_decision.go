@@ -63,12 +63,19 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 		return
 	}
 	version := at.currentStrategyVersion()
+	executionBySignal := make(map[string]store.DecisionAction, len(record.Decisions))
+	for _, action := range record.Decisions {
+		if action.SignalID != "" {
+			executionBySignal[action.SignalID] = action
+		}
+	}
 	rows := make([]*store.SignalCalibrationSample, 0, len(decision.CalibrationSamples))
 	for _, sample := range decision.CalibrationSamples {
 		strategyVersion := sample.StrategyVersion
 		if strategyVersion == "" {
 			strategyVersion = version
 		}
+		executionStatus, executionReason := calibrationExecutionResult(sample.Action, sample.RiskStatus, executionBySignal[sample.SignalID])
 		rows = append(rows, &store.SignalCalibrationSample{
 			TraderID:                   at.id,
 			StrategyID:                 at.config.StrategyID,
@@ -80,6 +87,7 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 			SignalID:                   sample.SignalID,
 			RuleID:                     sample.RuleID,
 			Setup:                      sample.Setup,
+			SymbolRegime:               sample.SymbolRegime,
 			Action:                     sample.Action,
 			Eligible:                   sample.Eligible,
 			Timeframe:                  sample.Timeframe,
@@ -95,6 +103,8 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 			ReviewReasonsJSON:          store.MarshalCalibrationJSON(sample.ReviewReasons),
 			RiskStatus:                 sample.RiskStatus,
 			RiskReason:                 sample.RiskReason,
+			ExecutionStatus:            executionStatus,
+			ExecutionReason:            executionReason,
 			FactorSnapshotJSON:         store.MarshalCalibrationJSON(sample.FactorSnapshot),
 			SetupTraceJSON:             store.MarshalCalibrationJSON(sample.SetupTrace),
 			EvidenceTraceJSON:          store.MarshalCalibrationJSON(sample.EvidenceTrace),
@@ -109,6 +119,31 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 		return
 	}
 	logger.Infof("[%s] saved %d signal calibration sample(s)", at.name, len(rows))
+}
+
+func calibrationExecutionResult(signalAction, riskStatus string, action store.DecisionAction) (string, string) {
+	if signalAction != "open_long" && signalAction != "open_short" {
+		return "not_applicable", ""
+	}
+	if riskStatus != "approved" {
+		return "not_applicable", ""
+	}
+	if action.SignalID == "" {
+		return "not_executed", "approved signal has no execution record"
+	}
+	if strings.Contains(action.Reasoning, "[SKIPPED_RISK_COOLDOWN]") {
+		return "skipped_risk_cooldown", action.Reasoning
+	}
+	if strings.Contains(action.Reasoning, "[SKIPPED]") {
+		return "skipped_duplicate", action.Reasoning
+	}
+	if action.Success {
+		return "executed", ""
+	}
+	if action.Error != "" {
+		return "failed", action.Error
+	}
+	return "failed", "execution did not succeed"
 }
 
 // saveBBMACDSignals stores BB MACD snapshots for later offline accuracy evaluation.
@@ -238,6 +273,7 @@ func (at *AutoTrader) saveOpeningSignalMetadata(record *store.DecisionRecord) {
 			Setup:           action.Setup,
 			StrategyID:      at.config.StrategyID,
 			StrategyVersion: action.Version,
+			EntryNotBefore:  action.Timestamp.UnixMilli(),
 		}
 		if meta.StrategyVersion == "" {
 			meta.StrategyVersion = at.currentStrategyVersion()
@@ -497,6 +533,8 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get positions: %w", err)
 	}
 
+	protectiveByKey := at.activeProtectiveOrderPrices(positions)
+
 	var result []map[string]interface{}
 	for _, pos := range positions {
 		symbol := pos["symbol"].(string)
@@ -521,6 +559,8 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 		// Calculate P&L percentage (based on margin)
 		pnlPct := calculatePnLPercentage(unrealizedPnl, marginUsed)
 
+		protective := protectiveByKey[protectivePositionKey(symbol, side)]
+
 		result = append(result, map[string]interface{}{
 			"symbol":             symbol,
 			"side":               side,
@@ -532,10 +572,118 @@ func (at *AutoTrader) GetPositions() ([]map[string]interface{}, error) {
 			"unrealized_pnl_pct": pnlPct,
 			"liquidation_price":  liquidationPrice,
 			"margin_used":        marginUsed,
+			"stop_loss_price":    protective.stopLoss,
+			"take_profit_price":  protective.takeProfit,
 		})
 	}
 
 	return result, nil
+}
+
+type protectiveOrderPrices struct {
+	stopLoss   float64
+	takeProfit float64
+}
+
+func (at *AutoTrader) activeProtectiveOrderPrices(positions []map[string]interface{}) map[string]protectiveOrderPrices {
+	out := make(map[string]protectiveOrderPrices)
+	if at == nil || at.trader == nil || len(positions) == 0 {
+		return out
+	}
+
+	queriedSymbols := make(map[string]bool)
+	for _, pos := range positions {
+		rawSymbol, _ := pos["symbol"].(string)
+		symbol := market.Normalize(rawSymbol)
+		if symbol == "" || queriedSymbols[symbol] {
+			continue
+		}
+		queriedSymbols[symbol] = true
+
+		for _, querySymbol := range protectiveOrderQuerySymbols(rawSymbol, at.exchange) {
+			orders, err := at.trader.GetOpenOrders(querySymbol)
+			if err != nil {
+				logger.Warnf("⚠️ [%s] Failed to get open protective orders for position display %s: %v", at.name, querySymbol, err)
+				continue
+			}
+			for _, order := range orders {
+				if market.Normalize(order.Symbol) != symbol || order.StopPrice <= 0 {
+					continue
+				}
+				positionSide := protectivePositionSideFromOrder(order)
+				if positionSide == "" {
+					continue
+				}
+				key := protectivePositionKey(symbol, positionSide)
+				prices := out[key]
+				orderType := strings.ToUpper(strings.TrimSpace(order.Type))
+				switch {
+				case strings.Contains(orderType, "TAKE_PROFIT"):
+					prices.takeProfit = order.StopPrice
+				case strings.Contains(orderType, "STOP"):
+					prices.stopLoss = order.StopPrice
+				}
+				out[key] = prices
+			}
+		}
+	}
+
+	return out
+}
+
+func protectiveOrderQuerySymbols(rawSymbol, exchange string) []string {
+	var candidates []string
+	add := func(symbol string) {
+		symbol = strings.TrimSpace(symbol)
+		if symbol == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if strings.EqualFold(existing, symbol) {
+				return
+			}
+		}
+		candidates = append(candidates, symbol)
+	}
+
+	normalized := market.Normalize(rawSymbol)
+	add(rawSymbol)
+	add(normalized)
+	if strings.EqualFold(exchange, "hyperliquid") && strings.HasSuffix(normalized, "USDT") {
+		add(strings.TrimSuffix(normalized, "USDT"))
+	}
+	return candidates
+}
+
+func protectivePositionSideFromOrder(order OpenOrder) string {
+	positionSide := normalizeProtectivePositionSide(order.PositionSide)
+	if positionSide == "LONG" || positionSide == "SHORT" {
+		return positionSide
+	}
+
+	switch strings.ToUpper(strings.TrimSpace(order.Side)) {
+	case "SELL":
+		return "LONG"
+	case "BUY":
+		return "SHORT"
+	default:
+		return ""
+	}
+}
+
+func protectivePositionKey(symbol, side string) string {
+	return market.Normalize(symbol) + ":" + normalizeProtectivePositionSide(side)
+}
+
+func normalizeProtectivePositionSide(side string) string {
+	switch strings.ToUpper(strings.TrimSpace(side)) {
+	case "LONG", "BUY":
+		return "LONG"
+	case "SHORT", "SELL":
+		return "SHORT"
+	default:
+		return strings.ToUpper(strings.TrimSpace(side))
+	}
 }
 
 // ClosePositionManually closes a position through the live trader instance used

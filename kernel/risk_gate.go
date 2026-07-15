@@ -31,6 +31,9 @@ func NewDefaultRiskGate(btcEthLeverage, altcoinLeverage int, btcEthRatio, altcoi
 }
 
 func (g *DefaultRiskGate) Validate(ctx context.Context, req RiskGateRequest) (*RiskGateResult, error) {
+	if err := validateAIReviews(req.Signals, req.Reviews); err != nil {
+		return nil, err
+	}
 	reviewBySignal := map[string]AIReviewDecision{}
 	for _, review := range req.Reviews {
 		reviewBySignal[review.SignalID] = review

@@ -45,10 +45,11 @@ type RuleOperand struct {
 }
 
 type StrategyCompileRequest struct {
-	StrategyID      string `json:"strategy_id"`
-	StrategyVersion string `json:"strategy_version"`
-	Prompt          string `json:"prompt,omitempty"`
-	Context         string `json:"context,omitempty"`
+	StrategyID      string        `json:"strategy_id"`
+	StrategyVersion string        `json:"strategy_version"`
+	Prompt          string        `json:"prompt,omitempty"`
+	Context         string        `json:"context,omitempty"`
+	Execution       RuleExecution `json:"execution,omitempty"`
 }
 
 type StrategyCompileResult struct {
@@ -67,6 +68,9 @@ type StrategyCompiler interface {
 type SignalRequest struct {
 	Account        AccountInfo           `json:"account"`
 	Positions      []PositionInfo        `json:"positions"`
+	DrawdownAlerts []DrawdownAlert       `json:"drawdown_alerts,omitempty"`
+	TradingStats   *TradingStats         `json:"trading_stats,omitempty"`
+	RecentOrders   []RecentOrder         `json:"recent_orders,omitempty"`
 	Candidates     []CandidateCoin       `json:"candidates"`
 	Rules          []StrategyRule        `json:"rules"`
 	Scoring        *ScoringStrategy      `json:"scoring,omitempty"`
@@ -99,8 +103,6 @@ type PositionSizingConfig struct {
 type ScoringStrategy struct {
 	Enabled                 bool               `json:"enabled"`
 	Version                 string             `json:"version,omitempty"`
-	StrategyArchetype       string             `json:"strategy_archetype,omitempty"`
-	RiskProfile             string             `json:"risk_profile,omitempty"`
 	SelectedFactors         []string           `json:"selected_factors,omitempty"`
 	FactorWeights           map[string]float64 `json:"factor_weights,omitempty"`
 	LongThreshold           float64            `json:"long_threshold,omitempty"`
@@ -144,6 +146,9 @@ type AIReviewRequest struct {
 	MarketContext    *MarketContext                    `json:"market_context,omitempty"`
 	RelevantMemory   []TradeLesson                     `json:"relevant_memory,omitempty"`
 	CurrentPositions []PositionInfo                    `json:"current_positions,omitempty"`
+	DrawdownAlerts   []DrawdownAlert                   `json:"drawdown_alerts,omitempty"`
+	TradingStats     *TradingStats                     `json:"trading_stats,omitempty"`
+	RecentOrders     []RecentOrder                     `json:"recent_orders,omitempty"`
 }
 
 type AIReviewDecision struct {
@@ -254,13 +259,19 @@ type TradingEngineRequest struct {
 }
 
 type TradingEngineResult struct {
-	Signals          []CandidateSignal      `json:"signals"`
-	SetupEvaluations []SetupEvaluationTrace `json:"setup_evaluations,omitempty"`
-	RuleEvaluations  []RuleEvaluationTrace  `json:"rule_evaluations,omitempty"`
-	MarketContext    *MarketContext         `json:"market_context,omitempty"`
-	Reviews          []AIReviewDecision     `json:"reviews"`
-	Risk             *RiskGateResult        `json:"risk"`
-	Memory           []TradeLesson          `json:"memory,omitempty"`
+	Signals           []CandidateSignal      `json:"signals"`
+	SuppressedSignals []SuppressedSignal     `json:"suppressed_signals,omitempty"`
+	SetupEvaluations  []SetupEvaluationTrace `json:"setup_evaluations,omitempty"`
+	RuleEvaluations   []RuleEvaluationTrace  `json:"rule_evaluations,omitempty"`
+	MarketContext     *MarketContext         `json:"market_context,omitempty"`
+	Reviews           []AIReviewDecision     `json:"reviews"`
+	Risk              *RiskGateResult        `json:"risk"`
+	Memory            []TradeLesson          `json:"memory,omitempty"`
+}
+
+type SuppressedSignal struct {
+	Signal CandidateSignal `json:"signal"`
+	Reason string          `json:"reason"`
 }
 
 // SignalCalibrationSample is an internal, structured record used by the store
@@ -273,6 +284,7 @@ type SignalCalibrationSample struct {
 	SignalID               string
 	RuleID                 string
 	Setup                  string
+	SymbolRegime           string
 	Action                 string
 	Eligible               bool
 	Timeframe              string
@@ -288,6 +300,8 @@ type SignalCalibrationSample struct {
 	ReviewReasons          []string
 	RiskStatus             string
 	RiskReason             string
+	ExecutionStatus        string
+	ExecutionReason        string
 	FactorSnapshot         *market.FactorSnapshot
 	KlineWindows           map[string][]market.Kline
 	SetupTrace             *SetupEvaluationTrace
@@ -327,8 +341,11 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("generate signals: %w", err)
 	}
+	drawdownSignals := GenerateDrawdownAlertSignals(req.SignalRequest, signals)
+	signals = mergePositionLifecycleSignals(signals, drawdownSignals)
 	lifecycleSignals := GeneratePositionLifecycleSignals(req.SignalRequest, signals)
 	signals = mergePositionLifecycleSignals(signals, lifecycleSignals)
+	signals, suppressedSignals := suppressOpenSignalsWithPositions(signals, req.SignalRequest.Positions)
 	applyRiskBasedPositionSizing(signals, req.SignalRequest.Account, req.SignalRequest.PositionSizing)
 	setupEvaluations := TraceSetupEvaluations(req.SignalRequest)
 	ruleEvaluations := TraceRuleEvaluations(req.SignalRequest)
@@ -344,7 +361,7 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		}
 	}
 	if len(signals) == 0 {
-		return &TradingEngineResult{Signals: signals, SetupEvaluations: setupEvaluations, RuleEvaluations: ruleEvaluations, MarketContext: marketContext, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
+		return &TradingEngineResult{Signals: signals, SuppressedSignals: suppressedSignals, SetupEvaluations: setupEvaluations, RuleEvaluations: ruleEvaluations, MarketContext: marketContext, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
 	}
 
 	var lessons []TradeLesson
@@ -361,9 +378,15 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		MarketContext:    marketContext,
 		RelevantMemory:   lessons,
 		CurrentPositions: req.SignalRequest.Positions,
+		DrawdownAlerts:   req.SignalRequest.DrawdownAlerts,
+		TradingStats:     req.SignalRequest.TradingStats,
+		RecentOrders:     req.SignalRequest.RecentOrders,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("AI review: %w", err)
+	}
+	if err := validateAIReviews(signals, reviews); err != nil {
+		return nil, fmt.Errorf("AI review response: %w", err)
 	}
 
 	risk, err := e.RiskGate.Validate(ctx, RiskGateRequest{
@@ -378,14 +401,119 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	}
 
 	return &TradingEngineResult{
-		Signals:          signals,
-		SetupEvaluations: setupEvaluations,
-		RuleEvaluations:  ruleEvaluations,
-		MarketContext:    marketContext,
-		Reviews:          reviews,
-		Risk:             risk,
-		Memory:           lessons,
+		Signals:           signals,
+		SuppressedSignals: suppressedSignals,
+		SetupEvaluations:  setupEvaluations,
+		RuleEvaluations:   ruleEvaluations,
+		MarketContext:     marketContext,
+		Reviews:           reviews,
+		Risk:              risk,
+		Memory:            lessons,
 	}, nil
+}
+
+func suppressOpenSignalsWithPositions(signals []CandidateSignal, positions []PositionInfo) ([]CandidateSignal, []SuppressedSignal) {
+	openSymbols := map[string]bool{}
+	for _, position := range positions {
+		if normalizedPositionSide(position.Side) == "" {
+			continue
+		}
+		if symbol := market.Normalize(position.Symbol); symbol != "" {
+			openSymbols[symbol] = true
+		}
+	}
+	candidates := make([]CandidateSignal, 0, len(signals))
+	suppressed := []SuppressedSignal{}
+	for _, signal := range signals {
+		if (signal.Action == "open_long" || signal.Action == "open_short") && openSymbols[market.Normalize(signal.Symbol)] {
+			suppressed = append(suppressed, SuppressedSignal{
+				Signal: signal,
+				Reason: "position_already_open_close_or_hold_first",
+			})
+			continue
+		}
+		candidates = append(candidates, signal)
+	}
+
+	openIndexes := map[string][]int{}
+	for i, signal := range candidates {
+		if signal.Action != "open_long" && signal.Action != "open_short" {
+			continue
+		}
+		symbol := market.Normalize(signal.Symbol)
+		openIndexes[symbol] = append(openIndexes[symbol], i)
+	}
+	suppressionReason := map[int]string{}
+	for _, indexes := range openIndexes {
+		if len(indexes) < 2 {
+			continue
+		}
+		action := candidates[indexes[0]].Action
+		conflict := false
+		for _, index := range indexes[1:] {
+			if candidates[index].Action != action {
+				conflict = true
+				break
+			}
+		}
+		if conflict {
+			for _, index := range indexes {
+				suppressionReason[index] = "conflicting_open_signals_same_cycle"
+			}
+			continue
+		}
+
+		winner := indexes[0]
+		for _, index := range indexes[1:] {
+			if candidates[index].Confidence > candidates[winner].Confidence {
+				winner = index
+			}
+		}
+		for _, index := range indexes {
+			if index != winner {
+				suppressionReason[index] = "duplicate_open_signal_same_cycle"
+			}
+		}
+	}
+
+	active := make([]CandidateSignal, 0, len(candidates))
+	for i, signal := range candidates {
+		if reason := suppressionReason[i]; reason != "" {
+			suppressed = append(suppressed, SuppressedSignal{Signal: signal, Reason: reason})
+			continue
+		}
+		active = append(active, signal)
+	}
+	return active, suppressed
+}
+
+func validateAIReviews(signals []CandidateSignal, reviews []AIReviewDecision) error {
+	expected := make(map[string]bool, len(signals))
+	for _, signal := range signals {
+		if signal.ID == "" {
+			return fmt.Errorf("candidate signal has no id")
+		}
+		expected[signal.ID] = true
+	}
+	seen := make(map[string]bool, len(reviews))
+	for _, review := range reviews {
+		if !expected[review.SignalID] {
+			return fmt.Errorf("review references unknown signal_id %q", review.SignalID)
+		}
+		if review.Status != "pass" && review.Status != "warn" && review.Status != "reject" {
+			return fmt.Errorf("review for signal_id %q has invalid status %q", review.SignalID, review.Status)
+		}
+		if seen[review.SignalID] {
+			return fmt.Errorf("duplicate review for signal_id %q", review.SignalID)
+		}
+		seen[review.SignalID] = true
+	}
+	for signalID := range expected {
+		if !seen[signalID] {
+			return fmt.Errorf("missing review for signal_id %q", signalID)
+		}
+	}
+	return nil
 }
 
 func signalSymbols(signals []CandidateSignal) []string {
@@ -420,11 +548,18 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 		}
 	}
 	signalsBySetupKey := map[string]CandidateSignal{}
+	suppressedBySetupKey := map[string]SuppressedSignal{}
 	seenSignalIDs := map[string]bool{}
 	for _, signal := range result.Signals {
 		key := calibrationSetupKey(signal.Symbol, signal.Action, signal.Evidence)
 		if key != "" {
 			signalsBySetupKey[key] = signal
+		}
+	}
+	for _, suppressed := range result.SuppressedSignals {
+		key := calibrationSetupKey(suppressed.Signal.Symbol, suppressed.Signal.Action, suppressed.Signal.Evidence)
+		if key != "" {
+			suppressedBySetupKey[key] = suppressed
 		}
 	}
 
@@ -435,6 +570,7 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 			SampleKind:             "setup",
 			Symbol:                 trace.Symbol,
 			Setup:                  trace.Setup,
+			SymbolRegime:           trace.Route.Regime,
 			Action:                 trace.Action,
 			Eligible:               trace.Eligible,
 			Timeframe:              trace.Timeframes.Primary,
@@ -458,6 +594,11 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 		if signal, ok := signalsBySetupKey[key]; ok {
 			enrichCalibrationSampleFromSignal(&sample, signal, reviewBySignal, approved, riskBySignal)
 			seenSignalIDs[signal.ID] = true
+		} else if suppressed, ok := suppressedBySetupKey[key]; ok {
+			enrichCalibrationSampleFromSignal(&sample, suppressed.Signal, reviewBySignal, approved, riskBySignal)
+			sample.ReviewStatus = "not_requested"
+			sample.RiskStatus = "position_open"
+			sample.RiskReason = suppressed.Reason
 		}
 		samples = append(samples, sample)
 	}
@@ -512,6 +653,7 @@ func enrichCalibrationSampleFromSignal(sample *SignalCalibrationSample, signal C
 		setupCopy := setup
 		sample.SetupTrace = &setupCopy
 		sample.Setup = setup.Setup
+		sample.SymbolRegime = setup.Route.Regime
 		sample.PrimaryScore = setup.Primary.Score
 		sample.EntryScore = setup.Entry.Score
 		sample.PrimaryTimeframe = setup.Timeframes.Primary

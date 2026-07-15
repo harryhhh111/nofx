@@ -18,6 +18,12 @@ func PreviewStrategySignals(config *store.StrategyConfig, candidates []Candidate
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
+	if config != nil {
+		config.NormalizeForExecution()
+		if err := config.ValidateExecutableSignalSource(); err != nil {
+			return nil, err
+		}
+	}
 	req := SignalRequest{
 		Candidates:           candidates,
 		Rules:                rulesFromStrategyConfig(config),
