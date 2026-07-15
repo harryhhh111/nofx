@@ -24,6 +24,7 @@ type CreateTraderRequest struct {
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`     // Pointer type, nil means use default value true
 	ShowInCompetition   *bool   `json:"show_in_competition"` // Pointer type, nil means use default value true
+	DecisionLanguage    string  `json:"decision_language"`   // "en" or "zh"; empty defaults to "en"
 	BTCETHLeverage      int     `json:"btc_eth_leverage"`
 	AltcoinLeverage     int     `json:"altcoin_leverage"`
 	TradingSymbols      string  `json:"trading_symbols"`
@@ -41,6 +42,7 @@ type UpdateTraderRequest struct {
 	ScanIntervalMinutes int     `json:"scan_interval_minutes"`
 	IsCrossMargin       *bool   `json:"is_cross_margin"`
 	ShowInCompetition   *bool   `json:"show_in_competition"`
+	DecisionLanguage    *string `json:"decision_language"` // nil keeps the existing value; "" follows the strategy
 	BTCETHLeverage      int     `json:"btc_eth_leverage"`
 	AltcoinLeverage     int     `json:"altcoin_leverage"`
 	TradingSymbols      string  `json:"trading_symbols"`
@@ -58,6 +60,19 @@ func sanitizeTraderIDPart(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// resolveDecisionLanguage preserves the existing setting when an update request
+// omits the field. An explicit empty value clears the trader-level override so
+// the strategy's language is used instead.
+func resolveDecisionLanguage(requested *string, existing string) string {
+	if requested == nil {
+		return existing
+	}
+	if *requested == "en" || *requested == "zh" {
+		return *requested
+	}
+	return ""
 }
 
 func formatTraderCreationError(reason, nextStep string) string {
@@ -435,6 +450,13 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		scanIntervalMinutes = 3 // Default 3 minutes, not allowed to be less than 3
 	}
 
+	// Decision output language: "" means follow the strategy's own language; only an
+	// explicit "en"/"zh" overrides it. Never follows the frontend UI language.
+	decisionLanguage := req.DecisionLanguage
+	if decisionLanguage != "en" && decisionLanguage != "zh" {
+		decisionLanguage = "" // follow strategy language
+	}
+
 	// Query exchange actual balance, override user input
 	actualBalance := req.InitialBalance // Default to use user input
 	exchanges, err := s.store.Exchange().List(userID)
@@ -515,6 +537,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		UseOITop:            req.UseOITop,
 		IsCrossMargin:       isCrossMargin,
 		ShowInCompetition:   showInCompetition,
+		DecisionLanguage:    decisionLanguage,
 		ScanIntervalMinutes: scanIntervalMinutes,
 		IsRunning:           false,
 	}
@@ -639,6 +662,10 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 	logger.Infof("📊 Final scan_interval_minutes: %d", scanIntervalMinutes)
 
+	// An omitted value preserves the existing trader setting. An explicit empty
+	// value follows the strategy's language; only "en" and "zh" override it.
+	decisionLanguage := resolveDecisionLanguage(req.DecisionLanguage, existingTrader.DecisionLanguage)
+
 	// Handle strategy ID (if not provided, keep original value)
 	strategyID := req.StrategyID
 	if strategyID == "" {
@@ -702,6 +729,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		TradingSymbols:      req.TradingSymbols,
 		IsCrossMargin:       isCrossMargin,
 		ShowInCompetition:   showInCompetition,
+		DecisionLanguage:    decisionLanguage,
 		ScanIntervalMinutes: scanIntervalMinutes,
 		IsRunning:           existingTrader.IsRunning, // Keep original value
 	}

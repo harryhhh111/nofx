@@ -33,3 +33,48 @@ func TestSanitizeTraderIDPart(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveDecisionLanguage(t *testing.T) {
+	cases := []struct {
+		name      string
+		requested *string
+		existing  string
+		want      string
+	}{
+		{
+			name:     "omitted value keeps the existing override",
+			existing: "zh",
+			want:     "zh",
+		},
+		{
+			name:      "empty value follows the strategy",
+			requested: stringPtr(""),
+			existing:  "zh",
+			want:      "",
+		},
+		{
+			name:      "valid value replaces the existing override",
+			requested: stringPtr("en"),
+			existing:  "zh",
+			want:      "en",
+		},
+		{
+			name:      "invalid value follows the strategy",
+			requested: stringPtr("fr"),
+			existing:  "zh",
+			want:      "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := resolveDecisionLanguage(tc.requested, tc.existing); got != tc.want {
+				t.Fatalf("resolveDecisionLanguage(%v, %q) = %q, want %q", tc.requested, tc.existing, got, tc.want)
+			}
+		})
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
+}

@@ -359,6 +359,7 @@ export interface TraderConfigData {
   is_cross_margin: boolean
   show_in_competition: boolean // 鏄惁鍦ㄧ珵鎶€鍦烘樉绀?
   scan_interval_minutes: number
+  decision_language?: '' | 'en' | 'zh' // CoT language; "" (default) follows the strategy's own language
   initial_balance: number
   is_running: boolean
   // 浠ヤ笅涓烘棫鐗堝瓧娈碉紙鍚戝悗鍏煎锛?
