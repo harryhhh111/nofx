@@ -228,51 +228,6 @@ func TestDefaultStrategyConfigUsesLowerEntryTimeframe(t *testing.T) {
 	}
 }
 
-func TestStrategyTemplatesAreExecutableScoringConfigs(t *testing.T) {
-	templates := ListStrategyTemplates("zh")
-	if len(templates) == 0 {
-		t.Fatal("expected strategy templates")
-	}
-
-	for _, template := range templates {
-		config := template.Config
-		if template.ID == "" || template.Name == "" || template.Archetype == "" || template.RiskProfile == "" {
-			t.Fatalf("template metadata is incomplete: %+v", template)
-		}
-		if config.StrategyArchetype != template.Archetype || config.RiskProfile != template.RiskProfile {
-			t.Fatalf("template config metadata mismatch for %s: %+v", template.ID, config)
-		}
-		if config.StrategyMode != "scoring" || !config.ScoringConfig.Enabled {
-			t.Fatalf("template %s should be an enabled scoring strategy: %+v", template.ID, config.ScoringConfig)
-		}
-		if config.Indicators.Klines.PrimaryTimeframe != "15m" ||
-			config.Indicators.Klines.EntryTimeframe != "5m" ||
-			len(config.Indicators.Klines.ConfirmationTimeframes) != 1 ||
-			config.Indicators.Klines.ConfirmationTimeframes[0] != "1h" {
-			t.Fatalf("template %s should use 15m/5m/1h timeframe roles, got %+v", template.ID, config.Indicators.Klines)
-		}
-		if config.ScoringConfig.Timeframe != config.Indicators.Klines.PrimaryTimeframe {
-			t.Fatalf("template %s scoring timeframe should follow primary timeframe, got %s", template.ID, config.ScoringConfig.Timeframe)
-		}
-		if config.ScoringConfig.Execution.Leverage != config.RiskControl.BTCETHMaxLeverage {
-			t.Fatalf("template %s execution leverage should follow risk control, got execution=%d risk=%d", template.ID, config.ScoringConfig.Execution.Leverage, config.RiskControl.BTCETHMaxLeverage)
-		}
-		if config.ScoringConfig.Execution.Confidence != config.ScoringConfig.MinConfidence {
-			t.Fatalf("template %s execution confidence should follow scoring confidence, got execution=%d scoring=%d", template.ID, config.ScoringConfig.Execution.Confidence, config.ScoringConfig.MinConfidence)
-		}
-		if config.ScoringConfig.LongThreshold <= 0 || config.ScoringConfig.ShortThreshold >= 0 {
-			t.Fatalf("template %s has invalid thresholds: %+v", template.ID, config.ScoringConfig)
-		}
-		weightSum := 0.0
-		for _, factor := range config.ScoringConfig.SelectedFactors {
-			weightSum += config.ScoringConfig.FactorWeights[factor]
-		}
-		if weightSum < 0.99 || weightSum > 1.01 {
-			t.Fatalf("template %s factor weights should sum to 1, got %.2f", template.ID, weightSum)
-		}
-	}
-}
-
 func TestClampLimitsPreservesNegativeShortThreshold(t *testing.T) {
 	config := GetDefaultStrategyConfig("zh")
 	config.ScoringConfig = &ScoringStrategyConfig{Enabled: true}
@@ -326,38 +281,4 @@ func testContainsInt(values []int, target int) bool {
 		}
 	}
 	return false
-}
-
-func TestStrategyTemplatesKeepDistinctTradingProfiles(t *testing.T) {
-	templates := map[string]StrategyTemplate{}
-	for _, template := range ListStrategyTemplates("zh") {
-		templates[template.ID] = template
-	}
-	if len(templates) != 3 {
-		t.Fatalf("expected exactly three adaptive risk profiles, got %d", len(templates))
-	}
-
-	conservative := templates["adaptive_structure_conservative"].Config
-	balanced := templates["adaptive_structure_balanced"].Config
-	aggressive := templates["adaptive_structure_aggressive"].Config
-
-	for name, config := range map[string]StrategyConfig{"conservative": conservative, "balanced": balanced, "aggressive": aggressive} {
-		if config.StrategyArchetype != "adaptive_structure" {
-			t.Fatalf("%s template should use adaptive structure routing: %+v", name, config)
-		}
-		if config.ScoringConfig.FactorWeights["structure"] != config.ScoringConfig.FactorWeights["trend"] {
-			t.Fatalf("%s template should start from the same neutral evidence baseline: %+v", name, config.ScoringConfig.FactorWeights)
-		}
-	}
-	if !(conservative.RiskControl.RiskPerTradePct < balanced.RiskControl.RiskPerTradePct && balanced.RiskControl.RiskPerTradePct < aggressive.RiskControl.RiskPerTradePct) {
-		t.Fatalf("risk profiles should increase monotonically: conservative=%+v balanced=%+v aggressive=%+v", conservative.RiskControl, balanced.RiskControl, aggressive.RiskControl)
-	}
-	if !(conservative.RiskControl.BTCETHMaxLeverage < balanced.RiskControl.BTCETHMaxLeverage && balanced.RiskControl.BTCETHMaxLeverage < aggressive.RiskControl.BTCETHMaxLeverage) {
-		t.Fatalf("leverage profiles should increase monotonically: conservative=%+v balanced=%+v aggressive=%+v", conservative.RiskControl, balanced.RiskControl, aggressive.RiskControl)
-	}
-	for _, id := range []string{"adaptive_structure_conservative", "adaptive_structure_balanced", "adaptive_structure_aggressive"} {
-		if templates[id].ID == "" {
-			t.Fatalf("adaptive risk profile %q is missing", id)
-		}
-	}
 }

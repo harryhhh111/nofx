@@ -31,10 +31,10 @@ func NewDefaultRiskGate(btcEthLeverage, altcoinLeverage int, btcEthRatio, altcoi
 }
 
 func (g *DefaultRiskGate) Validate(ctx context.Context, req RiskGateRequest) (*RiskGateResult, error) {
-	if err := validateAIReviews(req.Signals, req.Reviews); err != nil {
+	if err := validateSignalReviews(req.Signals, req.Reviews); err != nil {
 		return nil, err
 	}
-	reviewBySignal := map[string]AIReviewDecision{}
+	reviewBySignal := map[string]SignalReviewDecision{}
 	for _, review := range req.Reviews {
 		reviewBySignal[review.SignalID] = review
 	}
@@ -49,7 +49,7 @@ func (g *DefaultRiskGate) Validate(ctx context.Context, req RiskGateRequest) (*R
 
 		review := reviewBySignal[signal.ID]
 		if review.Status == "reject" {
-			result.Rejected = append(result.Rejected, RiskRejectedSignal{SignalID: signal.ID, Reason: "llm_review_rejected"})
+			result.Rejected = append(result.Rejected, RiskRejectedSignal{SignalID: signal.ID, Reason: "evidence_review_rejected"})
 			continue
 		}
 		contextRisk := marketContextRiskAssessment(req.MarketContext, signal)
@@ -155,7 +155,7 @@ func marketContextDirectionConflictIsSoft(signal CandidateSignal) bool {
 		strings.Contains(setup, "momentum_exhaustion")
 }
 
-func (s CandidateSignal) ToDecision(review AIReviewDecision) Decision {
+func (s CandidateSignal) ToDecision(review SignalReviewDecision) Decision {
 	reasoning := s.TriggerReason
 	if review.Summary != "" {
 		if reasoning != "" {

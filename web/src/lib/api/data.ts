@@ -8,7 +8,6 @@ import type {
   BBMACDConfig,
   CompetitionData,
   PositionHistoryResponse,
-  TradeMemory,
   ExecutionAnalytics,
   NofxOSStatus,
   AI500CoinsResponse,
@@ -86,7 +85,10 @@ export const dataApi = {
     return result.data!
   },
 
-  async getStatistics(traderId?: string, silent?: boolean): Promise<Statistics> {
+  async getStatistics(
+    traderId?: string,
+    silent?: boolean
+  ): Promise<Statistics> {
     const url = traderId
       ? `${API_BASE}/statistics?trader_id=${traderId}`
       : `${API_BASE}/statistics`
@@ -132,34 +134,16 @@ export const dataApi = {
     if (traderId) {
       params.append('trader_id', traderId)
     }
-    const result = await httpClient.request<{ config: BBMACDConfig; reset: boolean }>(
-      `${API_BASE}/bbmacd/config?${params}`,
-      {
-        method: 'PUT',
-        data: { config, reset },
-      }
-    )
-    if (!result.success) throw new Error(result.message || 'Failed to update BB MACD config')
+    const result = await httpClient.request<{
+      config: BBMACDConfig
+      reset: boolean
+    }>(`${API_BASE}/bbmacd/config?${params}`, {
+      method: 'PUT',
+      data: { config, reset },
+    })
+    if (!result.success)
+      throw new Error(result.message || 'Failed to update BB MACD config')
     return result.data!
-  },
-
-  async getTradeMemories(
-    traderId: string,
-    symbol?: string,
-    limit: number = 20,
-    silent?: boolean
-  ): Promise<TradeMemory[]> {
-    const params = new URLSearchParams()
-    params.append('trader_id', traderId)
-    params.append('limit', limit.toString())
-    if (symbol) params.append('symbol', symbol)
-
-    const result = await httpClient.request<TradeMemory[]>(
-      `${API_BASE}/trade-memories?${params}`,
-      { silent }
-    )
-    if (!result.success) throw new Error('Failed to fetch trade memories')
-    return Array.isArray(result.data) ? result.data : []
   },
 
   async getExecutionAnalytics(
@@ -186,16 +170,21 @@ export const dataApi = {
       `${API_BASE}/nofxos/status`,
       { silent }
     )
-    if (!result.success) throw new Error(result.message || 'Failed to fetch NofxOS status')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to fetch NofxOS status')
     return result.data || { records: [], count: 0 }
   },
 
-  async getAI500Coins(limit: number = 20, silent?: boolean): Promise<AI500CoinsResponse> {
+  async getAI500Coins(
+    limit: number = 20,
+    silent?: boolean
+  ): Promise<AI500CoinsResponse> {
     const result = await httpClient.request<AI500CoinsResponse>(
       `${API_BASE}/ai500/coins?limit=${limit}`,
       { silent }
     )
-    if (!result.success) throw new Error(result.message || 'Failed to fetch AI500 coins')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to fetch AI500 coins')
     return result.data || { coins: [], count: 0 }
   },
 
@@ -208,7 +197,10 @@ export const dataApi = {
     return result.data!
   },
 
-  async getEquityHistoryBatch(traderIds: string[], hours?: number): Promise<any> {
+  async getEquityHistoryBatch(
+    traderIds: string[],
+    hours?: number
+  ): Promise<any> {
     const result = await httpClient.post<any>(
       `${API_BASE}/equity-history-batch`,
       { trader_ids: traderIds, hours: hours || 0 }

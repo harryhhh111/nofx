@@ -128,8 +128,10 @@ type TraderPosition struct {
 	OpeningReasoning       string  `gorm:"column:opening_reasoning;default:''" json:"opening_reasoning"`
 	OpeningDecisionID      int64   `gorm:"column:opening_decision_id;default:0;index" json:"opening_decision_id,omitempty"`
 	OpeningSignalID        string  `gorm:"column:opening_signal_id;default:'';index" json:"opening_signal_id,omitempty"`
+	OpeningEpisodeID       string  `gorm:"column:opening_episode_id;default:'';index" json:"opening_episode_id,omitempty"`
 	OpeningRuleID          string  `gorm:"column:opening_rule_id;default:'';index" json:"opening_rule_id,omitempty"`
 	OpeningSetup           string  `gorm:"column:opening_setup;default:'';index" json:"opening_setup,omitempty"`
+	OpeningThesisJSON      string  `gorm:"column:opening_thesis_json;type:text" json:"opening_thesis_json,omitempty"`
 	StrategyID             string  `gorm:"column:strategy_id;default:'';index" json:"strategy_id,omitempty"`
 	StrategyVersion        string  `gorm:"column:strategy_version;default:'';index" json:"strategy_version,omitempty"`
 	StopLossSource         string  `gorm:"column:stop_loss_source;default:''" json:"stop_loss_source,omitempty"`
@@ -220,8 +222,10 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS pending_close_order_id TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_decision_id BIGINT DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_signal_id TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_episode_id TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_rule_id TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_setup TEXT DEFAULT ''`)
+			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS opening_thesis_json TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS strategy_id TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS strategy_version TEXT DEFAULT ''`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS stop_loss_source TEXT DEFAULT ''`)
@@ -255,6 +259,7 @@ func (s *PositionStore) InitTables() error {
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_adverse_price DOUBLE PRECISION DEFAULT 0`)
 			s.db.Exec(`ALTER TABLE trader_positions ADD COLUMN IF NOT EXISTS max_adverse_at BIGINT DEFAULT 0`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_opening_signal_id ON trader_positions(opening_signal_id)`)
+			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_opening_episode_id ON trader_positions(opening_episode_id)`)
 			s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_positions_strategy_id ON trader_positions(strategy_id)`)
 			return nil
 		}
@@ -289,7 +294,7 @@ func (s *PositionStore) Create(pos *TraderPosition) error {
 	return s.db.Create(pos).Error
 }
 
-// UpdatePositionOpeningReasoning writes the AI's position-specific reasoning when opening a trade.
+// UpdatePositionOpeningReasoning writes the position-specific opening rationale.
 func (s *PositionStore) UpdatePositionOpeningReasoning(traderID, symbol, side string, entryNotBefore int64, reasoning string) error {
 	query := s.db.Model(&TraderPosition{}).
 		Where("trader_id = ? AND symbol = ? AND side = ? AND status = ?", traderID, symbol, side, "OPEN")
@@ -313,6 +318,8 @@ type PositionOpeningSignalMetadata struct {
 	Setup           string
 	StrategyID      string
 	StrategyVersion string
+	EpisodeID       string
+	ThesisJSON      string
 	EntryNotBefore  int64
 }
 
@@ -348,8 +355,10 @@ func (s *PositionStore) UpdatePositionOpeningSignalMetadata(traderID, symbol, si
 	updates := map[string]interface{}{
 		"opening_decision_id": meta.DecisionID,
 		"opening_signal_id":   meta.SignalID,
+		"opening_episode_id":  meta.EpisodeID,
 		"opening_rule_id":     meta.RuleID,
 		"opening_setup":       meta.Setup,
+		"opening_thesis_json": meta.ThesisJSON,
 		"strategy_id":         meta.StrategyID,
 		"strategy_version":    meta.StrategyVersion,
 		"updated_at":          time.Now().UnixMilli(),

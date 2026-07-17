@@ -16,12 +16,15 @@ type StrategyReplayRequest struct {
 	StrategyVersion string
 	CurrentConfig   *store.StrategyConfig
 	Samples         []store.SignalCalibrationSample
+	KlineLoader     func(store.SignalCalibrationSample) (map[string][]market.Kline, error)
 	Limit           int
 }
 
 type StrategyReplayReport struct {
 	StrategyID              string                     `json:"strategy_id"`
 	StrategyVersion         string                     `json:"strategy_version,omitempty"`
+	RawSampleCount          int                        `json:"raw_sample_count"`
+	DuplicateScanCount      int                        `json:"duplicate_scan_count"`
 	SampleCount             int                        `json:"sample_count"`
 	ReplayableSampleCount   int                        `json:"replayable_sample_count"`
 	MissingKlineWindowCount int                        `json:"missing_kline_window_count"`
@@ -69,7 +72,10 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 	if limit <= 0 || limit > 1000 {
 		limit = 500
 	}
-	samples := req.Samples
+	rawSampleCount := replaySetupSampleCount(req.Samples)
+	independentSamples := independentReplaySamples(req.Samples)
+	duplicateScanCount := rawSampleCount - len(independentSamples)
+	samples := independentSamples
 	if len(samples) > limit {
 		samples = samples[:limit]
 	}
@@ -78,11 +84,13 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 		return nil, err
 	}
 	report := &StrategyReplayReport{
-		StrategyID:      strings.TrimSpace(req.StrategyID),
-		StrategyVersion: strings.TrimSpace(req.StrategyVersion),
-		SampleCount:     len(samples),
-		ParameterScans:  make([]StrategyReplayScanResult, len(variants)),
-		GeneratedAt:     time.Now().UTC(),
+		StrategyID:         strings.TrimSpace(req.StrategyID),
+		StrategyVersion:    strings.TrimSpace(req.StrategyVersion),
+		RawSampleCount:     rawSampleCount,
+		DuplicateScanCount: duplicateScanCount,
+		SampleCount:        len(samples),
+		ParameterScans:     make([]StrategyReplayScanResult, len(variants)),
+		GeneratedAt:        time.Now().UTC(),
 	}
 	for i, variant := range variants {
 		report.ParameterScans[i] = StrategyReplayScanResult{
@@ -98,6 +106,13 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 			report.ExecutedSampleCount++
 		}
 		windows, ok := parseReplayKlineWindows(sample.KlineWindowsJSON)
+		if !ok && req.KlineLoader != nil {
+			loaded, loadErr := req.KlineLoader(sample)
+			if loadErr == nil && len(loaded) > 0 {
+				windows = copyReplayKlineWindows(loaded)
+				ok = len(windows) > 0
+			}
+		}
 		if !ok {
 			report.MissingKlineWindowCount++
 			continue
@@ -105,7 +120,7 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 		report.ReplayableSampleCount++
 		baseline := replayedSetup{Setup: "replay_error"}
 		for i, variant := range variants {
-			replayed, err := replaySampleSetup(variant.Config, sample.Symbol, sample.AsOf, windows)
+			replayed, err := replaySampleSetup(variant.Config, sample.Symbol, sample.AsOf, windows, sample.FactorSnapshotJSON)
 			scan := &report.ParameterScans[i]
 			scan.ReplayedCount++
 			if err != nil {
@@ -122,7 +137,7 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 			} else {
 				scan.NoTradeCount++
 			}
-			if normalizedReplaySetup(sample.Setup) == normalizedReplaySetup(setupName) {
+			if normalizedReplaySetup(recordedReplaySetup(sample)) == normalizedReplaySetup(setupName) {
 				scan.MatchRecordedCount++
 				if i == 0 {
 					report.BaselineMatchCount++
@@ -146,6 +161,65 @@ func BuildStrategyReplayReport(req StrategyReplayRequest) (*StrategyReplayReport
 	return report, nil
 }
 
+func independentReplaySamples(samples []store.SignalCalibrationSample) []store.SignalCalibrationSample {
+	out := make([]store.SignalCalibrationSample, 0, len(samples))
+	seen := map[string]bool{}
+	for index, sample := range samples {
+		if sample.SampleKind != "" && sample.SampleKind != "setup" {
+			continue
+		}
+		key := fmt.Sprintf("fallback:%d|%s|%s|%d", index, sample.Symbol, sample.PrimaryTimeframe, sample.AsOf.UnixMilli())
+		if sample.PrimaryBarTime > 0 {
+			key = fmt.Sprintf("%s|%s|%d", sample.Symbol, sample.PrimaryTimeframe, sample.PrimaryBarTime)
+		}
+		if windows, ok := parseReplayKlineWindows(sample.KlineWindowsJSON); ok {
+			if bars := windows[sample.PrimaryTimeframe]; len(bars) > 0 {
+				key = fmt.Sprintf("%s|%s|%d", sample.Symbol, sample.PrimaryTimeframe, bars[len(bars)-1].CloseTime)
+			}
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, sample)
+	}
+	return out
+}
+
+func replaySetupSampleCount(samples []store.SignalCalibrationSample) int {
+	count := 0
+	for _, sample := range samples {
+		if sample.SampleKind == "" || sample.SampleKind == "setup" {
+			repeats := sample.RepeatCount
+			if repeats <= 0 {
+				repeats = 1
+			}
+			count += repeats
+		}
+	}
+	return count
+}
+
+func recordedReplaySetup(sample store.SignalCalibrationSample) string {
+	if strings.TrimSpace(sample.SetupTraceJSON) == "" {
+		return sample.Setup
+	}
+	var trace struct {
+		DetectedSetup string `json:"detected_setup"`
+		Setup         string `json:"setup"`
+	}
+	if json.Unmarshal([]byte(sample.SetupTraceJSON), &trace) != nil {
+		return sample.Setup
+	}
+	if strings.TrimSpace(trace.DetectedSetup) != "" {
+		return trace.DetectedSetup
+	}
+	if strings.TrimSpace(trace.Setup) != "" {
+		return trace.Setup
+	}
+	return sample.Setup
+}
+
 func parseReplayKlineWindows(raw string) (map[string][]market.Kline, bool) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, false
@@ -158,7 +232,7 @@ func parseReplayKlineWindows(raw string) (map[string][]market.Kline, bool) {
 	return copied, len(copied) > 0
 }
 
-func replaySampleSetup(config *store.StrategyConfig, symbol string, asOf time.Time, windows map[string][]market.Kline) (replayedSetup, error) {
+func replaySampleSetup(config *store.StrategyConfig, symbol string, asOf time.Time, windows map[string][]market.Kline, factorSnapshotJSON string) (replayedSetup, error) {
 	if config == nil {
 		return replayedSetup{}, fmt.Errorf("strategy config is required")
 	}
@@ -184,6 +258,13 @@ func replaySampleSetup(config *store.StrategyConfig, symbol string, asOf time.Ti
 	}
 	if snapshot.Structures == nil {
 		snapshot.Structures = map[string][]market.StructureSnapshot{}
+	}
+	if strings.TrimSpace(factorSnapshotJSON) != "" {
+		var recorded market.FactorSnapshot
+		if json.Unmarshal([]byte(factorSnapshotJSON), &recorded) == nil {
+			snapshot.External = recorded.External
+			snapshot.RiskFlags = append([]string(nil), recorded.RiskFlags...)
+		}
 	}
 	structures, structureErr := market.NewDefaultStructureEngine().Calculate(context.Background(), input, StructureRequestFromStrategyConfig(config))
 	if structureErr != nil {
@@ -373,7 +454,10 @@ func buildReplayQualityNotes(report *StrategyReplayReport) []string {
 	}
 	notes := []string{}
 	if report.SampleCount == 0 {
-		notes = append(notes, "no calibration samples are available for this strategy version")
+		notes = append(notes, "no independent closed-bar samples are available for this strategy version")
+	}
+	if report.DuplicateScanCount > 0 {
+		notes = append(notes, fmt.Sprintf("%d repeated scans of already-counted closed bars were removed", report.DuplicateScanCount))
 	}
 	if report.MissingKlineWindowCount > 0 {
 		notes = append(notes, fmt.Sprintf("%d sample(s) were collected before raw K-line windows were persisted", report.MissingKlineWindowCount))

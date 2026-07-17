@@ -411,13 +411,7 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 
 	logger.Infof("馃搵 Loading trader configurations for user %s: %d traders", userID, len(traders))
 
-	// Get AI model and exchange lists (query only once outside loop)
-	aiModels, err := st.AIModel().List(userID)
-	if err != nil {
-		logger.Infof("鈿狅笍 Failed to get AI model config for user %s: %v", userID, err)
-		return fmt.Errorf("failed to get AI model config: %w", err)
-	}
-
+	// Exchange and strategy are the only online runtime dependencies.
 	exchanges, err := st.Exchange().List(userID)
 	if err != nil {
 		logger.Infof("鈿狅笍 Failed to get exchange config for user %s: %v", userID, err)
@@ -429,33 +423,6 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		// Check if this trader is already loaded
 		if _, exists := tm.traders[traderCfg.ID]; exists {
 			// Trader already loaded - this is normal, no need to log
-			continue
-		}
-
-		// Find AI model config from already queried list
-		var aiModelCfg *store.AIModel
-		for _, model := range aiModels {
-			if model.ID == traderCfg.AIModelID {
-				aiModelCfg = model
-				break
-			}
-		}
-		if aiModelCfg == nil {
-			for _, model := range aiModels {
-				if model.Provider == traderCfg.AIModelID {
-					aiModelCfg = model
-					break
-				}
-			}
-		}
-
-		if aiModelCfg == nil {
-			logger.Infof("鈿狅笍 AI model %s for trader %s does not exist, skipping", traderCfg.AIModelID, traderCfg.Name)
-			continue
-		}
-
-		if !aiModelCfg.Enabled {
-			logger.Infof("鈿狅笍 AI model %s for trader %s is not enabled, skipping", traderCfg.AIModelID, traderCfg.Name)
 			continue
 		}
 
@@ -479,8 +446,8 @@ func (tm *TraderManager) LoadUserTradersFromStore(st *store.Store, userID string
 		}
 
 		// Use existing method to load trader
-		logger.Infof("馃摝 Loading trader %s (AI Model: %s, Exchange: %s/%s, Strategy ID: %s)", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
-		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
+		logger.Infof("Loading trader %s (engine: %s, exchange: %s/%s, strategy: %s)", traderCfg.Name, store.DeterministicEngineID, exchangeCfg.ExchangeType, exchangeCfg.AccountName, traderCfg.StrategyID)
+		err = tm.addTraderFromStore(traderCfg, exchangeCfg, st)
 		if err != nil {
 			logger.Infof("鉂?Failed to load trader %s: %v", traderCfg.Name, err)
 			// Save error for later retrieval
@@ -521,44 +488,8 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 
 	logger.Infof("馃搵 Total loaded trader configurations: %d", len(allTraders))
 
-	// Get AI model and exchange configs for each trader
+	// Resolve the exchange for each deterministic trader.
 	for _, traderCfg := range allTraders {
-		// Get AI model config
-		aiModels, err := st.AIModel().List(traderCfg.UserID)
-		if err != nil {
-			logger.Infof("鈿狅笍  Failed to get AI model config: %v", err)
-			continue
-		}
-
-		var aiModelCfg *store.AIModel
-		// Prioritize exact match on model.ID
-		for _, model := range aiModels {
-			if model.ID == traderCfg.AIModelID {
-				aiModelCfg = model
-				break
-			}
-		}
-		// If no exact match, try matching provider (for backward compatibility)
-		if aiModelCfg == nil {
-			for _, model := range aiModels {
-				if model.Provider == traderCfg.AIModelID {
-					aiModelCfg = model
-					logger.Infof("鈿狅笍  Trader %s using legacy provider match: %s -> %s", traderCfg.Name, traderCfg.AIModelID, model.ID)
-					break
-				}
-			}
-		}
-
-		if aiModelCfg == nil {
-			logger.Infof("鈿狅笍  AI model %s for trader %s does not exist, skipping", traderCfg.AIModelID, traderCfg.Name)
-			continue
-		}
-
-		if !aiModelCfg.Enabled {
-			logger.Infof("鈿狅笍  AI model %s for trader %s is not enabled, skipping", traderCfg.AIModelID, traderCfg.Name)
-			continue
-		}
-
 		// Get exchange config
 		exchanges, err := st.Exchange().List(traderCfg.UserID)
 		if err != nil {
@@ -585,7 +516,7 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 		}
 
 		// Add to TraderManager (ai500APIURL/oiTopAPIURL already obtained from strategy config)
-		err = tm.addTraderFromStore(traderCfg, aiModelCfg, exchangeCfg, st)
+		err = tm.addTraderFromStore(traderCfg, exchangeCfg, st)
 		if err != nil {
 			logger.Infof("鉂?Failed to add trader %s: %v", traderCfg.Name, err)
 			continue
@@ -597,7 +528,7 @@ func (tm *TraderManager) LoadTradersFromStore(st *store.Store) error {
 }
 
 // addTraderFromStore internal method: adds trader from store configuration
-func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg *store.AIModel, exchangeCfg *store.Exchange, st *store.Store) error {
+func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, exchangeCfg *store.Exchange, st *store.Store) error {
 	if _, exists := tm.traders[traderCfg.ID]; exists {
 		return fmt.Errorf("trader ID '%s' already exists", traderCfg.ID)
 	}
@@ -623,18 +554,13 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 	traderConfig := trader.AutoTraderConfig{
 		ID:                    traderCfg.ID,
 		Name:                  traderCfg.Name,
-		AIModel:               aiModelCfg.Provider,
+		EngineID:              store.DeterministicEngineID,
 		Exchange:              exchangeCfg.ExchangeType, // Exchange type: binance/bybit/okx/etc
 		ExchangeID:            exchangeCfg.ID,           // Exchange account UUID (for multi-account)
 		BinanceAPIKey:         "",
 		BinanceSecretKey:      "",
 		HyperliquidPrivateKey: "",
 		HyperliquidTestnet:    exchangeCfg.Testnet,
-		UseQwen:               aiModelCfg.Provider == "qwen",
-		DeepSeekKey:           "",
-		QwenKey:               "",
-		CustomAPIURL:          aiModelCfg.CustomAPIURL,
-		CustomModelName:       aiModelCfg.CustomModelName,
 		Claw402WalletKey:      loadClaw402WalletKey(st, traderCfg.UserID),
 		ScanInterval:          time.Duration(traderCfg.ScanIntervalMinutes) * time.Minute,
 		InitialBalance:        traderCfg.InitialBalance,
@@ -690,24 +616,13 @@ func (tm *TraderManager) addTraderFromStore(traderCfg *store.Trader, aiModelCfg 
 		traderConfig.IndodaxSecretKey = string(exchangeCfg.SecretKey)
 	}
 
-	// Set API keys based on AI model (convert EncryptedString to string)
-	switch aiModelCfg.Provider {
-	case "qwen":
-		traderConfig.QwenKey = string(aiModelCfg.APIKey)
-	case "deepseek":
-		traderConfig.DeepSeekKey = string(aiModelCfg.APIKey)
-	default:
-		// For other providers (grok, openai, claude, gemini, kimi, etc.), use CustomAPIKey
-		traderConfig.CustomAPIKey = string(aiModelCfg.APIKey)
-	}
-
 	// Create trader instance
 	at, err := trader.NewAutoTrader(traderConfig, st, traderCfg.UserID)
 	if err != nil {
 		return fmt.Errorf("failed to create trader: %w", err)
 	}
 	tm.traders[traderCfg.ID] = at
-	logger.Infof("鉁?Trader '%s' (%s + %s/%s) loaded to memory", traderCfg.Name, aiModelCfg.Provider, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
+	logger.Infof("Trader '%s' (deterministic + %s/%s) loaded to memory", traderCfg.Name, exchangeCfg.ExchangeType, exchangeCfg.AccountName)
 
 	// Auto-start if trader was running before shutdown
 	if traderCfg.IsRunning {

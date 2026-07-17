@@ -7,7 +7,7 @@
 正确链路：
 
 ```text
-策略草稿 -> 结构化编译 -> 回测校准 -> 模拟盘验证 -> 用户手动启用 -> 实盘运行
+策略草稿 -> 结构化编译 -> 参数回放 -> 模拟盘验证 -> 用户手动启用 -> 实盘运行
 ```
 
 策略进化链路：
@@ -39,12 +39,12 @@
 - 多周期是否方向冲突？
 - 调整阈值后，这个样本会不会被过滤？
 
-### 2. 审查与风控证据
+### 2. 确定性复核与风控证据
 
 用于证明信号为什么通过或被拒绝：
 
-- AI Review 状态：pass、warn、reject。
-- AI Review 原因。
+- Evidence Review 状态：pass、warn、reject。
+- Evidence Review 原因。
 - Risk Gate 状态：approved、risk_rejected、no_signal。
 - Risk Gate 拒绝原因。
 - 当时市场上下文摘要。
@@ -52,8 +52,8 @@
 这些数据用于区分：
 
 - 代码没有产生机会。
-- 代码产生了机会但 AI 拒绝。
-- AI 通过但风控拒绝。
+- 代码产生了机会但证据复核拒绝。
+- 证据复核通过但风控拒绝。
 - 最终进入执行。
 
 ### 3. 执行与结果证据
@@ -77,34 +77,34 @@
 
 ## 当前第一版实现
 
-当前已新增 `signal_calibration_samples` 表，记录每轮结构化交易流产生的校准样本。
+当前使用 `signal_calibration_samples`、`setup_episodes` 和 `calibration_klines` 记录可复现的校准数据。
 
 它记录：
 
-- setup 样本，包括未触发的 setup。
-- signal 样本，包括被 AI Review 或 Risk Gate 拒绝的信号。
+- 独立 setup episode，包括未触发和未执行的机会。
+- signal 样本，包括被确定性 Evidence Review 或 Risk Gate 拒绝的信号。
 - factor snapshot。
 - setup/scoring trace。
-- AI review 结果。
+- 确定性 evidence review 结果。
 - risk gate 结果。
 - market context。
 - decision_id 和 cycle_number。
 
-这一步只补数据底座，不改变交易行为。
+同一根主周期 K 线的重复扫描只累计 repeat count，不增加独立样本数。历史 K 线按 source、symbol、timeframe、open time 去重存储，回放时按原始 cutoff 重建窗口。
 
 ## 后续升级
 
-### 阶段一：验证型回测
+### 阶段一：参数回放
 
 输入策略版本和历史样本，输出：
 
 - 样本数是否足够。
 - setup 分布。
 - approved / rejected / no_signal 数量。
-- 交易结果统计。
+- setup 结构分类与基线匹配率。
 - 是否允许进入模拟盘。
 
-### 阶段二：参数扫描
+### 阶段二：episode 统计与参数扫描
 
 仅扫描少数核心参数：
 
@@ -112,12 +112,12 @@
 - short_threshold。
 - min_confidence。
 - min_available_weight_ratio。
-- stop_loss_pct。
-- take_profit_pct。
+- 结构 lookback、最小 leg、breakout buffer。
+- setup-aware 证据权重和阈值。
 
 输出推荐范围，而不是自动应用。
 
-### 阶段三：Walk-forward
+### 阶段三：完整 Walk-forward 回测
 
 按时间滚动：
 
@@ -134,3 +134,4 @@
 - 参数变更必须由用户手动应用为新策略版本。
 - 样本不足时不能给出强结论。
 - 运行时交易循环不能因为回测结果自动调参。
+- 参数回放不包含完整成交、手续费和滑点模拟，不能冒充收益回测。

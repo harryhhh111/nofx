@@ -84,7 +84,7 @@ func TestRiskGateRejectsLongAgainstBearishDirectionBias(t *testing.T) {
 			Confidence:      80,
 			GeneratedAt:     time.Unix(1, 0).UTC(),
 		}},
-		Reviews:       []AIReviewDecision{{SignalID: "sig-1", Status: "pass"}},
+		Reviews:       []SignalReviewDecision{{SignalID: "sig-1", Status: "pass"}},
 		MarketContext: &MarketContext{DirectionBias: "bearish", MarketRegime: "high_volatility"},
 	})
 	if err != nil {

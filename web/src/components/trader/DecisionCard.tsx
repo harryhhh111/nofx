@@ -117,12 +117,12 @@ function labelCode(value?: string): string {
 function hasProtectiveSelectionDetails(action: DecisionAction): boolean {
   return Boolean(
     action.stop_loss_policy ||
-      action.take_profit_policy ||
-      (action.take_profit_candidate_count &&
-        action.take_profit_candidate_count > 0) ||
-      (action.take_profit_selected_risk_reward &&
-        action.take_profit_selected_risk_reward > 0) ||
-      (action.nearest_take_profit && action.nearest_take_profit > 0)
+    action.take_profit_policy ||
+    (action.take_profit_candidate_count &&
+      action.take_profit_candidate_count > 0) ||
+    (action.take_profit_selected_risk_reward &&
+      action.take_profit_selected_risk_reward > 0) ||
+    (action.nearest_take_profit && action.nearest_take_profit > 0)
   )
 }
 
@@ -761,17 +761,12 @@ function ActionCard({
       )}
 
       {isOpen && hasProtectiveSelectionDetails(action) && (
-        <div
-          className="mt-3 pt-3"
-          style={{ borderTop: '1px solid #2B3139' }}
-        >
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid #2B3139' }}>
           <div
             className="mb-2 text-xs font-semibold"
             style={{ color: '#EAECEF' }}
           >
-            {language === 'zh'
-              ? '保护位选择'
-              : 'Protective Level Selection'}
+            {language === 'zh' ? '保护位选择' : 'Protective Level Selection'}
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div
@@ -815,7 +810,10 @@ function ActionCard({
               <div className="text-[10px]" style={{ color: '#848E9C' }}>
                 {language === 'zh' ? '候选目标' : 'Candidates'}
               </div>
-              <div className="font-mono text-[11px]" style={{ color: '#EAECEF' }}>
+              <div
+                className="font-mono text-[11px]"
+                style={{ color: '#EAECEF' }}
+              >
                 {action.take_profit_candidate_count || 0}
                 {action.take_profit_qualified !== undefined && (
                   <span
@@ -844,7 +842,10 @@ function ActionCard({
               <div className="text-[10px]" style={{ color: '#848E9C' }}>
                 {language === 'zh' ? '目标质量' : 'Target Quality'}
               </div>
-              <div className="font-mono text-[11px]" style={{ color: '#EAECEF' }}>
+              <div
+                className="font-mono text-[11px]"
+                style={{ color: '#EAECEF' }}
+              >
                 {language === 'zh' ? '结构' : 'Struct'}{' '}
                 {formatRatio(action.take_profit_selected_risk_reward)}
                 <span className="mx-1" style={{ color: '#848E9C' }}>
@@ -1167,8 +1168,8 @@ export function DecisionCard({
           }}
         >
           {language === 'zh'
-            ? '本轮流程已完成，但代码没有产生可执行开/平仓信号，因此没有调用 AI 审核。下面可以查看代码评估过程。'
-            : 'This cycle completed, but the deterministic engine produced no executable signal, so AI review was not called. Inspect the code evaluation below.'}
+            ? '本轮流程已完成，但代码没有产生可执行开/平仓信号。下面可以查看确定性评估过程。'
+            : 'This cycle completed, but the deterministic engine produced no executable signal. Inspect the deterministic evaluation below.'}
         </div>
       )}
 
@@ -1714,10 +1715,10 @@ export function DecisionCard({
                   (rv: any) => rv?.signal_id === r?.signal_id
                 )
                 const rawReason = String(r?.reason || '')
-                const stage = rawReason.startsWith('llm_review_rejected')
+                const stage = rawReason.startsWith('evidence_review_rejected')
                   ? language === 'zh'
-                    ? 'LLM 复核拒绝'
-                    : 'LLM review rejected'
+                    ? '证据复核拒绝'
+                    : 'Evidence review reject'
                   : rawReason.startsWith('market_context_rejected')
                     ? language === 'zh'
                       ? '市场上下文硬拒'
@@ -1769,7 +1770,7 @@ export function DecisionCard({
                           className="mt-1 text-[10px]"
                           style={{ color: '#848E9C' }}
                         >
-                          {language === 'zh' ? 'LLM' : 'LLM'} [
+                          {language === 'zh' ? '证据复核' : 'Evidence review'} [
                           {String(review.status || '')}]:{' '}
                           {String(review.summary || '')}
                           {Array.isArray(review.reasons) &&
@@ -1822,9 +1823,30 @@ export function DecisionCard({
                     className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px]"
                     style={{ color: '#848E9C' }}
                   >
-                    <span>{language === 'zh' ? '币种行情' : 'Asset regime'}: <span className="font-mono" style={{ color: '#EAECEF' }}>{String(route?.regime || '-')}</span></span>
-                    <span>{language === 'zh' ? 'Setup 家族' : 'Setup family'}: <span className="font-mono" style={{ color: '#EAECEF' }}>{String(route?.family || '-')}</span></span>
-                    <span>{language === 'zh' ? '路由状态' : 'Route'}: <span className="font-mono" style={{ color: route?.status === 'caution' ? '#F0B90B' : '#0ECB81' }}>{String(route?.status || '-')}</span></span>
+                    <span>
+                      {language === 'zh' ? '币种行情' : 'Asset regime'}:{' '}
+                      <span className="font-mono" style={{ color: '#EAECEF' }}>
+                        {String(route?.regime || '-')}
+                      </span>
+                    </span>
+                    <span>
+                      {language === 'zh' ? 'Setup 家族' : 'Setup family'}:{' '}
+                      <span className="font-mono" style={{ color: '#EAECEF' }}>
+                        {String(route?.family || '-')}
+                      </span>
+                    </span>
+                    <span>
+                      {language === 'zh' ? '路由状态' : 'Route'}:{' '}
+                      <span
+                        className="font-mono"
+                        style={{
+                          color:
+                            route?.status === 'caution' ? '#F0B90B' : '#0ECB81',
+                        }}
+                      >
+                        {String(route?.status || '-')}
+                      </span>
+                    </span>
                   </div>
                   <div
                     className="mt-2 grid grid-cols-3 gap-2 text-[10px]"

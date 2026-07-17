@@ -110,7 +110,7 @@ export interface DecisionAction {
   protective_atr_buffer?: number
   protective_risk_reward?: number
   execution_risk_reward?: number
-  confidence?: number // AI confidence (0-100)
+  confidence?: number // Deterministic setup confidence (0-100)
   reasoning?: string // Brief reasoning
   order_id: number
   timestamp: string
@@ -230,34 +230,6 @@ export interface BBMACDAccuracyStats {
   breakout: BBMACDAccuracyBucket
   by_state: BBMACDStateStat[]
   by_timeframe: BBMACDTimeframeStat[]
-}
-
-// AI Trading鐩稿叧绫诲瀷
-export interface TradeMemory {
-  id: number
-  trader_id: string
-  strategy_id?: string
-  strategy_version?: string
-  symbol: string
-  side?: string
-  action?: string
-  scope: string
-  source_type: string
-  signal_id?: string
-  decision_id?: number
-  position_id?: number
-  result?: string
-  outcome_pnl?: number
-  outcome_pnl_pct?: number
-  summary: string
-  evidence?: string
-  lessons_json?: string
-  tags_json?: string
-  quality_score: number
-  confidence: number
-  expires_at?: string
-  created_at: string
-  updated_at: string
 }
 
 export interface ExecutionAnalytics {

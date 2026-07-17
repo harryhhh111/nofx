@@ -12,6 +12,8 @@ type TraderStore struct {
 	db *gorm.DB
 }
 
+const DeterministicEngineID = "deterministic"
+
 // NewTraderStore creates a new trader store
 func NewTraderStore(db *gorm.DB) *TraderStore {
 	return &TraderStore{db: db}
@@ -22,7 +24,7 @@ type Trader struct {
 	ID                  string    `gorm:"primaryKey" json:"id"`
 	UserID              string    `gorm:"column:user_id;not null;default:default;index" json:"user_id"`
 	Name                string    `gorm:"column:name;not null" json:"name"`
-	AIModelID           string    `gorm:"column:ai_model_id;not null" json:"ai_model_id"`
+	AIModelID           string    `gorm:"column:ai_model_id;not null;default:'deterministic'" json:"ai_model_id"`
 	ExchangeID          string    `gorm:"column:exchange_id;not null" json:"exchange_id"`
 	StrategyID          string    `gorm:"column:strategy_id;default:''" json:"strategy_id"`
 	DecisionLanguage    string    `gorm:"column:decision_language;default:''" json:"decision_language,omitempty"` // "en"/"zh" overrides strategy language; empty = follow strategy
@@ -47,10 +49,9 @@ func (Trader) TableName() string {
 	return "traders"
 }
 
-// TraderFullConfig trader full configuration (includes AI model, exchange and strategy)
+// TraderFullConfig contains online runtime dependencies.
 type TraderFullConfig struct {
 	Trader   *Trader
-	AIModel  *AIModel
 	Exchange *Exchange
 	Strategy *Strategy
 }
@@ -61,6 +62,9 @@ func (s *TraderStore) initTables() error {
 		var tableExists int64
 		s.db.Raw(`SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'traders'`).Scan(&tableExists)
 		if tableExists > 0 {
+			if err := s.db.Exec(`ALTER TABLE traders ADD COLUMN IF NOT EXISTS decision_language TEXT DEFAULT ''`).Error; err != nil {
+				return fmt.Errorf("failed to migrate traders decision language: %w", err)
+			}
 			return nil
 		}
 	}
@@ -194,13 +198,6 @@ func (s *TraderStore) GetFullConfig(userID, traderID string) (*TraderFullConfig,
 		return nil, err
 	}
 
-	// Get AI model
-	var aiModel AIModel
-	err = s.db.Where("id = ? AND user_id = ?", trader.AIModelID, userID).First(&aiModel).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to get AI model: %w", err)
-	}
-
 	// Get exchange
 	var exchange Exchange
 	err = s.db.Where("id = ? AND user_id = ?", trader.ExchangeID, userID).First(&exchange).Error
@@ -220,7 +217,6 @@ func (s *TraderStore) GetFullConfig(userID, traderID string) (*TraderFullConfig,
 
 	return &TraderFullConfig{
 		Trader:   &trader,
-		AIModel:  &aiModel,
 		Exchange: &exchange,
 		Strategy: strategy,
 	}, nil
@@ -279,16 +275,6 @@ func (s *TraderStore) ListAll() ([]*Trader, error) {
 func (s *TraderStore) ListByExchangeID(userID, exchangeID string) ([]*Trader, error) {
 	var traders []*Trader
 	err := s.db.Where("user_id = ? AND exchange_id = ?", userID, exchangeID).Find(&traders).Error
-	if err != nil {
-		return nil, err
-	}
-	return traders, nil
-}
-
-// ListByAIModelID gets traders that use a specific AI model
-func (s *TraderStore) ListByAIModelID(userID, aiModelID string) ([]*Trader, error) {
-	var traders []*Trader
-	err := s.db.Where("user_id = ? AND ai_model_id = ?", userID, aiModelID).Find(&traders).Error
 	if err != nil {
 		return nil, err
 	}

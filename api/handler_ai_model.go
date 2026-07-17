@@ -167,8 +167,7 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 		logger.Infof("🔓 Decrypted model config data (UserID: %s)", userID)
 	}
 
-	// Update each model's configuration and track traders that need reload
-	tradersToReload := make(map[string]bool)
+	// Model configuration is consumed only by explicit compile/calibration tools.
 	for modelID, modelData := range req.Models {
 		// SSRF protection: validate custom_api_url before storing
 		if modelData.CustomAPIURL != "" {
@@ -179,30 +178,11 @@ func (s *Server) handleUpdateModelConfigs(c *gin.Context) {
 			}
 		}
 
-		// Find traders using this AI model BEFORE updating
-		traders, _ := s.store.Trader().ListByAIModelID(userID, modelID)
-		for _, t := range traders {
-			tradersToReload[t.ID] = true
-		}
-
 		err := s.store.AIModel().Update(userID, modelID, modelData.Enabled, modelData.APIKey, modelData.CustomAPIURL, modelData.CustomModelName, modelData.Name)
 		if err != nil {
 			SafeInternalError(c, fmt.Sprintf("Update model %s", modelID), err)
 			return
 		}
-	}
-
-	// Remove affected traders from memory BEFORE reloading to pick up new config
-	for traderID := range tradersToReload {
-		logger.Infof("🔄 Removing trader %s from memory to reload with new AI model config", traderID)
-		s.traderManager.RemoveTrader(traderID)
-	}
-
-	// Reload all traders for this user to make new config take effect immediately
-	err = s.traderManager.LoadUserTradersFromStore(s.store, userID)
-	if err != nil {
-		logger.Infof("⚠️ Failed to reload user traders into memory: %v", err)
-		// Don't return error here since model config was successfully updated to database
 	}
 
 	updatedModelIDs := make([]string, 0, len(req.Models))
@@ -232,7 +212,7 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 }
 
 // handleTestModelConnectivity tests the AI model connectivity using the stored API key.
-// Accepts either trader_id (tests the model bound to that trader) or model_id (tests the model directly).
+// The caller selects the model explicitly; online traders do not bind a model.
 // It does NOT expose the key.
 func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 	userID := c.GetString("user_id")
@@ -242,32 +222,14 @@ func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 	}
 
 	var req struct {
-		TraderID string `json:"trader_id"`
-		ModelID  string `json:"model_id"`
+		ModelID string `json:"model_id" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "invalid request")
 		return
 	}
 
-	if req.TraderID == "" && req.ModelID == "" {
-		SafeBadRequest(c, "trader_id or model_id is required")
-		return
-	}
-
 	modelID := req.ModelID
-	if req.TraderID != "" {
-		trader, err := s.store.Trader().Get(userID, req.TraderID)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"trader_id": req.TraderID,
-				"valid":     false,
-				"error":     fmt.Sprintf("failed to get trader: %v", err),
-			})
-			return
-		}
-		modelID = trader.AIModelID
-	}
 
 	aiClient, err := s.createAIClientForModel(userID, modelID)
 	if err != nil {
@@ -275,9 +237,6 @@ func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 			"model_id": modelID,
 			"valid":    false,
 			"error":    err.Error(),
-		}
-		if req.TraderID != "" {
-			resp["trader_id"] = req.TraderID
 		}
 		c.JSON(http.StatusOK, resp)
 		return
@@ -293,9 +252,6 @@ func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 			"valid":    false,
 			"error":    fmt.Sprintf("connectivity test failed: %v", err),
 		}
-		if req.TraderID != "" {
-			resp["trader_id"] = req.TraderID
-		}
 		c.JSON(http.StatusOK, resp)
 		return
 	}
@@ -303,9 +259,6 @@ func (s *Server) handleTestModelConnectivity(c *gin.Context) {
 	resp := gin.H{
 		"model_id": modelID,
 		"valid":    true,
-	}
-	if req.TraderID != "" {
-		resp["trader_id"] = req.TraderID
 	}
 	c.JSON(http.StatusOK, resp)
 }

@@ -13,33 +13,44 @@ import { API_BASE, httpClient } from './helpers'
 
 export const strategyApi = {
   async getStrategyMetadata(): Promise<StrategyMetadata> {
-    const result = await httpClient.get<StrategyMetadata>(`${API_BASE}/strategies/metadata`)
+    const result = await httpClient.get<StrategyMetadata>(
+      `${API_BASE}/strategies/metadata`
+    )
     if (!result.success) throw new Error('Failed to fetch strategy metadata')
     return result.data!
   },
 
   async getStrategies(): Promise<Strategy[]> {
-    const result = await httpClient.get<{ strategies: Strategy[] }>(`${API_BASE}/strategies`)
+    const result = await httpClient.get<{ strategies: Strategy[] }>(
+      `${API_BASE}/strategies`
+    )
     if (!result.success) throw new Error('Failed to fetch strategy list')
     const strategies = result.data?.strategies
     return Array.isArray(strategies) ? strategies : []
   },
 
   async getStrategy(strategyId: string): Promise<Strategy> {
-    const result = await httpClient.get<Strategy>(`${API_BASE}/strategies/${strategyId}`)
+    const result = await httpClient.get<Strategy>(
+      `${API_BASE}/strategies/${strategyId}`
+    )
     if (!result.success) throw new Error('Failed to fetch strategy')
     return result.data!
   },
 
   async getActiveStrategy(): Promise<Strategy> {
-    const result = await httpClient.get<Strategy>(`${API_BASE}/strategies/active`)
+    const result = await httpClient.get<Strategy>(
+      `${API_BASE}/strategies/active`
+    )
     if (!result.success) throw new Error('Failed to fetch active strategy')
     return result.data!
   },
 
   async getDefaultStrategyConfig(): Promise<StrategyConfig> {
-    const result = await httpClient.get<StrategyConfig>(`${API_BASE}/strategies/default-config`)
-    if (!result.success) throw new Error('Failed to fetch default strategy config')
+    const result = await httpClient.get<StrategyConfig>(
+      `${API_BASE}/strategies/default-config`
+    )
+    if (!result.success)
+      throw new Error('Failed to fetch default strategy config')
     return result.data!
   },
 
@@ -48,7 +59,10 @@ export const strategyApi = {
     description: string
     config: StrategyConfig
   }): Promise<Strategy> {
-    const result = await httpClient.post<Strategy>(`${API_BASE}/strategies`, data)
+    const result = await httpClient.post<Strategy>(
+      `${API_BASE}/strategies`,
+      data
+    )
     if (!result.success) throw new Error('Failed to create strategy')
     return result.data!
   },
@@ -61,24 +75,33 @@ export const strategyApi = {
       config?: StrategyConfig
     }
   ): Promise<Strategy> {
-    const result = await httpClient.put<Strategy>(`${API_BASE}/strategies/${strategyId}`, data)
+    const result = await httpClient.put<Strategy>(
+      `${API_BASE}/strategies/${strategyId}`,
+      data
+    )
     if (!result.success) throw new Error('Failed to update strategy')
     return result.data!
   },
 
   async deleteStrategy(strategyId: string): Promise<void> {
-    const result = await httpClient.delete(`${API_BASE}/strategies/${strategyId}`)
+    const result = await httpClient.delete(
+      `${API_BASE}/strategies/${strategyId}`
+    )
     if (!result.success) throw new Error('Failed to delete strategy')
   },
 
   async activateStrategy(strategyId: string): Promise<Strategy> {
-    const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/activate`)
+    const result = await httpClient.post<Strategy>(
+      `${API_BASE}/strategies/${strategyId}/activate`
+    )
     if (!result.success) throw new Error('Failed to activate strategy')
     return result.data!
   },
 
   async duplicateStrategy(strategyId: string): Promise<Strategy> {
-    const result = await httpClient.post<Strategy>(`${API_BASE}/strategies/${strategyId}/duplicate`)
+    const result = await httpClient.post<Strategy>(
+      `${API_BASE}/strategies/${strategyId}/duplicate`
+    )
     if (!result.success) throw new Error('Failed to duplicate strategy')
     return result.data!
   },
@@ -99,7 +122,8 @@ export const strategyApi = {
         timeout: 120000,
       }
     )
-    if (!result.success) throw new Error(result.message || 'Failed to compile strategy')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to compile strategy')
     return result.data!
   },
 
@@ -110,15 +134,13 @@ export const strategyApi = {
       `${API_BASE}/strategies/preview-flow`,
       data
     )
-    if (!result.success) throw new Error(result.message || 'Failed to preview strategy flow')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to preview strategy flow')
     return result.data!
   },
 
   async testRunStrategy(data: {
     config: StrategyConfig
-    prompt_variant?: string
-    ai_model_id?: string
-    run_real_ai?: boolean
   }): Promise<StrategyTestRunResponse> {
     const result = await httpClient.request<StrategyTestRunResponse>(
       `${API_BASE}/strategies/test-run`,
@@ -128,7 +150,8 @@ export const strategyApi = {
         timeout: 180000,
       }
     )
-    if (!result.success) throw new Error(result.message || 'Failed to run strategy test')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to run strategy test')
     return result.data!
   },
 
@@ -139,7 +162,8 @@ export const strategyApi = {
     const result = await httpClient.get<StrategyCalibrationReport>(
       `${API_BASE}/strategies/${strategyId}/calibration-report?limit=${limit}`
     )
-    if (!result.success) throw new Error(result.message || 'Failed to fetch calibration report')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to fetch calibration report')
     return result.data!
   },
 
@@ -150,7 +174,8 @@ export const strategyApi = {
     const result = await httpClient.get<StrategyReplayReport>(
       `${API_BASE}/strategies/${strategyId}/replay-report?limit=${limit}`
     )
-    if (!result.success) throw new Error(result.message || 'Failed to fetch replay report')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to fetch replay report')
     return result.data!
   },
 
@@ -171,7 +196,8 @@ export const strategyApi = {
         timeout: 180000,
       }
     )
-    if (!result.success) throw new Error(result.message || 'Failed to evolve strategy')
+    if (!result.success)
+      throw new Error(result.message || 'Failed to evolve strategy')
     return result.data!
   },
 }

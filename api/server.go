@@ -123,7 +123,6 @@ func (s *Server) setupRoutes() {
 		// Public strategy market (no authentication required)
 		s.route(api, "GET", "/strategies/metadata", s.handleStrategyMetadata)
 		s.route(api, "GET", "/strategies/public", s.handlePublicStrategies)
-		s.route(api, "POST", "/strategies/estimate-tokens", s.handleEstimateTokens)
 
 		// Public decision endpoints (no authentication required)
 		decisions := api.Group("/decisions")
@@ -221,8 +220,6 @@ func (s *Server) setupRoutes() {
 				s.handleGetActiveStrategy)
 			s.route(protected, "GET", "/strategies/default-config",
 				s.handleGetDefaultStrategyConfig)
-			s.route(protected, "GET", "/strategies/templates",
-				s.handleGetStrategyTemplates)
 			s.route(protected, "POST", "/strategies/preview-prompt",
 				s.handlePreviewPrompt)
 			s.route(protected, "POST", "/strategies/preview-flow", s.handlePreviewPrompt)
@@ -268,8 +265,6 @@ func (s *Server) setupRoutes() {
 				s.handleDecisions)
 			s.route(protected, "GET", "/decisions/:id",
 				s.handleDecisionByID)
-			s.route(protected, "GET", "/trade-memories",
-				s.handleTradeMemories)
 			s.route(protected, "GET", "/execution-analytics",
 				s.handleExecutionAnalytics)
 			s.route(protected, "GET", "/statistics",

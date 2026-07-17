@@ -41,12 +41,10 @@ func (s *Server) handleTraderList(c *gin.Context) {
 			}
 		}
 
-		// Return complete AIModelID (e.g. "admin_deepseek"), don't truncate
-		// Frontend needs complete ID to verify model exists (consistent with handleGetTraderConfig)
 		result = append(result, map[string]interface{}{
 			"trader_id":           trader.ID,
 			"trader_name":         trader.Name,
-			"ai_model":            trader.AIModelID, // Use complete ID
+			"ai_model":            store.DeterministicEngineID,
 			"exchange_id":         trader.ExchangeID,
 			"is_running":          isRunning,
 			"show_in_competition": trader.ShowInCompetition,
@@ -85,13 +83,10 @@ func (s *Server) handleGetTraderConfig(c *gin.Context) {
 		}
 	}
 
-	// Return complete model ID without conversion, consistent with frontend model list
-	aiModelID := traderConfig.AIModelID
-
 	result := map[string]interface{}{
 		"trader_id":             traderConfig.ID,
 		"trader_name":           traderConfig.Name,
-		"ai_model":              aiModelID,
+		"ai_model":              store.DeterministicEngineID,
 		"exchange_id":           traderConfig.ExchangeID,
 		"strategy_id":           traderConfig.StrategyID,
 		"initial_balance":       traderConfig.InitialBalance,

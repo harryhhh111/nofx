@@ -34,21 +34,6 @@ func TestProfitProtectionDrawdownPct(t *testing.T) {
 	}
 }
 
-func TestAcknowledgeDrawdownAlertsRetainsNewerObservation(t *testing.T) {
-	at := &AutoTrader{pendingDrawdownAlerts: []kernel.DrawdownAlert{
-		{Symbol: "BTCUSDT", Side: "long", ObservedAt: 200},
-		{Symbol: "ETHUSDT", Side: "short", ObservedAt: 100},
-	}}
-	at.acknowledgeDrawdownAlerts([]kernel.DrawdownAlert{
-		{Symbol: "BTCUSDT", Side: "long", ObservedAt: 100},
-		{Symbol: "ETHUSDT", Side: "short", ObservedAt: 100},
-	})
-
-	if len(at.pendingDrawdownAlerts) != 1 || at.pendingDrawdownAlerts[0].Symbol != "BTCUSDT" || at.pendingDrawdownAlerts[0].ObservedAt != 200 {
-		t.Fatalf("expected only the newer in-flight alert to remain, got %+v", at.pendingDrawdownAlerts)
-	}
-}
-
 func TestPeakPnLCacheFollowsPositionEntryLifecycle(t *testing.T) {
 	at := &AutoTrader{
 		peakPnLCache:         make(map[string]float64),

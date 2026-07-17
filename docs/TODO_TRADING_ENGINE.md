@@ -2,17 +2,17 @@
 
 ## Core Direction
 
-目标不是让 AI 彻底退出交易，也不是回到 AI 每轮自由下单。
+目标是把实时交易与 AI 服务彻底解耦，同时保留 AI 在显式离线设计环节的辅助价值。
 
 最终方向：
-- AI 做策略设计、参数建议、环境审查、交易复盘。
+- AI 可做策略编译和离线参数建议。
 - 程序做指标计算、结构识别、信号触发、风控校验。
-- 实盘每轮不能让 AI 临时重写交易规则和参数。
+- 实盘每轮不调用 AI，也不能让 AI 临时重写交易规则和参数。
 - 如果 AI 需要调整参数，必须生成新的策略版本，不能静默覆盖当前实盘策略。
 
 交易主链路：
 
-`strategy config -> factor snapshot -> signal engine -> market context -> LLM review -> risk gate -> execution`
+`strategy config -> factor snapshot -> setup engine -> deterministic evidence review -> market context -> risk gate -> execution`
 
 ## Status Audit
 
@@ -108,7 +108,7 @@
 
 ## 5. Market Context Engine - done
 
-目标：保留 AI 对大环境的判断能力，但只用于环境过滤和风险审查，不用于绕过策略开仓。
+目标：由程序统一计算大环境状态，并按 setup 类型用于环境过滤和风险审查。
 
 已完成：
 - BTC / ETH 大盘趋势摘要。
@@ -116,9 +116,9 @@
 - Funding 是否过热。
 - 基于候选币快照的市场广度摘要。
 - 输出 `market_regime`、`risk_flags`、`context_summary`。
-- Market Context 已进入 LLM review 和 RiskGate。
+- Market Context 已进入确定性证据复核和 RiskGate。
 - RiskGate 继续复用老风控做硬校验：仓位、杠杆、最小仓位、RR、止损距离等。
-- Market Context 采用分层处理：`risk_off` 下做多属于硬拦截；high_volatility、overheated、funding_overheated、大盘 bearish、外部 bearish 只作为软风险标记，进入 LLM review 和风控 warning，不直接一刀切拒单。
+- Market Context 采用 setup-aware 分层处理：方向冲突可硬拦截趋势类 setup；反转类 setup 只增加 warning，并继续由结构失效和风控校验决定。
 
 使用边界：
 - 可以降级、警告、否决信号。
@@ -149,7 +149,7 @@
 
 要求：
 - 每个外部因子必须记录 source、source_time、available_at、cost_class。
-- 不能把长文本直接塞给交易 LLM，需要先摘要或结构化。
+- 外部数据必须先结构化，不允许由运行时 AI 从长文本临场生成信号。
 
 后续：
 - News / Announcement / Macro Event。
@@ -189,33 +189,22 @@
 - 增加显式 apply proposal 流程。
 - 接入每日 / 每周复盘、连续亏损、regime 持续变化的自动触发器。
 
-## 8. Trade Memory - done
+## 8. Setup Episode Calibration - done
 
-目标：每笔交易结束后形成结构化经验，并在后续决策中引用。
-
-范围：
-- 交易总结存储。
-- 经验检索。
-- 成败归因。
-- 记忆质量评分和过期机制。
+目标：将连续多轮扫描归并成独立的结构机会，形成可复现、可回放、可统计的学习样本。
 
 已完成：
-- 新增 `trade_memories` 存储表。
-- 新增 `StoreTradeMemory`，交易评估时会按币种读取相关历史经验。
-- 新增 `LLMTradeMemorySummarizer`，对已关闭交易生成简短复盘记忆。
-- 实盘循环结束后会扫描最近关闭仓位，未生成过记忆的才调用 AI 复盘并落库。
-- 低质量或低置信度复盘不会入库，检索时也只返回达到最低质量阈值的记忆。
-- 新增 `GET /api/trade-memories`，用于查看某个 trader 的交易记忆。
+- 新增 `setup_episodes`，按策略版本、币种、setup 和方向记录机会生命周期。
+- 同一根已收盘 K 线的重复扫描不会增加独立样本数。
+- 记录首次结构证据、触发、风控通过、执行、MFE/MAE、结构失效和目标命中。
+- 未执行或被拒的机会也会继续跟踪前向结果，用于反事实校准。
+- 按 regime、setup、方向和因子聚合前向表现，供离线权重校准使用。
+- AI 只生成离线校准草稿，不进入实时交易门，也不会自动覆盖运行配置。
 
 边界：
-- 记忆只进入 LLM review，不能覆盖信号引擎、指标参数和风控。
-- 一笔已关闭仓位只生成一次记忆，避免重复调用 AI。
-- AI 复盘失败时不阻塞交易循环，也不会写入低质量兜底记忆。
-
-后续：
-- 增加手动删除 / 降权记忆。
-- 增加记忆质量的周期性重评估。
-- 和 Execution Analytics 打通，把滑点、成交质量一起写入 evidence。
+- ATR 执行缓冲不改变结构标签的止损锚点和目标位。
+- 无结构风险基准的 episode 不参与平均 R，避免混合不同统计口径。
+- 参数回放是结构分类稳定性扫描，不等同于收益回测。
 
 ## 9. Execution Analytics - core done
 
@@ -246,7 +235,7 @@
 后续：
 - OrderSync 回填 `first_fill_at`、`final_fill_at`、`avg_fill_price`、`partial_fill_ratio`。
 - 统计每个交易所、币种、策略版本的平均滑点和失败率。
-- 把执行质量摘要写入 Trade Memory 的 evidence。
+- 把执行质量摘要按策略版本、setup 和交易所汇总到校准报告。
 
 ## 10. Strategy Studio UI - core done
 
@@ -269,7 +258,7 @@
 - 编译成功后写回当前编辑配置：`strategy_prompt`、`strategy_mode`、`compiled_rules`、`scoring_config`、`resolved_parameters`。
 - 编译失败时会在结构化页签展示后端返回的结构化错误。
 - 右侧新增 `结构化` 页签，展示规则数、策略模式、证据过滤、规则摘要和原始结构。
-- 保留原有 `preview-flow` 和 `test-run`，用于查看结构化流和真实 AI 审查结果。
+- 保留 `preview-flow` 和 `test-run`，用于查看与生产一致的确定性结构化流和风控结果。
 
 边界：
 - 编译结果不会自动变成实盘，仍然需要点击保存策略。
@@ -278,7 +267,7 @@
 后续：
 - 增加结构参数编辑器：Fibonacci / support resistance。
 - 增加 strategy evolver proposal 的前端查看和手动应用流程。
-- 增加 trade memory / execution analytics 的前端查看入口。
+- 增加 execution analytics 的前端查看入口。
 
 ## 11. API Compatibility - done
 
@@ -304,7 +293,7 @@
 - 新增确定性 `GetGridRuleDecisions`，只根据 grid config、grid state、价格位置生成挂单/hold 动作。
 - 新增 `BuildGridMarketContext`，把 grid 的趋势、波动、资金费率、区间状态输出成结构化市场上下文。
 - 新增 `ApplyGridRiskGate`，在执行前拦截趋势风险、高波动、价格越界等不适合 grid 加挂单的状态。
-- 原 `GetGridDecisions` 作为旧 LLM grid prompt 能力保留，但不再被实盘 grid cycle 调用。
+- 旧 `GetGridDecisions`、grid prompt 和响应解析器已删除，实盘 grid cycle 只保留确定性规则路径。
 
 后续：
 - Grid 的趋势暂停、方向调整、区间重算应继续走确定性规则。

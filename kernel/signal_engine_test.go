@@ -193,7 +193,7 @@ func TestSuppressOpenSignalsWhenSymbolAlreadyHasPosition(t *testing.T) {
 		t.Fatalf("unexpected active signals: %+v", active)
 	}
 	if len(suppressed) != 1 || suppressed[0].Signal.ID != "open" {
-		t.Fatalf("expected same-symbol open to be suppressed before AI review: %+v", suppressed)
+		t.Fatalf("expected same-symbol open to be suppressed before evidence review: %+v", suppressed)
 	}
 }
 
@@ -229,13 +229,13 @@ func TestSuppressConflictingOpenSignalsInSameCycle(t *testing.T) {
 
 func TestValidateAIReviewsRequiresOneReviewPerSignal(t *testing.T) {
 	signals := []CandidateSignal{{ID: "one"}, {ID: "two"}}
-	if err := validateAIReviews(signals, []AIReviewDecision{{SignalID: "one", Status: "pass"}}); err == nil {
+	if err := validateSignalReviews(signals, []SignalReviewDecision{{SignalID: "one", Status: "pass"}}); err == nil {
 		t.Fatal("expected missing review to fail")
 	}
-	if err := validateAIReviews(signals, []AIReviewDecision{{SignalID: "one", Status: "pass"}, {SignalID: "one", Status: "pass"}}); err == nil {
+	if err := validateSignalReviews(signals, []SignalReviewDecision{{SignalID: "one", Status: "pass"}, {SignalID: "one", Status: "pass"}}); err == nil {
 		t.Fatal("expected duplicate review to fail")
 	}
-	if err := validateAIReviews(signals, []AIReviewDecision{{SignalID: "one", Status: "pass"}, {SignalID: "two", Status: "warn"}}); err != nil {
+	if err := validateSignalReviews(signals, []SignalReviewDecision{{SignalID: "one", Status: "pass"}, {SignalID: "two", Status: "warn"}}); err != nil {
 		t.Fatalf("expected complete reviews to pass: %v", err)
 	}
 }
@@ -424,39 +424,6 @@ func TestPositionLifecycleWithOpeningThesisDoesNotCloseOnGenericScoreFlip(t *tes
 	lifecycle, closePosition := evaluatePositionLifecycle(scoring, position, trace)
 	if !closePosition || lifecycle.State != "thesis_invalidated" {
 		t.Fatalf("expected confirmed route invalidation to close the position, got %+v", lifecycle)
-	}
-}
-
-func TestDrawdownAlertGeneratesExplicitRiskCloseSignal(t *testing.T) {
-	req := SignalRequest{
-		Positions: []PositionInfo{{
-			Symbol:          "BTCUSDT",
-			Side:            "long",
-			MarkPrice:       101,
-			NetPnL:          2.5,
-			OpeningSetup:    "trend_continuation_long",
-			OpeningRuleID:   "trend_continuation_long",
-			StrategyVersion: "v1",
-		}},
-		DrawdownAlerts: []DrawdownAlert{{
-			Symbol:        "BTCUSDT",
-			Side:          "long",
-			CurrentPnLPct: 2,
-			PeakPnLPct:    6,
-			DrawdownPct:   66.67,
-			CurrentNetPnL: 2.5,
-			ObservedAt:    123,
-		}},
-		Now: time.Unix(10, 0).UTC(),
-	}
-
-	signals := GenerateDrawdownAlertSignals(req, nil)
-	if len(signals) != 1 || signals[0].Action != "close_long" || signals[0].Setup != "profit_protection_drawdown" {
-		t.Fatalf("expected an explicit profit-protection close candidate, got %+v", signals)
-	}
-	openingThesis, ok := signals[0].Evidence["opening_thesis"].(map[string]interface{})
-	if !ok || openingThesis["setup"] != "trend_continuation_long" {
-		t.Fatalf("expected opening thesis in drawdown review evidence, got %#v", signals[0].Evidence)
 	}
 }
 

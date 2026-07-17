@@ -17,7 +17,6 @@ import (
 // AI trader management related structures
 type CreateTraderRequest struct {
 	Name                string  `json:"name" binding:"required"`
-	AIModelID           string  `json:"ai_model_id" binding:"required"`
 	ExchangeID          string  `json:"exchange_id" binding:"required"`
 	StrategyID          string  `json:"strategy_id"` // Strategy ID (new version)
 	InitialBalance      float64 `json:"initial_balance"`
@@ -35,7 +34,6 @@ type CreateTraderRequest struct {
 // UpdateTraderRequest Update trader request
 type UpdateTraderRequest struct {
 	Name                string  `json:"name" binding:"required"`
-	AIModelID           string  `json:"ai_model_id" binding:"required"`
 	ExchangeID          string  `json:"exchange_id" binding:"required"`
 	StrategyID          string  `json:"strategy_id"` // Strategy ID (new version)
 	InitialBalance      float64 `json:"initial_balance"`
@@ -353,33 +351,6 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		}
 	}
 
-	model, err := s.store.AIModel().Get(userID, req.AIModelID)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			SafeBadRequestWithDetails(c, formatTraderCreationError("Selected AI model not found", "Please go to Settings > Model Config to add and enable a valid model first, then create the trader"), "trader.create.model_not_found", nil)
-			return
-		}
-		SafeError(c, http.StatusInternalServerError,
-			formatTraderCreationError("Unable to read AI model configuration", "Please try again later; if the issue persists, check if local services are running"),
-			err,
-		)
-		return
-	}
-	if !model.Enabled {
-		SafeBadRequestWithDetails(c, formatTraderCreationError(
-			fmt.Sprintf("AI model \"%s\" is currently disabled", model.Name),
-			"Please go to Settings > Model Config to enable it, then create the trader again",
-		), "trader.create.model_disabled", mapStringPairs("model_name", model.Name))
-		return
-	}
-	if model.APIKey == "" {
-		SafeBadRequestWithDetails(c, formatTraderCreationError(
-			fmt.Sprintf("AI model \"%s\" is missing API Key or payment credentials", model.Name),
-			"Please go to Settings > Model Config to complete model credentials, then create the trader again",
-		), "trader.create.model_missing_credentials", mapStringPairs("model_name", model.Name))
-		return
-	}
-
 	if req.StrategyID == "" {
 		SafeBadRequestWithDetails(c, formatTraderCreationError("No trading strategy selected", "Please select a strategy first, then continue creating the trader"), "trader.create.strategy_required", nil)
 		return
@@ -421,7 +392,7 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 	if len(exchangeIDShort) > 8 {
 		exchangeIDShort = exchangeIDShort[:8]
 	}
-	traderID := fmt.Sprintf("%s_%s_%d", sanitizeTraderIDPart(exchangeIDShort), sanitizeTraderIDPart(req.AIModelID), time.Now().Unix())
+	traderID := fmt.Sprintf("%s_%s_%d", sanitizeTraderIDPart(exchangeIDShort), store.DeterministicEngineID, time.Now().Unix())
 
 	// Set default values
 	isCrossMargin := true // Default to cross margin mode
@@ -521,12 +492,12 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		return
 	}
 
-	logger.Infof("🔧 DEBUG: Starting to create trader config, ID=%s, Name=%s, AIModel=%s, Exchange=%s, StrategyID=%s", traderID, req.Name, req.AIModelID, req.ExchangeID, req.StrategyID)
+	logger.Infof("🔧 DEBUG: Starting to create deterministic trader config, ID=%s, Name=%s, Exchange=%s, StrategyID=%s", traderID, req.Name, req.ExchangeID, req.StrategyID)
 	traderRecord := &store.Trader{
 		ID:                  traderID,
 		UserID:              userID,
 		Name:                req.Name,
-		AIModelID:           req.AIModelID,
+		AIModelID:           store.DeterministicEngineID,
 		ExchangeID:          req.ExchangeID,
 		StrategyID:          req.StrategyID, // Associated strategy ID (new version)
 		InitialBalance:      actualBalance,  // Use actual queried balance
@@ -581,12 +552,12 @@ func (s *Server) handleCreateTrader(c *gin.Context) {
 		}
 	}
 
-	logger.Infof("✓ Trader created successfully: %s (model: %s, exchange: %s)", req.Name, req.AIModelID, req.ExchangeID)
+	logger.Infof("✓ Trader created successfully: %s (engine: deterministic, exchange: %s)", req.Name, req.ExchangeID)
 
 	c.JSON(http.StatusCreated, gin.H{
 		"trader_id":       traderID,
 		"trader_name":     req.Name,
-		"ai_model":        req.AIModelID,
+		"ai_model":        store.DeterministicEngineID,
 		"is_running":      false,
 		"startup_warning": startupWarning,
 	})
@@ -720,7 +691,7 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		ID:                  traderID,
 		UserID:              userID,
 		Name:                req.Name,
-		AIModelID:           req.AIModelID,
+		AIModelID:           store.DeterministicEngineID,
 		ExchangeID:          req.ExchangeID,
 		StrategyID:          strategyID, // Associated strategy ID
 		InitialBalance:      initialBalance,
@@ -745,8 +716,8 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 	}
 
 	// Update database
-	logger.Infof("🔄 Updating trader: ID=%s, Name=%s, AIModelID=%s, StrategyID=%s, ScanInterval=%d min",
-		traderRecord.ID, traderRecord.Name, traderRecord.AIModelID, traderRecord.StrategyID, scanIntervalMinutes)
+	logger.Infof("🔄 Updating deterministic trader: ID=%s, Name=%s, StrategyID=%s, ScanInterval=%d min",
+		traderRecord.ID, traderRecord.Name, traderRecord.StrategyID, scanIntervalMinutes)
 	err = s.store.Trader().Update(traderRecord)
 	if err != nil {
 		SafeInternalError(c, "Failed to update trader", err)
@@ -782,12 +753,12 @@ func (s *Server) handleUpdateTrader(c *gin.Context) {
 		}
 	}
 
-	logger.Infof("✓ Trader updated successfully: %s (model: %s, exchange: %s, strategy: %s)", req.Name, req.AIModelID, req.ExchangeID, strategyID)
+	logger.Infof("✓ Trader updated successfully: %s (engine: deterministic, exchange: %s, strategy: %s)", req.Name, req.ExchangeID, strategyID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"trader_id":   traderID,
 		"trader_name": req.Name,
-		"ai_model":    req.AIModelID,
+		"ai_model":    store.DeterministicEngineID,
 		"message":     "Trader updated successfully",
 	})
 }
@@ -863,18 +834,6 @@ func (s *Server) handleStartTrader(c *gin.Context) {
 			// Check strategy
 			if fullCfg.Strategy == nil {
 				SafeBadRequestWithDetails(c, describeTraderStartError(traderName, fmt.Errorf("trader has no strategy configured")), "trader.start.strategy_missing", mapStringPairs("trader_name", traderName))
-				return
-			}
-			// Check AI model
-			if fullCfg.AIModel == nil {
-				SafeBadRequestWithDetails(c, formatTraderStartError("The AI model associated with this trader does not exist", "Please go to Settings > Model Config to check, then click Start again"), "trader.start.model_not_found", mapStringPairs("trader_name", traderName))
-				return
-			}
-			if !fullCfg.AIModel.Enabled {
-				SafeBadRequestWithDetails(c, formatTraderStartError(
-					fmt.Sprintf("AI model \"%s\" associated with trader \"%s\" is currently disabled", fullCfg.AIModel.Name, traderName),
-					"Please go to Settings > Model Config to enable it, then click Start again",
-				), "trader.start.model_disabled", mapStringPairs("trader_name", traderName, "model_name", fullCfg.AIModel.Name))
 				return
 			}
 			// Check exchange

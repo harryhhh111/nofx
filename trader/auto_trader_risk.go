@@ -3,7 +3,6 @@ package trader
 import (
 	"fmt"
 	"math"
-	"nofx/kernel"
 	"nofx/logger"
 	"nofx/market"
 	"nofx/store"
@@ -50,7 +49,6 @@ func (at *AutoTrader) checkPositionDrawdown() {
 	// Read drawdown config from strategy engine (with safe defaults)
 	minProfitPct := 5.0
 	triggerPct := 40.0
-	useAI := false
 	enabled := true
 	if at.strategyEngine != nil {
 		cfg := at.strategyEngine.GetConfig()
@@ -61,7 +59,6 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		if rc.DrawdownCloseTriggerPct > 0 {
 			triggerPct = rc.DrawdownCloseTriggerPct
 		}
-		useAI = rc.DrawdownCloseUseAI
 		// DrawdownCloseEnabled defaults to true; only disable when explicitly set to false
 		// AND both thresholds are non-zero (i.e., config has been saved at least once).
 		if rc.DrawdownCloseMinProfitPct > 0 || rc.DrawdownCloseTriggerPct > 0 {
@@ -164,53 +161,15 @@ func (at *AutoTrader) checkPositionDrawdown() {
 		drawdownPct := profitProtectionDrawdownPct(peakPnLPct, currentPnLPct)
 
 		if profitProtectionTriggered(peakPnLPct, currentPnLPct, minProfitPct, triggerPct) {
-			logger.Infof("🚨 Profit protection triggered: %s %s | Net profit: %.2f%% (%.2f USDT) | Fees: %.4f+%.4f | Peak: %.2f%% | Drawdown: %.2f%% | mode=%s",
-				symbol, side, currentPnLPct, netPnL, fees.AccumulatedFee, fees.EstimatedCloseFee, peakPnLPct, drawdownPct, map[bool]string{true: "ai-decide", false: "auto-close"}[useAI])
+			logger.Infof("🚨 Profit protection triggered: %s %s | Net profit: %.2f%% (%.2f USDT) | Fees: %.4f+%.4f | Peak: %.2f%% | Drawdown: %.2f%%",
+				symbol, side, currentPnLPct, netPnL, fees.AccumulatedFee, fees.EstimatedCloseFee, peakPnLPct, drawdownPct)
 
-			if useAI {
-				// AI-decide mode: queue an alert into the next AI cycle instead of closing immediately
-				normalizedSymbol := market.Normalize(symbol)
-				openingReason := ""
-				if dbPosition != nil {
-					openingReason = dbPosition.OpeningReasoning
-				}
-				alert := kernel.DrawdownAlert{
-					Symbol:            normalizedSymbol,
-					Side:              side,
-					CurrentPnLPct:     currentPnLPct,
-					PeakPnLPct:        peakPnLPct,
-					DrawdownPct:       drawdownPct,
-					CurrentNetPnL:     netPnL,
-					AccumulatedFee:    fees.AccumulatedFee,
-					EstimatedCloseFee: fees.EstimatedCloseFee,
-					FeeSource:         fees.Source,
-					OpeningReason:     openingReason,
-					ObservedAt:        time.Now().UTC().UnixMilli(),
-				}
-				at.pendingDrawdownAlertsMu.Lock()
-				// Deduplicate: replace existing alert for same symbol+side
-				replaced := false
-				for i, existing := range at.pendingDrawdownAlerts {
-					if existing.Symbol == alert.Symbol && existing.Side == alert.Side {
-						at.pendingDrawdownAlerts[i] = alert
-						replaced = true
-						break
-					}
-				}
-				if !replaced {
-					at.pendingDrawdownAlerts = append(at.pendingDrawdownAlerts, alert)
-				}
-				at.pendingDrawdownAlertsMu.Unlock()
-				logger.Infof("📋 [%s] Drawdown alert queued for AI decision: %s %s", at.name, symbol, side)
+			if err := at.emergencyClosePosition(symbol, side); err != nil {
+				logger.Infof("❌ Drawdown close position failed (%s %s): %v", symbol, side, err)
 			} else {
-				// Auto-close mode: close immediately
-				if err := at.emergencyClosePosition(symbol, side); err != nil {
-					logger.Infof("❌ Drawdown close position failed (%s %s): %v", symbol, side, err)
-				} else {
-					logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
-					at.ClearPeakPnLCache(symbol, side)
-					at.saveRiskCloseDecision(symbol, side, currentPnLPct, peakPnLPct, drawdownPct, triggerPct)
-				}
+				logger.Infof("✅ Drawdown close position succeeded: %s %s", symbol, side)
+				at.ClearPeakPnLCache(symbol, side)
+				at.saveRiskCloseDecision(symbol, side, currentPnLPct, peakPnLPct, drawdownPct, triggerPct)
 			}
 		} else if peakPnLPct >= minProfitPct {
 			logger.Infof("📊 Profit protection armed: %s %s | Net profit: %.2f%% | Peak: %.2f%% | Drawdown: %.2f%%",
@@ -267,38 +226,6 @@ func unixTimeFromStoredTimestamp(value int64) time.Time {
 	return time.Unix(value, 0).UTC()
 }
 
-func (at *AutoTrader) acknowledgeDrawdownAlerts(processed []kernel.DrawdownAlert) {
-	if len(processed) == 0 {
-		return
-	}
-	processedAt := make(map[string]int64, len(processed))
-	for _, alert := range processed {
-		symbol := market.Normalize(alert.Symbol)
-		side := normalizeProtectivePositionSide(alert.Side)
-		if symbol == "" || (side != "LONG" && side != "SHORT") {
-			continue
-		}
-		key := symbol + "_" + side
-		if alert.ObservedAt > processedAt[key] {
-			processedAt[key] = alert.ObservedAt
-		}
-	}
-
-	at.pendingDrawdownAlertsMu.Lock()
-	defer at.pendingDrawdownAlertsMu.Unlock()
-	retained := at.pendingDrawdownAlerts[:0]
-	for _, alert := range at.pendingDrawdownAlerts {
-		symbol := market.Normalize(alert.Symbol)
-		side := normalizeProtectivePositionSide(alert.Side)
-		key := symbol + "_" + side
-		observedAt, ok := processedAt[key]
-		if !ok || alert.ObservedAt > observedAt {
-			retained = append(retained, alert)
-		}
-	}
-	at.pendingDrawdownAlerts = retained
-}
-
 func profitProtectionTriggered(peakPnLPct, currentPnLPct, activationPct, triggerPct float64) bool {
 	if peakPnLPct < activationPct {
 		return false
@@ -351,7 +278,7 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 			}
 		}
 		at.recordAndConfirmOrder(order, symbol, "close_long", 0, 0, 0, 0, 0)
-		// Mark position as recently closed so the next AI cycle ignores stale exchange data
+		// Mark the position closed so the next evaluation ignores stale exchange data.
 		at.recentlyClosedByRiskMu.Lock()
 		at.recentlyClosedByRisk[normalizedSymbol+"_long"] = time.Now()
 		at.recentlyClosedByRiskMu.Unlock()
@@ -368,7 +295,7 @@ func (at *AutoTrader) emergencyClosePosition(symbol, side string) error {
 			}
 		}
 		at.recordAndConfirmOrder(order, symbol, "close_short", 0, 0, 0, 0, 0)
-		// Mark position as recently closed so the next AI cycle ignores stale exchange data
+		// Mark the position closed so the next evaluation ignores stale exchange data.
 		at.recentlyClosedByRiskMu.Lock()
 		at.recentlyClosedByRisk[normalizedSymbol+"_short"] = time.Now()
 		at.recentlyClosedByRiskMu.Unlock()

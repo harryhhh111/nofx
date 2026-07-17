@@ -406,9 +406,7 @@ func (at *AutoTrader) RunGridCycle() error {
 		return fmt.Errorf("failed to build grid context: %w", err)
 	}
 
-	// Grid live execution is deterministic. The legacy LLM grid prompt remains
-	// available in kernel for inspection, but live cycles must not let the LLM
-	// directly create, resize, or cancel grid orders.
+	// Grid live execution uses the deterministic grid rule engine.
 	decision, err := kernel.GetGridRuleDecisions(gridCtx, gridConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get deterministic grid decisions: %w", err)

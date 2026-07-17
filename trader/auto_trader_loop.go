@@ -13,12 +13,12 @@ import (
 
 const defaultEstimatedCloseFeeRate = 0.00055
 
-// runCycle runs one trading cycle (using AI full decision-making)
+// runCycle runs one deterministic setup, risk, and execution cycle.
 func (at *AutoTrader) runCycle() error {
 	at.callCount++
 
 	logger.Info("\n" + strings.Repeat("=", 70) + "\n")
-	logger.Infof("⏰ %s - AI decision cycle #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
+	logger.Infof("⏰ %s - trading decision cycle #%d", time.Now().Format("2006-01-02 15:04:05"), at.callCount)
 	logger.Info(strings.Repeat("=", 70))
 
 	// 0. Check if trader is stopped (early exit to prevent trades after Stop() is called)
@@ -110,92 +110,85 @@ func (at *AutoTrader) runCycle() error {
 	logger.Infof("📊 Account equity: %.2f USDT | Available: %.2f USDT | Positions: %d",
 		ctx.Account.TotalEquity, ctx.Account.AvailableBalance, ctx.Account.PositionCount)
 
-	// 5. Use strategy engine to call AI for decision
-	logger.Infof("🤖 Requesting AI analysis and decision... [Strategy Engine]")
-	aiDecision, err := kernel.GetFullDecisionWithStrategy(ctx, at.mcpClient, at.strategyEngine, "balanced")
+	// 5. Run the deterministic strategy engine. AI is not in this synchronous path.
+	logger.Infof("Running deterministic setup and risk evaluation... [Strategy Engine]")
+	cycleDecision, err := kernel.EvaluateStrategy(ctx, at.strategyEngine, "balanced")
 	at.saveBBMACDSignals(ctx)
 
-	if aiDecision != nil && aiDecision.AIRequestDurationMs > 0 {
-		record.AIRequestDurationMs = aiDecision.AIRequestDurationMs
-		logger.Infof("⏱️ AI call duration: %.2f seconds", float64(record.AIRequestDurationMs)/1000)
+	if cycleDecision != nil && cycleDecision.AIRequestDurationMs > 0 {
+		record.AIRequestDurationMs = cycleDecision.AIRequestDurationMs
+		logger.Infof("⏱️ Decision pipeline duration: %.2f seconds", float64(record.AIRequestDurationMs)/1000)
 		record.ExecutionLog = append(record.ExecutionLog,
-			fmt.Sprintf("AI call duration: %d ms", record.AIRequestDurationMs))
+			fmt.Sprintf("Decision pipeline duration: %d ms", record.AIRequestDurationMs))
 	}
 
 	// Save chain of thought, decisions, and input prompt even if there's an error (for debugging)
-	if aiDecision != nil {
-		record.SystemPrompt = aiDecision.SystemPrompt // Save system prompt
-		record.InputPrompt = aiDecision.UserPrompt
-		record.CoTTrace = aiDecision.CoTTrace
-		record.CotSummary = aiDecision.CoTSummary
-		if aiDecision.UserDecisionSummary != nil && aiDecision.UserDecisionSummary.Headline != "" {
-			record.CotSummary = aiDecision.UserDecisionSummary.Headline
+	if cycleDecision != nil {
+		record.SystemPrompt = cycleDecision.SystemPrompt // Save system prompt
+		record.InputPrompt = cycleDecision.UserPrompt
+		record.CoTTrace = cycleDecision.CoTTrace
+		record.CotSummary = cycleDecision.CoTSummary
+		if cycleDecision.UserDecisionSummary != nil && cycleDecision.UserDecisionSummary.Headline != "" {
+			record.CotSummary = cycleDecision.UserDecisionSummary.Headline
 		}
-		record.RawResponse = aiDecision.RawResponse // Save raw AI response for debugging
+		record.RawResponse = cycleDecision.RawResponse // Save raw AI response for debugging
 		flowTrace := struct {
 			Decisions           []kernel.Decision               `json:"decisions"`
 			Signals             []kernel.CandidateSignal        `json:"signals"`
 			SetupEvaluations    []kernel.SetupEvaluationTrace   `json:"setup_evaluations"`
 			EvidenceEvaluations []kernel.ScoringEvaluationTrace `json:"evidence_evaluations"`
 			RuleEvaluations     []kernel.RuleEvaluationTrace    `json:"rule_evaluations"`
-			Reviews             []kernel.AIReviewDecision       `json:"reviews,omitempty"`
+			Reviews             []kernel.SignalReviewDecision   `json:"reviews,omitempty"`
 			Risk                *kernel.RiskGateResult          `json:"risk,omitempty"`
 			MarketContext       *kernel.MarketContext           `json:"market_context,omitempty"`
 			InputAudit          *kernel.TradingInputAudit       `json:"input_audit,omitempty"`
 			UserDecisionSummary *kernel.UserDecisionSummary     `json:"user_decision_summary,omitempty"`
 		}{
-			Decisions:           aiDecision.Decisions,
-			Signals:             aiDecision.Signals,
-			SetupEvaluations:    aiDecision.SetupEvaluations,
-			EvidenceEvaluations: aiDecision.EvidenceEvaluations,
-			RuleEvaluations:     aiDecision.RuleEvaluations,
-			Reviews:             aiDecision.Reviews,
-			Risk:                aiDecision.Risk,
-			MarketContext:       aiDecision.MarketContext,
-			InputAudit:          aiDecision.InputAudit,
-			UserDecisionSummary: aiDecision.UserDecisionSummary,
+			Decisions:           cycleDecision.Decisions,
+			Signals:             cycleDecision.Signals,
+			SetupEvaluations:    cycleDecision.SetupEvaluations,
+			EvidenceEvaluations: cycleDecision.EvidenceEvaluations,
+			RuleEvaluations:     cycleDecision.RuleEvaluations,
+			Reviews:             cycleDecision.Reviews,
+			Risk:                cycleDecision.Risk,
+			MarketContext:       cycleDecision.MarketContext,
+			InputAudit:          cycleDecision.InputAudit,
+			UserDecisionSummary: cycleDecision.UserDecisionSummary,
 		}
 		if decisionJSON, jsonErr := json.MarshalIndent(flowTrace, "", "  "); jsonErr == nil {
 			record.DecisionJSON = string(decisionJSON)
 		}
 	}
 
-	// Record AI charge (track cost regardless of decision outcome)
-	if aiDecision != nil && at.store != nil {
-		if chargeErr := at.store.AICharge().Record(at.id, at.aiModel, at.config.AIModel); chargeErr != nil {
-			logger.Warnf("⚠️ Failed to record AI charge: %v", chargeErr)
-		}
-	}
-
 	if err != nil {
-		at.consecutiveAIFailures++
+		at.consecutiveDecisionFailures++
 		record.Success = false
-		record.ErrorMessage = fmt.Sprintf("Failed to get AI decision [aiModel=%s aiProvider=%s]: %v", at.aiModel, at.config.AIModel, err)
-		record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("AI call failed [aiModel=%s aiProvider=%s]: %v", at.aiModel, at.config.AIModel, err))
+		record.ErrorMessage = fmt.Sprintf("Trading decision pipeline failed: %v", err)
+		record.ExecutionLog = append(record.ExecutionLog, fmt.Sprintf("Trading decision pipeline failed: %v", err))
 
 		// Activate safe mode after 3 consecutive failures
-		if at.consecutiveAIFailures >= 3 && !at.safeMode {
+		if at.consecutiveDecisionFailures >= 3 && !at.safeMode {
 			at.safeMode = true
-			at.safeModeReason = fmt.Sprintf("AI failed %d consecutive times: %v", at.consecutiveAIFailures, err)
-			logger.Errorf("🛡️ [%s] SAFE MODE ACTIVATED — AI failed %d times in a row. No new positions will be opened. Existing positions are protected with current stop-loss settings.",
-				at.name, at.consecutiveAIFailures)
+			at.safeModeReason = fmt.Sprintf("decision pipeline failed %d consecutive times: %v", at.consecutiveDecisionFailures, err)
+			logger.Errorf("🛡️ [%s] SAFE MODE ACTIVATED — decision pipeline failed %d times in a row. No new positions will be opened. Existing positions are protected with current stop-loss settings.",
+				at.name, at.consecutiveDecisionFailures)
 			logger.Errorf("🛡️ [%s] Reason: %v", at.name, err)
-			logger.Errorf("🛡️ [%s] Action: Will keep trying AI each cycle. Safe mode auto-deactivates when AI recovers.", at.name)
+			logger.Errorf("🛡️ [%s] Action: Will retry the deterministic pipeline each cycle. Safe mode auto-deactivates after recovery.", at.name)
 		}
 
 		// Print system prompt and AI chain of thought (output even with errors for debugging)
-		if aiDecision != nil {
+		if cycleDecision != nil {
 			logger.Info("\n" + strings.Repeat("=", 70) + "\n")
 			logger.Infof("📋 System prompt (error case)")
 			logger.Info(strings.Repeat("=", 70))
-			logger.Info(aiDecision.SystemPrompt)
+			logger.Info(cycleDecision.SystemPrompt)
 			logger.Info(strings.Repeat("=", 70))
 
-			if aiDecision.CoTTrace != "" {
+			if cycleDecision.CoTTrace != "" {
 				logger.Info("\n" + strings.Repeat("-", 70) + "\n")
 				logger.Info("💭 AI chain of thought analysis (error case):")
 				logger.Info(strings.Repeat("-", 70))
-				logger.Info(aiDecision.CoTTrace)
+				logger.Info(cycleDecision.CoTTrace)
 				logger.Info(strings.Repeat("-", 70))
 			}
 		}
@@ -208,17 +201,16 @@ func (at *AutoTrader) runCycle() error {
 			return nil
 		}
 
-		return fmt.Errorf("failed to get AI decision: %w", err)
+		return fmt.Errorf("trading decision pipeline failed: %w", err)
 	}
 
-	// AI succeeded — reset failure counter and deactivate safe mode
-	at.acknowledgeDrawdownAlerts(ctx.DrawdownAlerts)
-	if at.consecutiveAIFailures > 0 {
-		logger.Infof("✅ [%s] AI recovered after %d consecutive failures", at.name, at.consecutiveAIFailures)
+	// Decision pipeline succeeded — reset failure counter and deactivate safe mode.
+	if at.consecutiveDecisionFailures > 0 {
+		logger.Infof("✅ [%s] Decision pipeline recovered after %d consecutive failures", at.name, at.consecutiveDecisionFailures)
 	}
-	at.consecutiveAIFailures = 0
+	at.consecutiveDecisionFailures = 0
 	if at.safeMode {
-		logger.Infof("🛡️ [%s] SAFE MODE DEACTIVATED — AI is working again. Resuming normal trading.", at.name)
+		logger.Infof("🛡️ [%s] SAFE MODE DEACTIVATED — decision pipeline is healthy again. Resuming normal trading.", at.name)
 		at.safeMode = false
 		at.safeModeReason = ""
 	}
@@ -252,7 +244,7 @@ func (at *AutoTrader) runCycle() error {
 	logger.Info(strings.Repeat("-", 70))
 
 	// 8. Sort decisions: ensure close positions first, then open positions (prevent position stacking overflow)
-	sortedDecisions := sortDecisionsByPriority(aiDecision.Decisions)
+	sortedDecisions := sortDecisionsByPriority(cycleDecision.Decisions)
 
 	logger.Info("🔄 Execution order (optimized): Close positions first → Open positions later")
 	for i, d := range sortedDecisions {
@@ -387,8 +379,8 @@ func (at *AutoTrader) runCycle() error {
 				}
 				// Prefer per-position reasoning from JSON, fallback to cycle-level CoTSummary
 				pending.Reasoning = d.Reasoning
-				if pending.Reasoning == "" && aiDecision != nil && aiDecision.CoTSummary != "" {
-					pending.Reasoning = aiDecision.CoTSummary
+				if pending.Reasoning == "" && cycleDecision != nil && cycleDecision.CoTSummary != "" {
+					pending.Reasoning = cycleDecision.CoTSummary
 				}
 				if pending.Reasoning == "" {
 					pending.Reasoning = fmt.Sprintf("[%s %s] reasoning not provided by AI", d.Symbol, d.Action)
@@ -436,10 +428,9 @@ func (at *AutoTrader) runCycle() error {
 		logger.Infof("⚠ Failed to save decision record: %v", err)
 	} else {
 		at.saveOpeningSignalMetadata(record)
-		at.saveSignalCalibrationSamples(aiDecision, record)
+		at.saveSignalCalibrationSamples(cycleDecision, record)
 	}
 
-	at.syncClosedTradeMemories(3)
 	return nil
 }
 
@@ -646,8 +637,10 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		}
 		if dbPosition != nil {
 			positionInfo.OpeningSignalID = dbPosition.OpeningSignalID
+			positionInfo.OpeningEpisodeID = dbPosition.OpeningEpisodeID
 			positionInfo.OpeningRuleID = dbPosition.OpeningRuleID
 			positionInfo.OpeningSetup = dbPosition.OpeningSetup
+			positionInfo.OpeningThesisJSON = dbPosition.OpeningThesisJSON
 			positionInfo.StrategyVersion = dbPosition.StrategyVersion
 			positionInfo.OpeningReasoning = dbPosition.OpeningReasoning
 			positionInfo.LastReviewSummary = dbPosition.LastReviewSummary
@@ -736,87 +729,6 @@ func (at *AutoTrader) buildTradingContext() (*kernel.Context, error) {
 		CandidateCoins:  candidateCoins,
 		DataFetchErrors: dataFetchErrors,
 	}
-	if at.store != nil && strategyConfig.ShouldIncludeHistoricalContext() {
-		ctx.TradeMemory = kernel.NewStoreTradeMemory(at.store, at.id)
-	}
-
-	// Snapshot pending drawdown alerts. They are acknowledged only after the AI
-	// review succeeds, so provider failures cannot silently discard risk events.
-	at.pendingDrawdownAlertsMu.Lock()
-	if len(at.pendingDrawdownAlerts) > 0 {
-		ctx.DrawdownAlerts = make([]kernel.DrawdownAlert, len(at.pendingDrawdownAlerts))
-		copy(ctx.DrawdownAlerts, at.pendingDrawdownAlerts)
-		logger.Infof("📋 [%s] Injected %d drawdown alert(s) into AI context", at.name, len(ctx.DrawdownAlerts))
-	}
-	at.pendingDrawdownAlertsMu.Unlock()
-
-	// 7. Add recent closed trades (if store is available)
-	if at.store != nil && strategyConfig.ShouldIncludeHistoricalContext() {
-		// Get recent 10 closed trades for AI context
-		recentTrades, err := at.store.Position().GetRecentTrades(at.id, 10)
-		if err != nil {
-			logger.Infof("⚠️ [%s] Failed to get recent trades: %v", at.name, err)
-		} else {
-			logger.Infof("📊 [%s] Found %d recent closed trades for AI context", at.name, len(recentTrades))
-			for _, trade := range recentTrades {
-				// Convert Unix timestamps to formatted strings for AI readability
-				entryTimeStr := ""
-				if trade.EntryTime > 0 {
-					entryTimeStr = time.Unix(trade.EntryTime, 0).UTC().Format("01-02 15:04 UTC")
-				}
-				exitTimeStr := ""
-				if trade.ExitTime > 0 {
-					exitTimeStr = time.Unix(trade.ExitTime, 0).UTC().Format("01-02 15:04 UTC")
-				}
-
-				ctx.RecentOrders = append(ctx.RecentOrders, kernel.RecentOrder{
-					Symbol:       trade.Symbol,
-					Side:         trade.Side,
-					EntryPrice:   trade.EntryPrice,
-					ExitPrice:    trade.ExitPrice,
-					RealizedPnL:  trade.RealizedPnL,
-					Fee:          trade.Fee,
-					NetPnL:       trade.NetPnL,
-					PnLPct:       trade.PnLPct,
-					NetPnLPct:    trade.NetPnLPct,
-					EntryTime:    entryTimeStr,
-					ExitTime:     exitTimeStr,
-					HoldDuration: trade.HoldDuration,
-				})
-			}
-		}
-		// Get trading statistics for AI context
-		stats, err := at.store.Position().GetFullStats(at.id)
-		if err != nil {
-			logger.Infof("⚠️ [%s] Failed to get trading stats: %v", at.name, err)
-		} else if stats == nil {
-			logger.Infof("⚠️ [%s] GetFullStats returned nil", at.name)
-		} else if stats.TotalTrades == 0 {
-			logger.Infof("⚠️ [%s] GetFullStats returned 0 trades (traderID=%s)", at.name, at.id)
-		} else {
-			ctx.TradingStats = &kernel.TradingStats{
-				TotalTrades:       stats.TotalTrades,
-				WinRate:           stats.WinRate,
-				ProfitFactor:      stats.ProfitFactor,
-				SharpeRatio:       stats.SharpeRatio,
-				TotalPnL:          stats.TotalPnL,
-				TotalFee:          stats.TotalFee,
-				NetPnL:            stats.NetPnL,
-				NetWinRate:        stats.NetWinRate,
-				NetProfitFactor:   stats.NetProfitFactor,
-				NetSharpeRatio:    stats.NetSharpeRatio,
-				NetMaxDrawdownPct: stats.NetMaxDrawdownPct,
-				AvgWin:            stats.AvgWin,
-				AvgLoss:           stats.AvgLoss,
-				MaxDrawdownPct:    stats.MaxDrawdownPct,
-			}
-			logger.Infof("📈 [%s] Trading stats: %d trades, %.1f%% win rate, PF=%.2f, Sharpe=%.2f, DD=%.1f%%",
-				at.name, stats.TotalTrades, stats.WinRate, stats.ProfitFactor, stats.SharpeRatio, stats.MaxDrawdownPct)
-		}
-	} else {
-		logger.Infof("⚠️ [%s] Store is nil, cannot get recent trades", at.name)
-	}
-
 	// 8. Get quantitative data (if enabled in strategy config)
 	if strategyConfig.Indicators.EnableQuantData {
 		// Collect symbols to query (candidate coins + position coins)

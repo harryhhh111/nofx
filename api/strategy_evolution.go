@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"nofx/kernel"
+	"nofx/market"
 	"nofx/store"
 	"strings"
 	"time"
@@ -63,6 +64,8 @@ func (s *Server) handleEvolveStrategy(c *gin.Context) {
 			"recommendation":        report.Recommendation,
 			"strategy_version":      strategyVersion,
 			"sample_count":          report.SampleCount,
+			"episode_count":         report.EpisodeCount,
+			"labeled_episode_count": report.LabeledEpisodeCount,
 			"closed_trade_count":    report.ClosedTradeCount,
 			"min_required_samples":  report.MinRequiredSamples,
 			"min_required_outcomes": report.MinRequiredOutcomes,
@@ -79,7 +82,16 @@ func (s *Server) handleEvolveStrategy(c *gin.Context) {
 		StrategyVersion: strategyVersion,
 		CurrentConfig:   config,
 		Samples:         recentSamples,
-		Limit:           80,
+		KlineLoader: func(sample store.SignalCalibrationSample) (map[string][]market.Kline, error) {
+			return s.store.SignalCalibration().ReplayKlineWindows(
+				replaySampleSource(sample, config),
+				sample.Symbol,
+				replaySampleCutoff(sample),
+				replayTimeframes(config),
+				config.Indicators.Klines.ComputeLookback,
+			)
+		},
+		Limit: 80,
 	})
 	if err != nil {
 		SafeInternalError(c, "Build strategy replay report", err)
@@ -126,7 +138,7 @@ func strategyEvolutionGateAllows(report *store.SignalCalibrationReport) bool {
 		return false
 	}
 	switch report.QualityGate {
-	case "paper_ready", "needs_review":
+	case "calibration_ready", "paper_ready", "needs_review":
 		return true
 	default:
 		return false

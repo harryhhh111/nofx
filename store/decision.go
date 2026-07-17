@@ -54,7 +54,7 @@ type DecisionRecord struct {
 	JudgementSummary    string             `json:"judgement_summary,omitempty"`
 	JudgmentSummary     string             `json:"judgment_summary,omitempty"`
 	DecisionJSON        string             `json:"decision_json"`
-	RawResponse         string             `json:"raw_response"` // Raw AI response for debugging
+	RawResponse         string             `json:"raw_response"` // Raw engine result retained for diagnostics.
 	CandidateCoins      []string           `json:"candidate_coins"`
 	ExecutionLog        []string           `json:"execution_log"`
 	Success             bool               `json:"success"`
@@ -118,7 +118,7 @@ type DecisionAction struct {
 	ProtectiveATRBuffer    float64   `json:"protective_atr_buffer,omitempty"`
 	ProtectiveRiskReward   float64   `json:"protective_risk_reward,omitempty"`
 	ExecutionRiskReward    float64   `json:"execution_risk_reward,omitempty"`
-	Confidence             int       `json:"confidence,omitempty"` // AI confidence (0-100)
+	Confidence             int       `json:"confidence,omitempty"` // Deterministic setup confidence (0-100)
 	Reasoning              string    `json:"reasoning,omitempty"`  // Brief reasoning
 	SignalID               string    `json:"signal_id,omitempty"`
 	RuleID                 string    `json:"rule_id,omitempty"`

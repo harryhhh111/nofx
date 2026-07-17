@@ -31,28 +31,7 @@ func validateStrategyConfig(config *store.StrategyConfig) []string {
 		warnings = append(warnings, "Strategy is not executable yet. Compile strategy rules or enable scoring_config before running a trader.")
 	}
 
-	if config.RiskControl.MinCloseConfidence > 0 &&
-		config.RiskControl.MinConfidence > 0 &&
-		config.RiskControl.MinCloseConfidence < config.RiskControl.MinConfidence {
-		warnings = append(warnings, "Early-close confidence is lower than entry confidence. AI may exit positions too aggressively.")
-	}
-
 	return warnings
-}
-
-// handleEstimateTokens estimates token usage for a strategy config (no auth required, pure computation)
-func (s *Server) handleEstimateTokens(c *gin.Context) {
-	var req struct {
-		Config store.StrategyConfig `json:"config" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		SafeBadRequest(c, "Invalid request parameters")
-		return
-	}
-
-	req.Config.NormalizeForExecution()
-	estimate := req.Config.EstimateTokens()
-	c.JSON(http.StatusOK, estimate)
 }
 
 // handlePublicStrategies Get public strategies for strategy market (no auth required)
@@ -330,25 +309,6 @@ func (s *Server) handleUpdateStrategy(c *gin.Context) {
 		return
 	}
 
-	// Token overflow check: block save if all models exceed context limits
-	if defaultedConfig.StrategyType == "" || defaultedConfig.StrategyType == "ai_trading" {
-		estimate := defaultedConfig.EstimateTokens()
-		allExceed := true
-		for _, ml := range estimate.ModelLimits {
-			if ml.UsagePct <= 100 {
-				allExceed = false
-				break
-			}
-		}
-		if allExceed && len(estimate.ModelLimits) > 0 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":          fmt.Sprintf("Estimated %d tokens exceeds all known model context limits. Reduce coins, timeframes, or K-line count.", estimate.Total),
-				"token_estimate": estimate,
-			})
-			return
-		}
-	}
-
 	// Validate merged configuration and collect warnings
 	warnings := validateStrategyConfig(defaultedConfig)
 
@@ -475,29 +435,9 @@ func (s *Server) handleGetDefaultStrategyConfig(c *gin.Context) {
 	if lang != "zh" {
 		lang = "en"
 	}
-	if templateID := strings.TrimSpace(c.Query("template")); templateID != "" {
-		template, ok := store.GetStrategyTemplate(templateID, lang)
-		if !ok {
-			SafeBadRequest(c, "Unknown strategy template")
-			return
-		}
-		c.JSON(http.StatusOK, template.Config)
-		return
-	}
-
-	// Return default configuration with i18n support
+	// Return the single adaptive setup strategy baseline.
 	defaultConfig := store.GetDefaultStrategyConfig(lang)
 	c.JSON(http.StatusOK, defaultConfig)
-}
-
-func (s *Server) handleGetStrategyTemplates(c *gin.Context) {
-	lang := c.Query("lang")
-	if lang != "zh" {
-		lang = "en"
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"templates": store.ListStrategyTemplates(lang),
-	})
 }
 
 // handlePreviewPrompt previews the structured strategy flow instead of the old prompt.
@@ -519,7 +459,7 @@ func (s *Server) handlePreviewPrompt(c *gin.Context) {
 		"endpoint":               endpoint,
 		"legacy_compatible":      endpoint == "/api/strategies/preview-prompt",
 		"replacement_endpoint":   "/api/strategies/preview-flow",
-		"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+		"flow":                   "market_data -> factor_snapshot -> setup_engine -> evidence_review -> risk_gate",
 		"strategy_mode":          config.StrategyMode,
 		"compiled_rules":         config.CompiledRules,
 		"compiled_rule_count":    len(config.CompiledRules),
@@ -707,19 +647,13 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	}
 
 	var req struct {
-		Config        store.StrategyConfig `json:"config" binding:"required"`
-		PromptVariant string               `json:"prompt_variant"`
-		AIModelID     string               `json:"ai_model_id"`
-		RunRealAI     bool                 `json:"run_real_ai"`
+		Config store.StrategyConfig `json:"config" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		SafeBadRequest(c, "Invalid request parameters")
 		return
 	}
 
-	if req.PromptVariant == "" {
-		req.PromptVariant = "balanced"
-	}
 	req.Config.NormalizeForExecution()
 	if err := req.Config.ValidateExecutableSignalSource(); err != nil {
 		SafeBadRequest(c, err.Error())
@@ -865,12 +799,6 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 	}
 	marketWG.Wait()
 	kernel.EnrichExternalFactors(externalContext, factorSnapshots, asOf)
-	signalPreview, previewErr := kernel.PreviewStrategySignals(&req.Config, candidates, factorSnapshots, asOf)
-	if previewErr != nil {
-		logger.Infof("Failed to preview strategy signals: %v", previewErr)
-		signalPreview = &kernel.StrategySignalPreview{}
-	}
-
 	testContext := &kernel.Context{
 		CurrentTime:    time.Now().UTC().Format("2006-01-02 15:04:05 UTC"),
 		RuntimeMinutes: 0,
@@ -882,7 +810,6 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		},
 		Positions:          []kernel.PositionInfo{},
 		CandidateCoins:     candidates,
-		PromptVariant:      req.PromptVariant,
 		MarketDataMap:      marketDataMap,
 		QuantDataMap:       externalContext.QuantDataMap,
 		OIRankingData:      externalContext.OIRankingData,
@@ -890,87 +817,14 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		PriceRankingData:   externalContext.PriceRankingData,
 	}
 
-	if !req.RunRealAI || req.AIModelID == "" {
-		c.JSON(http.StatusOK, gin.H{
-			"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-			"strategy_mode":          req.Config.StrategyMode,
-			"candidate_count":        len(candidates),
-			"candidates":             candidates,
-			"compiled_rules":         req.Config.CompiledRules,
-			"compiled_rule_count":    len(req.Config.CompiledRules),
-			"dependency_check":       strategyDependencyStatus(&req.Config),
-			"evidence_filter_config": req.Config.ScoringConfig,
-			"resolved_parameters":    req.Config.ResolvedParameters,
-			"market_context":         buildPreviewMarketContext(factorSnapshots),
-			"factor_snapshot_count":  len(factorSnapshots),
-			"factor_snapshots":       factorSnapshots,
-			"signal_count":           len(signalPreview.Signals),
-			"signals":                signalPreview.Signals,
-			"rule_evaluations":       signalPreview.RuleEvaluations,
-			"evidence_evaluations":   signalPreview.EvidenceEvaluations,
-			"setup_evaluations":      signalPreview.SetupEvaluations,
-			"external_data_warnings": externalDataWarnings,
-			"market_data_warnings":   marketDataWarnings,
-			"signal_preview_error":   errorString(previewErr),
-			"input_audit":            kernel.BuildTradingInputAudit(testContext, &req.Config),
-			"note":                   "Real AI review was not run. Provide ai_model_id and run_real_ai=true to execute the full structured flow.",
-		})
-		return
-	}
-
-	aiClient, err := s.createAIClientForModel(userID, req.AIModelID)
+	decision, err := kernel.EvaluateStrategy(testContext, engine, "")
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-			"strategy_mode":          req.Config.StrategyMode,
-			"candidate_count":        len(candidates),
-			"candidates":             candidates,
-			"compiled_rules":         req.Config.CompiledRules,
-			"dependency_check":       strategyDependencyStatus(&req.Config),
-			"evidence_filter_config": req.Config.ScoringConfig,
-			"factor_snapshot_count":  len(factorSnapshots),
-			"signal_count":           len(signalPreview.Signals),
-			"signals":                signalPreview.Signals,
-			"rule_evaluations":       signalPreview.RuleEvaluations,
-			"evidence_evaluations":   signalPreview.EvidenceEvaluations,
-			"setup_evaluations":      signalPreview.SetupEvaluations,
-			"external_data_warnings": externalDataWarnings,
-			"market_data_warnings":   marketDataWarnings,
-			"signal_preview_error":   errorString(previewErr),
-			"input_audit":            kernel.BuildTradingInputAudit(testContext, &req.Config),
-			"ai_error":               err.Error(),
-			"note":                   "AI client setup failed",
-		})
-		return
-	}
-
-	decision, err := kernel.GetFullDecisionWithStrategy(testContext, aiClient, engine, req.PromptVariant)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
-			"strategy_mode":          req.Config.StrategyMode,
-			"candidate_count":        len(candidates),
-			"candidates":             candidates,
-			"compiled_rules":         req.Config.CompiledRules,
-			"dependency_check":       strategyDependencyStatus(&req.Config),
-			"evidence_filter_config": req.Config.ScoringConfig,
-			"factor_snapshot_count":  len(factorSnapshots),
-			"signal_count":           len(signalPreview.Signals),
-			"signals":                signalPreview.Signals,
-			"rule_evaluations":       signalPreview.RuleEvaluations,
-			"evidence_evaluations":   signalPreview.EvidenceEvaluations,
-			"external_data_warnings": externalDataWarnings,
-			"market_data_warnings":   marketDataWarnings,
-			"signal_preview_error":   errorString(previewErr),
-			"input_audit":            kernel.BuildTradingInputAudit(testContext, &req.Config),
-			"ai_error":               err.Error(),
-			"note":                   "Structured strategy run failed",
-		})
+		SafeBadRequest(c, "Deterministic strategy run failed: "+err.Error())
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"flow":                   "market_data -> factor_snapshot -> signal_engine -> llm_review -> risk_gate",
+		"flow":                   "market_data -> factor_snapshot -> setup_engine -> evidence_review -> risk_gate",
 		"strategy_mode":          req.Config.StrategyMode,
 		"candidate_count":        len(candidates),
 		"candidates":             candidates,
@@ -979,26 +833,18 @@ func (s *Server) handleStrategyTestRun(c *gin.Context) {
 		"evidence_filter_config": req.Config.ScoringConfig,
 		"resolved_parameters":    req.Config.ResolvedParameters,
 		"factor_snapshot_count":  len(factorSnapshots),
-		"signal_count":           len(signalPreview.Signals),
-		"signals":                signalPreview.Signals,
-		"rule_evaluations":       signalPreview.RuleEvaluations,
-		"evidence_evaluations":   signalPreview.EvidenceEvaluations,
-		"setup_evaluations":      signalPreview.SetupEvaluations,
+		"signal_count":           len(decision.Signals),
+		"signals":                decision.Signals,
+		"rule_evaluations":       decision.RuleEvaluations,
+		"evidence_evaluations":   decision.EvidenceEvaluations,
+		"setup_evaluations":      decision.SetupEvaluations,
 		"external_data_warnings": externalDataWarnings,
 		"market_data_warnings":   marketDataWarnings,
-		"signal_preview_error":   errorString(previewErr),
 		"input_audit":            decision.InputAudit,
 		"market_context":         decision.MarketContext,
 		"decision":               decision,
-		"note":                   "Structured strategy run completed",
+		"note":                   "Deterministic strategy run completed; no AI provider was called",
 	})
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
 }
 
 func strategyTestExternalDataTimeout() time.Duration {
