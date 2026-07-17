@@ -1,103 +1,56 @@
-# 🚀 NOFX 快速开始
+# 快速开始与交易所接入
 
-本节包含让 NOFX 运行起来所需的所有文档。
+## 启动系统
 
-## 📋 部署选项
+推荐使用仓库根目录的 Docker 管理脚本：
 
-选择最适合您的方式：
-
-### 🐳 Docker 部署（推荐）
-
-**适合：** 初学者、快速部署、生产环境
-
-- **中文文档：** [docker-deploy.zh-CN.md](docker-deploy.zh-CN.md)
-- **English:** [docker-deploy.en.md](docker-deploy.en.md)
-
-**优势：**
-- ✅ 一键启动
-- ✅ 包含所有依赖
-- ✅ 易于更新和管理
-- ✅ 隔离环境
-
-**快速开始：**
 ```bash
-cp config.json.example config.json
-./scripts/start.sh start --build
+cp .env.example .env
+./start.sh start
 ```
 
----
+默认前端端口为 `3011`，后端端口为 `8091`。实际端口以 `.env` 中的 `NOFX_FRONTEND_PORT` 和 `NOFX_BACKEND_PORT` 为准。
 
+从源码运行需要 Go 1.25.3+ 和 Node.js 18+：
 
-## 🤖 AI 配置
+```bash
+go run .
+```
 
-### 自定义 AI 提供商
+```bash
+cd web
+npm install
+npm run dev
+```
 
-- **中文文档：** [custom-api.md](custom-api.md)
-- **English:** [custom-api.en.md](custom-api.en.md)
+## 首次配置顺序
 
-使用自定义 AI 模型或第三方 OpenAI 兼容 API：
-- 自定义 DeepSeek 端点
-- 本地部署的模型
-- 其他 LLM 提供商
+1. 创建模拟盘或交易所配置。
+2. 创建策略，设置币种、周期角色、结构、证据和风险参数。
+3. 创建交易员并绑定策略与交易所。
+4. 启动交易员，观察决策记录和订单状态。
+5. 样本充足后再使用参数回放和 AI 校准。
 
----
+## 交易所指南
 
-## 🔑 环境要求
+- [Binance API](binance-api.md)
+- [Bybit API](bybit-api.md)
+- [OKX API](okx-api.md)
+- [Aster API 与钱包](aster-api-wallet.md)
+- [Hyperliquid Agent Wallet](hyperliquid-agent-wallet.md)
+- [Lighter Agent Wallet](lighter-agent-wallet.md)
 
-开始之前，请确保已安装：
+请只授予交易所 API 读取和交易权限，不要授予提现权限。首次接入应使用模拟盘或小额账户验证仓位方向、精度、手续费、止损和止盈。
 
-### Docker 方式：
-- ✅ Docker 20.10+
-- ✅ Docker Compose V2
+## AI 提供商
 
-### 手动部署方式：
-- ✅ Go 1.21+
-- ✅ Node.js 18+
-- ✅ TA-Lib 库
+- [自定义 AI API](custom-api.md)
+- [Custom AI API](custom-api.en.md)
 
----
+AI 提供商只服务于显式的策略编译和校准建议。实时 setup 识别、风险门和下单不依赖 LLM。
 
-## 📚 下一步
+## 下一步
 
-部署完成后：
-
-1. **配置 AI 模型** → 访问 Web 界面 http://localhost:3000
-2. **设置交易所** → 添加 Binance/Hyperliquid 凭证
-3. **创建交易员** → 将 AI 模型与交易所结合
-4. **开始交易** → 在仪表板中监控表现
-
----
-
-## ⚠️ 重要提示
-
-**交易前：**
-- ⚠️ 先在测试网测试
-- ⚠️ 从小金额开始
-- ⚠️ 了解风险
-- ⚠️ 阅读[安全策略](../../SECURITY.md)
-
-**API 密钥：**
-- 🔑 永远不要提交 API 密钥到 git
-- 🔑 使用环境变量
-- 🔑 限制 IP 访问
-- 🔑 在交易所启用 2FA
-
----
-
-## 🆘 故障排除
-
-**常见问题：**
-
-1. **Docker 构建失败** → 检查 Docker 版本，更新到 20.10+
-2. **找不到 TA-Lib** → `brew install ta-lib` (macOS) 或 `apt-get install libta-lib0-dev` (Ubuntu)
-3. **端口 8080 被占用** → 在 .env 文件中更改 `API_PORT`
-4. **前端无法连接** → 检查后端是否在端口 8080 上运行
-
-**需要更多帮助？**
-- 📖 [常见问题](../guides/faq.zh-CN.md)
-- 💬 [Telegram 社区](https://t.me/nofx_dev_community)
-- 🐛 [GitHub Issues](https://github.com/NoFxAiOS/nofx/issues)
-
----
-
-[← 返回文档首页](../README.md)
+- [交易引擎架构](../trading_engine_architecture.md)
+- [使用与排障](../guides/README.zh-CN.md)
+- [环境变量](../../.env.example)

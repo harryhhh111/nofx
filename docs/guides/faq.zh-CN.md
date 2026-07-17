@@ -195,7 +195,7 @@ docker compose exec postgres \
 - Bug 修复和新功能
 - 文档改进
 - 翻译
-- 查看[贡献指南](../CONTRIBUTING.md)
+- 查看[贡献指南](../../CONTRIBUTING.md)
 
 ### 如何建议新功能？
 提交 [Feature Request](https://github.com/NoFxAiOS/nofx/issues/new/choose) 说明您的想法！

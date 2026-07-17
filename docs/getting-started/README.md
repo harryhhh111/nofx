@@ -1,122 +1,56 @@
-# 🚀 Getting Started with NOFX
+# Getting Started and Exchange Setup
 
-**Language:** [English](README.md) | [中文](README.zh-CN.md)
+## Start NOFX
 
-This section contains all the documentation you need to get NOFX up and running.
+The repository Docker script is the recommended entry point:
 
-## 📋 Deployment Options
-
-Choose the method that best fits your needs:
-
-### 🐳 Docker Deployment (Recommended)
-
-**Best for:** Beginners, quick setup, production deployments
-
-- **English:** [docker-deploy.en.md](docker-deploy.en.md)
-- **中文:** [docker-deploy.zh-CN.md](docker-deploy.zh-CN.md)
-
-**Pros:**
-- ✅ One-command setup
-- ✅ All dependencies included
-- ✅ Easy to update and manage
-- ✅ Isolated environment
-
-**Quick Start:**
 ```bash
-cp config.json.example config.json
-./scripts/start.sh start --build
+cp .env.example .env
+./start.sh start
 ```
 
----
+The default frontend and backend ports are `3011` and `8091`. Override them with `NOFX_FRONTEND_PORT` and `NOFX_BACKEND_PORT` in `.env`.
 
+For source development, install Go 1.25.3+ and Node.js 18+:
 
-## 🤖 AI Configuration
-
-### Custom AI Providers
-
-- **English:** [custom-api.en.md](custom-api.en.md)
-- **中文:** [custom-api.md](custom-api.md)
-
-Use custom AI models or third-party OpenAI-compatible APIs:
-- Custom DeepSeek endpoints
-- Self-hosted models
-- Other LLM providers
-
----
-
-## 🔑 Prerequisites
-
-Before starting, ensure you have:
-
-### For Docker Method:
-- ✅ Docker 20.10+
-- ✅ Docker Compose V2
-
-### For Manual Method:
-- ✅ Go 1.21+
-- ✅ Node.js 18+
-- ✅ TA-Lib library
-
----
-
-## 📚 Next Steps
-
-After deployment:
-
-1. **Configure AI Models** → Web interface at http://localhost:3000
-2. **Set Up Exchange** → Add Binance/Hyperliquid credentials
-3. **Create Traders** → Combine AI models with exchanges
-4. **Start Trading** → Monitor performance in dashboard
-
-### 🔐 Optional: Enable Admin Mode (Single-User)
-
-For single-tenant/self-hosted usage, you can enable strict admin-only access:
-
-1) In `config.json` set the 2 fields below:
-```jsonc
-{
-	"admin_mode": true,
-  ...
-  "jwt_secret": "YOUR_JWT_SCR"
-}
+```bash
+go run .
 ```
-2) Set environment variables (Docker compose already wired):
-- `NOFX_ADMIN_PASSWORD` — admin password (plaintext; hashed on startup)
 
-3) Login at `/login` using the admin password. All non-essential endpoints are blocked to unauthenticated users while admin mode is enabled.
+```bash
+cd web
+npm install
+npm run dev
+```
 
----
+## Initial Setup
 
-## ⚠️ Important Notes
+1. Add a paper or exchange account.
+2. Create a strategy and configure symbols, timeframe roles, structure, evidence, and risk.
+3. Create a trader that binds the strategy to the exchange.
+4. Start it and inspect decision and order records.
+5. Use replay and AI calibration only after enough independent samples exist.
 
-**Before Trading:**
-- ⚠️ Test on testnet first
-- ⚠️ Start with small amounts
-- ⚠️ Understand the risks
-- ⚠️ Read [Security Policy](../../SECURITY.md)
+## Exchange Guides
 
-**API Keys:**
-- 🔑 Never commit API keys to git
-- 🔑 Use environment variables
-- 🔑 Restrict IP access
-- 🔑 Enable 2FA on exchanges
+- [Binance API](binance-api.md)
+- [Bybit API](bybit-api.md)
+- [OKX API](okx-api.md)
+- [Aster API and wallet](aster-api-wallet.md)
+- [Hyperliquid Agent Wallet](hyperliquid-agent-wallet.md)
+- [Lighter Agent Wallet](lighter-agent-wallet.md)
 
----
+Grant read and trade permissions only. Never grant withdrawal permission. Validate precision, fees, position direction, stop loss, and take profit with paper trading or a small account first.
 
-## 🆘 Troubleshooting
+## AI Providers
 
-**Common Issues:**
+- [Custom AI API](custom-api.en.md)
+- [自定义 AI API](custom-api.md)
 
-1. **Docker build fails** → Check Docker version, update to 20.10+
-2. **TA-Lib not found** → `brew install ta-lib` (macOS) or `apt-get install libta-lib0-dev` (Ubuntu)
-3. **Port 8080 in use** → Change `API_PORT` in .env file
-4. **Frontend won't connect** → Check backend is running on port 8080
+AI providers are used for explicit strategy compilation and calibration proposals. Live setup detection, risk gates, and order execution do not depend on an LLM.
 
-**Need more help?**
-- 📖 [FAQ](../guides/faq.zh-CN.md)
-- 💬 [Telegram Community](https://t.me/nofx_dev_community)
-- 🐛 [GitHub Issues](https://github.com/NoFxAiOS/nofx/issues)
+## Next
 
----
-
-[← Back to Documentation Home](../README.md)
+- [Trading engine architecture](../trading_engine_architecture.md)
+- [User guide and troubleshooting](../guides/README.md)
+- [Environment variables](../../.env.example)

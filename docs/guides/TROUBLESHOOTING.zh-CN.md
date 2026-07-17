@@ -604,7 +604,6 @@ docker compose up -d
 - **[FAQ](faq.zh-CN.md)** - 常见问题
 - **[快速开始](../getting-started/README.zh-CN.md)** - 安装指南
 - **[架构文档](../architecture/README.zh-CN.md)** - 系统工作原理
-- **[CLAUDE.md](../../CLAUDE.md)** - 开发者文档
 
 ---
 
