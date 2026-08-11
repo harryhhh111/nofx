@@ -68,7 +68,6 @@ type StrategyCompiler interface {
 type SignalRequest struct {
 	Account        AccountInfo           `json:"account"`
 	Positions      []PositionInfo        `json:"positions"`
-	DrawdownAlerts []DrawdownAlert       `json:"drawdown_alerts,omitempty"`
 	TradingStats   *TradingStats         `json:"trading_stats,omitempty"`
 	RecentOrders   []RecentOrder         `json:"recent_orders,omitempty"`
 	Candidates     []CandidateCoin       `json:"candidates"`
@@ -84,6 +83,7 @@ type SignalRequest struct {
 	ProtectiveTimeframes ProtectiveTimeframeConfig            `json:"protective_timeframes,omitempty"`
 	FactorSnapshot       map[string]*market.FactorSnapshot    `json:"factor_snapshot"`
 	KlineWindows         map[string]map[string][]market.Kline `json:"-"`
+	MarketDataSource     string                               `json:"market_data_source,omitempty"`
 	Now                  time.Time                            `json:"now"`
 }
 
@@ -140,34 +140,19 @@ type SignalEngine interface {
 	Generate(ctx context.Context, req SignalRequest) ([]CandidateSignal, error)
 }
 
-type AIReviewRequest struct {
-	Signals          []CandidateSignal                 `json:"signals"`
-	FactorSnapshot   map[string]*market.FactorSnapshot `json:"factor_snapshot"`
-	MarketContext    *MarketContext                    `json:"market_context,omitempty"`
-	RelevantMemory   []TradeLesson                     `json:"relevant_memory,omitempty"`
-	CurrentPositions []PositionInfo                    `json:"current_positions,omitempty"`
-	DrawdownAlerts   []DrawdownAlert                   `json:"drawdown_alerts,omitempty"`
-	TradingStats     *TradingStats                     `json:"trading_stats,omitempty"`
-	RecentOrders     []RecentOrder                     `json:"recent_orders,omitempty"`
-}
-
-type AIReviewDecision struct {
+type SignalReviewDecision struct {
 	SignalID string   `json:"signal_id"`
 	Status   string   `json:"status"` // pass, warn, reject
 	Reasons  []string `json:"reasons,omitempty"`
 	Summary  string   `json:"summary,omitempty"`
 }
 
-type AIReviewer interface {
-	Review(ctx context.Context, req AIReviewRequest) ([]AIReviewDecision, error)
-}
-
 type RiskGateRequest struct {
-	Account       AccountInfo        `json:"account"`
-	Positions     []PositionInfo     `json:"positions"`
-	Signals       []CandidateSignal  `json:"signals"`
-	Reviews       []AIReviewDecision `json:"reviews"`
-	MarketContext *MarketContext     `json:"market_context,omitempty"`
+	Account       AccountInfo            `json:"account"`
+	Positions     []PositionInfo         `json:"positions"`
+	Signals       []CandidateSignal      `json:"signals"`
+	Reviews       []SignalReviewDecision `json:"reviews"`
+	MarketContext *MarketContext         `json:"market_context,omitempty"`
 }
 
 type RiskGateResult struct {
@@ -183,43 +168,6 @@ type RiskRejectedSignal struct {
 
 type RiskGate interface {
 	Validate(ctx context.Context, req RiskGateRequest) (*RiskGateResult, error)
-}
-
-type TradeMemoryRecord struct {
-	TraderID        string            `json:"trader_id,omitempty"`
-	StrategyID      string            `json:"strategy_id,omitempty"`
-	StrategyVersion string            `json:"strategy_version,omitempty"`
-	PositionID      int64             `json:"position_id,omitempty"`
-	Signal          CandidateSignal   `json:"signal"`
-	Review          AIReviewDecision  `json:"review"`
-	Result          string            `json:"result,omitempty"`
-	OutcomePnL      float64           `json:"outcome_pnl,omitempty"`
-	OutcomePnLPct   float64           `json:"outcome_pnl_pct,omitempty"`
-	Summary         string            `json:"summary,omitempty"`
-	Evidence        string            `json:"evidence,omitempty"`
-	Lessons         []string          `json:"lessons,omitempty"`
-	Tags            []string          `json:"tags,omitempty"`
-	QualityScore    float64           `json:"quality_score,omitempty"`
-	Confidence      float64           `json:"confidence,omitempty"`
-	Scope           string            `json:"scope,omitempty"`
-	SourceType      string            `json:"source_type,omitempty"`
-	FactorTrace     map[string]string `json:"factor_trace,omitempty"`
-	ExpiresAt       *time.Time        `json:"expires_at,omitempty"`
-	CreatedAt       time.Time         `json:"created_at"`
-}
-
-type TradeLesson struct {
-	ID         string    `json:"id"`
-	Scope      string    `json:"scope"`
-	Summary    string    `json:"summary"`
-	Evidence   string    `json:"evidence,omitempty"`
-	Confidence float64   `json:"confidence,omitempty"`
-	UpdatedAt  time.Time `json:"updated_at"`
-}
-
-type TradeMemoryStore interface {
-	FindRelevant(ctx context.Context, symbols []string, limit int) ([]TradeLesson, error)
-	Record(ctx context.Context, record TradeMemoryRecord) error
 }
 
 type MarketContext struct {
@@ -249,9 +197,7 @@ type MarketContextEngine interface {
 type TradingEngine struct {
 	SignalEngine        SignalEngine
 	MarketContextEngine MarketContextEngine
-	AIReviewer          AIReviewer
 	RiskGate            RiskGate
-	Memory              TradeMemoryStore
 }
 
 type TradingEngineRequest struct {
@@ -264,9 +210,8 @@ type TradingEngineResult struct {
 	SetupEvaluations  []SetupEvaluationTrace `json:"setup_evaluations,omitempty"`
 	RuleEvaluations   []RuleEvaluationTrace  `json:"rule_evaluations,omitempty"`
 	MarketContext     *MarketContext         `json:"market_context,omitempty"`
-	Reviews           []AIReviewDecision     `json:"reviews"`
+	Reviews           []SignalReviewDecision `json:"reviews"`
 	Risk              *RiskGateResult        `json:"risk"`
-	Memory            []TradeLesson          `json:"memory,omitempty"`
 }
 
 type SuppressedSignal struct {
@@ -290,6 +235,7 @@ type SignalCalibrationSample struct {
 	Timeframe              string
 	PrimaryTimeframe       string
 	EntryTimeframe         string
+	MarketDataSource       string
 	ConfirmationTimeframes []string
 	EntryPrice             float64
 	Confidence             int
@@ -311,13 +257,11 @@ type SignalCalibrationSample struct {
 	AsOf                   time.Time
 }
 
-func NewTradingEngine(signalEngine SignalEngine, reviewer AIReviewer, riskGate RiskGate, memory TradeMemoryStore) *TradingEngine {
+func NewTradingEngine(signalEngine SignalEngine, riskGate RiskGate) *TradingEngine {
 	return &TradingEngine{
 		SignalEngine:        signalEngine,
 		MarketContextEngine: NewDefaultMarketContextEngine(),
-		AIReviewer:          reviewer,
 		RiskGate:            riskGate,
-		Memory:              memory,
 	}
 }
 
@@ -330,9 +274,6 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	if e.SignalEngine == nil {
 		return nil, fmt.Errorf("signal engine is required")
 	}
-	if e.AIReviewer == nil {
-		return nil, fmt.Errorf("AI reviewer is required")
-	}
 	if e.RiskGate == nil {
 		return nil, fmt.Errorf("risk gate is required")
 	}
@@ -341,8 +282,6 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("generate signals: %w", err)
 	}
-	drawdownSignals := GenerateDrawdownAlertSignals(req.SignalRequest, signals)
-	signals = mergePositionLifecycleSignals(signals, drawdownSignals)
 	lifecycleSignals := GeneratePositionLifecycleSignals(req.SignalRequest, signals)
 	signals = mergePositionLifecycleSignals(signals, lifecycleSignals)
 	signals, suppressedSignals := suppressOpenSignalsWithPositions(signals, req.SignalRequest.Positions)
@@ -361,32 +300,12 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		}
 	}
 	if len(signals) == 0 {
-		return &TradingEngineResult{Signals: signals, SuppressedSignals: suppressedSignals, SetupEvaluations: setupEvaluations, RuleEvaluations: ruleEvaluations, MarketContext: marketContext, Reviews: []AIReviewDecision{}, Risk: &RiskGateResult{}}, nil
+		return &TradingEngineResult{Signals: signals, SuppressedSignals: suppressedSignals, SetupEvaluations: setupEvaluations, RuleEvaluations: ruleEvaluations, MarketContext: marketContext, Reviews: []SignalReviewDecision{}, Risk: &RiskGateResult{}}, nil
 	}
 
-	var lessons []TradeLesson
-	if e.Memory != nil {
-		lessons, err = e.Memory.FindRelevant(ctx, signalSymbols(signals), 10)
-		if err != nil {
-			return nil, fmt.Errorf("load trade memory: %w", err)
-		}
-	}
-
-	reviews, err := e.AIReviewer.Review(ctx, AIReviewRequest{
-		Signals:          signals,
-		FactorSnapshot:   req.SignalRequest.FactorSnapshot,
-		MarketContext:    marketContext,
-		RelevantMemory:   lessons,
-		CurrentPositions: req.SignalRequest.Positions,
-		DrawdownAlerts:   req.SignalRequest.DrawdownAlerts,
-		TradingStats:     req.SignalRequest.TradingStats,
-		RecentOrders:     req.SignalRequest.RecentOrders,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("AI review: %w", err)
-	}
-	if err := validateAIReviews(signals, reviews); err != nil {
-		return nil, fmt.Errorf("AI review response: %w", err)
+	reviews := deterministicSignalReviews(signals)
+	if err := validateSignalReviews(signals, reviews); err != nil {
+		return nil, fmt.Errorf("deterministic review response: %w", err)
 	}
 
 	risk, err := e.RiskGate.Validate(ctx, RiskGateRequest{
@@ -408,8 +327,39 @@ func (e *TradingEngine) Evaluate(ctx context.Context, req TradingEngineRequest) 
 		MarketContext:     marketContext,
 		Reviews:           reviews,
 		Risk:              risk,
-		Memory:            lessons,
 	}, nil
+}
+
+func deterministicSignalReviews(signals []CandidateSignal) []SignalReviewDecision {
+	reviews := make([]SignalReviewDecision, 0, len(signals))
+	for _, signal := range signals {
+		review := SignalReviewDecision{
+			SignalID: signal.ID,
+			Status:   "pass",
+			Summary:  "deterministic setup and risk evidence accepted",
+		}
+		if signal.Action == "close_long" || signal.Action == "close_short" {
+			review.Summary = "deterministic position lifecycle condition accepted"
+			reviews = append(reviews, review)
+			continue
+		}
+		if setup, ok := signal.Evidence["setup"].(SetupEvaluationTrace); ok {
+			review.Reasons = append(review.Reasons, setup.EvidenceDecision.Reasons...)
+			if setup.EvidenceDecision.Status == "warn" {
+				review.Status = "warn"
+				review.Summary = "deterministic setup accepted with evidence warning"
+			}
+		}
+		if len(signal.RiskFlags) > 0 {
+			review.Reasons = append(review.Reasons, signal.RiskFlags...)
+			if review.Status == "pass" {
+				review.Status = "warn"
+				review.Summary = "deterministic setup accepted with risk warning"
+			}
+		}
+		reviews = append(reviews, review)
+	}
+	return reviews
 }
 
 func suppressOpenSignalsWithPositions(signals []CandidateSignal, positions []PositionInfo) ([]CandidateSignal, []SuppressedSignal) {
@@ -487,7 +437,7 @@ func suppressOpenSignalsWithPositions(signals []CandidateSignal, positions []Pos
 	return active, suppressed
 }
 
-func validateAIReviews(signals []CandidateSignal, reviews []AIReviewDecision) error {
+func validateSignalReviews(signals []CandidateSignal, reviews []SignalReviewDecision) error {
 	expected := make(map[string]bool, len(signals))
 	for _, signal := range signals {
 		if signal.ID == "" {
@@ -533,7 +483,7 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 	if result == nil {
 		return nil
 	}
-	reviewBySignal := map[string]AIReviewDecision{}
+	reviewBySignal := map[string]SignalReviewDecision{}
 	for _, review := range result.Reviews {
 		reviewBySignal[review.SignalID] = review
 	}
@@ -576,6 +526,7 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 			Timeframe:              trace.Timeframes.Primary,
 			PrimaryTimeframe:       trace.Timeframes.Primary,
 			EntryTimeframe:         trace.Timeframes.Entry,
+			MarketDataSource:       req.MarketDataSource,
 			ConfirmationTimeframes: append([]string(nil), trace.Timeframes.Confirmations...),
 			PrimaryScore:           trace.Primary.Score,
 			EntryScore:             trace.Entry.Score,
@@ -608,21 +559,22 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 		}
 		signalCopy := signal
 		sample := SignalCalibrationSample{
-			SampleKind:      "signal",
-			Symbol:          signal.Symbol,
-			Action:          signal.Action,
-			Eligible:        true,
-			Timeframe:       signal.Timeframe,
-			EntryPrice:      signal.EntryPrice,
-			Confidence:      signal.Confidence,
-			SignalID:        signal.ID,
-			RuleID:          signal.RuleID,
-			StrategyVersion: signal.StrategyVersion,
-			FactorSnapshot:  req.FactorSnapshot[signal.Symbol],
-			KlineWindows:    calibrationKlineWindows(req, signal.Symbol),
-			Signal:          &signalCopy,
-			MarketContext:   result.MarketContext,
-			AsOf:            calibrationAsOf(req, signal.Symbol),
+			SampleKind:       "signal",
+			Symbol:           signal.Symbol,
+			Action:           signal.Action,
+			Eligible:         true,
+			Timeframe:        signal.Timeframe,
+			EntryPrice:       signal.EntryPrice,
+			Confidence:       signal.Confidence,
+			SignalID:         signal.ID,
+			RuleID:           signal.RuleID,
+			StrategyVersion:  signal.StrategyVersion,
+			MarketDataSource: req.MarketDataSource,
+			FactorSnapshot:   req.FactorSnapshot[signal.Symbol],
+			KlineWindows:     calibrationKlineWindows(req, signal.Symbol),
+			Signal:           &signalCopy,
+			MarketContext:    result.MarketContext,
+			AsOf:             calibrationAsOf(req, signal.Symbol),
 		}
 		if evidence, ok := signal.Evidence["scoring"].(ScoringEvaluationTrace); ok {
 			evidenceCopy := evidence
@@ -635,7 +587,7 @@ func BuildSignalCalibrationSamples(req SignalRequest, result *TradingEngineResul
 	return samples
 }
 
-func enrichCalibrationSampleFromSignal(sample *SignalCalibrationSample, signal CandidateSignal, reviews map[string]AIReviewDecision, approved map[string]bool, rejected map[string]RiskRejectedSignal) {
+func enrichCalibrationSampleFromSignal(sample *SignalCalibrationSample, signal CandidateSignal, reviews map[string]SignalReviewDecision, approved map[string]bool, rejected map[string]RiskRejectedSignal) {
 	if sample == nil {
 		return
 	}

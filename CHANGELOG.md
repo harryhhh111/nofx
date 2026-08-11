@@ -5,22 +5,18 @@ All notable changes to the NOFX project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-**Languages:** [English](CHANGELOG.md) | [中文](CHANGELOG.zh-CN.md)
-
----
-
 ## [Unreleased]
 
 ### Added
-- Documentation system with multi-language support (EN/CN/RU/UK)
-- Complete getting-started guides (Docker, Custom API)
-- Architecture documentation with system design details
-- User guides with FAQ and troubleshooting
-- Community documentation with bounty programs
+- Current deterministic trading-engine architecture and documentation indexes
+- Setup-centered protection, replay, and calibration guidance
 
 ### Changed
-- Reorganized documentation structure into logical categories
-- Updated all README files with proper navigation links
+- Rewrote project and module READMEs to match the current runtime
+- Reduced documentation to active setup, operation, architecture, and API references
+
+### Removed
+- Obsolete migration, roadmap, bounty, maintainer, translation, and historical evidence documents
 
 ---
 

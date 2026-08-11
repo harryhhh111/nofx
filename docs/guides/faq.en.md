@@ -195,7 +195,7 @@ Yes! We welcome contributions:
 - Bug fixes and features
 - Documentation improvements
 - Translations
-- See [Contributing Guide](../CONTRIBUTING.md)
+- See [Contributing Guide](../../CONTRIBUTING.md)
 
 ### How do I suggest new features?
 Open a [Feature Request](https://github.com/NoFxAiOS/nofx/issues/new/choose) with your idea!

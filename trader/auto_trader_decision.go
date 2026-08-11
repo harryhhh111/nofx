@@ -1,7 +1,6 @@
 package trader
 
 import (
-	"context"
 	"fmt"
 	"math"
 	"nofx/kernel"
@@ -14,7 +13,7 @@ import (
 	"time"
 )
 
-// saveEquitySnapshot saves equity snapshot independently (for drawing profit curve, decoupled from AI decision)
+// saveEquitySnapshot saves equity independently from the strategy evaluation cycle.
 func (at *AutoTrader) saveEquitySnapshot(ctx *kernel.Context) {
 	if at.store == nil || ctx == nil {
 		return
@@ -35,7 +34,7 @@ func (at *AutoTrader) saveEquitySnapshot(ctx *kernel.Context) {
 	}
 }
 
-// saveDecision saves AI decision log to database (only records AI input/output, for debugging)
+// saveDecision stores the deterministic evaluation and execution result.
 func (at *AutoTrader) saveDecision(record *store.DecisionRecord) error {
 	if at.store == nil {
 		return nil
@@ -93,6 +92,7 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 			Timeframe:                  sample.Timeframe,
 			PrimaryTimeframe:           sample.PrimaryTimeframe,
 			EntryTimeframe:             sample.EntryTimeframe,
+			MarketDataSource:           sample.MarketDataSource,
 			ConfirmationTimeframesJSON: store.MarshalCalibrationJSON(sample.ConfirmationTimeframes),
 			EntryPrice:                 sample.EntryPrice,
 			Confidence:                 sample.Confidence,
@@ -119,6 +119,42 @@ func (at *AutoTrader) saveSignalCalibrationSamples(decision *kernel.FullDecision
 		return
 	}
 	logger.Infof("[%s] saved %d signal calibration sample(s)", at.name, len(rows))
+	at.linkExecutedSetupEpisodes(rows)
+}
+
+func (at *AutoTrader) linkExecutedSetupEpisodes(rows []*store.SignalCalibrationSample) {
+	if at.store == nil {
+		return
+	}
+	for _, row := range rows {
+		if row == nil || row.ExecutionStatus != "executed" || row.SignalID == "" {
+			continue
+		}
+		episode, err := at.store.SignalCalibration().EpisodeBySignal(at.id, row.SignalID)
+		if err != nil {
+			logger.Warnf("[%s] failed to resolve setup episode for signal %s: %v", at.name, row.SignalID, err)
+			continue
+		}
+		side := "LONG"
+		if row.Action == "open_short" {
+			side = "SHORT"
+		}
+		meta := store.PositionOpeningSignalMetadata{
+			DecisionID:      row.DecisionID,
+			SignalID:        row.SignalID,
+			RuleID:          row.RuleID,
+			Setup:           episode.Setup,
+			StrategyID:      row.StrategyID,
+			StrategyVersion: row.StrategyVersion,
+			EpisodeID:       episode.ID,
+			ThesisJSON:      row.SetupTraceJSON,
+			EntryNotBefore:  row.AsOf.UnixMilli(),
+		}
+		if err := at.store.Position().UpdatePositionOpeningSignalMetadata(at.id, row.Symbol, side, meta); err == nil {
+			continue
+		}
+		go at.retryOpeningSignalMetadata(row.Symbol, side, meta)
+	}
 }
 
 func calibrationExecutionResult(signalAction, riskStatus string, action store.DecisionAction) (string, string) {
@@ -200,56 +236,6 @@ func (at *AutoTrader) saveBBMACDSignals(ctx *kernel.Context) {
 	logger.Infof("Saved %d BB MACD signal snapshots", len(signals))
 }
 
-// syncClosedTradeMemories writes one AI-reviewed memory for each newly closed position.
-// It is deliberately post-trade only: memory can influence future review, but it cannot
-// rewrite the strategy that produced the trade.
-func (at *AutoTrader) syncClosedTradeMemories(limit int) {
-	if at.store == nil || at.mcpClient == nil {
-		return
-	}
-	if limit <= 0 {
-		limit = 3
-	}
-	closed, err := at.store.Position().GetClosedPositions(at.id, limit)
-	if err != nil {
-		logger.Warnf("[%s] failed to load closed positions for trade memory: %v", at.name, err)
-		return
-	}
-	if len(closed) == 0 {
-		return
-	}
-
-	memoryStore := kernel.NewStoreTradeMemory(at.store, at.id)
-	summarizer := kernel.NewLLMTradeMemorySummarizer(at.mcpClient)
-	for _, pos := range closed {
-		exists, err := at.store.TradeMemory().ExistsForPosition(at.id, pos.ID)
-		if err != nil {
-			logger.Warnf("[%s] failed to check trade memory for position %d: %v", at.name, pos.ID, err)
-			continue
-		}
-		if exists {
-			continue
-		}
-
-		outcome := at.closedTradeOutcome(pos)
-		reviewCtx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-		summary, err := summarizer.SummarizeClosedTrade(reviewCtx, outcome)
-		cancel()
-		if err != nil {
-			logger.Warnf("[%s] failed to summarize closed trade memory for %s position %d: %v", at.name, pos.Symbol, pos.ID, err)
-			continue
-		}
-
-		record := kernel.BuildTradeMemoryRecord(outcome, *summary)
-		if err := memoryStore.Record(context.Background(), record); err != nil {
-			logger.Warnf("[%s] failed to save trade memory for %s position %d: %v", at.name, pos.Symbol, pos.ID, err)
-			continue
-		}
-		logger.Infof("[%s] saved trade memory for %s position %d (%s, pnl %.4f)",
-			at.name, pos.Symbol, pos.ID, summary.Result, pos.RealizedPnL)
-	}
-}
-
 func (at *AutoTrader) saveOpeningSignalMetadata(record *store.DecisionRecord) {
 	if at.store == nil || record == nil {
 		return
@@ -301,63 +287,6 @@ func (at *AutoTrader) retryOpeningSignalMetadata(symbol, side string, meta store
 	logger.Infof("⚠️ [%s] Background flush failed for opening signal metadata %s %s after 60s", at.name, symbol, side)
 }
 
-func (at *AutoTrader) closedTradeOutcome(pos *store.TraderPosition) kernel.ClosedTradeOutcome {
-	if pos == nil {
-		return kernel.ClosedTradeOutcome{}
-	}
-	entryQty := pos.EntryQuantity
-	if entryQty <= 0 {
-		entryQty = pos.Quantity
-	}
-	notional := entryQty * pos.EntryPrice
-	pnlPct := 0.0
-	if notional > 0 {
-		pnlPct = pos.RealizedPnL / notional * 100
-	}
-	strategyVersion := pos.StrategyVersion
-	if strategyVersion == "" {
-		strategyVersion = at.currentStrategyVersion()
-	}
-	return kernel.ClosedTradeOutcome{
-		TraderID:          at.id,
-		StrategyID:        pos.StrategyID,
-		StrategyVersion:   strategyVersion,
-		SignalID:          pos.OpeningSignalID,
-		RuleID:            pos.OpeningRuleID,
-		Setup:             pos.OpeningSetup,
-		PositionID:        pos.ID,
-		Symbol:            pos.Symbol,
-		Side:              pos.Side,
-		EntryPrice:        pos.EntryPrice,
-		ExitPrice:         pos.ExitPrice,
-		Quantity:          entryQty,
-		PositionSizeUSD:   notional,
-		Leverage:          pos.Leverage,
-		RealizedPnL:       pos.RealizedPnL,
-		RealizedPnLPct:    pnlPct,
-		Fee:               pos.Fee,
-		EntryTimeMs:       pos.EntryTime,
-		ExitTimeMs:        pos.ExitTime,
-		HoldDuration:      formatMemoryDuration(pos.EntryTime, pos.ExitTime),
-		CloseReason:       pos.CloseReason,
-		OpeningReasoning:  pos.OpeningReasoning,
-		LastReviewSummary: pos.LastReviewSummary,
-		OpeningDecisionID: pos.OpeningDecisionID,
-
-		StopLossSource:         pos.StopLossSource,
-		StopLossTimeframe:      pos.StopLossTimeframe,
-		StopLossAnchor:         pos.StopLossAnchor,
-		TakeProfitSource:       pos.TakeProfitSource,
-		TakeProfitTimeframe:    pos.TakeProfitTimeframe,
-		TakeProfitAnchor:       pos.TakeProfitAnchor,
-		ProtectiveATR:          pos.ProtectiveATR,
-		ProtectiveATRTimeframe: pos.ProtectiveATRTimeframe,
-		ProtectiveATRBuffer:    pos.ProtectiveATRBuffer,
-		ProtectiveRiskReward:   pos.ProtectiveRiskReward,
-		ExecutionRiskReward:    pos.ExecutionRiskReward,
-	}
-}
-
 func (at *AutoTrader) currentStrategyVersion() string {
 	if at == nil || at.strategyEngine == nil || at.strategyEngine.GetConfig() == nil {
 		return ""
@@ -374,30 +303,8 @@ func (at *AutoTrader) currentStrategyVersion() string {
 	return ""
 }
 
-func formatMemoryDuration(startMs, endMs int64) string {
-	if startMs <= 0 || endMs <= startMs {
-		return ""
-	}
-	d := time.Duration(endMs-startMs) * time.Millisecond
-	if d < time.Minute {
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	}
-	if d < 24*time.Hour {
-		return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-	}
-	return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
-}
-
 // GetStatus gets system status (for API)
 func (at *AutoTrader) GetStatus() map[string]interface{} {
-	aiProvider := "DeepSeek"
-	if at.config.UseQwen {
-		aiProvider = "Qwen"
-	}
-
 	at.isRunningMutex.RLock()
 	isRunning := at.isRunning
 	at.isRunningMutex.RUnlock()
@@ -405,7 +312,7 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 	result := map[string]interface{}{
 		"trader_id":       at.id,
 		"trader_name":     at.name,
-		"ai_model":        at.aiModel,
+		"ai_model":        at.engineID,
 		"exchange":        at.exchange,
 		"is_running":      isRunning,
 		"start_time":      at.startTime.Format(time.RFC3339),
@@ -415,7 +322,7 @@ func (at *AutoTrader) GetStatus() map[string]interface{} {
 		"scan_interval":   at.config.ScanInterval.String(),
 		"stop_until":      at.stopUntil.Format(time.RFC3339),
 		"last_reset_time": at.lastResetTime.Format(time.RFC3339),
-		"ai_provider":     aiProvider,
+		"ai_provider":     at.engineID,
 	}
 
 	// Add strategy info

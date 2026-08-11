@@ -43,8 +43,10 @@ type PositionInfo struct {
 	StopLossPrice     float64 `json:"stop_loss_price"`   // Active stop-loss order price on exchange (0 if none)
 	TakeProfitPrice   float64 `json:"take_profit_price"` // Active take-profit order price on exchange (0 if none)
 	OpeningSignalID   string  `json:"opening_signal_id,omitempty"`
+	OpeningEpisodeID  string  `json:"opening_episode_id,omitempty"`
 	OpeningRuleID     string  `json:"opening_rule_id,omitempty"`
 	OpeningSetup      string  `json:"opening_setup,omitempty"`
+	OpeningThesisJSON string  `json:"opening_thesis_json,omitempty"`
 	StrategyVersion   string  `json:"strategy_version,omitempty"`
 	OpeningReasoning  string  `json:"opening_reasoning,omitempty"`
 	LastReviewSummary string  `json:"last_review_summary,omitempty"`
@@ -129,7 +131,6 @@ type Context struct {
 	PromptVariant      string                             `json:"prompt_variant,omitempty"`
 	TradingStats       *TradingStats                      `json:"trading_stats,omitempty"`
 	RecentOrders       []RecentOrder                      `json:"recent_orders,omitempty"`
-	DrawdownAlerts     []DrawdownAlert                    `json:"drawdown_alerts,omitempty"`
 	MarketDataMap      map[string]*market.Data            `json:"-"`
 	MultiTFMarket      map[string]map[string]*market.Data `json:"-"`
 	OITopDataMap       map[string]*OITopData              `json:"-"`
@@ -142,23 +143,6 @@ type Context struct {
 	Timeframes         []string                           `json:"-"`
 	ExternalDataItems  []ExternalDataItem                 `json:"-"` // Results from configured external data sources
 	DataFetchErrors    []string                           `json:"-"` // Non-fatal errors from candidate coin / data source fetching
-	TradeMemory        TradeMemoryStore                   `json:"-"` // Relevant post-trade lessons for structured review
-}
-
-// DrawdownAlert represents a risk-monitor drawdown warning that is passed to the AI
-// so it can decide whether to close the position.
-type DrawdownAlert struct {
-	Symbol            string  `json:"symbol"`
-	Side              string  `json:"side"`
-	CurrentPnLPct     float64 `json:"current_pnl_pct"`
-	PeakPnLPct        float64 `json:"peak_pnl_pct"`
-	DrawdownPct       float64 `json:"drawdown_pct"`
-	CurrentNetPnL     float64 `json:"current_net_pnl"`
-	AccumulatedFee    float64 `json:"accumulated_fee"`
-	EstimatedCloseFee float64 `json:"estimated_close_fee"`
-	FeeSource         string  `json:"fee_source,omitempty"`
-	OpeningReason     string  `json:"opening_reason,omitempty"`
-	ObservedAt        int64   `json:"observed_at"`
 }
 
 // ExternalDataItem holds the result of a single external data source fetch.
@@ -314,7 +298,7 @@ func parseJSONNumber(raw json.RawMessage, field string) (float64, error) {
 	return number, nil
 }
 
-// FullDecision AI's complete decision (including chain of thought)
+// FullDecision is the complete deterministic evaluation result.
 type FullDecision struct {
 	SystemPrompt        string                    `json:"system_prompt"`
 	UserPrompt          string                    `json:"user_prompt"`
@@ -329,7 +313,7 @@ type FullDecision struct {
 	SetupEvaluations    []SetupEvaluationTrace    `json:"setup_evaluations,omitempty"`
 	EvidenceEvaluations []ScoringEvaluationTrace  `json:"evidence_evaluations,omitempty"`
 	RuleEvaluations     []RuleEvaluationTrace     `json:"rule_evaluations,omitempty"`
-	Reviews             []AIReviewDecision        `json:"reviews,omitempty"`
+	Reviews             []SignalReviewDecision    `json:"reviews,omitempty"`
 	Risk                *RiskGateResult           `json:"risk,omitempty"`
 	InputAudit          *TradingInputAudit        `json:"input_audit,omitempty"`
 	UserDecisionSummary *UserDecisionSummary      `json:"user_decision_summary,omitempty"`

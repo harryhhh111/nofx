@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// Hard limits to prevent token explosion in AI requests
+// Product limits for deterministic market snapshots and execution settings.
 const (
 	MaxCandidateCoins  = 10
 	MaxPositions       = 3
@@ -22,13 +22,10 @@ const (
 	DefaultMinConfidence      = 50
 	MinMinConfidence          = 50
 	MaxMinConfidence          = 90
-	DefaultMinCloseConfidence = 85
-	MinMinCloseConfidence     = 70
-	MaxMinCloseConfidence     = 95
-	DefaultMinRiskRewardRatio = 2.5
+	DefaultMinRiskRewardRatio = 1.5
 	DefaultRiskPerTradePct    = 1.0
 	DefaultMinPositionSize    = 12.0
-	DefaultStopLossATRBuffer  = 2.0
+	DefaultStopLossATRBuffer  = 1.5
 	MaxStopLossATRBuffer      = 3.0
 
 	DefaultSmallMarketValueLimit     = 3
@@ -192,7 +189,7 @@ func (c *StrategyConfig) ClampLimits() {
 	}
 	c.normalizeStopLossTimeframeConfig()
 
-	// Clamp AI confidence thresholds to safe product ranges.
+	// Clamp deterministic setup confidence thresholds to product ranges.
 	if c.RiskControl.MinConfidence <= 0 {
 		c.RiskControl.MinConfidence = DefaultMinConfidence
 	}
@@ -202,16 +199,6 @@ func (c *StrategyConfig) ClampLimits() {
 	if c.RiskControl.MinConfidence > MaxMinConfidence {
 		c.RiskControl.MinConfidence = MaxMinConfidence
 	}
-	if c.RiskControl.MinCloseConfidence <= 0 {
-		c.RiskControl.MinCloseConfidence = DefaultMinCloseConfidence
-	}
-	if c.RiskControl.MinCloseConfidence < MinMinCloseConfidence {
-		c.RiskControl.MinCloseConfidence = MinMinCloseConfidence
-	}
-	if c.RiskControl.MinCloseConfidence > MaxMinCloseConfidence {
-		c.RiskControl.MinCloseConfidence = MaxMinCloseConfidence
-	}
-
 	// Drawdown-close defaults: treat zero values as "not yet configured" and apply defaults.
 	// DrawdownCloseEnabled defaults to true (opt-out model).
 	// We use a sentinel: if both min-profit and trigger are zero, assume first-time setup.
@@ -245,6 +232,10 @@ func (c *StrategyConfig) NormalizeForExecution() {
 		return
 	}
 	c.ClampLimits()
+	// Reproducible setup detection, replay, and forward labels require closed
+	// bars. The entry timeframe can still be made faster by choosing a shorter
+	// timeframe instead of evaluating a mutable candle.
+	c.Indicators.Klines.IncludeOpenBar = false
 }
 
 func (c *StrategyConfig) normalizeCoinSourceFlags() {
@@ -983,10 +974,6 @@ func (Strategy) TableName() string { return "strategies" }
 type StrategyConfig struct {
 	// Strategy type: "ai_trading" (default) or "grid_trading"
 	StrategyType string `json:"strategy_type,omitempty"`
-	// Strategy archetype describes the runtime setup router used by this strategy.
-	StrategyArchetype string `json:"strategy_archetype,omitempty"`
-	// Risk profile tunes thresholds and sizing for the same archetype.
-	RiskProfile string `json:"risk_profile,omitempty"`
 	// Trading decision mode: rule, scoring, or hybrid.
 	StrategyMode string `json:"strategy_mode,omitempty"`
 
@@ -998,9 +985,6 @@ type StrategyConfig struct {
 	Indicators IndicatorConfig `json:"indicators"`
 	// deterministic market-structure factor configuration
 	Structure StructureFactorConfig `json:"structure,omitempty"`
-	// whether AI should see historical closed trades and performance stats
-	// default: true. current open positions are NOT affected by this switch.
-	IncludeHistoricalContext *bool `json:"include_historical_context,omitempty"`
 	// risk control configuration
 	RiskControl RiskControlConfig `json:"risk_control"`
 	// Natural-language strategy source. It must be compiled into CompiledRules
@@ -1338,9 +1322,9 @@ type RiskControlConfig struct {
 	// Max number of coins held simultaneously (CODE ENFORCED)
 	MaxPositions int `json:"max_positions"`
 
-	// BTC/ETH exchange leverage for opening positions (AI guided)
+	// BTC/ETH exchange leverage limit for opening positions.
 	BTCETHMaxLeverage int `json:"btc_eth_max_leverage"`
-	// Altcoin exchange leverage for opening positions (AI guided)
+	// Altcoin exchange leverage limit for opening positions.
 	AltcoinMaxLeverage int `json:"altcoin_max_leverage"`
 
 	// BTC/ETH single position max value = equity 脳 this ratio (CODE ENFORCED, default: 5)
@@ -1352,17 +1336,15 @@ type RiskControlConfig struct {
 	MaxMarginUsage float64 `json:"max_margin_usage"`
 	// Risk budget for one new position. Effective notional is derived by code:
 	// equity * risk_per_trade_pct / stop-distance-ratio, then capped by max
-	// position value and available margin. AI must not freely choose this size.
+	// position value and available margin.
 	RiskPerTradePct float64 `json:"risk_per_trade_pct"`
 	// Min position size in USDT (CODE ENFORCED)
 	MinPositionSize float64 `json:"min_position_size"`
 
-	// Min take_profit / stop_loss ratio (AI guided)
+	// Minimum structural take-profit / stop-loss ratio.
 	MinRiskRewardRatio float64 `json:"min_risk_reward_ratio"`
-	// Min AI confidence to open position (AI guided)
+	// Minimum deterministic setup confidence required to open.
 	MinConfidence int `json:"min_confidence"`
-	// Min AI confidence to proactively close before exchange SL/TP triggers (AI guided)
-	MinCloseConfidence int `json:"min_close_confidence"`
 
 	// Stop loss ATR buffer multiplier.
 	// Long stops use support - ATR14 * this value; shorts use resistance + ATR14 * this value.
@@ -1380,11 +1362,8 @@ type RiskControlConfig struct {
 	// Example: 5.0 means drawdown protection activates after the position has reached 5% peak profit.
 	DrawdownCloseMinProfitPct float64 `json:"drawdown_close_min_profit_pct"`
 	// Drawdown threshold (%) relative to peak profit that triggers the close. Default: 40.0.
-	// Example: 40.0 means: if profit dropped from peak by 鈮?0%, close the position.
+	// Example: 40.0 means: if profit dropped from peak by 40%, close the position.
 	DrawdownCloseTriggerPct float64 `json:"drawdown_close_trigger_pct"`
-	// When true, instead of closing immediately the system injects a "drawdown alert"
-	// into the next AI cycle so the AI decides whether to close. Default: false (close immediately).
-	DrawdownCloseUseAI bool `json:"drawdown_close_use_ai"`
 }
 
 // NewStrategyStore creates a new StrategyStore
@@ -1412,7 +1391,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 
 	config := StrategyConfig{
 		StrategyType: "ai_trading",
-		StrategyMode: "rule",
+		StrategyMode: "scoring",
 		Language:     normalizedLang,
 		CoinSource: CoinSourceConfig{
 			SourceType:             "ai500",
@@ -1432,7 +1411,6 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinOpenInterestUSD:     DefaultSmallMarketValueMinOI,
 			MinDepthUSD:            DefaultSmallMarketValueMinDepth,
 		},
-		IncludeHistoricalContext: boolPtr(true),
 		Indicators: IndicatorConfig{
 			Klines: KlineConfig{
 				MarketDataSource:   "binance",
@@ -1440,7 +1418,7 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				PrimaryCount:       20,
 				ComputeLookback:    300,
 				PromptDisplayCount: 20,
-				IncludeOpenBar:     true,
+				IncludeOpenBar:     false,
 				LongerTimeframe:    "4h",
 				LongerCount:        10,
 				EntryTimeframe:     "5m",
@@ -1450,23 +1428,23 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 				EnableMultiTimeframe: true,
 				SelectedTimeframes:   []string{"5m", "15m", "1h"},
 			},
-			EnableRawKlines:         true, // Required - raw OHLCV data for AI analysis
-			EnableEMA:               true, // Core trend indicator
+			EnableRawKlines:         true, // Required OHLCV input for deterministic indicators and structure.
+			EnableEMA:               true,
 			EnableSMA:               false,
-			EnableMACD:              false,
-			EnableRSI:               false,
-			EnableATR:               true, // Stop-loss sizing
-			EnableADX:               true, // Trend strength confirmation
+			EnableMACD:              true,
+			EnableRSI:               true,
+			EnableATR:               true,
+			EnableADX:               true,
 			EnableSAR:               false,
-			EnableBOLL:              false,
+			EnableBOLL:              true,
 			EnableSession:           false,
 			EnableOpeningRange:      false,
 			OpeningRangeMinutes:     30,
 			EnableRBreaker:          false,
-			EnableVolume:            false,
+			EnableVolume:            true,
 			EnableVolumeSpike:       false,
 			EnableVWAP:              false,
-			EnableDonchian:          false,
+			EnableDonchian:          true,
 			EnableRollingPercentile: false,
 			EnableOI:                true,
 			EnableFundingRate:       true,
@@ -1510,121 +1488,14 @@ func GetDefaultStrategyConfig(lang string) StrategyConfig {
 			MinPositionSize:              DefaultMinPositionSize,
 			MinRiskRewardRatio:           DefaultMinRiskRewardRatio, // Deterministic structural reward-to-risk floor.
 			MinConfidence:                DefaultMinConfidence,
-			MinCloseConfidence:           75, // Lowered from 85 to allow more flexible exits
 			StopLossATRBuffer:            DefaultStopLossATRBuffer,
 			StopLossTimeframeMode:        StopLossTimeframeModeAuto,
 		},
 	}
-	config.ClampLimits()
-	return config
-}
-
-type StrategyTemplate struct {
-	ID          string         `json:"id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Archetype   string         `json:"archetype"`
-	RiskProfile string         `json:"risk_profile"`
-	Config      StrategyConfig `json:"config"`
-}
-
-func ListStrategyTemplates(lang string) []StrategyTemplate {
-	ids := []string{
-		"adaptive_structure_balanced",
-		"adaptive_structure_conservative",
-		"adaptive_structure_aggressive",
-	}
-	out := make([]StrategyTemplate, 0, len(ids))
-	for _, id := range ids {
-		if tpl, ok := GetStrategyTemplate(id, lang); ok {
-			out = append(out, tpl)
-		}
-	}
-	return out
-}
-
-func GetStrategyTemplate(id, lang string) (StrategyTemplate, bool) {
-	lang = normalizeTemplateLang(lang)
-	config := GetDefaultStrategyConfig(lang)
-	config.StrategyMode = "scoring"
-	config.Indicators.EnableEMA = true
-	config.Indicators.EnableMACD = true
-	config.Indicators.EnableRSI = true
-	config.Indicators.EnableATR = true
-	config.Indicators.EnableADX = true
-	config.Indicators.EnableBOLL = true
-	config.Indicators.EnableVolume = true
-	config.Indicators.EnableDonchian = true
 	config.ScoringConfig = defaultScoringStrategyConfig(&config)
-
-	name := ""
-	desc := ""
-	archetype := "adaptive_structure"
-	risk := "balanced"
-	config.ScoringConfig.LongThreshold = 65
-	config.ScoringConfig.ShortThreshold = -65
-	config.ScoringConfig.FactorWeights = map[string]float64{"trend": 0.30, "momentum": 0.25, "structure": 0.30, "derivatives": 0.15}
-	switch id {
-	case "adaptive_structure_conservative":
-		risk = "conservative"
-		name, desc = templateText(lang, "自适应结构 - 稳健", "Adaptive Structure - Conservative", "同一策略适配趋势、突破和区间行情，使用较低单笔风险与杠杆。", "One strategy routes trend, breakout, and range setups with lower per-trade risk and leverage.")
-		config.RiskControl.BTCETHMaxLeverage = 3
-		config.RiskControl.AltcoinMaxLeverage = 3
-		config.RiskControl.MinConfidence = 70
-		config.RiskControl.RiskPerTradePct = 0.6
-		config.RiskControl.StopLossATRBuffer = 2.5
-	case "adaptive_structure_balanced":
-		name, desc = templateText(lang, "自适应结构 - 均衡", "Adaptive Structure - Balanced", "长期运行并按币种结构选择趋势、突破、反转或衰竭 setup。", "Runs continuously and routes trend, breakout, reversal, or exhaustion setups from each asset's structure.")
-		config.RiskControl.BTCETHMaxLeverage = 4
-		config.RiskControl.AltcoinMaxLeverage = 4
-		config.RiskControl.MinConfidence = 65
-		config.RiskControl.RiskPerTradePct = 0.8
-		config.RiskControl.StopLossATRBuffer = 2.0
-	case "adaptive_structure_aggressive":
-		risk = "aggressive"
-		name, desc = templateText(lang, "自适应结构 - 积极", "Adaptive Structure - Aggressive", "保持相同结构路由，使用更高机会容忍度和单笔风险，仍受结构止损与账户风控限制。", "Uses the same structure routing with higher opportunity tolerance and risk, while retaining structural stops and account limits.")
-		config.ScoringConfig.LongThreshold = 60
-		config.ScoringConfig.ShortThreshold = -60
-		config.RiskControl.BTCETHMaxLeverage = 5
-		config.RiskControl.AltcoinMaxLeverage = 4
-		config.RiskControl.MinConfidence = 60
-		config.RiskControl.RiskPerTradePct = 1.0
-		config.RiskControl.StopLossATRBuffer = 1.8
-	default:
-		return StrategyTemplate{}, false
-	}
-
-	config.StrategyArchetype = archetype
-	config.RiskProfile = risk
-	config.ScoringConfig.Timeframe = config.Indicators.Klines.PrimaryTimeframe
-	config.ScoringConfig.MinConfidence = config.RiskControl.MinConfidence
-	config.ScoringConfig.Execution.Leverage = config.RiskControl.BTCETHMaxLeverage
-	config.ScoringConfig.Execution.PositionSizeUSD = config.RiskControl.MinPositionSize
-	config.ScoringConfig.Execution.Confidence = config.ScoringConfig.MinConfidence
 	config.ResolvedParameters.Scoring = config.ScoringConfig
 	config.ClampLimits()
-	return StrategyTemplate{
-		ID:          id,
-		Name:        name,
-		Description: desc,
-		Archetype:   archetype,
-		RiskProfile: risk,
-		Config:      config,
-	}, true
-}
-
-func normalizeTemplateLang(lang string) string {
-	if lang == "zh" {
-		return "zh"
-	}
-	return "en"
-}
-
-func templateText(lang, zhName, enName, zhDesc, enDesc string) (string, string) {
-	if lang == "zh" {
-		return zhName, zhDesc
-	}
-	return enName, enDesc
+	return config
 }
 
 func defaultStructureFactorConfig() StructureFactorConfig {
@@ -1680,10 +1551,6 @@ func GetDefaultGridStrategyConfig() *GridStrategyConfig {
 		EnableDirectionAdjust: false,
 		DirectionBiasRatio:    0.7,
 	}
-}
-
-func boolPtr(v bool) *bool {
-	return &v
 }
 
 // ParseStrategyConfigWithDefaults overlays a partial JSON config onto backend
@@ -1758,15 +1625,6 @@ func mergeConfigMaps(defaults, overrides map[string]interface{}) map[string]inte
 		defaults[key] = overrideValue
 	}
 	return defaults
-}
-
-// ShouldIncludeHistoricalContext returns whether historical closed-trade context
-// should be provided to AI. Default is true for backward compatibility.
-func (c *StrategyConfig) ShouldIncludeHistoricalContext() bool {
-	if c == nil || c.IncludeHistoricalContext == nil {
-		return true
-	}
-	return *c.IncludeHistoricalContext
 }
 
 // Create create a strategy
@@ -1924,243 +1782,6 @@ func (s *Strategy) SetConfig(config *StrategyConfig) error {
 	return nil
 }
 
-// ============================================================================
-// Token Estimation
-// ============================================================================
-
-// TokenEstimate holds the result of token estimation
-type TokenEstimate struct {
-	Total       int            `json:"total"`
-	Breakdown   TokenBreakdown `json:"breakdown"`
-	ModelLimits []ModelLimit   `json:"model_limits"`
-	Suggestions []string       `json:"suggestions"`
-}
-
-// TokenBreakdown shows estimated tokens per component
-type TokenBreakdown struct {
-	SystemPrompt  int `json:"system_prompt"`
-	MarketData    int `json:"market_data"`
-	RankingData   int `json:"ranking_data"`
-	QuantData     int `json:"quant_data"`
-	FixedOverhead int `json:"fixed_overhead"`
-}
-
-// ModelLimit shows token usage against a specific model's context limit
-type ModelLimit struct {
-	Name         string `json:"name"`
-	ContextLimit int    `json:"context_limit"`
-	UsagePct     int    `json:"usage_pct"`
-	Level        string `json:"level"` // "ok" | "warning" | "danger"
-}
-
-// Context window sizes (tokens) for each model family
-const (
-	contextLimitDeepSeek = 131_072   // 128K
-	contextLimitOpenAI   = 128_000   // 128K
-	contextLimitClaude   = 200_000   // 200K
-	contextLimitQwen     = 131_072   // 128K
-	contextLimitGemini   = 1_000_000 // 1M
-	contextLimitGrok     = 131_072   // 128K
-	contextLimitKimi     = 131_072   // 128K
-	contextLimitMinimax  = 1_000_000 // 1M
-)
-
-// ModelContextLimits maps provider names to their context window sizes (in tokens)
-var ModelContextLimits = map[string]int{
-	"deepseek": contextLimitDeepSeek,
-	"openai":   contextLimitOpenAI,
-	"claude":   contextLimitClaude,
-	"qwen":     contextLimitQwen,
-	"gemini":   contextLimitGemini,
-	"grok":     contextLimitGrok,
-	"kimi":     contextLimitKimi,
-	"minimax":  contextLimitMinimax,
-}
-
-// GetContextLimit returns the context limit for a given provider
-func GetContextLimit(provider string) int {
-	if limit, ok := ModelContextLimits[provider]; ok {
-		return limit
-	}
-	return contextLimitDeepSeek // safe default
-}
-
-// GetContextLimitForClient returns context limit for a provider+model pair.
-func GetContextLimitForClient(provider, model string) int {
-	return GetContextLimit(provider)
-}
-
-// EstimateTokens estimates the total token count for a strategy configuration.
-// This is a pure computation based on config fields, no network calls.
-func (c *StrategyConfig) EstimateTokens() TokenEstimate {
-	breakdown := TokenBreakdown{}
-
-	// --- LLM review instructions ---
-	// The new flow sends a compact review prompt plus structured signals/factors.
-	breakdown.SystemPrompt = 1000
-
-	// --- Fixed Overhead ---
-	// Time, BTC price, account info, section headers
-	breakdown.FixedOverhead = 800 / 4 // ~200 tokens
-
-	// --- Market Data ---
-	numCoins := c.getEffectiveCoinCount()
-	numTimeframes := c.getEffectiveTimeframeCount()
-	klineCount := c.Indicators.Klines.PromptDisplayCount
-	if klineCount <= 0 {
-		klineCount = c.Indicators.Klines.PrimaryCount
-	}
-	if klineCount <= 0 {
-		klineCount = 20
-	}
-
-	// Per coin per timeframe: kline OHLCV rows
-	charsPerCoinTF := klineCount * 80 // each OHLCV line ~80 chars
-
-	// Add enabled indicator overhead per timeframe
-	indicatorCharsPerLine := 0
-	if c.Indicators.EnableEMA {
-		indicatorCharsPerLine += 20 // EMA values appended
-	}
-	if c.Indicators.EnableMACD {
-		indicatorCharsPerLine += 30
-	}
-	if c.Indicators.EnableRSI {
-		indicatorCharsPerLine += 15
-	}
-	if c.Indicators.EnableATR {
-		indicatorCharsPerLine += 15
-	}
-	if c.Indicators.EnableADX {
-		indicatorCharsPerLine += 30 // ADX + +DI + -DI + direction + trending + strength
-	}
-	if c.Indicators.EnableSAR {
-		indicatorCharsPerLine += 25 // SAR + direction + flip signals
-	}
-	if c.Indicators.EnableBOLL {
-		indicatorCharsPerLine += 25
-	}
-	if c.Indicators.EnableSession {
-		indicatorCharsPerLine += 50 // session OHLCV + prev session + breakout signals
-	}
-	if c.Indicators.EnableVolume {
-		indicatorCharsPerLine += 10
-	}
-	charsPerCoinTF += klineCount * indicatorCharsPerLine
-
-	totalMarketChars := numCoins * numTimeframes * charsPerCoinTF
-
-	// OI + Funding per coin
-	if c.Indicators.EnableOI || c.Indicators.EnableFundingRate {
-		totalMarketChars += numCoins * 100
-	}
-
-	breakdown.MarketData = totalMarketChars / 4 // numeric data: ~4 chars per token
-
-	// --- Quant Data ---
-	if c.Indicators.EnableQuantData {
-		quantCharsPerCoin := 0
-		if c.Indicators.EnableQuantOI {
-			quantCharsPerCoin += 300
-		}
-		if c.Indicators.EnableQuantNetflow {
-			quantCharsPerCoin += 300
-		}
-		breakdown.QuantData = (numCoins * quantCharsPerCoin) / 4
-	}
-
-	// --- Ranking Data ---
-	rankingChars := 0
-	if c.Indicators.EnableOIRanking {
-		limit := c.Indicators.OIRankingLimit
-		if limit <= 0 {
-			limit = 10
-		}
-		rankingChars += limit * 60
-	}
-	if c.Indicators.EnableNetFlowRanking {
-		limit := c.Indicators.NetFlowRankingLimit
-		if limit <= 0 {
-			limit = 10
-		}
-		rankingChars += limit * 80
-	}
-	if c.Indicators.EnablePriceRanking {
-		limit := c.Indicators.PriceRankingLimit
-		if limit <= 0 {
-			limit = 10
-		}
-		// Count durations (comma-separated)
-		numDurations := 1
-		if c.Indicators.PriceRankingDuration != "" {
-			numDurations = len(strings.Split(c.Indicators.PriceRankingDuration, ","))
-		}
-		rankingChars += limit * numDurations * 40
-	}
-	breakdown.RankingData = rankingChars / 4
-
-	// --- Total with 15% safety margin ---
-	subtotal := breakdown.SystemPrompt + breakdown.MarketData + breakdown.RankingData + breakdown.QuantData + breakdown.FixedOverhead
-	total := subtotal * 115 / 100
-
-	// --- Model limits ---
-	modelLimits := make([]ModelLimit, 0, len(ModelContextLimits))
-	for name, limit := range ModelContextLimits {
-		pct := total * 100 / limit
-		level := "ok"
-		if pct >= 100 {
-			level = "danger"
-		} else if pct >= 80 {
-			level = "warning"
-		}
-		modelLimits = append(modelLimits, ModelLimit{
-			Name:         name,
-			ContextLimit: limit,
-			UsagePct:     pct,
-			Level:        level,
-		})
-	}
-
-	// Sort by usage_pct desc, then name asc for deterministic order
-	sort.Slice(modelLimits, func(i, j int) bool {
-		if modelLimits[i].UsagePct != modelLimits[j].UsagePct {
-			return modelLimits[i].UsagePct > modelLimits[j].UsagePct
-		}
-		return modelLimits[i].Name < modelLimits[j].Name
-	})
-
-	// --- Suggestions ---
-	var suggestions []string
-	// Find the strictest model (smallest context)
-	minLimit := 0
-	for _, limit := range ModelContextLimits {
-		if minLimit == 0 || limit < minLimit {
-			minLimit = limit
-		}
-	}
-	if minLimit > 0 && total > minLimit {
-		if numTimeframes > 1 {
-			savedPerTF := (numCoins * klineCount * (80 + indicatorCharsPerLine)) / 4 * 115 / 100
-			suggestions = append(suggestions, fmt.Sprintf("Reduce 1 timeframe to save ~%d tokens", savedPerTF))
-		}
-		if numCoins > 1 {
-			savedPerCoin := (numTimeframes * klineCount * (80 + indicatorCharsPerLine)) / 4 * 115 / 100
-			suggestions = append(suggestions, fmt.Sprintf("Reduce 1 coin to save ~%d tokens", savedPerCoin))
-		}
-		if klineCount > 15 {
-			suggestions = append(suggestions, "Reduce K-line count to 15 to save tokens")
-		}
-	}
-
-	return TokenEstimate{
-		Total:       total,
-		Breakdown:   breakdown,
-		ModelLimits: modelLimits,
-		Suggestions: suggestions,
-	}
-}
-
-// getEffectiveCoinCount returns the estimated number of coins that will be analyzed
 func (c *StrategyConfig) getEffectiveCoinCount() int {
 	count := 0
 	switch c.CoinSource.SourceType {
@@ -2176,9 +1797,6 @@ func (c *StrategyConfig) getEffectiveCoinCount() int {
 		count = MaxCandidateCoins
 	case "hyper_main":
 		count = c.CoinSource.HyperMainLimit
-		if count <= 0 {
-			count = 20
-		}
 	case "small_market_value":
 		count = c.CoinSource.SmallMarketValueLimit
 	case "mixed":
@@ -2204,19 +1822,7 @@ func (c *StrategyConfig) getEffectiveCoinCount() int {
 		count = c.CoinSource.AI500Limit
 	}
 	if count <= 0 {
-		count = 3
-	}
-	return count
-}
-
-// getEffectiveTimeframeCount returns the number of timeframes that will be used
-func (c *StrategyConfig) getEffectiveTimeframeCount() int {
-	if len(c.Indicators.Klines.SelectedTimeframes) > 0 {
-		return len(c.Indicators.Klines.SelectedTimeframes)
-	}
-	count := 1
-	if c.Indicators.Klines.LongerTimeframe != "" {
-		count++
+		return 3
 	}
 	return count
 }

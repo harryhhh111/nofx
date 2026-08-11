@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"nofx/logger"
 	"nofx/market"
-	"nofx/mcp"
 	"nofx/provider/nofxos"
 	"nofx/store"
 	"regexp"
@@ -29,16 +28,8 @@ var (
 // Entry Functions - Main API
 // ============================================================================
 
-// GetFullDecision gets AI's complete trading decision (batch analysis of all coins and positions)
-// Uses default strategy configuration - for production use GetFullDecisionWithStrategy with explicit config
-func GetFullDecision(ctx *Context, mcpClient mcp.AIClient) (*FullDecision, error) {
-	defaultConfig := store.GetDefaultStrategyConfig("en")
-	engine := NewStrategyEngine(&defaultConfig)
-	return GetFullDecisionWithStrategy(ctx, mcpClient, engine, "")
-}
-
-// GetFullDecisionWithStrategy uses StrategyEngine to get AI decision (unified prompt generation)
-func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *StrategyEngine, variant string) (*FullDecision, error) {
+// EvaluateStrategy runs one deterministic strategy evaluation cycle.
+func EvaluateStrategy(ctx *Context, engine *StrategyEngine, variant string) (*FullDecision, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("context is nil")
 	}
@@ -52,29 +43,6 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	engineConfig.NormalizeForExecution()
 	if err := engineConfig.ValidateExecutableSignalSource(); err != nil {
 		return nil, err
-	}
-
-	// Token estimation check: block if exceeding the specific model's context limit
-	estimate := engineConfig.EstimateTokens()
-
-	// Determine context limit for the specific model being used
-	contextLimit := 131072 // safe default (strictest common limit)
-	var providerName string
-	if embedder, ok := mcpClient.(mcp.ClientEmbedder); ok {
-		base := embedder.BaseClient()
-		providerName = base.Provider
-		contextLimit = store.GetContextLimitForClient(base.Provider, base.Model)
-	}
-
-	if estimate.Total > contextLimit {
-		logger.Errorf("Token estimate %d exceeds %s context limit %d; blocking analysis",
-			estimate.Total, providerName, contextLimit)
-		return nil, fmt.Errorf("estimated %d tokens exceeds model context limit of %d; reduce coins, timeframes, or K-line count",
-			estimate.Total, contextLimit)
-	}
-	if estimate.Total*100/contextLimit >= 80 {
-		logger.Infof("Token estimate %d approaching %s context limit %d",
-			estimate.Total, providerName, contextLimit)
 	}
 
 	// 1. Fetch market data using strategy config
@@ -119,7 +87,6 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 
 	tradingEngine := NewTradingEngine(
 		signalEngineFromStrategyConfig(engineConfig),
-		NewLLMTradingEngine(mcpClient),
 		NewDefaultRiskGate(
 			riskConfig.BTCETHMaxLeverage,
 			riskConfig.AltcoinMaxLeverage,
@@ -129,14 +96,12 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 			marketPrices,
 			minSLDistances,
 		),
-		ctx.TradeMemory,
 	)
 
-	aiCallStart := time.Now()
+	decisionStart := time.Now()
 	signalRequest := SignalRequest{
 		Account:              ctx.Account,
 		Positions:            ctx.Positions,
-		DrawdownAlerts:       ctx.DrawdownAlerts,
 		TradingStats:         ctx.TradingStats,
 		RecentOrders:         ctx.RecentOrders,
 		Candidates:           ctx.CandidateCoins,
@@ -148,12 +113,13 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		ProtectiveTimeframes: protectiveTimeframesFromRiskControl(riskConfig),
 		FactorSnapshot:       factorSnapshots,
 		KlineWindows:         buildCalibrationKlineWindows(ctx),
+		MarketDataSource:     engineConfig.Indicators.Klines.MarketDataSource,
 		Now:                  time.Now().UTC(),
 	}
 	result, err := tradingEngine.Evaluate(context.Background(), TradingEngineRequest{
 		SignalRequest: signalRequest,
 	})
-	aiCallDuration := time.Since(aiCallStart)
+	decisionDuration := time.Since(decisionStart)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +127,7 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 	evidenceEvaluations := TraceEvidenceEvaluations(signalRequest)
 	decision := &FullDecision{
 		Timestamp:           time.Now(),
-		AIRequestDurationMs: aiCallDuration.Milliseconds(),
+		AIRequestDurationMs: decisionDuration.Milliseconds(),
 		Decisions:           decisionsFromTradingResult(result),
 		CoTSummary:          tradingResultSummary(result, len(rules)),
 		MarketContext:       result.MarketContext,
@@ -174,21 +140,6 @@ func GetFullDecisionWithStrategy(ctx *Context, mcpClient mcp.AIClient, engine *S
 		InputAudit:          buildTradingInputAudit(ctx, engineConfig),
 		UserDecisionSummary: buildUserDecisionSummary(result, engineConfig.Language),
 		CalibrationSamples:  BuildSignalCalibrationSamples(signalRequest, result),
-	}
-	if len(result.Signals) > 0 {
-		decision.SystemPrompt = buildLLMReviewSystemPrompt()
-		if userPrompt, promptErr := buildLLMReviewUserPrompt(AIReviewRequest{
-			Signals:          result.Signals,
-			FactorSnapshot:   factorSnapshots,
-			MarketContext:    result.MarketContext,
-			RelevantMemory:   result.Memory,
-			CurrentPositions: ctx.Positions,
-			DrawdownAlerts:   ctx.DrawdownAlerts,
-			TradingStats:     ctx.TradingStats,
-			RecentOrders:     ctx.RecentOrders,
-		}); promptErr == nil {
-			decision.UserPrompt = userPrompt
-		}
 	}
 	return decision, nil
 }
@@ -986,7 +937,7 @@ func decisionsFromTradingResult(result *TradingEngineResult) []Decision {
 	if result == nil || result.Risk == nil {
 		return nil
 	}
-	reviewBySignal := map[string]AIReviewDecision{}
+	reviewBySignal := map[string]SignalReviewDecision{}
 	for _, review := range result.Reviews {
 		reviewBySignal[review.SignalID] = review
 	}
@@ -1061,22 +1012,22 @@ func buildUserDecisionSummary(result *TradingEngineResult, langs ...string) *Use
 		steps = append(steps, UserDecisionSummaryStep{
 			Title:   summaryText(lang, "机会识别", "Opportunity Detection"),
 			Status:  "skip",
-			Summary: summaryText(lang, "代码没有生成可执行开仓或平仓候选信号，因此没有进入 AI 复核和下单流程。", "The code produced no executable open or close candidate signal, so AI review and order flow were skipped."),
+			Summary: summaryText(lang, "代码没有生成可执行开仓或平仓候选信号，因此没有进入确定性复核和下单流程。", "The code produced no executable open or close candidate signal, so deterministic review and order flow were skipped."),
 		})
 	} else {
 		steps = append(steps, UserDecisionSummaryStep{
 			Title:   summaryText(lang, "机会识别", "Opportunity Detection"),
 			Status:  "ok",
-			Summary: fmt.Sprintf(summaryText(lang, "代码生成 %d 个候选信号，后续进入 AI 复核和风控校验。", "The code produced %d candidate signal(s), then sent them to AI review and risk validation."), len(result.Signals)),
+			Summary: fmt.Sprintf(summaryText(lang, "代码生成 %d 个候选信号，后续进入确定性复核和风控校验。", "The code produced %d candidate signal(s), then sent them to deterministic review and risk validation."), len(result.Signals)),
 		})
 	}
 
 	if len(result.Reviews) > 0 {
 		pass, warn, reject := reviewStatusCounts(result.Reviews)
 		steps = append(steps, UserDecisionSummaryStep{
-			Title:   summaryText(lang, "AI 复核", "AI Review"),
+			Title:   summaryText(lang, "证据复核", "Evidence Review"),
 			Status:  reviewStepStatus(pass, warn, reject),
-			Summary: fmt.Sprintf(summaryText(lang, "AI 复核结果：通过 %d，警告 %d，拒绝 %d。", "AI review results: pass %d, warn %d, reject %d."), pass, warn, reject),
+			Summary: fmt.Sprintf(summaryText(lang, "确定性复核结果：通过 %d，警告 %d，拒绝 %d。", "Deterministic review results: pass %d, warn %d, reject %d."), pass, warn, reject),
 		})
 	}
 
@@ -1118,7 +1069,7 @@ func isChineseSummaryLanguage(lang string) bool {
 	}
 }
 
-func reviewStatusCounts(reviews []AIReviewDecision) (pass, warn, reject int) {
+func reviewStatusCounts(reviews []SignalReviewDecision) (pass, warn, reject int) {
 	for _, review := range reviews {
 		switch strings.ToLower(strings.TrimSpace(review.Status)) {
 		case "pass":
@@ -1172,7 +1123,7 @@ func buildUserDecisionSymbolSummaries(result *TradingEngineResult, lang string) 
 		reason := signal.TriggerReason
 		if approved[signal.ID] {
 			decision = signal.Action
-			reason = summaryText(lang, "通过 AI 复核和风控校验", "Passed AI review and risk validation")
+			reason = summaryText(lang, "通过确定性证据复核和风控校验", "Passed deterministic evidence review and risk validation")
 		} else if rejectReason := rejected[signal.ID]; rejectReason != "" {
 			decision = "skip"
 			reason = rejectReason

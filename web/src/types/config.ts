@@ -11,22 +11,22 @@ export interface AIModel {
 }
 
 export interface TelegramConfig {
-  token_masked: string    // Masked token like "123456:ABC***XYZ"
-  is_bound: boolean       // Whether a user has sent /start
-  bound_chat_id?: number  // The bound chat ID (if any)
-  model_id?: string       // AI model selected for Telegram replies
+  token_masked: string // Masked token like "123456:ABC***XYZ"
+  is_bound: boolean // Whether a user has sent /start
+  bound_chat_id?: number // The bound chat ID (if any)
+  model_id?: string // AI model selected for Telegram replies
 }
 
 export interface Exchange {
-  id: string                     // UUID (empty for supported exchange templates)
-  exchange_type: string          // "paper", "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-  account_name: string           // User-defined account name
-  name: string                   // Display name
+  id: string // UUID (empty for supported exchange templates)
+  exchange_type: string // "paper", "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+  account_name: string // User-defined account name
+  name: string // Display name
   type: 'paper' | 'cex' | 'dex'
   enabled: boolean
   apiKey?: string
   secretKey?: string
-  passphrase?: string            // OKX specific
+  passphrase?: string // OKX specific
   testnet?: boolean
   // Hyperliquid specific
   hyperliquidWalletAddr?: string
@@ -66,8 +66,8 @@ export interface ExchangeAccountStateResponse {
 }
 
 export interface CreateExchangeRequest {
-  exchange_type: string          // "paper", "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
-  account_name: string           // User-defined account name
+  exchange_type: string // "paper", "binance", "bybit", "okx", "hyperliquid", "aster", "lighter"
+  account_name: string // User-defined account name
   enabled: boolean
   api_key?: string
   secret_key?: string
@@ -85,7 +85,6 @@ export interface CreateExchangeRequest {
 
 export interface CreateTraderRequest {
   name: string
-  ai_model_id: string
   exchange_id: string
   strategy_id?: string // 绛栫暐ID锛堟柊鐗堬紝浣跨敤淇濆瓨鐨勭瓥鐣ラ厤缃級
   initial_balance?: number // 鍙€夛細鍒涘缓鏃剁敱鍚庣鑷姩鑾峰彇锛岀紪杈戞椂鍙墜鍔ㄦ洿鏂?

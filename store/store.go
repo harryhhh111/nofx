@@ -30,7 +30,6 @@ type Store struct {
 	grid           *GridStore
 	bbmacdSignal   *BBMACDSignalStore
 	aiCharge       *AIChargeStore
-	tradeMemory    *TradeMemoryStore
 	execution      *ExecutionAnalyticsStore
 	calibration    *SignalCalibrationStore
 	coinSupply     *CoinSupplyStore
@@ -171,9 +170,6 @@ func (s *Store) initTables() error {
 	}
 	if err := s.AICharge().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize AI charge tables: %w", err)
-	}
-	if err := s.TradeMemory().initTables(); err != nil {
-		return fmt.Errorf("failed to initialize trade memory tables: %w", err)
 	}
 	if err := s.ExecutionAnalytics().initTables(); err != nil {
 		return fmt.Errorf("failed to initialize execution analytics tables: %w", err)
@@ -325,16 +321,6 @@ func (s *Store) AICharge() *AIChargeStore {
 		s.aiCharge = NewAIChargeStore(s.gdb)
 	}
 	return s.aiCharge
-}
-
-// TradeMemory gets trade memory storage
-func (s *Store) TradeMemory() *TradeMemoryStore {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.tradeMemory == nil {
-		s.tradeMemory = NewTradeMemoryStore(s.gdb)
-	}
-	return s.tradeMemory
 }
 
 // ExecutionAnalytics gets execution quality analytics storage

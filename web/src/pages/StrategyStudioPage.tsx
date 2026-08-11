@@ -19,24 +19,35 @@ import {
   Play,
   Loader2,
   RefreshCw,
-  Clock,
   Bot,
-  Send,
   Download,
   Upload,
   Globe,
   FileJson,
   AlertTriangle,
 } from 'lucide-react'
-import type { Strategy, StrategyConfig, StrategyTemplate, AIModel, StrategyCompileResponse, StrategyCalibrationReport, StrategyReplayReport, StrategyReplayScanResult, StrategyEvolutionResult, AI500CoinsResponse, NofxOSStatus } from '../types'
+import type {
+  Strategy,
+  StrategyConfig,
+  AIModel,
+  StrategyCompileResponse,
+  StrategyCalibrationReport,
+  StrategyReplayReport,
+  StrategyReplayScanResult,
+  StrategyEvolutionResult,
+  AI500CoinsResponse,
+  NofxOSStatus,
+} from '../types'
 import { api } from '../lib/api'
 import { confirmToast, notify } from '../lib/notify'
 import { CoinSourceEditor } from '../components/strategy/CoinSourceEditor'
 import { IndicatorEditor } from '../components/strategy/IndicatorEditor'
 import { RiskControlEditor } from '../components/strategy/RiskControlEditor'
 import { PublishSettingsEditor } from '../components/strategy/PublishSettingsEditor'
-import { GridConfigEditor, defaultGridConfig } from '../components/strategy/GridConfigEditor'
-import { TokenEstimateBar } from '../components/strategy/TokenEstimateBar'
+import {
+  GridConfigEditor,
+  defaultGridConfig,
+} from '../components/strategy/GridConfigEditor'
 import { DeepVoidBackground } from '../components/common/DeepVoidBackground'
 import { t } from '../i18n/translations'
 
@@ -72,7 +83,11 @@ function readCompileDraft(strategy: Strategy): StrategyCompileDraft | null {
   }
 }
 
-function writeCompileDraft(strategy: Strategy, config: StrategyConfig, compileResult: StrategyCompileResponse | null) {
+function writeCompileDraft(
+  strategy: Strategy,
+  config: StrategyConfig,
+  compileResult: StrategyCompileResponse | null
+) {
   if (typeof window === 'undefined' || strategy.is_default) return null
   const draft: StrategyCompileDraft = {
     strategyUpdatedAt: strategy.updated_at,
@@ -80,7 +95,10 @@ function writeCompileDraft(strategy: Strategy, config: StrategyConfig, compileRe
     config,
     compileResult,
   }
-  window.localStorage.setItem(getCompileDraftKey(strategy.id), JSON.stringify(draft))
+  window.localStorage.setItem(
+    getCompileDraftKey(strategy.id),
+    JSON.stringify(draft)
+  )
   return draft
 }
 
@@ -127,7 +145,9 @@ function buildStrategyVersion() {
   ].join('')
 }
 
-function getDependencyCheck(flowPreview: Record<string, unknown> | null): { required: string[]; missing: string[] } | null {
+function getDependencyCheck(
+  flowPreview: Record<string, unknown> | null
+): { required: string[]; missing: string[] } | null {
   const value = flowPreview?.dependency_check
   if (!value || typeof value !== 'object') return null
   const check = value as { required?: unknown; missing?: unknown }
@@ -137,14 +157,22 @@ function getDependencyCheck(flowPreview: Record<string, unknown> | null): { requ
   }
 }
 
-function getResultArray<T = Record<string, unknown>>(result: Record<string, unknown> | null, key: string): T[] {
+function getResultArray<T = Record<string, unknown>>(
+  result: Record<string, unknown> | null,
+  key: string
+): T[] {
   const value = result?.[key]
-  return Array.isArray(value) ? value as T[] : []
+  return Array.isArray(value) ? (value as T[]) : []
 }
 
-function getResultObject<T = Record<string, unknown>>(result: Record<string, unknown> | null, key: string): T | null {
+function getResultObject<T = Record<string, unknown>>(
+  result: Record<string, unknown> | null,
+  key: string
+): T | null {
   const value = result?.[key]
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as T : null
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as T)
+    : null
 }
 
 function formatPreviewValue(value: unknown) {
@@ -157,7 +185,9 @@ function formatRatio(value: unknown) {
 }
 
 function formatReplayRate(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : '-'
+  return typeof value === 'number' && Number.isFinite(value)
+    ? `${(value * 100).toFixed(1)}%`
+    : '-'
 }
 
 function formatEvidenceWeight(value: unknown) {
@@ -167,22 +197,28 @@ function formatEvidenceWeight(value: unknown) {
 
 function strategyModeDisplay(value: unknown, language: string) {
   const mode = String(value || 'rule')
-  if (mode === 'scoring') return language === 'zh' ? '结构 setup' : 'Structure setup'
-  if (mode === 'hybrid') return language === 'zh' ? '规则 + 结构 setup' : 'Rules + structure setup'
+  if (mode === 'scoring')
+    return language === 'zh' ? '结构 setup' : 'Structure setup'
+  if (mode === 'hybrid')
+    return language === 'zh' ? '规则 + 结构 setup' : 'Rules + structure setup'
   if (mode === 'rule') return language === 'zh' ? '规则' : 'Rules'
   return mode
 }
 
-function evidenceFilterSummary(config: StrategyConfig | null | undefined, language: string) {
+function evidenceFilterSummary(
+  config: StrategyConfig | null | undefined,
+  language: string
+) {
   const scoring = config?.scoring_config
   if (!scoring) return null
   const selectedFactors = scoring.selected_factors?.length
     ? scoring.selected_factors
     : Object.keys(scoring.factor_weights || {})
   return {
-    role: language === 'zh'
-      ? '结构 setup 成立后的证据强弱和方向冲突过滤，不直接决定开仓'
-      : 'Evidence strength and directional-conflict filtering after a structure setup; it does not directly trigger entries.',
+    role:
+      language === 'zh'
+        ? '结构 setup 成立后的证据强弱和方向冲突过滤，不直接决定开仓'
+        : 'Evidence strength and directional-conflict filtering after a structure setup; it does not directly trigger entries.',
     enabled: scoring.enabled,
     timeframe: scoring.timeframe || '',
     selected_factors: selectedFactors,
@@ -193,18 +229,21 @@ function evidenceFilterSummary(config: StrategyConfig | null | undefined, langua
 }
 
 function formatReplayParamValue(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) return value.toFixed(value % 1 === 0 ? 0 : 2)
+  if (typeof value === 'number' && Number.isFinite(value))
+    return value.toFixed(value % 1 === 0 ? 0 : 2)
   if (Array.isArray(value)) return value.join(', ')
   if (value && typeof value === 'object') return JSON.stringify(value)
   return String(value ?? '-')
 }
 
 function topReplaySetups(scan: StrategyReplayScanResult) {
-  return Object.entries(scan.setup_counts || {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([setup, count]) => `${setup} ${count}`)
-    .join(', ') || '-'
+  return (
+    Object.entries(scan.setup_counts || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([setup, count]) => `${setup} ${count}`)
+      .join(', ') || '-'
+  )
 }
 
 function marketTrendLabel(value: unknown, language: string) {
@@ -233,21 +272,27 @@ function marketDirectionLabel(value: unknown, language: string) {
 }
 
 function formatStrategyError(error: unknown, language: string) {
-  const raw = error instanceof Error ? error.message : String(error || 'Unknown error')
-  if (raw.includes('cannot be decrypted with the current DATA_ENCRYPTION_KEY')) {
+  const raw =
+    error instanceof Error ? error.message : String(error || 'Unknown error')
+  if (
+    raw.includes('cannot be decrypted with the current DATA_ENCRYPTION_KEY')
+  ) {
     return language === 'zh'
       ? '当前模型 API Key 无法解密。请到 Config > AI Model 重新粘贴并保存该模型的 API Key，然后再生成策略。'
       : 'This model API key cannot be decrypted. Re-save the API key in Config > AI Model, then generate the strategy again.'
   }
-  if (raw.includes('Missing Authentication header') || raw.includes('status 401')) {
+  if (
+    raw.includes('Missing Authentication header') ||
+    raw.includes('status 401')
+  ) {
     return language === 'zh'
       ? '模型认证失败。请检查 Config > AI Model 中的 API Key、Base URL 和模型名称是否正确。'
       : 'Model authentication failed. Check the API key, Base URL, and model name in Config > AI Model.'
   }
   if (raw.includes('timeout') || raw.includes('Network error')) {
     return language === 'zh'
-      ? 'AI 测试请求超时或连接中断。通常是外部行情/NofxOS 数据或模型调用耗时过长；请稍后重试，或先关闭 NofxOS 排名/量化数据后预演。'
-      : 'AI test timed out or the connection was interrupted. External market/NofxOS data or model calls may be taking too long; retry later or disable NofxOS ranking/quant data for preview.'
+      ? '请求超时或连接中断。外部行情、NofxOS 数据或显式模型工具可能响应较慢；请稍后重试。'
+      : 'The request timed out or the connection was interrupted. External market data, NofxOS, or an explicit model tool may be slow; retry later.'
   }
   return raw
 }
@@ -265,9 +310,15 @@ function resolveKlineRoles(config: StrategyConfig | null | undefined) {
   const kline = config?.indicators?.klines
   if (!kline) return null
   const selected = kline.selected_timeframes || []
-  const primary = kline.primary_timeframe || config?.scoring_config?.timeframe || selected[0] || ''
+  const primary =
+    kline.primary_timeframe ||
+    config?.scoring_config?.timeframe ||
+    selected[0] ||
+    ''
   const entry = kline.entry_timeframe || primary || selected[0]
-  const confirmations = (kline.confirmation_timeframes || []).filter((tf) => tf && tf !== primary && tf !== entry)
+  const confirmations = (kline.confirmation_timeframes || []).filter(
+    (tf) => tf && tf !== primary && tf !== entry
+  )
   return { primary, entry, confirmations }
 }
 
@@ -275,24 +326,40 @@ function getSelectedIndicatorLabels(config: StrategyConfig | null): string[] {
   const indicators = config?.indicators
   if (!indicators) return []
   const selected: string[] = []
-  if (indicators.enable_ema) selected.push(`EMA${formatPeriods(indicators.ema_periods)}`)
-  if (indicators.enable_sma) selected.push(`SMA${formatPeriods(indicators.sma_periods)}`)
-  if (indicators.enable_macd) selected.push(`MACD(${indicators.macd_fast_period || 12}/${indicators.macd_slow_period || 26}/${indicators.macd_signal_period || 9})`)
-  if (indicators.enable_rsi) selected.push(`RSI${formatPeriods(indicators.rsi_periods)}`)
-  if (indicators.enable_atr) selected.push(`ATR${formatPeriods(indicators.atr_periods)}`)
+  if (indicators.enable_ema)
+    selected.push(`EMA${formatPeriods(indicators.ema_periods)}`)
+  if (indicators.enable_sma)
+    selected.push(`SMA${formatPeriods(indicators.sma_periods)}`)
+  if (indicators.enable_macd)
+    selected.push(
+      `MACD(${indicators.macd_fast_period || 12}/${indicators.macd_slow_period || 26}/${indicators.macd_signal_period || 9})`
+    )
+  if (indicators.enable_rsi)
+    selected.push(`RSI${formatPeriods(indicators.rsi_periods)}`)
+  if (indicators.enable_atr)
+    selected.push(`ATR${formatPeriods(indicators.atr_periods)}`)
   if (indicators.enable_adx) selected.push('ADX/+DI/-DI')
   if (indicators.enable_sar) selected.push('Parabolic SAR')
-  if (indicators.enable_boll) selected.push(`BOLL${formatPeriods(indicators.boll_periods)}`)
-  if (indicators.enable_volume) selected.push(`Volume${formatPeriods(indicators.volume_periods)}`)
+  if (indicators.enable_boll)
+    selected.push(`BOLL${formatPeriods(indicators.boll_periods)}`)
+  if (indicators.enable_volume)
+    selected.push(`Volume${formatPeriods(indicators.volume_periods)}`)
   if (indicators.enable_session) selected.push('Session')
   if (indicators.enable_oi) selected.push('Open Interest')
   if (indicators.enable_funding_rate) selected.push('Funding Rate')
-  if (indicators.enable_oi_ranking) selected.push(`OI Ranking(${indicators.oi_ranking_duration || '1h'})`)
-  if (indicators.enable_netflow_ranking) selected.push(`NetFlow Ranking(${indicators.netflow_ranking_duration || '1h'})`)
-  if (indicators.enable_price_ranking) selected.push(`Price Ranking(${indicators.price_ranking_duration || '1h'})`)
-  if (config?.structure?.enable_market_structure) selected.push('Market Structure')
+  if (indicators.enable_oi_ranking)
+    selected.push(`OI Ranking(${indicators.oi_ranking_duration || '1h'})`)
+  if (indicators.enable_netflow_ranking)
+    selected.push(
+      `NetFlow Ranking(${indicators.netflow_ranking_duration || '1h'})`
+    )
+  if (indicators.enable_price_ranking)
+    selected.push(`Price Ranking(${indicators.price_ranking_duration || '1h'})`)
+  if (config?.structure?.enable_market_structure)
+    selected.push('Market Structure')
   if (config?.structure?.enable_fibonacci) selected.push('Fibonacci Structure')
-  if (config?.structure?.enable_support_resistance) selected.push('Support/Resistance Structure')
+  if (config?.structure?.enable_support_resistance)
+    selected.push('Support/Resistance Structure')
   return selected
 }
 
@@ -303,8 +370,11 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
   const roles = resolveKlineRoles(config)
   const timeframes = kline.selected_timeframes?.length
     ? kline.selected_timeframes.join(', ')
-    : [kline.primary_timeframe, kline.longer_timeframe].filter(Boolean).join(', ')
-  const entryTimeframe = roles?.entry || kline.entry_timeframe || kline.primary_timeframe
+    : [kline.primary_timeframe, kline.longer_timeframe]
+        .filter(Boolean)
+        .join(', ')
+  const entryTimeframe =
+    roles?.entry || kline.entry_timeframe || kline.primary_timeframe
   const primaryTimeframe = roles?.primary || kline.primary_timeframe
   const confirmationTimeframes = roles?.confirmations.length
     ? roles.confirmations.join(', ')
@@ -313,9 +383,12 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
   const risk = config.risk_control
   const positionSizePlaceholder = risk.min_position_size || 12
   const riskPerTradePct = risk.risk_per_trade_pct || 1
-  const leverage = Math.min(risk.btc_eth_max_leverage || 2, risk.altcoin_max_leverage || risk.btc_eth_max_leverage || 2)
+  const leverage = Math.min(
+    risk.btc_eth_max_leverage || 2,
+    risk.altcoin_max_leverage || risk.btc_eth_max_leverage || 2
+  )
   const minConfidence = risk.min_confidence || 70
-  const minRiskReward = risk.min_risk_reward_ratio || 2.5
+  const minRiskReward = risk.min_risk_reward_ratio || 1.5
 
   if (language === 'zh') {
     return [
@@ -346,40 +419,56 @@ function buildIndicatorDrivenPrompt(config: StrategyConfig, language: string) {
   ].join('\n')
 }
 
-function isIndicatorDrivenPrompt(prompt: string, config: StrategyConfig | null | undefined, language: string) {
+function isIndicatorDrivenPrompt(
+  prompt: string,
+  config: StrategyConfig | null | undefined,
+  language: string
+) {
   if (!config) return false
   const generated = buildIndicatorDrivenPrompt(config, language).trim()
   return generated !== '' && prompt.trim() === generated
 }
 
 function getScoringFactorDisplay(factor: string, language: string) {
-  const labels: Record<string, { zh: string; en: string; descZh: string; descEn: string }> = {
+  const labels: Record<
+    string,
+    { zh: string; en: string; descZh: string; descEn: string }
+  > = {
     trend: {
       zh: '趋势',
       en: 'Trend',
       descZh: '均线、MACD、ADX 等方向证据，判断行情是否顺势。',
-      descEn: 'Directional evidence from EMA/SMA, MACD, ADX and similar indicators.',
+      descEn:
+        'Directional evidence from EMA/SMA, MACD, ADX and similar indicators.',
     },
     momentum: {
       zh: '动量',
       en: 'Momentum',
       descZh: 'RSI、BOLL、成交量等强弱证据，判断推动力是否足够。',
-      descEn: 'Strength evidence from RSI, BOLL, volume and similar indicators.',
+      descEn:
+        'Strength evidence from RSI, BOLL, volume and similar indicators.',
     },
     structure: {
       zh: '结构',
       en: 'Structure',
       descZh: '确认 swing、行情阶段、支撑阻力、斐波那契等结构证据。',
-      descEn: 'Evidence from confirmed swings, phase, support/resistance, Fibonacci and similar structures.',
+      descEn:
+        'Evidence from confirmed swings, phase, support/resistance, Fibonacci and similar structures.',
     },
     derivatives: {
       zh: '衍生品数据',
       en: 'Derivatives',
       descZh: '持仓量、资金费率、AI500、资金流等外部数据证据。',
-      descEn: 'External evidence from open interest, funding rate, AI500 and fund flow data.',
+      descEn:
+        'External evidence from open interest, funding rate, AI500 and fund flow data.',
     },
   }
-  const item = labels[factor] || { zh: factor, en: factor, descZh: factor, descEn: factor }
+  const item = labels[factor] || {
+    zh: factor,
+    en: factor,
+    descZh: factor,
+    descEn: factor,
+  }
   return {
     label: language === 'zh' ? item.zh : item.en,
     code: factor,
@@ -388,18 +477,23 @@ function getScoringFactorDisplay(factor: string, language: string) {
 }
 
 function getScoringFieldLabel(key: string, language: string) {
-  const labels: Record<string, { zh: string; en: string; descZh: string; descEn: string }> = {
+  const labels: Record<
+    string,
+    { zh: string; en: string; descZh: string; descEn: string }
+  > = {
     min_available_weight_ratio: {
       zh: '最小证据覆盖',
       en: 'Min evidence',
       descZh: '可用因子权重占比低于该值时，setup 证据不足。',
-      descEn: 'Minimum available factor-weight coverage required for setup evidence.',
+      descEn:
+        'Minimum available factor-weight coverage required for setup evidence.',
     },
     min_confidence: {
       zh: '最小信心度',
       en: 'Min confidence',
       descZh: '结构 setup 通过证据过滤后生成候选信号的最低信心度。',
-      descEn: 'Minimum confidence after a structure setup passes evidence filters.',
+      descEn:
+        'Minimum confidence after a structure setup passes evidence filters.',
     },
   }
   const item = labels[key]
@@ -416,29 +510,47 @@ function getCalibrationGateDisplay(gate: string | undefined, language: string) {
     blocked: { zh: '需要检查策略', en: 'Needs strategy review' },
     paper_collecting: { zh: '等待平仓结果', en: 'Waiting for outcomes' },
     outcome_collecting: { zh: '结果样本不足', en: 'Collecting outcomes' },
+    calibration_ready: { zh: '可进行证据校准', en: 'Ready for calibration' },
     needs_review: { zh: '需要人工复盘', en: 'Manual review needed' },
     paper_ready: { zh: '可进入纸盘验证', en: 'Ready for paper validation' },
   }
   return labels[gate || '']?.[language === 'zh' ? 'zh' : 'en'] || gate || '-'
 }
 
-function getCalibrationRecommendation(report: StrategyCalibrationReport, language: string) {
-  const closed = report.closed_trade_count ?? 0
+function getCalibrationRecommendation(
+  report: StrategyCalibrationReport,
+  language: string
+) {
+  const labeled = report.labeled_episode_count ?? 0
   const minOutcomes = report.min_required_outcomes ?? 30
-  const samples = report.sample_count ?? 0
+  const samples = report.episode_count ?? 0
   const minSamples = report.min_required_samples ?? 100
   if (language !== 'zh') {
     switch (report.quality_gate) {
       case 'no_data':
         return 'No strategy samples yet. Run the strategy in paper mode before using this report.'
       case 'collecting':
-        return 'Only ' + samples + '/' + minSamples + ' samples are available. Keep collecting deterministic setup and signal evidence before changing parameters.'
+        return (
+          'Only ' +
+          samples +
+          '/' +
+          minSamples +
+          ' independent setup episodes are available. Repeated scans of the same candle are not counted.'
+        )
       case 'blocked':
         return 'Samples exist, but no approved candidate signals were observed. Review setup thresholds and data availability first.'
       case 'paper_collecting':
         return 'Signal coverage is available, but no linked paper trades have closed yet. Keep paper mode running until outcomes are available.'
       case 'outcome_collecting':
-        return 'Closed outcomes are linked, but only ' + closed + '/' + minOutcomes + ' are available. Review manually; do not treat this as a final optimization basis.'
+        return (
+          'Only ' +
+          labeled +
+          '/' +
+          minOutcomes +
+          ' episodes have forward labels. Keep collecting target, invalidation, and horizon outcomes.'
+        )
+      case 'calibration_ready':
+        return 'Independent setup and forward-label coverage is sufficient for evidence calibration. Continue paper trading to validate execution and fees.'
       case 'needs_review':
         return 'Outcome sample size is sufficient, but performance is weak. Use manual strategy review before live deployment.'
       case 'paper_ready':
@@ -451,13 +563,27 @@ function getCalibrationRecommendation(report: StrategyCalibrationReport, languag
     case 'no_data':
       return '当前还没有策略样本。先让策略在模拟盘运行，积累 setup、信号和结果数据。'
     case 'collecting':
-      return '当前样本 ' + samples + '/' + minSamples + '，还不足以支撑调参结论。建议继续收集代码计算出的 setup 和信号证据。'
+      return (
+        '当前独立 setup 事件 ' +
+        samples +
+        '/' +
+        minSamples +
+        '，还不足以支撑调参结论；同一根 K 线的重复扫描不会重复计数。'
+      )
     case 'blocked':
       return '已有样本，但没有通过的候选信号。应优先检查阈值、周期和数据可用性，而不是直接优化风控参数。'
     case 'paper_collecting':
       return '候选信号覆盖已经开始形成，但还没有关联的模拟盘平仓结果。需要继续运行到有真实平仓结果。'
     case 'outcome_collecting':
-      return '已有平仓结果，但只有 ' + closed + '/' + minOutcomes + '，不足以自动判断策略优劣。可以人工复盘，不建议直接大幅调参。'
+      return (
+        '已有独立 setup，但只有 ' +
+        labeled +
+        '/' +
+        minOutcomes +
+        ' 个完成了前向结果标签，需要继续积累结构目标、失效或固定周期结果。'
+      )
+    case 'calibration_ready':
+      return '独立 setup 与前向标签已达到证据校准门槛；仍需继续模拟盘验证成交、手续费和真实平仓表现。'
     case 'needs_review':
       return '样本数量够了，但胜率或总收益偏弱。需要人工复盘具体 setup、止盈止损和市场状态。'
     case 'paper_ready':
@@ -471,13 +597,14 @@ export function StrategyStudioPage() {
   const { language } = useLanguage()
 
   const [strategies, setStrategies] = useState<Strategy[]>([])
-  const [strategyTemplates, setStrategyTemplates] = useState<StrategyTemplate[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState('adaptive_structure_balanced')
-  const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null)
-  const [editingConfig, setEditingConfig] = useState<StrategyConfig | null>(null)
+  const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(
+    null
+  )
+  const [editingConfig, setEditingConfig] = useState<StrategyConfig | null>(
+    null
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
-  const [estimatedTokens, setEstimatedTokens] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [hasChanges, setHasChanges] = useState(false)
 
@@ -497,26 +624,42 @@ export function StrategyStudioPage() {
   })
 
   // Right panel states
-  const [activeRightTab, setActiveRightTab] = useState<'structured' | 'flow' | 'calibration' | 'replay' | 'evolution' | 'test'>('structured')
-  const [flowPreview, setFlowPreview] = useState<Record<string, unknown> | null>(null)
+  const [activeRightTab, setActiveRightTab] = useState<
+    'structured' | 'flow' | 'calibration' | 'replay' | 'evolution' | 'test'
+  >('structured')
+  const [flowPreview, setFlowPreview] = useState<Record<
+    string,
+    unknown
+  > | null>(null)
   const [isLoadingFlowPreview, setIsLoadingFlowPreview] = useState(false)
-  const [selectedVariant, setSelectedVariant] = useState('balanced')
-  const [compileResult, setCompileResult] = useState<StrategyCompileResponse | null>(null)
-  const [compileDraftSavedAt, setCompileDraftSavedAt] = useState<string | null>(null)
+  const [compileResult, setCompileResult] =
+    useState<StrategyCompileResponse | null>(null)
+  const [compileDraftSavedAt, setCompileDraftSavedAt] = useState<string | null>(
+    null
+  )
   const [isCompilingStrategy, setIsCompilingStrategy] = useState(false)
-  const [ai500Preview, setAI500Preview] = useState<AI500CoinsResponse | null>(null)
+  const [ai500Preview, setAI500Preview] = useState<AI500CoinsResponse | null>(
+    null
+  )
   const [nofxOSStatus, setNofxOSStatus] = useState<NofxOSStatus | null>(null)
   const [dataSourceError, setDataSourceError] = useState<string | null>(null)
   const [isLoadingDataStatus, setIsLoadingDataStatus] = useState(false)
-  const [calibrationReport, setCalibrationReport] = useState<StrategyCalibrationReport | null>(null)
+  const [calibrationReport, setCalibrationReport] =
+    useState<StrategyCalibrationReport | null>(null)
   const [isLoadingCalibration, setIsLoadingCalibration] = useState(false)
-  const [replayReport, setReplayReport] = useState<StrategyReplayReport | null>(null)
+  const [replayReport, setReplayReport] = useState<StrategyReplayReport | null>(
+    null
+  )
   const [isLoadingReplay, setIsLoadingReplay] = useState(false)
-  const [evolutionResult, setEvolutionResult] = useState<StrategyEvolutionResult | null>(null)
+  const [evolutionResult, setEvolutionResult] =
+    useState<StrategyEvolutionResult | null>(null)
   const [isEvolvingStrategy, setIsEvolvingStrategy] = useState(false)
 
-  // AI Test Run states
-  const [aiTestResult, setAiTestResult] = useState<Record<string, unknown> | null>(null)
+  // Deterministic test run states
+  const [aiTestResult, setAiTestResult] = useState<Record<
+    string,
+    unknown
+  > | null>(null)
   const [isRunningAiTest, setIsRunningAiTest] = useState(false)
   const dependencyCheck = getDependencyCheck(flowPreview)
 
@@ -547,7 +690,9 @@ export function StrategyStudioPage() {
     if (!token) return
     try {
       const allModels = await api.getModelConfigs()
-      const enabledModels = allModels.filter((m: AIModel) => m.enabled && m.provider !== 'claw402')
+      const enabledModels = allModels.filter(
+        (m: AIModel) => m.enabled && m.provider !== 'claw402'
+      )
       setAiModels(enabledModels)
       if (enabledModels.length > 0) {
         setSelectedModelId((current) => current || enabledModels[0].id)
@@ -556,28 +701,6 @@ export function StrategyStudioPage() {
       console.error('Failed to fetch AI models:', err)
     }
   }, [token])
-
-  const fetchStrategyTemplates = useCallback(async () => {
-    if (!token) return
-    try {
-      const response = await fetch(`${API_BASE}/api/strategies/templates?lang=${language}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!response.ok) throw new Error('Failed to fetch strategy templates')
-      const data = await response.json()
-      const templates = data.templates || []
-      setStrategyTemplates(templates)
-      if (templates.length > 0) {
-        setSelectedTemplateId((current) =>
-          templates.some((template: StrategyTemplate) => template.id === current)
-            ? current
-            : templates[0].id
-        )
-      }
-    } catch (err) {
-      console.error('Failed to fetch strategy templates:', err)
-    }
-  }, [token, language])
 
   // Fetch strategies
   const fetchStrategies = useCallback(async () => {
@@ -592,7 +715,9 @@ export function StrategyStudioPage() {
 
       // Select the last edited strategy first, then active, then first.
       const lastSelectedID = readLastSelectedStrategyID()
-      const lastSelected = data.strategies?.find((s: Strategy) => s.id === lastSelectedID)
+      const lastSelected = data.strategies?.find(
+        (s: Strategy) => s.id === lastSelectedID
+      )
       const active = data.strategies?.find((s: Strategy) => s.is_active)
       const nextSelected = lastSelected || active || data.strategies?.[0]
       if (nextSelected) {
@@ -608,23 +733,20 @@ export function StrategyStudioPage() {
   useEffect(() => {
     fetchStrategies()
     fetchAiModels()
-    fetchStrategyTemplates()
-  }, [fetchStrategies, fetchAiModels, fetchStrategyTemplates])
+  }, [fetchStrategies, fetchAiModels])
 
   // Create new strategy
   const handleCreateStrategy = async () => {
     if (!token) return
     try {
-      const template = strategyTemplates.find((item) => item.id === selectedTemplateId)
-      const templateQuery = template ? `&template=${encodeURIComponent(template.id)}` : ''
       const configResponse = await fetch(
-        `${API_BASE}/api/strategies/default-config?lang=${language}${templateQuery}`,
+        `${API_BASE}/api/strategies/default-config?lang=${language}`,
         { headers: { Authorization: `Bearer ${token}` } }
       )
       if (!configResponse.ok) throw new Error('Failed to fetch default config')
       const defaultConfig = await configResponse.json()
-      const strategyName = template?.name || tr('newStrategyName')
-      const strategyDescription = template?.description || ''
+      const strategyName = tr('newStrategyName')
+      const strategyDescription = ''
 
       const response = await fetch(`${API_BASE}/api/strategies`, {
         method: 'POST',
@@ -679,26 +801,32 @@ export function StrategyStudioPage() {
       })
       if (tradersResp.ok) {
         const traderList = await tradersResp.json()
-	        const using = traderList.filter((t: any) => t.strategy_id === id)
-	        if (using.length > 0) {
-	          const names = using.map((t: any) => t.trader_name).join(', ')
-	          notify.error(t('strategyStudio.strategyInUseTitle', language), {
-	            description: t('strategyStudio.strategyInUseDescription', language, { names }),
-	            duration: 8000,
-	          })
-	          return
-	        }
-	      }
-	    } catch {
-	      // If the local pre-check fails, the backend still enforces delete safety.
-	    }
+        const using = traderList.filter((t: any) => t.strategy_id === id)
+        if (using.length > 0) {
+          const names = using.map((t: any) => t.trader_name).join(', ')
+          notify.error(t('strategyStudio.strategyInUseTitle', language), {
+            description: t(
+              'strategyStudio.strategyInUseDescription',
+              language,
+              { names }
+            ),
+            duration: 8000,
+          })
+          return
+        }
+      }
+    } catch {
+      // If the local pre-check fails, the backend still enforces delete safety.
+    }
 
-	    const confirmed = await confirmToast(
-	      t('strategyStudio.confirmDeleteStrategy', language, {
-	        name: strategies.find((strategy) => strategy.id === id)?.name || tr('newStrategyName'),
-	      }),
-	      {
-	        title: tr('confirmDelete'),
+    const confirmed = await confirmToast(
+      t('strategyStudio.confirmDeleteStrategy', language, {
+        name:
+          strategies.find((strategy) => strategy.id === id)?.name ||
+          tr('newStrategyName'),
+      }),
+      {
+        title: tr('confirmDelete'),
         okText: tr('delete'),
         cancelText: tr('cancel'),
       }
@@ -709,21 +837,28 @@ export function StrategyStudioPage() {
       const response = await fetch(`${API_BASE}/api/strategies/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
-	      })
-	      if (!response.ok) {
-	        const data = await response.json().catch(() => ({}))
-	        if (data.error_key === 'strategy.delete.in_use') {
-	          notify.error(t('strategyStudio.strategyInUseTitle', language), {
-	            description: t('strategyStudio.strategyInUseBackendDescription', language),
-	            duration: 8000,
-	          })
-	        } else if (data.error_key === 'strategy.delete.default') {
-	          notify.error(t('strategyStudio.defaultStrategyCannotDelete', language))
-	        } else {
-	          notify.error(data.error || t('strategyStudio.deleteStrategyFailed', language))
-	        }
-	        return
-	      }
+      })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        if (data.error_key === 'strategy.delete.in_use') {
+          notify.error(t('strategyStudio.strategyInUseTitle', language), {
+            description: t(
+              'strategyStudio.strategyInUseBackendDescription',
+              language
+            ),
+            duration: 8000,
+          })
+        } else if (data.error_key === 'strategy.delete.default') {
+          notify.error(
+            t('strategyStudio.defaultStrategyCannotDelete', language)
+          )
+        } else {
+          notify.error(
+            data.error || t('strategyStudio.deleteStrategyFailed', language)
+          )
+        }
+        return
+      }
       notify.success(tr('strategyDeleted'))
       clearCompileDraft(id)
       clearLastSelectedStrategyID(id)
@@ -744,16 +879,19 @@ export function StrategyStudioPage() {
   const handleDuplicateStrategy = async (id: string) => {
     if (!token) return
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/${id}/duplicate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: tr('strategyCopy'),
-        }),
-      })
+      const response = await fetch(
+        `${API_BASE}/api/strategies/${id}/duplicate`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            name: tr('strategyCopy'),
+          }),
+        }
+      )
       if (!response.ok) throw new Error('Failed to duplicate strategy')
       await fetchStrategies()
     } catch (err) {
@@ -765,10 +903,13 @@ export function StrategyStudioPage() {
   const handleActivateStrategy = async (id: string) => {
     if (!token) return
     try {
-      const response = await fetch(`${API_BASE}/api/strategies/${id}/activate`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      const response = await fetch(
+        `${API_BASE}/api/strategies/${id}/activate`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
       if (!response.ok) throw new Error('Failed to activate strategy')
       await fetchStrategies()
     } catch (err) {
@@ -785,7 +926,9 @@ export function StrategyStudioPage() {
       exported_at: new Date().toISOString(),
       version: '1.0',
     }
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+      type: 'application/json',
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -798,7 +941,9 @@ export function StrategyStudioPage() {
   }
 
   // Import strategy from JSON file
-  const handleImportStrategy = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImportStrategy = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
     const file = event.target.files?.[0]
     if (!file || !token) return
 
@@ -840,10 +985,6 @@ export function StrategyStudioPage() {
   // Save strategy
   const handleSaveStrategy = async () => {
     if (!token || !selectedStrategy || !editingConfig) return
-    if (estimatedTokens >= 128000 && currentStrategyType === 'ai_trading') {
-      notify.warning(tr('tokenExceedWarning'))
-      // continue with save
-    }
     setIsSaving(true)
     try {
       // Preserve the strategy's own language. The trader's decision_language
@@ -889,13 +1030,20 @@ export function StrategyStudioPage() {
   ) => {
     if (!editingConfig) return
     const currentPrompt = (editingConfig.strategy_prompt || '').trim()
-    const wasUsingIndicatorPrompt = isIndicatorDrivenPrompt(currentPrompt, editingConfig, language)
+    const wasUsingIndicatorPrompt = isIndicatorDrivenPrompt(
+      currentPrompt,
+      editingConfig,
+      language
+    )
     const nextConfig = {
       ...editingConfig,
       [section]: value,
     }
     if (wasUsingIndicatorPrompt) {
-      nextConfig.strategy_prompt = buildIndicatorDrivenPrompt(nextConfig, language)
+      nextConfig.strategy_prompt = buildIndicatorDrivenPrompt(
+        nextConfig,
+        language
+      )
     }
     setEditingConfig(nextConfig)
     if (selectedStrategy && !selectedStrategy.is_default) {
@@ -921,7 +1069,9 @@ export function StrategyStudioPage() {
     setHasChanges(true)
   }
 
-  const updateScoringConfig = (updates: Partial<NonNullable<StrategyConfig['scoring_config']>>) => {
+  const updateScoringConfig = (
+    updates: Partial<NonNullable<StrategyConfig['scoring_config']>>
+  ) => {
     if (!editingConfig?.scoring_config) return
     const nextScoring = {
       ...editingConfig.scoring_config,
@@ -937,13 +1087,21 @@ export function StrategyStudioPage() {
     }
     setEditingConfig(nextConfig)
     if (selectedStrategy && !selectedStrategy.is_default) {
-      const draft = writeCompileDraft(selectedStrategy, nextConfig, compileResult)
+      const draft = writeCompileDraft(
+        selectedStrategy,
+        nextConfig,
+        compileResult
+      )
       setCompileDraftSavedAt(draft?.savedAt || null)
     }
     setHasChanges(true)
   }
 
-  const updateMarketStructureConfig = (updates: Partial<NonNullable<NonNullable<StrategyConfig['structure']>['market_structure']>>) => {
+  const updateMarketStructureConfig = (
+    updates: Partial<
+      NonNullable<NonNullable<StrategyConfig['structure']>['market_structure']>
+    >
+  ) => {
     if (!editingConfig?.structure?.market_structure) return
     const nextMarketStructure = {
       ...editingConfig.structure.market_structure,
@@ -966,17 +1124,25 @@ export function StrategyStudioPage() {
     }
     setEditingConfig(nextConfig)
     if (selectedStrategy && !selectedStrategy.is_default) {
-      const draft = writeCompileDraft(selectedStrategy, nextConfig, compileResult)
+      const draft = writeCompileDraft(
+        selectedStrategy,
+        nextConfig,
+        compileResult
+      )
       setCompileDraftSavedAt(draft?.savedAt || null)
     }
     setHasChanges(true)
   }
 
-  const updateMarketStructureLookback = (timeframe: string, lookback: number) => {
+  const updateMarketStructureLookback = (
+    timeframe: string,
+    lookback: number
+  ) => {
     if (!editingConfig?.structure?.market_structure || !timeframe) return
     updateMarketStructureConfig({
       lookback_by_timeframe: {
-        ...(editingConfig.structure.market_structure.lookback_by_timeframe || {}),
+        ...(editingConfig.structure.market_structure.lookback_by_timeframe ||
+          {}),
         [timeframe]: Math.round(clampNumber(lookback, 20, 1000)),
       },
     })
@@ -986,15 +1152,22 @@ export function StrategyStudioPage() {
     if (!token || !editingConfig || !selectedModelId) return
     const manualPrompt = (editingConfig.strategy_prompt || '').trim()
     const indicatorPrompt = buildIndicatorDrivenPrompt(editingConfig, language)
-    const storedIndicatorPrompt = selectedStrategy ? buildIndicatorDrivenPrompt(selectedStrategy.config, language) : ''
+    const storedIndicatorPrompt = selectedStrategy
+      ? buildIndicatorDrivenPrompt(selectedStrategy.config, language)
+      : ''
     const shouldUseIndicatorPrompt =
       !manualPrompt ||
       manualPrompt === indicatorPrompt.trim() ||
-      (storedIndicatorPrompt.trim() !== '' && manualPrompt === storedIndicatorPrompt.trim())
+      (storedIndicatorPrompt.trim() !== '' &&
+        manualPrompt === storedIndicatorPrompt.trim())
     const prompt = shouldUseIndicatorPrompt ? indicatorPrompt : manualPrompt
     const compileContext = shouldUseIndicatorPrompt ? '' : indicatorPrompt
     if (!prompt) {
-      notify.warning(language === 'zh' ? '请先填写策略 Prompt，或至少勾选一个指标/因子' : 'Enter a strategy prompt or select at least one indicator/factor')
+      notify.warning(
+        language === 'zh'
+          ? '请先填写策略 Prompt，或至少勾选一个指标/因子'
+          : 'Enter a strategy prompt or select at least one indicator/factor'
+      )
       return
     }
     setIsCompilingStrategy(true)
@@ -1014,7 +1187,8 @@ export function StrategyStudioPage() {
         ai_model_id: selectedModelId,
         persist: shouldPersistFirstCompile,
       })
-      const rolePrimaryTimeframe = editingConfig.indicators.klines.primary_timeframe
+      const rolePrimaryTimeframe =
+        editingConfig.indicators.klines.primary_timeframe
       const nextScoringConfig = result.scoring_config
         ? {
             ...result.scoring_config,
@@ -1045,8 +1219,12 @@ export function StrategyStudioPage() {
       setActiveRightTab('structured')
       notify.success(
         shouldPersistFirstCompile
-          ? (language === 'zh' ? '策略已生成并保存' : 'Strategy generated and saved.')
-          : (language === 'zh' ? '策略已生成草稿，保存后生效' : 'Strategy draft generated. Save to apply.')
+          ? language === 'zh'
+            ? '策略已生成并保存'
+            : 'Strategy generated and saved.'
+          : language === 'zh'
+            ? '策略已生成草稿，保存后生效'
+            : 'Strategy draft generated. Save to apply.'
       )
       if (shouldPersistFirstCompile && selectedStrategy) {
         const refreshedStrategy = await api.getStrategy(selectedStrategy.id)
@@ -1077,11 +1255,14 @@ export function StrategyStudioPage() {
     }
   }
 
-	const fetchCalibrationReport = async () => {
-	  if (!selectedStrategy) return
-	  setIsLoadingCalibration(true)
+  const fetchCalibrationReport = async () => {
+    if (!selectedStrategy) return
+    setIsLoadingCalibration(true)
     try {
-      const report = await api.getStrategyCalibrationReport(selectedStrategy.id, 1000)
+      const report = await api.getStrategyCalibrationReport(
+        selectedStrategy.id,
+        1000
+      )
       setCalibrationReport(report)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
@@ -1119,7 +1300,11 @@ export function StrategyStudioPage() {
         setReplayReport(result.evidence.replay)
       }
       setActiveRightTab('evolution')
-      notify.success(language === 'zh' ? '已生成结构复盘提案' : 'Structure review proposal generated')
+      notify.success(
+        language === 'zh'
+          ? '已生成结构复盘提案'
+          : 'Structure review proposal generated'
+      )
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       notify.error(message, { duration: 8000 })
@@ -1135,42 +1320,20 @@ export function StrategyStudioPage() {
     const draft = writeCompileDraft(selectedStrategy, nextConfig, compileResult)
     setCompileDraftSavedAt(draft?.savedAt || null)
     setHasChanges(true)
-    notify.success(language === 'zh' ? '提案已应用为草稿，保存后生效' : 'Proposal applied as a draft. Save to apply.')
+    notify.success(
+      language === 'zh'
+        ? '提案已应用为草稿，保存后生效'
+        : 'Proposal applied as a draft. Save to apply.'
+    )
   }
 
-  // Run AI test with real AI model
-  const runAiTest = async () => {
-    if (!token || !editingConfig || !selectedModelId) return
-    setIsRunningAiTest(true)
-    setAiTestResult(null)
-    try {
-      const data = await api.testRunStrategy({
-        config: editingConfig,
-        prompt_variant: selectedVariant,
-        ai_model_id: selectedModelId,
-        run_real_ai: true,
-      })
-      setAiTestResult(data)
-    } catch (err) {
-      const message = formatStrategyError(err, language)
-      notify.error(message, { duration: 8000 })
-      setAiTestResult({
-        error: message,
-      })
-    } finally {
-      setIsRunningAiTest(false)
-    }
-  }
-
-  const runDeterministicPreview = async () => {
+  const runDeterministicTest = async () => {
     if (!token || !editingConfig) return
     setIsRunningAiTest(true)
     setAiTestResult(null)
     try {
       const data = await api.testRunStrategy({
         config: editingConfig,
-        prompt_variant: selectedVariant,
-        run_real_ai: false,
       })
       setAiTestResult(data)
     } catch (err) {
@@ -1190,17 +1353,31 @@ export function StrategyStudioPage() {
         api.getAI500Coins(10, true),
         api.getNofxOSStatus(true),
       ])
-      const ai500 = ai500Result.status === 'fulfilled' ? ai500Result.value : { coins: [], count: 0 }
-      const nofxos = nofxosResult.status === 'fulfilled' ? nofxosResult.value : { records: [], count: 0 }
+      const ai500 =
+        ai500Result.status === 'fulfilled'
+          ? ai500Result.value
+          : { coins: [], count: 0 }
+      const nofxos =
+        nofxosResult.status === 'fulfilled'
+          ? nofxosResult.value
+          : { records: [], count: 0 }
       setAI500Preview(ai500)
       setNofxOSStatus(nofxos)
 
       const errors: string[] = []
       if (ai500Result.status === 'rejected') {
-        errors.push(ai500Result.reason instanceof Error ? ai500Result.reason.message : 'AI500 check failed')
+        errors.push(
+          ai500Result.reason instanceof Error
+            ? ai500Result.reason.message
+            : 'AI500 check failed'
+        )
       }
       if (nofxosResult.status === 'rejected') {
-        errors.push(nofxosResult.reason instanceof Error ? nofxosResult.reason.message : 'NofxOS status check failed')
+        errors.push(
+          nofxosResult.reason instanceof Error
+            ? nofxosResult.reason.message
+            : 'NofxOS status check failed'
+        )
       }
       if (errors.length > 0) {
         setDataSourceError(errors.join('; '))
@@ -1237,8 +1414,12 @@ export function StrategyStudioPage() {
       }
     : null
   const promptText = (editingConfig?.strategy_prompt || '').trim()
-  const currentIndicatorPrompt = editingConfig ? buildIndicatorDrivenPrompt(editingConfig, language).trim() : ''
-  const storedIndicatorPrompt = selectedStrategy ? buildIndicatorDrivenPrompt(selectedStrategy.config, language).trim() : ''
+  const currentIndicatorPrompt = editingConfig
+    ? buildIndicatorDrivenPrompt(editingConfig, language).trim()
+    : ''
+  const storedIndicatorPrompt = selectedStrategy
+    ? buildIndicatorDrivenPrompt(selectedStrategy.config, language).trim()
+    : ''
   const isUsingIndicatorPrompt =
     !promptText ||
     (currentIndicatorPrompt !== '' && promptText === currentIndicatorPrompt) ||
@@ -1259,8 +1440,8 @@ export function StrategyStudioPage() {
             </div>
             <div>
               {language === 'zh'
-                ? '可直接勾选指标生成结构识别策略，也可以补充策略意图让 AI 编译成结构化规则。保存后由程序识别 market_structure/setup 并执行；右侧可查看交易流和真实 AI 测试结果。'
-                : 'Select indicators to generate a deterministic structure strategy, or add strategy intent so AI can compile structured rules. Runtime market_structure/setup detection is handled by the program; use the right panel to inspect flow and real AI test output.'}
+                ? '可直接勾选指标生成结构识别策略，也可以补充策略意图让 AI 编译成结构化规则。保存后由程序识别 market_structure/setup 并执行；右侧可查看交易流和生产等价预演。'
+                : 'Select indicators to generate a deterministic structure strategy, or add strategy intent so AI can compile structured rules. Runtime market_structure/setup detection is handled by the program; use the right panel to inspect flow and the production-equivalent test.'}
             </div>
           </div>
           <textarea
@@ -1269,9 +1450,11 @@ export function StrategyStudioPage() {
             disabled={selectedStrategy?.is_default}
             rows={7}
             className="w-full resize-none rounded-lg px-3 py-2 text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none focus:border-purple-500 disabled:opacity-50"
-            placeholder={language === 'zh'
-              ? '可选：写策略意图、希望捕捉什么结构、开平仓偏好。不填写时，将根据已勾选指标生成结构识别策略。'
-              : 'Optional: describe market structure and execution preference. If empty, the selected indicators will be used to generate a deterministic structure strategy.'}
+            placeholder={
+              language === 'zh'
+                ? '可选：写策略意图、希望捕捉什么结构、开平仓偏好。不填写时，将根据已勾选指标生成结构识别策略。'
+                : 'Optional: describe market structure and execution preference. If empty, the selected indicators will be used to generate a deterministic structure strategy.'
+            }
           />
           <div className="text-[10px] text-nofx-text-muted">
             {language === 'zh'
@@ -1286,22 +1469,40 @@ export function StrategyStudioPage() {
               className="px-3 py-2 rounded-lg text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text outline-none disabled:opacity-50"
             >
               {aiModels.length === 0 ? (
-                <option value="">{language === 'zh' ? '没有可用模型' : 'No model'}</option>
-              ) : aiModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name} ({model.provider})
+                <option value="">
+                  {language === 'zh' ? '没有可用模型' : 'No model'}
                 </option>
-              ))}
+              ) : (
+                aiModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} ({model.provider})
+                  </option>
+                ))
+              )}
             </select>
             <button
               onClick={compileStrategyPrompt}
-              disabled={selectedStrategy?.is_default || isCompilingStrategy || !selectedModelId || (!(editingConfig.strategy_prompt || '').trim() && getSelectedIndicatorLabels(editingConfig).length === 0)}
+              disabled={
+                selectedStrategy?.is_default ||
+                isCompilingStrategy ||
+                !selectedModelId ||
+                (!(editingConfig.strategy_prompt || '').trim() &&
+                  getSelectedIndicatorLabels(editingConfig).length === 0)
+              }
               className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50"
             >
-              {isCompilingStrategy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+              {isCompilingStrategy ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
               {isUsingIndicatorPrompt
-                ? (language === 'zh' ? '根据指标重新生成策略' : 'Regenerate from Indicators')
-                : (language === 'zh' ? '编译为结构化策略' : 'Compile Structured Strategy')}
+                ? language === 'zh'
+                  ? '根据指标重新生成策略'
+                  : 'Regenerate from Indicators'
+                : language === 'zh'
+                  ? '编译为结构化策略'
+                  : 'Compile Structured Strategy'}
             </button>
           </div>
           {(selectedStrategy?.is_default || aiModels.length === 0) && (
@@ -1310,16 +1511,18 @@ export function StrategyStudioPage() {
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-400" />
                 <div>
                   <div className="font-medium text-yellow-300">
-                    {language === 'zh' ? '当前不能生成策略' : 'Strategy generation is not available'}
+                    {language === 'zh'
+                      ? '当前不能生成策略'
+                      : 'Strategy generation is not available'}
                   </div>
                   <div className="mt-1 text-yellow-100/80">
                     {selectedStrategy?.is_default
-                      ? (language === 'zh'
+                      ? language === 'zh'
                         ? '系统默认策略是只读模板。请先复制或新建策略，再生成和保存结构化策略。'
-                        : 'System default strategies are read-only templates. Duplicate or create a strategy before generating and saving a structured strategy.')
-                      : (language === 'zh'
+                        : 'System default strategies are read-only templates. Duplicate or create a strategy before generating and saving a structured strategy.'
+                      : language === 'zh'
                         ? '当前没有加载到可用 AI 模型。请确认已登录并在 Config > AI Model 启用了模型。'
-                        : 'No enabled AI model is loaded. Confirm that you are logged in and have an enabled model in Config > AI Model.')}
+                        : 'No enabled AI model is loaded. Confirm that you are logged in and have an enabled model in Config > AI Model.'}
                   </div>
                 </div>
               </div>
@@ -1327,16 +1530,28 @@ export function StrategyStudioPage() {
           )}
           <div className="grid grid-cols-3 gap-2 text-[11px]">
             <div className="rounded bg-nofx-bg border border-white/10 p-2">
-              <div className="text-nofx-text-muted">{language === 'zh' ? '模式' : 'Mode'}</div>
-              <div className="text-nofx-text font-medium">{strategyModeDisplay(editingConfig.strategy_mode, language)}</div>
+              <div className="text-nofx-text-muted">
+                {language === 'zh' ? '模式' : 'Mode'}
+              </div>
+              <div className="text-nofx-text font-medium">
+                {strategyModeDisplay(editingConfig.strategy_mode, language)}
+              </div>
             </div>
             <div className="rounded bg-nofx-bg border border-white/10 p-2">
-              <div className="text-nofx-text-muted">{language === 'zh' ? '规则' : 'Rules'}</div>
-              <div className="text-nofx-text font-medium">{editingConfig.compiled_rules?.length || 0}</div>
+              <div className="text-nofx-text-muted">
+                {language === 'zh' ? '规则' : 'Rules'}
+              </div>
+              <div className="text-nofx-text font-medium">
+                {editingConfig.compiled_rules?.length || 0}
+              </div>
             </div>
             <div className="rounded bg-nofx-bg border border-white/10 p-2">
-              <div className="text-nofx-text-muted">{language === 'zh' ? '证据过滤' : 'Evidence'}</div>
-              <div className="text-nofx-text font-medium">{editingConfig.scoring_config?.enabled ? 'on' : 'off'}</div>
+              <div className="text-nofx-text-muted">
+                {language === 'zh' ? '证据过滤' : 'Evidence'}
+              </div>
+              <div className="text-nofx-text font-medium">
+                {editingConfig.scoring_config?.enabled ? 'on' : 'off'}
+              </div>
             </div>
           </div>
           <div className="rounded-lg bg-nofx-bg border border-white/10 p-2">
@@ -1346,7 +1561,9 @@ export function StrategyStudioPage() {
                   {language === 'zh' ? '数据源状态' : 'Data Sources'}
                 </div>
                 <div className="text-[11px] text-nofx-text-muted">
-                  {language === 'zh' ? 'AI500 / NofxOS 钱包扣费数据检查' : 'AI500 / NofxOS wallet-billed data check'}
+                  {language === 'zh'
+                    ? 'AI500 / NofxOS 钱包扣费数据检查'
+                    : 'AI500 / NofxOS wallet-billed data check'}
                 </div>
               </div>
               <button
@@ -1354,18 +1571,22 @@ export function StrategyStudioPage() {
                 disabled={isLoadingDataStatus}
                 className="flex items-center gap-1 rounded border border-white/10 px-2 py-1 text-[11px] text-nofx-text hover:border-nofx-gold/40 disabled:opacity-50"
               >
-                {isLoadingDataStatus ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                {isLoadingDataStatus ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
                 {language === 'zh' ? '检查' : 'Check'}
               </button>
             </div>
             {dataSourceError && (
               <div className="mt-2 rounded border border-red-500/30 bg-red-500/10 p-2 text-[11px] text-red-200">
                 <div className="font-medium">
-                  {language === 'zh' ? '数据源检查失败' : 'Data source check failed'}
+                  {language === 'zh'
+                    ? '数据源检查失败'
+                    : 'Data source check failed'}
                 </div>
-                <div className="mt-1 font-mono">
-                  {dataSourceError}
-                </div>
+                <div className="mt-1 font-mono">{dataSourceError}</div>
               </div>
             )}
             {(ai500Preview || nofxOSStatus) && (
@@ -1373,7 +1594,10 @@ export function StrategyStudioPage() {
                 <div className="rounded border border-white/10 bg-black/20 p-2">
                   <div className="text-nofx-text-muted">AI500</div>
                   <div className="mt-1 font-mono text-nofx-text">
-                    {ai500Preview?.coins?.slice(0, 5).map((coin) => coin.symbol).join(', ') || '--'}
+                    {ai500Preview?.coins
+                      ?.slice(0, 5)
+                      .map((coin) => coin.symbol)
+                      .join(', ') || '--'}
                   </div>
                 </div>
                 <div className="rounded border border-white/10 bg-black/20 p-2">
@@ -1457,47 +1681,6 @@ export function StrategyStudioPage() {
       ),
     },
     {
-      key: 'historyContext' as const,
-      icon: Clock,
-      color: '#60a5fa',
-      title: language === 'zh' ? '历史上下文' : 'Historical Context',
-      forStrategyType: 'ai_trading' as const,
-      content: editingConfig && (
-        <div className="space-y-3">
-          <div>
-            <p className="text-sm font-medium text-nofx-text">
-              {language === 'zh' ? '历史交易影响' : 'Historical PnL Influence'}
-            </p>
-            <p className="text-xs text-nofx-text-muted mt-1">
-              {language === 'zh'
-                ? '启用后，交易复盘和历史表现可以作为结构化审查上下文；关闭后，只使用当前持仓和实时市场结构。'
-                : 'When disabled, AI no longer sees closed-trade history or performance stats. Current positions and live market context still remain available.'}
-            </p>
-          </div>
-
-          <label className="flex items-start justify-between gap-4 p-3 rounded-lg bg-nofx-bg border border-nofx-gold/20">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-nofx-text">
-                {language === 'zh' ? '包含历史交易上下文' : 'Include Historical Trading Context'}
-              </div>
-              <div className="text-xs text-nofx-text-muted mt-1">
-                {language === 'zh'
-                  ? '开启：AI Review 可使用 Trade Memory、胜率、近期平仓记录等经验。关闭：只根据当前市场、候选信号和持仓判断。'
-                  : 'On: AI Review can use Trade Memory, win rate, and recent closed trades. Off: AI reviews only current market, candidate signals, and positions.'}
-              </div>
-            </div>
-
-            <input
-              type="checkbox"
-              checked={editingConfig.include_historical_context ?? true}
-              onChange={(e) => updateConfig('include_historical_context', e.target.checked)}
-              disabled={selectedStrategy?.is_default}
-              className="mt-1 h-4 w-4 rounded border-nofx-gold/30 bg-nofx-bg text-nofx-gold focus:ring-nofx-gold disabled:opacity-50"
-            />
-          </label>
-        </div>
-      ),
-    },    {
       key: 'publishSettings' as const,
       icon: Globe,
       color: '#0ECB81',
@@ -1520,13 +1703,14 @@ export function StrategyStudioPage() {
         />
       ),
     },
-  ].filter(section =>
-    section.forStrategyType === 'both' || section.forStrategyType === currentStrategyType
+  ].filter(
+    (section) =>
+      section.forStrategyType === 'both' ||
+      section.forStrategyType === currentStrategyType
   )
 
   return (
     <DeepVoidBackground className="h-[calc(100vh-64px)] flex flex-col bg-nofx-bg relative overflow-hidden">
-
       {/* Header */}
       {/* Header */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-nofx-gold/20 bg-nofx-bg/60 backdrop-blur-md z-10">
@@ -1536,17 +1720,23 @@ export function StrategyStudioPage() {
               <Sparkles className="w-5 h-5 text-black" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-nofx-text">{tr('title')}</h1>
+              <h1 className="text-lg font-bold text-nofx-text">
+                {tr('title')}
+              </h1>
               <p className="text-xs text-nofx-text-muted">{tr('subtitle')}</p>
             </div>
           </div>
           {error && (
             <div className="ml-4 flex max-w-[560px] items-start gap-3 rounded-lg bg-nofx-danger/10 px-3 py-2 text-xs text-nofx-danger">
-              <span className="min-w-0 whitespace-normal break-words leading-relaxed">{error}</span>
+              <span className="min-w-0 whitespace-normal break-words leading-relaxed">
+                {error}
+              </span>
               <button
                 onClick={() => setError(null)}
                 className="shrink-0 rounded px-1 text-sm leading-none hover:bg-white/10"
-                aria-label={language === 'zh' ? '关闭错误提示' : 'Dismiss error'}
+                aria-label={
+                  language === 'zh' ? '关闭错误提示' : 'Dismiss error'
+                }
               >
                 ×
               </button>
@@ -1561,10 +1751,15 @@ export function StrategyStudioPage() {
         <div className="w-48 flex-shrink-0 border-r border-nofx-gold/20 overflow-y-auto bg-nofx-bg/30 backdrop-blur-sm z-10">
           <div className="p-2">
             <div className="flex items-center justify-between mb-2 px-2">
-              <span className="text-xs font-medium text-nofx-text-muted">{tr('strategies')}</span>
+              <span className="text-xs font-medium text-nofx-text-muted">
+                {tr('strategies')}
+              </span>
               <div className="flex items-center gap-1">
                 {/* Import button with hidden file input */}
-                <label className="p-1 rounded hover:bg-white/10 transition-colors cursor-pointer text-nofx-text-muted hover:text-white" title={tr('importStrategy')}>
+                <label
+                  className="p-1 rounded hover:bg-white/10 transition-colors cursor-pointer text-nofx-text-muted hover:text-white"
+                  title={tr('importStrategy')}
+                >
                   <Upload className="w-4 h-4" />
                   <input
                     type="file"
@@ -1582,39 +1777,29 @@ export function StrategyStudioPage() {
                 </button>
               </div>
             </div>
-            {strategyTemplates.length > 0 && (
-              <div className="mb-2 px-2">
-                <label className="mb-1 block text-[10px] text-nofx-text-muted">
-                  {tr('strategyTemplate')}
-                </label>
-                <select
-                  value={selectedTemplateId}
-                  onChange={(event) => setSelectedTemplateId(event.target.value)}
-                  className="w-full rounded-md border border-nofx-gold/20 bg-nofx-bg px-2 py-1.5 text-[11px] text-nofx-text outline-none"
-                >
-                  {strategyTemplates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {template.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
             <div className="space-y-2">
               {strategies.map((strategy) => (
                 <div
                   key={strategy.id}
                   onClick={() => selectStrategyForEdit(strategy)}
-                  className={`group px-2 py-2 rounded-lg cursor-pointer transition-all ${selectedStrategy?.id === strategy.id
-                    ? 'ring-1 ring-nofx-gold/50 bg-nofx-gold/10 shadow-[0_0_15px_rgba(240,185,11,0.1)]'
-                    : 'hover:bg-nofx-bg-lighter/60 ring-1 ring-white/10 hover:ring-nofx-gold/20 bg-transparent'
-                    }`}
+                  className={`group px-2 py-2 rounded-lg cursor-pointer transition-all ${
+                    selectedStrategy?.id === strategy.id
+                      ? 'ring-1 ring-nofx-gold/50 bg-nofx-gold/10 shadow-[0_0_15px_rgba(240,185,11,0.1)]'
+                      : 'hover:bg-nofx-bg-lighter/60 ring-1 ring-white/10 hover:ring-nofx-gold/20 bg-transparent'
+                  }`}
                 >
                   <div className="flex items-start justify-between">
-                    <span className={`line-clamp-2 text-nofx-text ${language === 'zh' ? 'text-sm' : 'text-xs'}`}>{strategy.name}</span>
+                    <span
+                      className={`line-clamp-2 text-nofx-text ${language === 'zh' ? 'text-sm' : 'text-xs'}`}
+                    >
+                      {strategy.name}
+                    </span>
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleExportStrategy(strategy) }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleExportStrategy(strategy)
+                        }}
                         className="p-1 rounded hover:bg-white/10 text-nofx-text-muted hover:text-white"
                         title={tr('export')}
                       >
@@ -1623,14 +1808,20 @@ export function StrategyStudioPage() {
                       {!strategy.is_default && (
                         <>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleDuplicateStrategy(strategy.id) }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDuplicateStrategy(strategy.id)
+                            }}
                             className="p-1 rounded hover:bg-white/10 text-nofx-text-muted hover:text-white"
                             title={tr('duplicate')}
                           >
                             <Copy className="w-3 h-3" />
                           </button>
                           <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteStrategy(strategy.id) }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleDeleteStrategy(strategy.id)
+                            }}
                             className="p-1 rounded hover:bg-nofx-danger/20 text-nofx-danger"
                             title={tr('deleteTooltip')}
                           >
@@ -1675,7 +1866,10 @@ export function StrategyStudioPage() {
                     type="text"
                     value={selectedStrategy.name}
                     onChange={(e) => {
-                      setSelectedStrategy({ ...selectedStrategy, name: e.target.value })
+                      setSelectedStrategy({
+                        ...selectedStrategy,
+                        name: e.target.value,
+                      })
                       setHasChanges(true)
                     }}
                     disabled={selectedStrategy.is_default}
@@ -1685,7 +1879,10 @@ export function StrategyStudioPage() {
                     type="text"
                     value={selectedStrategy.description || ''}
                     onChange={(e) => {
-                      setSelectedStrategy({ ...selectedStrategy, description: e.target.value })
+                      setSelectedStrategy({
+                        ...selectedStrategy,
+                        description: e.target.value,
+                      })
                       setHasChanges(true)
                     }}
                     disabled={selectedStrategy.is_default}
@@ -1693,13 +1890,17 @@ export function StrategyStudioPage() {
                     className="text-xs bg-transparent border-none outline-none w-full text-nofx-text-muted placeholder-nofx-text-muted/50 mt-1"
                   />
                   {hasChanges && (
-                    <span className="text-xs text-nofx-gold">{tr('unsaved')}</span>
+                    <span className="text-xs text-nofx-gold">
+                      {tr('unsaved')}
+                    </span>
                   )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {!selectedStrategy.is_active && (
                     <button
-                      onClick={() => handleActivateStrategy(selectedStrategy.id)}
+                      onClick={() =>
+                        handleActivateStrategy(selectedStrategy.id)
+                      }
                       className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs transition-colors bg-nofx-success/10 border border-nofx-success/30 text-nofx-success hover:bg-nofx-success/20"
                     >
                       <Check className="w-3 h-3" />
@@ -1726,7 +1927,9 @@ export function StrategyStudioPage() {
                     <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-400" />
                     <div>
                       <div className="font-medium text-yellow-300">
-                        {language === 'zh' ? '有未保存的策略生成草稿' : 'Unsaved generated strategy draft'}
+                        {language === 'zh'
+                          ? '有未保存的策略生成草稿'
+                          : 'Unsaved generated strategy draft'}
                       </div>
                       <div className="mt-1 text-yellow-100/80">
                         {language === 'zh'
@@ -1738,19 +1941,14 @@ export function StrategyStudioPage() {
                 </div>
               )}
 
-              {/* Token Estimate Bar */}
-              {currentStrategyType === 'ai_trading' && (
-                <div className="mb-4">
-                  <TokenEstimateBar config={editingConfig} language={language} onTokenCountChange={setEstimatedTokens} />
-                </div>
-              )}
-
               {/* Strategy Type Selector */}
               {editingConfig && (
                 <div className="mb-4 p-4 rounded-lg bg-nofx-bg-lighter border border-nofx-gold/20">
                   <div className="flex items-center gap-2 mb-3">
                     <Zap className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                    <span className="text-sm font-medium text-nofx-text">{tr('strategyType')}</span>
+                    <span className="text-sm font-medium text-nofx-text">
+                      {tr('strategyType')}
+                    </span>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <button
@@ -1763,16 +1961,21 @@ export function StrategyStudioPage() {
                       }}
                       disabled={selectedStrategy?.is_default}
                       className={`p-3 rounded-lg border transition-all ${
-                        (!editingConfig.strategy_type || editingConfig.strategy_type === 'ai_trading')
+                        !editingConfig.strategy_type ||
+                        editingConfig.strategy_type === 'ai_trading'
                           ? 'border-nofx-gold bg-nofx-gold/10'
                           : 'border-nofx-border hover:border-nofx-gold/50'
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <Bot className="w-4 h-4" style={{ color: '#F0B90B' }} />
-                        <span className="text-sm font-medium text-nofx-text">{tr('aiTrading')}</span>
+                        <span className="text-sm font-medium text-nofx-text">
+                          {tr('aiTrading')}
+                        </span>
                       </div>
-                      <p className="text-xs text-nofx-text-muted text-left">{tr('aiTradingDesc')}</p>
+                      <p className="text-xs text-nofx-text-muted text-left">
+                        {tr('aiTradingDesc')}
+                      </p>
                     </button>
                     <button
                       onClick={() => {
@@ -1792,10 +1995,17 @@ export function StrategyStudioPage() {
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <Activity className="w-4 h-4" style={{ color: '#0ECB81' }} />
-                        <span className="text-sm font-medium text-nofx-text">{tr('gridTrading')}</span>
+                        <Activity
+                          className="w-4 h-4"
+                          style={{ color: '#0ECB81' }}
+                        />
+                        <span className="text-sm font-medium text-nofx-text">
+                          {tr('gridTrading')}
+                        </span>
                       </div>
-                      <p className="text-xs text-nofx-text-muted text-left">{tr('gridTradingDesc')}</p>
+                      <p className="text-xs text-nofx-text-muted text-left">
+                        {tr('gridTradingDesc')}
+                      </p>
                     </button>
                   </div>
                 </div>
@@ -1803,32 +2013,34 @@ export function StrategyStudioPage() {
 
               {/* Config Sections */}
               <div className="space-y-2">
-                {configSections.map(({ key, icon: Icon, color, title, content }) => (
-                  <div
-                    key={key}
-                    className="rounded-lg overflow-hidden bg-nofx-bg-lighter border border-nofx-gold/20"
-                  >
-                    <button
-                      onClick={() => toggleSection(key)}
-                      className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/5 transition-colors"
+                {configSections.map(
+                  ({ key, icon: Icon, color, title, content }) => (
+                    <div
+                      key={key}
+                      className="rounded-lg overflow-hidden bg-nofx-bg-lighter border border-nofx-gold/20"
                     >
-                      <div className="flex items-center gap-2">
-                        <Icon className="w-4 h-4" style={{ color }} />
-                        <span className="text-sm font-medium text-nofx-text">{title}</span>
-                      </div>
-                      {expandedSections[key] ? (
-                        <ChevronDown className="w-4 h-4 text-nofx-text-muted" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-nofx-text-muted" />
+                      <button
+                        onClick={() => toggleSection(key)}
+                        className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-white/5 transition-colors"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon className="w-4 h-4" style={{ color }} />
+                          <span className="text-sm font-medium text-nofx-text">
+                            {title}
+                          </span>
+                        </div>
+                        {expandedSections[key] ? (
+                          <ChevronDown className="w-4 h-4 text-nofx-text-muted" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-nofx-text-muted" />
+                        )}
+                      </button>
+                      {expandedSections[key] && (
+                        <div className="px-3 pb-3">{content}</div>
                       )}
-                    </button>
-                    {expandedSections[key] && (
-                      <div className="px-3 pb-3">
-                        {content}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                    </div>
+                  )
+                )}
               </div>
             </div>
           ) : (
@@ -1849,48 +2061,66 @@ export function StrategyStudioPage() {
           <div className="flex-shrink-0 flex border-b border-nofx-gold/20">
             <button
               onClick={() => setActiveRightTab('structured')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'structured' ? 'border-b-2 border-yellow-500 text-yellow-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-                }`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                activeRightTab === 'structured'
+                  ? 'border-b-2 border-yellow-500 text-yellow-500'
+                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              }`}
             >
               <FileJson className="w-4 h-4" />
               {language === 'zh' ? '结构化' : 'Structured'}
             </button>
             <button
               onClick={() => setActiveRightTab('flow')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'flow' ? 'border-b-2 border-purple-500 text-purple-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-                }`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                activeRightTab === 'flow'
+                  ? 'border-b-2 border-purple-500 text-purple-500'
+                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              }`}
             >
               <Eye className="w-4 h-4" />
               {language === 'zh' ? '交易流' : 'Flow'}
             </button>
             <button
               onClick={() => setActiveRightTab('test')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'test' ? 'border-b-2 border-green-500 text-green-500' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-                }`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                activeRightTab === 'test'
+                  ? 'border-b-2 border-green-500 text-green-500'
+                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              }`}
             >
               <Play className="w-4 h-4" />
-              {tr('aiTestRun')}
+              {language === 'zh' ? '策略预演' : 'Strategy Test'}
             </button>
             <button
               onClick={() => setActiveRightTab('calibration')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'calibration' ? 'border-b-2 border-blue-500 text-blue-400' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-                }`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                activeRightTab === 'calibration'
+                  ? 'border-b-2 border-blue-500 text-blue-400'
+                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              }`}
             >
               <BarChart3 className="w-4 h-4" />
               {language === 'zh' ? '校准数据' : 'Calibration Data'}
             </button>
             <button
               onClick={() => setActiveRightTab('replay')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'replay' ? 'border-b-2 border-teal-500 text-teal-400' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-                }`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                activeRightTab === 'replay'
+                  ? 'border-b-2 border-teal-500 text-teal-400'
+                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              }`}
             >
               <RefreshCw className="w-4 h-4" />
               {language === 'zh' ? '参数回放' : 'Parameter Replay'}
             </button>
             <button
               onClick={() => setActiveRightTab('evolution')}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${activeRightTab === 'evolution' ? 'border-b-2 border-cyan-500 text-cyan-400' : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
-                }`}
+              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                activeRightTab === 'evolution'
+                  ? 'border-b-2 border-cyan-500 text-cyan-400'
+                  : 'opacity-60 hover:opacity-100 text-nofx-text-muted'
+              }`}
             >
               <Sparkles className="w-4 h-4" />
               {language === 'zh' ? 'AI校准' : 'AI Calibration'}
@@ -1903,16 +2133,31 @@ export function StrategyStudioPage() {
               <div className="p-3 space-y-3">
                 <div className="grid grid-cols-3 gap-2">
                   <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3">
-                    <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '策略模式' : 'Mode'}</div>
-                    <div className="text-sm font-semibold text-nofx-text">{strategyModeDisplay(editingConfig?.strategy_mode, language)}</div>
+                    <div className="text-[10px] text-nofx-text-muted">
+                      {language === 'zh' ? '策略模式' : 'Mode'}
+                    </div>
+                    <div className="text-sm font-semibold text-nofx-text">
+                      {strategyModeDisplay(
+                        editingConfig?.strategy_mode,
+                        language
+                      )}
+                    </div>
                   </div>
                   <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3">
-                    <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '规则数' : 'Rules'}</div>
-                    <div className="text-sm font-semibold text-nofx-text">{editingConfig?.compiled_rules?.length || 0}</div>
+                    <div className="text-[10px] text-nofx-text-muted">
+                      {language === 'zh' ? '规则数' : 'Rules'}
+                    </div>
+                    <div className="text-sm font-semibold text-nofx-text">
+                      {editingConfig?.compiled_rules?.length || 0}
+                    </div>
                   </div>
                   <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3">
-                    <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '证据过滤' : 'Evidence'}</div>
-                    <div className="text-sm font-semibold text-nofx-text">{editingConfig?.scoring_config?.enabled ? 'on' : 'off'}</div>
+                    <div className="text-[10px] text-nofx-text-muted">
+                      {language === 'zh' ? '证据过滤' : 'Evidence'}
+                    </div>
+                    <div className="text-sm font-semibold text-nofx-text">
+                      {editingConfig?.scoring_config?.enabled ? 'on' : 'off'}
+                    </div>
                   </div>
                 </div>
 
@@ -1940,7 +2185,9 @@ export function StrategyStudioPage() {
                       <FileJson className="mt-0.5 h-4 w-4 flex-shrink-0 text-nofx-gold" />
                       <div>
                         <div className="font-medium text-nofx-text">
-                          {language === 'zh' ? '还没有可执行的结构化策略' : 'No executable structured strategy yet'}
+                          {language === 'zh'
+                            ? '还没有可执行的结构化策略'
+                            : 'No executable structured strategy yet'}
                         </div>
                         <div className="mt-1">
                           {language === 'zh'
@@ -1952,20 +2199,25 @@ export function StrategyStudioPage() {
                   </div>
                 )}
 
-                {compileResult?.warnings && compileResult.warnings.length > 0 && (
-                  <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
-                    <div className="text-xs font-medium text-yellow-400 mb-1">{language === 'zh' ? '编译警告' : 'Compile Warnings'}</div>
-                    <ul className="space-y-1 text-[11px] text-yellow-100">
-                      {compileResult.warnings.map((warning, index) => (
-                        <li key={index}>{warning}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                {compileResult?.warnings &&
+                  compileResult.warnings.length > 0 && (
+                    <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
+                      <div className="text-xs font-medium text-yellow-400 mb-1">
+                        {language === 'zh' ? '编译警告' : 'Compile Warnings'}
+                      </div>
+                      <ul className="space-y-1 text-[11px] text-yellow-100">
+                        {compileResult.warnings.map((warning, index) => (
+                          <li key={index}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                 {compileResult?.errors && compileResult.errors.length > 0 && (
                   <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3">
-                    <div className="text-xs font-medium text-red-400 mb-1">{language === 'zh' ? '编译错误' : 'Compile Errors'}</div>
+                    <div className="text-xs font-medium text-red-400 mb-1">
+                      {language === 'zh' ? '编译错误' : 'Compile Errors'}
+                    </div>
                     <ul className="space-y-1 text-[11px] text-red-100">
                       {compileResult.errors.map((compileError, index) => (
                         <li key={index}>{compileError}</li>
@@ -1974,126 +2226,224 @@ export function StrategyStudioPage() {
                   </div>
                 )}
 
-                {editingConfig?.compiled_rules && editingConfig.compiled_rules.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '确定性规则' : 'Deterministic Rules'}</div>
-                    {editingConfig.compiled_rules.map((rule) => (
-                      <div key={rule.id} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium text-nofx-text truncate">{rule.description || rule.id}</div>
-                            <div className="text-[10px] text-nofx-text-muted">{rule.action} · {rule.timeframe || '-'}</div>
+                {editingConfig?.compiled_rules &&
+                  editingConfig.compiled_rules.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-xs font-medium text-nofx-text">
+                        {language === 'zh'
+                          ? '确定性规则'
+                          : 'Deterministic Rules'}
+                      </div>
+                      {editingConfig.compiled_rules.map((rule) => (
+                        <div
+                          key={rule.id}
+                          className="rounded-lg bg-nofx-bg border border-white/10 p-3"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium text-nofx-text truncate">
+                                {rule.description || rule.id}
+                              </div>
+                              <div className="text-[10px] text-nofx-text-muted">
+                                {rule.action} · {rule.timeframe || '-'}
+                              </div>
+                            </div>
+                            <span
+                              className={`text-[10px] px-2 py-1 rounded ${rule.enabled ? 'bg-green-500/15 text-green-400' : 'bg-white/10 text-nofx-text-muted'}`}
+                            >
+                              {rule.enabled ? 'enabled' : 'off'}
+                            </span>
                           </div>
-                          <span className={`text-[10px] px-2 py-1 rounded ${rule.enabled ? 'bg-green-500/15 text-green-400' : 'bg-white/10 text-nofx-text-muted'}`}>
-                            {rule.enabled ? 'enabled' : 'off'}
+                          <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
+                            <div className="text-nofx-text-muted">
+                              lev{' '}
+                              <span className="text-nofx-text">
+                                {rule.execution?.leverage || '-'}
+                              </span>
+                            </div>
+                            <div className="text-nofx-text-muted">
+                              size{' '}
+                              <span className="text-nofx-text">
+                                {rule.execution?.position_size_usd || '-'}
+                              </span>
+                            </div>
+                            <div className="text-nofx-text-muted">
+                              conf{' '}
+                              <span className="text-nofx-text">
+                                {rule.execution?.confidence || '-'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                {editingConfig?.structure?.enable_market_structure &&
+                  editingConfig.structure.market_structure && (
+                    <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-medium text-nofx-text">
+                            {language === 'zh'
+                              ? '结构识别窗口'
+                              : 'Structure Window'}
+                          </div>
+                          <div className="mt-1 text-[11px] text-nofx-text-muted">
+                            {language === 'zh'
+                              ? '每个周期独立设置 market_structure 使用的 K 线数量；结构起点和终点只会来自这些窗口内部。'
+                              : 'Set how many candles market_structure can inspect per timeframe. Structure anchors are selected only inside these windows.'}
+                          </div>
+                        </div>
+                        <span className="rounded bg-yellow-500/15 px-2 py-1 text-[10px] text-yellow-300">
+                          max{' '}
+                          {Math.max(
+                            editingConfig.structure.market_structure.lookback ||
+                              160,
+                            ...Object.values(
+                              editingConfig.structure.market_structure
+                                .lookback_by_timeframe || {}
+                            )
+                          )}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {Array.from(
+                          new Set(
+                            [
+                              timeframeRoles?.entry,
+                              timeframeRoles?.primary,
+                              ...(timeframeRoles?.confirmations || []),
+                            ].filter(Boolean)
+                          )
+                        ).map((timeframe) => {
+                          const tf = String(timeframe)
+                          const value =
+                            editingConfig.structure?.market_structure
+                              ?.lookback_by_timeframe?.[tf] ??
+                            editingConfig.structure?.market_structure
+                              ?.lookback ??
+                            160
+                          return (
+                            <label key={tf} className="space-y-1">
+                              <span className="text-[10px] text-nofx-text-muted">
+                                {tf}
+                              </span>
+                              <input
+                                type="number"
+                                min={20}
+                                max={1000}
+                                step={20}
+                                value={value}
+                                disabled={selectedStrategy?.is_default}
+                                onChange={(e) =>
+                                  updateMarketStructureLookback(
+                                    tf,
+                                    parseInt(e.target.value, 10) || 160
+                                  )
+                                }
+                                className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                              />
+                            </label>
+                          )
+                        })}
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-nofx-text-muted">
+                            {language === 'zh' ? '默认窗口' : 'Default'}
                           </span>
-                        </div>
-                        <div className="mt-2 grid grid-cols-3 gap-2 text-[10px]">
-                          <div className="text-nofx-text-muted">lev <span className="text-nofx-text">{rule.execution?.leverage || '-'}</span></div>
-                          <div className="text-nofx-text-muted">size <span className="text-nofx-text">{rule.execution?.position_size_usd || '-'}</span></div>
-                          <div className="text-nofx-text-muted">conf <span className="text-nofx-text">{rule.execution?.confidence || '-'}</span></div>
-                        </div>
+                          <input
+                            type="number"
+                            min={20}
+                            max={1000}
+                            step={20}
+                            value={
+                              editingConfig.structure.market_structure
+                                .lookback ?? 160
+                            }
+                            disabled={selectedStrategy?.is_default}
+                            onChange={(e) =>
+                              updateMarketStructureConfig({
+                                lookback: Math.round(
+                                  clampNumber(
+                                    parseInt(e.target.value, 10) || 160,
+                                    20,
+                                    1000
+                                  )
+                                ),
+                              })
+                            }
+                            className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-nofx-text-muted">
+                            {language === 'zh' ? 'Swing 窗口' : 'Swing'}
+                          </span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            step={1}
+                            value={
+                              editingConfig.structure.market_structure
+                                .swing_window ?? 3
+                            }
+                            disabled={selectedStrategy?.is_default}
+                            onChange={(e) =>
+                              updateMarketStructureConfig({
+                                swing_window: Math.round(
+                                  clampNumber(
+                                    parseInt(e.target.value, 10) || 3,
+                                    1,
+                                    20
+                                  )
+                                ),
+                              })
+                            }
+                            className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="text-[10px] text-nofx-text-muted">
+                            ZigZag %
+                          </span>
+                          <input
+                            type="number"
+                            min={0.1}
+                            max={100}
+                            step={0.1}
+                            value={
+                              editingConfig.structure.market_structure
+                                .zigzag_threshold_pct ?? 1
+                            }
+                            disabled={selectedStrategy?.is_default}
+                            onChange={(e) =>
+                              updateMarketStructureConfig({
+                                zigzag_threshold_pct: clampNumber(
+                                  parseFloat(e.target.value) || 1,
+                                  0.1,
+                                  100
+                                ),
+                              })
+                            }
+                            className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
+                          />
+                        </label>
                       </div>
-                    ))}
-                  </div>
-                )}
-
-                {editingConfig?.structure?.enable_market_structure && editingConfig.structure.market_structure && (
-                  <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '结构识别窗口' : 'Structure Window'}</div>
-                        <div className="mt-1 text-[11px] text-nofx-text-muted">
-                          {language === 'zh'
-                            ? '每个周期独立设置 market_structure 使用的 K 线数量；结构起点和终点只会来自这些窗口内部。'
-                            : 'Set how many candles market_structure can inspect per timeframe. Structure anchors are selected only inside these windows.'}
-                        </div>
-                      </div>
-                      <span className="rounded bg-yellow-500/15 px-2 py-1 text-[10px] text-yellow-300">
-                        max {Math.max(
-                          editingConfig.structure.market_structure.lookback || 160,
-                          ...Object.values(editingConfig.structure.market_structure.lookback_by_timeframe || {})
-                        )}
-                      </span>
                     </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      {Array.from(new Set([
-                        timeframeRoles?.entry,
-                        timeframeRoles?.primary,
-                        ...(timeframeRoles?.confirmations || []),
-                      ].filter(Boolean))).map((timeframe) => {
-                        const tf = String(timeframe)
-                        const value = editingConfig.structure?.market_structure?.lookback_by_timeframe?.[tf]
-                          ?? editingConfig.structure?.market_structure?.lookback
-                          ?? 160
-                        return (
-                          <label key={tf} className="space-y-1">
-                            <span className="text-[10px] text-nofx-text-muted">{tf}</span>
-                            <input
-                              type="number"
-                              min={20}
-                              max={1000}
-                              step={20}
-                              value={value}
-                              disabled={selectedStrategy?.is_default}
-                              onChange={(e) => updateMarketStructureLookback(tf, parseInt(e.target.value, 10) || 160)}
-                              className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
-                            />
-                          </label>
-                        )
-                      })}
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-3 gap-2">
-                      <label className="space-y-1">
-                        <span className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '默认窗口' : 'Default'}</span>
-                        <input
-                          type="number"
-                          min={20}
-                          max={1000}
-                          step={20}
-                          value={editingConfig.structure.market_structure.lookback ?? 160}
-                          disabled={selectedStrategy?.is_default}
-                          onChange={(e) => updateMarketStructureConfig({ lookback: Math.round(clampNumber(parseInt(e.target.value, 10) || 160, 20, 1000)) })}
-                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] text-nofx-text-muted">{language === 'zh' ? 'Swing 窗口' : 'Swing'}</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          step={1}
-                          value={editingConfig.structure.market_structure.swing_window ?? 3}
-                          disabled={selectedStrategy?.is_default}
-                          onChange={(e) => updateMarketStructureConfig({ swing_window: Math.round(clampNumber(parseInt(e.target.value, 10) || 3, 1, 20)) })}
-                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[10px] text-nofx-text-muted">ZigZag %</span>
-                        <input
-                          type="number"
-                          min={0.1}
-                          max={100}
-                          step={0.1}
-                          value={editingConfig.structure.market_structure.zigzag_threshold_pct ?? 1}
-                          disabled={selectedStrategy?.is_default}
-                          onChange={(e) => updateMarketStructureConfig({ zigzag_threshold_pct: clampNumber(parseFloat(e.target.value) || 1, 0.1, 100) })}
-                          className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                )}
+                  )}
 
                 {editingConfig?.scoring_config?.enabled && (
                   <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '证据过滤' : 'Evidence Filters'}</div>
+                        <div className="text-xs font-medium text-nofx-text">
+                          {language === 'zh' ? '证据过滤' : 'Evidence Filters'}
+                        </div>
                         <div className="mt-1 text-[11px] text-nofx-text-muted">
                           {language === 'zh'
                             ? '结构 setup 已由程序识别；这里仅调节证据强弱、数据覆盖和方向冲突过滤。'
@@ -2109,17 +2459,35 @@ export function StrategyStudioPage() {
                       {timeframeRoles && (
                         <div className="grid grid-cols-3 gap-2 rounded-lg border border-white/10 bg-black/20 p-2 text-[10px]">
                           <div>
-                            <div className="text-nofx-text-muted">{language === 'zh' ? '主周期 / 找机会' : 'Primary / setup'}</div>
-                            <div className="mt-1 font-mono text-nofx-text">{timeframeRoles.primary}</div>
-                          </div>
-                          <div>
-                            <div className="text-nofx-text-muted">{language === 'zh' ? '入场周期 / 触发' : 'Entry / trigger'}</div>
-                            <div className="mt-1 font-mono text-nofx-text">{timeframeRoles.entry}</div>
-                          </div>
-                          <div>
-                            <div className="text-nofx-text-muted">{language === 'zh' ? '确认周期 / 过滤' : 'Confirm / filter'}</div>
+                            <div className="text-nofx-text-muted">
+                              {language === 'zh'
+                                ? '主周期 / 找机会'
+                                : 'Primary / setup'}
+                            </div>
                             <div className="mt-1 font-mono text-nofx-text">
-                              {timeframeRoles.confirmations.length > 0 ? timeframeRoles.confirmations.join(', ') : '-'}
+                              {timeframeRoles.primary}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-nofx-text-muted">
+                              {language === 'zh'
+                                ? '入场周期 / 触发'
+                                : 'Entry / trigger'}
+                            </div>
+                            <div className="mt-1 font-mono text-nofx-text">
+                              {timeframeRoles.entry}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-nofx-text-muted">
+                              {language === 'zh'
+                                ? '确认周期 / 过滤'
+                                : 'Confirm / filter'}
+                            </div>
+                            <div className="mt-1 font-mono text-nofx-text">
+                              {timeframeRoles.confirmations.length > 0
+                                ? timeframeRoles.confirmations.join(', ')
+                                : '-'}
                             </div>
                           </div>
                         </div>
@@ -2131,13 +2499,29 @@ export function StrategyStudioPage() {
                             : 'Evidence factors are maintained by templates, the compiler, or AI calibration proposals. Manual tuning should focus on market_structure, risk controls, and replay reports.'}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
-                          {(editingConfig.scoring_config.selected_factors || Object.keys(editingConfig.scoring_config.factor_weights || {})).map((factor) => {
-                            const weight = editingConfig.scoring_config?.factor_weights?.[factor] ?? 1
-                            const factorDisplay = getScoringFactorDisplay(factor, language)
+                          {(
+                            editingConfig.scoring_config.selected_factors ||
+                            Object.keys(
+                              editingConfig.scoring_config.factor_weights || {}
+                            )
+                          ).map((factor) => {
+                            const weight =
+                              editingConfig.scoring_config?.factor_weights?.[
+                                factor
+                              ] ?? 1
+                            const factorDisplay = getScoringFactorDisplay(
+                              factor,
+                              language
+                            )
                             return (
-                              <span key={factor} className="rounded border border-white/10 bg-nofx-bg px-2 py-1 text-[10px] text-nofx-text">
+                              <span
+                                key={factor}
+                                className="rounded border border-white/10 bg-nofx-bg px-2 py-1 text-[10px] text-nofx-text"
+                              >
                                 {factorDisplay.label}
-                                <span className="ml-1 font-mono text-nofx-text-muted">{formatEvidenceWeight(weight)}</span>
+                                <span className="ml-1 font-mono text-nofx-text-muted">
+                                  {formatEvidenceWeight(weight)}
+                                </span>
                               </span>
                             )
                           })}
@@ -2148,38 +2532,73 @@ export function StrategyStudioPage() {
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       <label className="space-y-1">
                         <span className="text-[10px] text-nofx-text-muted">
-                          {getScoringFieldLabel('min_available_weight_ratio', language).label}
+                          {
+                            getScoringFieldLabel(
+                              'min_available_weight_ratio',
+                              language
+                            ).label
+                          }
                         </span>
                         <input
                           type="number"
                           min={0.5}
                           max={1}
                           step={0.05}
-                          value={editingConfig.scoring_config.min_available_weight_ratio ?? 0.5}
+                          value={
+                            editingConfig.scoring_config
+                              .min_available_weight_ratio ?? 0.5
+                          }
                           disabled={selectedStrategy?.is_default}
-                          onChange={(e) => updateScoringConfig({ min_available_weight_ratio: clampNumber(parseFloat(e.target.value), 0.5, 1) })}
+                          onChange={(e) =>
+                            updateScoringConfig({
+                              min_available_weight_ratio: clampNumber(
+                                parseFloat(e.target.value),
+                                0.5,
+                                1
+                              ),
+                            })
+                          }
                           className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
                         />
                         <span className="block text-[10px] text-nofx-text-muted">
-                          {getScoringFieldLabel('min_available_weight_ratio', language).desc}
+                          {
+                            getScoringFieldLabel(
+                              'min_available_weight_ratio',
+                              language
+                            ).desc
+                          }
                         </span>
                       </label>
                       <label className="space-y-1">
                         <span className="text-[10px] text-nofx-text-muted">
-                          {getScoringFieldLabel('min_confidence', language).label}
+                          {
+                            getScoringFieldLabel('min_confidence', language)
+                              .label
+                          }
                         </span>
                         <input
                           type="number"
                           min={50}
                           max={90}
                           step={1}
-                          value={editingConfig.scoring_config.min_confidence ?? 70}
+                          value={
+                            editingConfig.scoring_config.min_confidence ?? 70
+                          }
                           disabled={selectedStrategy?.is_default}
-                          onChange={(e) => updateScoringConfig({ min_confidence: Math.round(clampNumber(parseFloat(e.target.value), 50, 90)) })}
+                          onChange={(e) =>
+                            updateScoringConfig({
+                              min_confidence: Math.round(
+                                clampNumber(parseFloat(e.target.value), 50, 90)
+                              ),
+                            })
+                          }
                           className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-nofx-text disabled:opacity-50"
                         />
                         <span className="block text-[10px] text-nofx-text-muted">
-                          {getScoringFieldLabel('min_confidence', language).desc}
+                          {
+                            getScoringFieldLabel('min_confidence', language)
+                              .desc
+                          }
                         </span>
                       </label>
                     </div>
@@ -2187,15 +2606,29 @@ export function StrategyStudioPage() {
                 )}
 
                 <div>
-                  <div className="text-xs font-medium text-nofx-text mb-2">{language === 'zh' ? '生效参数 / 原始结构' : 'Resolved / Raw Structure'}</div>
+                  <div className="text-xs font-medium text-nofx-text mb-2">
+                    {language === 'zh'
+                      ? '生效参数 / 原始结构'
+                      : 'Resolved / Raw Structure'}
+                  </div>
                   <pre className="p-2 rounded-lg text-[10px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text max-h-[360px]">
-                    {JSON.stringify({
-                      strategy_prompt: editingConfig?.strategy_prompt,
-                      strategy_mode: strategyModeDisplay(editingConfig?.strategy_mode, language),
-                      compiled_rules: editingConfig?.compiled_rules,
-                      evidence_filters: evidenceFilterSummary(editingConfig, language),
-                      resolved_parameters: editingConfig?.resolved_parameters,
-                    }, null, 2)}
+                    {JSON.stringify(
+                      {
+                        strategy_prompt: editingConfig?.strategy_prompt,
+                        strategy_mode: strategyModeDisplay(
+                          editingConfig?.strategy_mode,
+                          language
+                        ),
+                        compiled_rules: editingConfig?.compiled_rules,
+                        evidence_filters: evidenceFilterSummary(
+                          editingConfig,
+                          language
+                        ),
+                        resolved_parameters: editingConfig?.resolved_parameters,
+                      },
+                      null,
+                      2
+                    )}
                   </pre>
                 </div>
               </div>
@@ -2209,8 +2642,18 @@ export function StrategyStudioPage() {
                     disabled={isLoadingFlowPreview || !editingConfig}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50 bg-purple-600 hover:bg-purple-700 text-white"
                   >
-                    {isLoadingFlowPreview ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {flowPreview ? (language === 'zh' ? '刷新' : 'Refresh') : (language === 'zh' ? '生成预览' : 'Preview')}
+                    {isLoadingFlowPreview ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    {flowPreview
+                      ? language === 'zh'
+                        ? '刷新'
+                        : 'Refresh'
+                      : language === 'zh'
+                        ? '生成预览'
+                        : 'Preview'}
                   </button>
                 </div>
 
@@ -2219,18 +2662,24 @@ export function StrategyStudioPage() {
                     {dependencyCheck && dependencyCheck.missing.length > 0 && (
                       <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
                         <div className="font-medium">
-                          {language === 'zh' ? '规则依赖未满足' : 'Rule dependencies missing'}
+                          {language === 'zh'
+                            ? '规则依赖未满足'
+                            : 'Rule dependencies missing'}
                         </div>
                         <div className="mt-1 font-mono text-[11px]">
                           {dependencyCheck.missing.join(', ')}
                         </div>
                       </div>
                     )}
-                    {dependencyCheck && dependencyCheck.missing.length === 0 && dependencyCheck.required.length > 0 && (
-                      <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
-                        {language === 'zh' ? '规则依赖已满足' : 'Rule dependencies satisfied'}
-                      </div>
-                    )}
+                    {dependencyCheck &&
+                      dependencyCheck.missing.length === 0 &&
+                      dependencyCheck.required.length > 0 && (
+                        <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-xs text-green-200">
+                          {language === 'zh'
+                            ? '规则依赖已满足'
+                            : 'Rule dependencies satisfied'}
+                        </div>
+                      )}
                     <pre
                       className="p-2 rounded-lg text-[11px] font-mono overflow-auto bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
                       style={{ maxHeight: '520px' }}
@@ -2241,7 +2690,11 @@ export function StrategyStudioPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Eye className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-sm">{language === 'zh' ? '生成交易流预览' : 'Generate a trading flow preview'}</p>
+                    <p className="text-sm">
+                      {language === 'zh'
+                        ? '生成交易流预览'
+                        : 'Generate a trading flow preview'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -2250,7 +2703,9 @@ export function StrategyStudioPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium text-nofx-text">
-                      {language === 'zh' ? '策略校准数据' : 'Strategy Calibration Data'}
+                      {language === 'zh'
+                        ? '策略校准数据'
+                        : 'Strategy Calibration Data'}
                     </div>
                     <div className="text-[11px] text-nofx-text-muted">
                       {language === 'zh'
@@ -2258,121 +2713,364 @@ export function StrategyStudioPage() {
                         : 'Read-only statistics and quality gate. This does not call AI or change the strategy; it checks whether evidence is sufficient for a later structure review proposal.'}
                     </div>
                   </div>
-	                  <button
-	                    onClick={fetchCalibrationReport}
-	                    disabled={isLoadingCalibration || !selectedStrategy}
+                  <button
+                    onClick={fetchCalibrationReport}
+                    disabled={isLoadingCalibration || !selectedStrategy}
                     className="flex items-center gap-1.5 rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                   >
-                    {isLoadingCalibration ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {calibrationReport ? (language === 'zh' ? '刷新' : 'Refresh') : (language === 'zh' ? '读取' : 'Load')}
+                    {isLoadingCalibration ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    {calibrationReport
+                      ? language === 'zh'
+                        ? '刷新'
+                        : 'Refresh'
+                      : language === 'zh'
+                        ? '读取'
+                        : 'Load'}
                   </button>
                 </div>
 
                 {calibrationReport ? (
                   <div className="space-y-3">
-                    <div className={`rounded-lg border p-3 text-xs ${calibrationReport.quality_gate === 'paper_ready'
-                      ? 'border-green-500/30 bg-green-500/10 text-green-100'
-                      : calibrationReport.quality_gate === 'blocked'
-                        ? 'border-red-500/30 bg-red-500/10 text-red-100'
-                        : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-100'
-                      }`}>
+                    <div
+                      className={`rounded-lg border p-3 text-xs ${
+                        calibrationReport.quality_gate === 'paper_ready'
+                          ? 'border-green-500/30 bg-green-500/10 text-green-100'
+                          : calibrationReport.quality_gate === 'blocked'
+                            ? 'border-red-500/30 bg-red-500/10 text-red-100'
+                            : 'border-yellow-500/30 bg-yellow-500/10 text-yellow-100'
+                      }`}
+                    >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-medium">
                           {language === 'zh' ? '质量闸门' : 'Quality Gate'}
                         </span>
                         <span className="rounded bg-black/20 px-2 py-1 font-mono text-[10px]">
-                          {getCalibrationGateDisplay(calibrationReport.quality_gate, language)}
+                          {getCalibrationGateDisplay(
+                            calibrationReport.quality_gate,
+                            language
+                          )}
                         </span>
                       </div>
                       <div className="mt-2 leading-relaxed text-[11px] opacity-90">
-                        {getCalibrationRecommendation(calibrationReport, language)}
+                        {getCalibrationRecommendation(
+                          calibrationReport,
+                          language
+                        )}
                       </div>
                     </div>
 
-	                    <div className="grid grid-cols-2 gap-2">
-	                      {[
-	                        [language === 'zh' ? '样本数' : 'Samples', calibrationReport.sample_count],
-	                        [language === 'zh' ? '候选信号' : 'Signals', calibrationReport.signal_count],
-	                        [language === 'zh' ? '已执行' : 'Executed', calibrationReport.executed_count],
-	                        [language === 'zh' ? '未触发' : 'No signal', calibrationReport.no_signal_count],
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        [
+                          language === 'zh' ? '独立机会' : 'Episodes',
+                          calibrationReport.episode_count ?? 0,
+                        ],
+                        [
+                          language === 'zh' ? '已标注' : 'Labeled',
+                          calibrationReport.labeled_episode_count ?? 0,
+                        ],
+                        [
+                          language === 'zh' ? '结果跟踪中' : 'Pending',
+                          calibrationReport.pending_episode_count ?? 0,
+                        ],
+                        [
+                          language === 'zh' ? '原始扫描' : 'Raw scans',
+                          calibrationReport.sample_count,
+                        ],
                       ].map(([label, value]) => (
-                        <div key={String(label)} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                          <div className="text-[10px] text-nofx-text-muted">{label}</div>
-                          <div className="mt-1 font-mono text-lg font-semibold text-nofx-text">{String(value)}</div>
+                        <div
+                          key={String(label)}
+                          className="rounded-lg border border-white/10 bg-black/20 p-3"
+                        >
+                          <div className="text-[10px] text-nofx-text-muted">
+                            {label}
+                          </div>
+                          <div className="mt-1 font-mono text-lg font-semibold text-nofx-text">
+                            {String(value)}
+                          </div>
                         </div>
-	                      ))}
-	                    </div>
+                      ))}
+                    </div>
 
-	                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
-	                      <div className="mb-2 text-xs font-medium text-nofx-text">
-	                        {language === 'zh' ? '模拟盘结果' : 'Paper Outcomes'}
-	                      </div>
-	                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-	                        {[
-	                          [language === 'zh' ? '已平仓' : 'Closed', calibrationReport.closed_trade_count ?? 0],
-	                          [language === 'zh' ? '胜率' : 'Win rate', `${(((calibrationReport.win_rate ?? 0) as number) * 100).toFixed(1)}%`],
-	                          [language === 'zh' ? '净 PnL' : 'Net PnL', (calibrationReport.total_pnl ?? 0).toFixed(2)],
-	                          [language === 'zh' ? '平均净 PnL' : 'Avg net PnL', (calibrationReport.average_pnl ?? 0).toFixed(2)],
-	                        ].map(([label, value]) => (
-	                          <div key={String(label)} className="rounded border border-white/10 bg-nofx-bg p-2">
-	                            <div className="text-[10px] text-nofx-text-muted">{label}</div>
-	                            <div className="mt-1 font-mono text-sm font-semibold text-nofx-text">{String(value)}</div>
-	                          </div>
-	                        ))}
-	                      </div>
-	                      <div className="mt-2 text-[10px] text-nofx-text-muted">
-	                        {language === 'zh'
-	                          ? `平仓结果阈值 ${calibrationReport.closed_trade_count ?? 0}/${calibrationReport.min_required_outcomes ?? 30}。这里只统计已关联当前策略的模拟盘平仓记录，不能替代历史回放回测。`
-	                          : `Closed outcome threshold ${(calibrationReport.closed_trade_count ?? 0)}/${calibrationReport.min_required_outcomes ?? 30}. Only linked paper positions for this strategy are counted; this does not replace historical replay backtesting.`}
-	                      </div>
-	                    </div>
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs font-medium text-nofx-text">
+                        {language === 'zh'
+                          ? 'Setup 前向结果'
+                          : 'Setup Forward Outcomes'}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        {[
+                          [
+                            language === 'zh' ? '正向' : 'Positive',
+                            calibrationReport.positive_episode_count ?? 0,
+                          ],
+                          [
+                            language === 'zh' ? '负向' : 'Negative',
+                            calibrationReport.negative_episode_count ?? 0,
+                          ],
+                          [
+                            language === 'zh' ? '命中率' : 'Hit rate',
+                            `${(((calibrationReport.episode_hit_rate ?? 0) as number) * 100).toFixed(1)}%`,
+                          ],
+                          [
+                            language === 'zh'
+                              ? '平均 R（有结构风险基准）'
+                              : 'Average R (anchored)',
+                            calibrationReport.episode_r_count > 0
+                              ? (
+                                  calibrationReport.average_episode_r ?? 0
+                                ).toFixed(2)
+                              : '-',
+                          ],
+                        ].map(([label, value]) => (
+                          <div
+                            key={String(label)}
+                            className="rounded border border-white/10 bg-nofx-bg p-2"
+                          >
+                            <div className="text-[10px] text-nofx-text-muted">
+                              {label}
+                            </div>
+                            <div className="mt-1 font-mono text-sm font-semibold text-nofx-text">
+                              {String(value)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {(calibrationReport.episode_stats || [])
+                          .slice(0, 8)
+                          .map((stat) => (
+                            <div
+                              key={`${stat.regime}-${stat.setup}-${stat.action}`}
+                              className="rounded border border-white/10 bg-nofx-bg p-2"
+                            >
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-mono text-nofx-text">
+                                  {stat.regime} / {stat.setup}
+                                </span>
+                                <span className="text-nofx-text-muted">
+                                  {stat.episodes}
+                                </span>
+                              </div>
+                              <div className="mt-1 grid grid-cols-4 gap-1 text-[10px] text-nofx-text-muted">
+                                <span>
+                                  {language === 'zh' ? '标注' : 'labeled'}{' '}
+                                  {stat.labeled}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '正向' : 'positive'}{' '}
+                                  {stat.positive}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '执行' : 'executed'}{' '}
+                                  {stat.executed}
+                                </span>
+                                <span>
+                                  R {Number(stat.average_r || 0).toFixed(2)}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                      {(calibrationReport.factor_stats || []).length > 0 && (
+                        <div className="mt-3 border-t border-white/10 pt-3">
+                          <div className="mb-2 text-[11px] font-medium text-nofx-text">
+                            {language === 'zh'
+                              ? '因子前向一致性'
+                              : 'Factor Outcome Alignment'}
+                          </div>
+                          <div className="space-y-2">
+                            {(calibrationReport.factor_stats || [])
+                              .slice(0, 10)
+                              .map((stat) => (
+                                <div
+                                  key={`${stat.regime}-${stat.setup}-${stat.action}-${stat.factor}`}
+                                  className="rounded border border-white/10 bg-nofx-bg p-2"
+                                >
+                                  <div className="flex items-center justify-between gap-2 text-[10px]">
+                                    <span className="font-mono text-nofx-text">
+                                      {stat.setup} / {stat.factor}
+                                    </span>
+                                    <span
+                                      className={
+                                        stat.predictive_alignment >= 0
+                                          ? 'text-green-300'
+                                          : 'text-red-300'
+                                      }
+                                    >
+                                      {language === 'zh'
+                                        ? '一致性'
+                                        : 'alignment'}{' '}
+                                      {Number(
+                                        stat.predictive_alignment || 0
+                                      ).toFixed(2)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
+                                    <span>
+                                      {language === 'zh' ? '标注' : 'labeled'}{' '}
+                                      {stat.labeled}
+                                    </span>
+                                    <span>
+                                      {language === 'zh'
+                                        ? '支持命中'
+                                        : 'support hit'}{' '}
+                                      {(
+                                        Number(stat.support_hit_rate || 0) * 100
+                                      ).toFixed(0)}
+                                      %
+                                    </span>
+                                    <span>
+                                      {language === 'zh'
+                                        ? '冲突仍正向'
+                                        : 'conflict positive'}{' '}
+                                      {(
+                                        Number(stat.conflict_hit_rate || 0) *
+                                        100
+                                      ).toFixed(0)}
+                                      %
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-white/10 bg-black/20 p-3">
+                      <div className="mb-2 text-xs font-medium text-nofx-text">
+                        {language === 'zh' ? '模拟盘结果' : 'Paper Outcomes'}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px]">
+                        {[
+                          [
+                            language === 'zh' ? '已平仓' : 'Closed',
+                            calibrationReport.closed_trade_count ?? 0,
+                          ],
+                          [
+                            language === 'zh' ? '胜率' : 'Win rate',
+                            `${(((calibrationReport.win_rate ?? 0) as number) * 100).toFixed(1)}%`,
+                          ],
+                          [
+                            language === 'zh' ? '净 PnL' : 'Net PnL',
+                            (calibrationReport.total_pnl ?? 0).toFixed(2),
+                          ],
+                          [
+                            language === 'zh' ? '平均净 PnL' : 'Avg net PnL',
+                            (calibrationReport.average_pnl ?? 0).toFixed(2),
+                          ],
+                        ].map(([label, value]) => (
+                          <div
+                            key={String(label)}
+                            className="rounded border border-white/10 bg-nofx-bg p-2"
+                          >
+                            <div className="text-[10px] text-nofx-text-muted">
+                              {label}
+                            </div>
+                            <div className="mt-1 font-mono text-sm font-semibold text-nofx-text">
+                              {String(value)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 text-[10px] text-nofx-text-muted">
+                        {language === 'zh'
+                          ? '这里是实际成交后的净结果，用于验证手续费、滑点和执行；校准门槛使用上方独立 setup 前向标签。'
+                          : 'These are net post-execution outcomes for fee, slippage, and execution validation. Calibration thresholds use independent setup labels above.'}
+                      </div>
+                    </div>
 
                     <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                       <div className="mb-2 text-xs font-medium text-nofx-text">
                         {language === 'zh' ? '状态分布' : 'Status Distribution'}
                       </div>
                       <div className="space-y-1 text-[11px] text-nofx-text-muted">
-                        {Object.entries(calibrationReport.risk_status_counts || {}).map(([key, value]) => (
+                        {Object.entries(
+                          calibrationReport.risk_status_counts || {}
+                        ).map(([key, value]) => (
                           <div key={key} className="flex justify-between gap-3">
                             <span className="font-mono">{key}</span>
                             <span className="text-nofx-text">{value}</span>
                           </div>
                         ))}
-						{Object.entries(calibrationReport.execution_status_counts || {}).map(([key, value]) => (
-						  <div key={`execution-${key}`} className="flex justify-between gap-3">
-						    <span className="font-mono">execution:{key}</span>
-						    <span className="text-nofx-text">{value}</span>
-						  </div>
-						))}
+                        {Object.entries(
+                          calibrationReport.execution_status_counts || {}
+                        ).map(([key, value]) => (
+                          <div
+                            key={`execution-${key}`}
+                            className="flex justify-between gap-3"
+                          >
+                            <span className="font-mono">execution:{key}</span>
+                            <span className="text-nofx-text">{value}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
 
                     <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                       <div className="mb-2 text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? 'Setup 分布' : 'Setup Distribution'}
+                        {language === 'zh'
+                          ? 'Setup 分布'
+                          : 'Setup Distribution'}
                       </div>
                       <div className="space-y-2">
-                        {(calibrationReport.setup_stats || []).slice(0, 8).map((stat) => (
-                          <div key={stat.setup} className="rounded border border-white/10 bg-nofx-bg p-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono text-[11px] text-nofx-text">{stat.setup}</span>
-                              <span className="text-[10px] text-nofx-text-muted">{stat.samples}</span>
+                        {(calibrationReport.setup_stats || [])
+                          .slice(0, 8)
+                          .map((stat) => (
+                            <div
+                              key={stat.setup}
+                              className="rounded border border-white/10 bg-nofx-bg p-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-mono text-[11px] text-nofx-text">
+                                  {stat.setup}
+                                </span>
+                                <span className="text-[10px] text-nofx-text-muted">
+                                  {stat.samples}
+                                </span>
+                              </div>
+                              <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
+                                <span>
+                                  {language === 'zh' ? '候选' : 'eligible'}{' '}
+                                  {stat.eligible}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '通过' : 'approved'}{' '}
+                                  {stat.approved}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '拒绝' : 'rejected'}{' '}
+                                  {stat.risk_rejected + stat.review_rejected}
+                                </span>
+                              </div>
+                              <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
+                                <span>
+                                  {language === 'zh' ? '交易' : 'trades'}{' '}
+                                  {stat.closed_trades ?? 0}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '胜率' : 'win'}{' '}
+                                  {(
+                                    ((stat.win_rate ?? 0) as number) * 100
+                                  ).toFixed(1)}
+                                  %
+                                </span>
+                                <span>
+                                  PnL {(stat.total_pnl ?? 0).toFixed(2)}
+                                </span>
+                              </div>
                             </div>
-	                            <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
-	                              <span>{language === 'zh' ? '候选' : 'eligible'} {stat.eligible}</span>
-	                              <span>{language === 'zh' ? '通过' : 'approved'} {stat.approved}</span>
-	                              <span>{language === 'zh' ? '拒绝' : 'rejected'} {stat.risk_rejected + stat.review_rejected}</span>
-	                            </div>
-	                            <div className="mt-1 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
-	                              <span>{language === 'zh' ? '交易' : 'trades'} {stat.closed_trades ?? 0}</span>
-	                              <span>{language === 'zh' ? '胜率' : 'win'} {(((stat.win_rate ?? 0) as number) * 100).toFixed(1)}%</span>
-	                              <span>PnL {(stat.total_pnl ?? 0).toFixed(2)}</span>
-	                            </div>
-	                          </div>
-                        ))}
+                          ))}
                         {(calibrationReport.setup_stats || []).length === 0 && (
                           <div className="py-6 text-center text-xs text-nofx-text-muted">
-                            {language === 'zh' ? '暂无 setup 样本' : 'No setup samples yet'}
+                            {language === 'zh'
+                              ? '暂无 setup 样本'
+                              : 'No setup samples yet'}
                           </div>
                         )}
                       </div>
@@ -2380,26 +3078,51 @@ export function StrategyStudioPage() {
 
                     <div className="rounded-lg border border-white/10 bg-black/20 p-3">
                       <div className="mb-2 text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? '行情 / Setup 结果' : 'Regime / Setup Outcomes'}
+                        {language === 'zh'
+                          ? '行情 / Setup 结果'
+                          : 'Regime / Setup Outcomes'}
                       </div>
                       <div className="space-y-2">
-                        {(calibrationReport.regime_setup_stats || []).slice(0, 10).map((stat) => (
-                          <div key={`${stat.regime}-${stat.setup}-${stat.action}`} className="border-b border-white/10 pb-2 last:border-0 last:pb-0">
-                            <div className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-mono text-nofx-text">{stat.regime} / {stat.setup}</span>
-                              <span className="text-nofx-text-muted">{stat.action}</span>
+                        {(calibrationReport.regime_setup_stats || [])
+                          .slice(0, 10)
+                          .map((stat) => (
+                            <div
+                              key={`${stat.regime}-${stat.setup}-${stat.action}`}
+                              className="border-b border-white/10 pb-2 last:border-0 last:pb-0"
+                            >
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-mono text-nofx-text">
+                                  {stat.regime} / {stat.setup}
+                                </span>
+                                <span className="text-nofx-text-muted">
+                                  {stat.action}
+                                </span>
+                              </div>
+                              <div className="mt-1 grid grid-cols-4 gap-1 text-[10px] text-nofx-text-muted">
+                                <span>
+                                  {language === 'zh' ? '样本' : 'samples'}{' '}
+                                  {stat.samples}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '执行' : 'executed'}{' '}
+                                  {stat.executed}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '平仓' : 'closed'}{' '}
+                                  {stat.closed_trades}
+                                </span>
+                                <span>
+                                  PnL {(stat.total_pnl ?? 0).toFixed(2)}
+                                </span>
+                              </div>
                             </div>
-                            <div className="mt-1 grid grid-cols-4 gap-1 text-[10px] text-nofx-text-muted">
-                              <span>{language === 'zh' ? '样本' : 'samples'} {stat.samples}</span>
-                              <span>{language === 'zh' ? '执行' : 'executed'} {stat.executed}</span>
-                              <span>{language === 'zh' ? '平仓' : 'closed'} {stat.closed_trades}</span>
-                              <span>PnL {(stat.total_pnl ?? 0).toFixed(2)}</span>
-                            </div>
-                          </div>
-                        ))}
-                        {(calibrationReport.regime_setup_stats || []).length === 0 && (
+                          ))}
+                        {(calibrationReport.regime_setup_stats || []).length ===
+                          0 && (
                           <div className="py-4 text-center text-xs text-nofx-text-muted">
-                            {language === 'zh' ? '暂无自适应路由样本' : 'No adaptive routing samples yet'}
+                            {language === 'zh'
+                              ? '暂无自适应路由样本'
+                              : 'No adaptive routing samples yet'}
                           </div>
                         )}
                       </div>
@@ -2409,7 +3132,9 @@ export function StrategyStudioPage() {
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <BarChart3 className="w-10 h-10 mb-2 opacity-30" />
                     <p className="text-sm">
-                      {language === 'zh' ? '读取当前策略的样本统计报告' : 'Load sample statistics for this strategy'}
+                      {language === 'zh'
+                        ? '读取当前策略的样本统计报告'
+                        : 'Load sample statistics for this strategy'}
                     </p>
                   </div>
                 )}
@@ -2419,7 +3144,9 @@ export function StrategyStudioPage() {
                 <div className="flex items-center justify-between gap-2">
                   <div>
                     <div className="text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? '参数回放 / K 线扫描' : 'Parameter Replay / K-line Scan'}
+                      {language === 'zh'
+                        ? '参数回放 / K 线扫描'
+                        : 'Parameter Replay / K-line Scan'}
                     </div>
                     <div className="text-[11px] leading-relaxed text-nofx-text-muted">
                       {language === 'zh'
@@ -2432,8 +3159,18 @@ export function StrategyStudioPage() {
                     disabled={isLoadingReplay || !selectedStrategy}
                     className="flex items-center gap-1.5 rounded bg-teal-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                   >
-                    {isLoadingReplay ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {replayReport ? (language === 'zh' ? '刷新' : 'Refresh') : (language === 'zh' ? '读取' : 'Load')}
+                    {isLoadingReplay ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    {replayReport
+                      ? language === 'zh'
+                        ? '刷新'
+                        : 'Refresh'
+                      : language === 'zh'
+                        ? '读取'
+                        : 'Load'}
                   </button>
                 </div>
 
@@ -2441,23 +3178,46 @@ export function StrategyStudioPage() {
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 gap-2">
                       {[
-                        [language === 'zh' ? '样本' : 'Samples', replayReport.sample_count],
-                        [language === 'zh' ? '可回放' : 'Replayable', replayReport.replayable_sample_count],
-                        [language === 'zh' ? '缺 K 线' : 'Missing windows', replayReport.missing_kline_window_count],
-                        [language === 'zh' ? '基线匹配' : 'Baseline match', formatReplayRate(replayReport.baseline_match_rate)],
+                        [
+                          language === 'zh' ? '独立 K 线' : 'Unique bars',
+                          replayReport.sample_count,
+                        ],
+                        [
+                          language === 'zh' ? '可回放' : 'Replayable',
+                          replayReport.replayable_sample_count,
+                        ],
+                        [
+                          language === 'zh'
+                            ? '去除重复扫描'
+                            : 'Duplicate scans removed',
+                          replayReport.duplicate_scan_count ?? 0,
+                        ],
+                        [
+                          language === 'zh' ? '基线匹配' : 'Baseline match',
+                          formatReplayRate(replayReport.baseline_match_rate),
+                        ],
                       ].map(([label, value]) => (
-                        <div key={String(label)} className="rounded-lg border border-white/10 bg-black/20 p-3">
-                          <div className="text-[10px] text-nofx-text-muted">{label}</div>
-                          <div className="mt-1 font-mono text-lg font-semibold text-nofx-text">{String(value)}</div>
+                        <div
+                          key={String(label)}
+                          className="rounded-lg border border-white/10 bg-black/20 p-3"
+                        >
+                          <div className="text-[10px] text-nofx-text-muted">
+                            {label}
+                          </div>
+                          <div className="mt-1 font-mono text-lg font-semibold text-nofx-text">
+                            {String(value)}
+                          </div>
                         </div>
                       ))}
                     </div>
 
                     {(replayReport.quality_notes || []).length > 0 && (
                       <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-3 text-[11px] text-yellow-100">
-                        {(replayReport.quality_notes || []).slice(0, 5).map((note, index) => (
-                          <div key={index}>- {note}</div>
-                        ))}
+                        {(replayReport.quality_notes || [])
+                          .slice(0, 5)
+                          .map((note, index) => (
+                            <div key={index}>- {note}</div>
+                          ))}
                       </div>
                     )}
 
@@ -2466,36 +3226,77 @@ export function StrategyStudioPage() {
                         {language === 'zh' ? '参数扫描' : 'Parameter Scans'}
                       </div>
                       <div className="space-y-2">
-                        {(replayReport.parameter_scans || []).slice(0, 10).map((scan) => (
-                          <div key={scan.variant_id} className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium text-nofx-text">{scan.label || scan.variant_id}</span>
-                              <span className="font-mono text-[10px] text-teal-300">{scan.variant_id}</span>
-                            </div>
-                            <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
-                              <span>{language === 'zh' ? '回放' : 'replayed'} {scan.replayed_count}</span>
-                              <span>{language === 'zh' ? '可交易' : 'tradable'} {scan.tradable_count}</span>
-                              <span>{language === 'zh' ? '变更' : 'changed'} {scan.changed_from_baseline_count}</span>
-                            </div>
-                            <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-nofx-text-muted">
-                              <span>{language === 'zh' ? '保留已执行' : 'executed kept'} {scan.executed_preserved_count}</span>
-                              <span>{language === 'zh' ? '改变已执行' : 'executed changed'} {scan.executed_changed_count}</span>
-                            </div>
-                            <div className="mt-2 text-[10px] text-nofx-text-muted">
-                              <span className="font-medium text-nofx-text">{language === 'zh' ? '主要 setup' : 'Top setups'}:</span> {topReplaySetups(scan)}
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {Object.entries(scan.parameters || {}).slice(0, 6).map(([key, value]) => (
-                                <span key={key} className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px] text-nofx-text-muted">
-                                  {key}={formatReplayParamValue(value)}
+                        {(replayReport.parameter_scans || [])
+                          .slice(0, 10)
+                          .map((scan) => (
+                            <div
+                              key={scan.variant_id}
+                              className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-medium text-nofx-text">
+                                  {scan.label || scan.variant_id}
                                 </span>
-                              ))}
+                                <span className="font-mono text-[10px] text-teal-300">
+                                  {scan.variant_id}
+                                </span>
+                              </div>
+                              <div className="mt-2 grid grid-cols-3 gap-1 text-[10px] text-nofx-text-muted">
+                                <span>
+                                  {language === 'zh' ? '回放' : 'replayed'}{' '}
+                                  {scan.replayed_count}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '可交易' : 'tradable'}{' '}
+                                  {scan.tradable_count}
+                                </span>
+                                <span>
+                                  {language === 'zh' ? '变更' : 'changed'}{' '}
+                                  {scan.changed_from_baseline_count}
+                                </span>
+                              </div>
+                              <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-nofx-text-muted">
+                                <span>
+                                  {language === 'zh'
+                                    ? '保留已执行'
+                                    : 'executed kept'}{' '}
+                                  {scan.executed_preserved_count}
+                                </span>
+                                <span>
+                                  {language === 'zh'
+                                    ? '改变已执行'
+                                    : 'executed changed'}{' '}
+                                  {scan.executed_changed_count}
+                                </span>
+                              </div>
+                              <div className="mt-2 text-[10px] text-nofx-text-muted">
+                                <span className="font-medium text-nofx-text">
+                                  {language === 'zh'
+                                    ? '主要 setup'
+                                    : 'Top setups'}
+                                  :
+                                </span>{' '}
+                                {topReplaySetups(scan)}
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {Object.entries(scan.parameters || {})
+                                  .slice(0, 6)
+                                  .map(([key, value]) => (
+                                    <span
+                                      key={key}
+                                      className="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px] text-nofx-text-muted"
+                                    >
+                                      {key}={formatReplayParamValue(value)}
+                                    </span>
+                                  ))}
+                              </div>
                             </div>
-                          </div>
-                        ))}
+                          ))}
                         {(replayReport.parameter_scans || []).length === 0 && (
                           <div className="py-6 text-center text-xs text-nofx-text-muted">
-                            {language === 'zh' ? '暂无可用参数扫描' : 'No parameter scans yet'}
+                            {language === 'zh'
+                              ? '暂无可用参数扫描'
+                              : 'No parameter scans yet'}
                           </div>
                         )}
                       </div>
@@ -2505,7 +3306,9 @@ export function StrategyStudioPage() {
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <RefreshCw className="w-10 h-10 mb-2 opacity-30" />
                     <p className="text-sm">
-                      {language === 'zh' ? '读取当前策略版本的 K 线回放报告' : 'Load K-line replay report for the current strategy version'}
+                      {language === 'zh'
+                        ? '读取当前策略版本的 K 线回放报告'
+                        : 'Load K-line replay report for the current strategy version'}
                     </p>
                   </div>
                 )}
@@ -2516,7 +3319,9 @@ export function StrategyStudioPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-xs font-medium text-nofx-text">
-                        {language === 'zh' ? 'AI 策略校准提案' : 'AI Strategy Calibration Proposal'}
+                        {language === 'zh'
+                          ? 'AI 策略校准提案'
+                          : 'AI Strategy Calibration Proposal'}
                       </div>
                       <div className="mt-1 text-[11px] leading-relaxed text-nofx-text-muted">
                         {language === 'zh'
@@ -2526,10 +3331,18 @@ export function StrategyStudioPage() {
                     </div>
                     <button
                       onClick={evolveCurrentStrategy}
-                      disabled={isEvolvingStrategy || !selectedStrategy || !selectedModelId}
+                      disabled={
+                        isEvolvingStrategy ||
+                        !selectedStrategy ||
+                        !selectedModelId
+                      }
                       className="flex items-center gap-1.5 rounded bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                     >
-                      {isEvolvingStrategy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      {isEvolvingStrategy ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
                       {language === 'zh' ? '生成' : 'Generate'}
                     </button>
                   </div>
@@ -2552,15 +3365,21 @@ export function StrategyStudioPage() {
                       <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
                         <div className="rounded border border-white/10 bg-nofx-bg p-2">
                           <div>{language === 'zh' ? '样本' : 'Samples'}</div>
-                          <div className="mt-1 font-mono text-sm text-nofx-text">{evolutionResult.proposal.data_used.samples}</div>
+                          <div className="mt-1 font-mono text-sm text-nofx-text">
+                            {evolutionResult.proposal.data_used.samples}
+                          </div>
                         </div>
                         <div className="rounded border border-white/10 bg-nofx-bg p-2">
                           <div>{language === 'zh' ? '平仓' : 'Closed'}</div>
-                          <div className="mt-1 font-mono text-sm text-nofx-text">{evolutionResult.proposal.data_used.closed_trades}</div>
+                          <div className="mt-1 font-mono text-sm text-nofx-text">
+                            {evolutionResult.proposal.data_used.closed_trades}
+                          </div>
                         </div>
                         <div className="rounded border border-white/10 bg-nofx-bg p-2">
                           <div>Setup</div>
-                          <div className="mt-1 font-mono text-sm text-nofx-text">{evolutionResult.proposal.data_used.setups}</div>
+                          <div className="mt-1 font-mono text-sm text-nofx-text">
+                            {evolutionResult.proposal.data_used.setups}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2570,13 +3389,24 @@ export function StrategyStudioPage() {
                         {language === 'zh' ? '主要判断' : 'Diagnosis'}
                       </div>
                       <div className="space-y-2">
-                        {evolutionResult.proposal.diagnosis.slice(0, 5).map((item, index) => (
-                          <div key={index} className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]">
-                            <div className="font-medium text-nofx-text">{item.area}</div>
-                            <div className="mt-1 text-nofx-text-muted">{item.finding}</div>
-                            <div className="mt-1 font-mono text-[10px] text-nofx-text-muted">{item.evidence}</div>
-                          </div>
-                        ))}
+                        {evolutionResult.proposal.diagnosis
+                          .slice(0, 5)
+                          .map((item, index) => (
+                            <div
+                              key={index}
+                              className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]"
+                            >
+                              <div className="font-medium text-nofx-text">
+                                {item.area}
+                              </div>
+                              <div className="mt-1 text-nofx-text-muted">
+                                {item.finding}
+                              </div>
+                              <div className="mt-1 font-mono text-[10px] text-nofx-text-muted">
+                                {item.evidence}
+                              </div>
+                            </div>
+                          ))}
                       </div>
                     </div>
 
@@ -2585,21 +3415,38 @@ export function StrategyStudioPage() {
                         {language === 'zh' ? '建议改动' : 'Recommended Changes'}
                       </div>
                       <div className="space-y-2">
-                        {evolutionResult.proposal.recommended_changes.slice(0, 8).map((change, index) => (
-                          <div key={index} className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]">
-                            <div className="font-mono text-cyan-300">{change.field}</div>
-                            <div className="mt-1 text-nofx-text-muted">
-                              {change.from} → <span className="text-nofx-text">{change.to}</span>
+                        {evolutionResult.proposal.recommended_changes
+                          .slice(0, 8)
+                          .map((change, index) => (
+                            <div
+                              key={index}
+                              className="rounded border border-white/10 bg-nofx-bg p-2 text-[11px]"
+                            >
+                              <div className="font-mono text-cyan-300">
+                                {change.field}
+                              </div>
+                              <div className="mt-1 text-nofx-text-muted">
+                                {change.from} →{' '}
+                                <span className="text-nofx-text">
+                                  {change.to}
+                                </span>
+                              </div>
+                              <div className="mt-1 text-nofx-text-muted">
+                                {change.rationale}
+                              </div>
                             </div>
-                            <div className="mt-1 text-nofx-text-muted">{change.rationale}</div>
-                          </div>
-                        ))}
+                          ))}
                       </div>
                     </div>
 
                     {(() => {
                       const warnings = Array.from(
-                        new Set([...(evolutionResult.warnings || []), ...(evolutionResult.proposal.warnings || [])].filter(Boolean))
+                        new Set(
+                          [
+                            ...(evolutionResult.warnings || []),
+                            ...(evolutionResult.proposal.warnings || []),
+                          ].filter(Boolean)
+                        )
                       )
                       return warnings.length ? (
                         <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/10 p-3 text-[11px] text-yellow-100">
@@ -2612,85 +3459,66 @@ export function StrategyStudioPage() {
 
                     <button
                       onClick={applyEvolutionDraft}
-                      disabled={!evolutionResult.proposed_config || selectedStrategy?.is_default}
+                      disabled={
+                        !evolutionResult.proposed_config ||
+                        selectedStrategy?.is_default
+                      }
                       className="w-full rounded bg-cyan-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                     >
-                      {language === 'zh' ? '应用结构草稿' : 'Apply Structure Draft'}
+                      {language === 'zh'
+                        ? '应用结构草稿'
+                        : 'Apply Structure Draft'}
                     </button>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Sparkles className="mb-2 h-10 w-10 opacity-30" />
                     <p className="text-sm">
-                      {language === 'zh' ? '生成当前策略的结构复盘提案' : 'Generate a structure review proposal for this strategy'}
+                      {language === 'zh'
+                        ? '生成当前策略的结构复盘提案'
+                        : 'Generate a structure review proposal for this strategy'}
                     </p>
                   </div>
                 )}
               </div>
             ) : (
-              /* AI Test Tab */
+              /* Deterministic Strategy Test Tab */
               <div className="p-3 space-y-3">
                 {/* Controls */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-green-500" />
-                    <span className="text-xs font-medium text-nofx-text">{tr('selectModel')}</span>
+                    <Activity className="w-4 h-4 text-green-500" />
+                    <span className="text-xs font-medium text-nofx-text">
+                      {language === 'zh'
+                        ? '确定性交易引擎预演'
+                        : 'Deterministic Trading Engine Test'}
+                    </span>
                   </div>
-                  {aiModels.length > 0 ? (
-                    <select
-                      value={selectedModelId}
-                      onChange={(e) => setSelectedModelId(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg text-sm bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                    >
-                      {aiModels.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name} ({model.provider})
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="px-3 py-2 rounded-lg text-sm bg-nofx-danger/10 text-nofx-danger">
-                      {tr('noModel')}
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={selectedVariant}
-                      onChange={(e) => setSelectedVariant(e.target.value)}
-                      className="px-2 py-1.5 rounded text-xs bg-nofx-bg border border-nofx-gold/20 text-nofx-text"
-                    >
-                      <option value="balanced">{tr('balanced')}</option>
-                      <option value="aggressive">{tr('aggressive')}</option>
-                      <option value="conservative">{tr('conservative')}</option>
-                    </select>
+                  <div className="flex items-center">
                     <button
-                      onClick={runDeterministicPreview}
+                      onClick={runDeterministicTest}
                       disabled={isRunningAiTest || !editingConfig}
-                      className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 bg-nofx-bg border border-blue-500/30 text-blue-300"
-                    >
-                      {isRunningAiTest ? <Loader2 className="w-4 h-4 animate-spin" /> : <Activity className="w-4 h-4" />}
-                      {language === 'zh' ? '预演' : 'Preview'}
-                    </button>
-                    <button
-                      onClick={runAiTest}
-                      disabled={isRunningAiTest || !editingConfig || !selectedModelId}
-                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 text-white shadow-lg shadow-green-500/20 bg-gradient-to-br from-green-500 to-green-600"
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all disabled:opacity-50 text-white bg-green-600 hover:bg-green-500"
                     >
                       {isRunningAiTest ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          {tr('running')}
-                        </>
+                        <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          {tr('runTest')}
-                        </>
+                        <Activity className="w-4 h-4" />
                       )}
+                      {isRunningAiTest
+                        ? language === 'zh'
+                          ? '运行中...'
+                          : 'Running...'
+                        : language === 'zh'
+                          ? '运行预演'
+                          : 'Run Test'}
                     </button>
                   </div>
-                  <p className="text-[10px] text-nofx-text-muted">{tr('testNote')}</p>
+                  <p className="text-[10px] text-nofx-text-muted">
+                    {language === 'zh'
+                      ? '使用实时市场数据执行与生产一致的结构识别、证据复核和风控，不调用 AI，也不下单。'
+                      : 'Uses live market data to run the same structure, evidence, and risk pipeline as production without calling AI or placing orders.'}
+                  </p>
                 </div>
 
                 {/* Test Results */}
@@ -2704,201 +3532,494 @@ export function StrategyStudioPage() {
                       <>
                         <div className="grid grid-cols-3 gap-2">
                           <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                            <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '候选币' : 'Candidates'}</div>
-                            <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.candidate_count ?? 0)}</div>
+                            <div className="text-[10px] text-nofx-text-muted">
+                              {language === 'zh' ? '候选币' : 'Candidates'}
+                            </div>
+                            <div className="text-sm font-semibold text-nofx-text">
+                              {String(aiTestResult.candidate_count ?? 0)}
+                            </div>
                           </div>
                           <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                            <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '快照' : 'Snapshots'}</div>
-                            <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.factor_snapshot_count ?? 0)}</div>
+                            <div className="text-[10px] text-nofx-text-muted">
+                              {language === 'zh' ? '快照' : 'Snapshots'}
+                            </div>
+                            <div className="text-sm font-semibold text-nofx-text">
+                              {String(aiTestResult.factor_snapshot_count ?? 0)}
+                            </div>
                           </div>
                           <div className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                            <div className="text-[10px] text-nofx-text-muted">{language === 'zh' ? '信号' : 'Signals'}</div>
-                            <div className="text-sm font-semibold text-nofx-text">{String(aiTestResult.signal_count ?? 0)}</div>
+                            <div className="text-[10px] text-nofx-text-muted">
+                              {language === 'zh' ? '信号' : 'Signals'}
+                            </div>
+                            <div className="text-sm font-semibold text-nofx-text">
+                              {String(aiTestResult.signal_count ?? 0)}
+                            </div>
                           </div>
-	                        </div>
+                        </div>
 
-	                        {(() => {
-	                          const inputAudit = getResultObject<Record<string, unknown>>(aiTestResult, 'input_audit')
-	                          const klines = inputAudit?.klines && typeof inputAudit.klines === 'object' ? inputAudit.klines as Record<string, unknown> : null
-	                          if (!klines) return null
-	                          return (
-	                            <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3 text-[10px] text-nofx-text-muted">
-	                              <div className="mb-2 text-xs font-medium text-nofx-text">{language === 'zh' ? 'K 线输入审计' : 'K-line Input Audit'}</div>
-	                              <div className="grid grid-cols-2 gap-2">
-	                                <div>{language === 'zh' ? '数据源' : 'Source'} <span className="text-nofx-text">{String(klines.market_data_source || '-')}</span></div>
-	                                <div>{language === 'zh' ? '周期' : 'Timeframes'} <span className="text-nofx-text">{Array.isArray(klines.timeframes) ? klines.timeframes.join(', ') : '-'}</span></div>
-	                                <div>{language === 'zh' ? '计算 K 线' : 'Compute'} <span className="text-nofx-text">{String(klines.compute_lookback || '-')}</span></div>
-	                                <div>{language === 'zh' ? '展示 K 线' : 'Display'} <span className="text-nofx-text">{String(klines.display_count || '-')}</span></div>
-	                              </div>
-	                            </div>
-	                          )
-		                        })()}
-
-		                        {(() => {
-		                          const marketContext = getResultObject<Record<string, unknown>>(aiTestResult, 'market_context')
-		                          const metrics = marketContext?.metrics && typeof marketContext.metrics === 'object' ? marketContext.metrics as Record<string, unknown> : {}
-		                          if (!marketContext) return null
-		                          return (
-		                            <div className="rounded-lg bg-nofx-bg border border-white/10 p-3 text-[10px] text-nofx-text-muted">
-		                              <div className="mb-2 text-xs font-medium text-nofx-text">{language === 'zh' ? '市场方向原因' : 'Market Direction Reason'}</div>
-		                              <div className="grid grid-cols-2 gap-2">
-		                                <div>{language === 'zh' ? '方向' : 'Direction'} <span className="text-nofx-text">{marketDirectionLabel(marketContext.direction_bias, language)}</span></div>
-		                                <div>{language === 'zh' ? '偏多比例' : 'Bullish breadth'} <span className="text-nofx-text">{formatRatio(metrics.bullish_breadth_ratio)}</span></div>
-		                                <div>BTC <span className="text-nofx-text">{marketTrendLabel(marketContext.btc_trend, language)}</span></div>
-		                                <div>ETH <span className="text-nofx-text">{marketTrendLabel(marketContext.eth_trend, language)}</span></div>
-		                              </div>
-		                              {String(marketContext.context_summary || '') && (
-		                                <div className="mt-2 font-mono text-[10px] text-nofx-text-muted">{String(marketContext.context_summary)}</div>
-		                              )}
-		                            </div>
-		                          )
-		                        })()}
-
-		                        {String(aiTestResult.signal_preview_error || '') && (
-	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">
-	                            {String(aiTestResult.signal_preview_error)}
-	                          </div>
-	                        )}
-
-	                        {getResultArray(aiTestResult, 'external_data_warnings').length > 0 && (
-	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100 space-y-1">
-	                            <div className="font-medium">{language === 'zh' ? '外部数据提示' : 'External Data'}</div>
-	                            {getResultArray(aiTestResult, 'external_data_warnings').map((warning, index) => (
-	                              <div key={index}>{String(warning)}</div>
-	                            ))}
-	                          </div>
-	                        )}
-
-	                        {getResultArray(aiTestResult, 'market_data_warnings').length > 0 && (
-	                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100 space-y-1">
-	                            <div className="font-medium">{language === 'zh' ? '市场数据提示' : 'Market Data'}</div>
-	                            {getResultArray(aiTestResult, 'market_data_warnings').map((warning, index) => (
-	                              <div key={index}>{String(warning)}</div>
-	                            ))}
-	                          </div>
-	                        )}
-
-	                        {getResultArray(aiTestResult, 'signals').length > 0 && (
-                          <div className="space-y-2">
-                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '候选信号' : 'Candidate Signals'}</div>
-                            {getResultArray(aiTestResult, 'signals').map((signal, index) => (
-                              <div key={`${String(signal.id || index)}`} className="rounded-lg bg-nofx-bg border border-green-500/20 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-sm font-semibold text-nofx-text">{String(signal.symbol || '-')}</div>
-                                  <span className="rounded bg-green-500/15 px-2 py-1 text-[10px] text-green-300">{String(signal.action || '-')}</span>
-                                </div>
-                                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
-                                  <div>entry <span className="text-nofx-text">{formatPreviewValue(signal.entry_price)}</span></div>
-                                  <div>conf <span className="text-nofx-text">{String(signal.confidence ?? '-')}</span></div>
-                                  <div>rule <span className="text-nofx-text">{String(signal.rule_id || '-')}</span></div>
-                                </div>
-                                <div className="mt-2 text-[11px] text-nofx-text-muted">{String(signal.trigger_reason || '')}</div>
+                        {(() => {
+                          const inputAudit = getResultObject<
+                            Record<string, unknown>
+                          >(aiTestResult, 'input_audit')
+                          const klines =
+                            inputAudit?.klines &&
+                            typeof inputAudit.klines === 'object'
+                              ? (inputAudit.klines as Record<string, unknown>)
+                              : null
+                          if (!klines) return null
+                          return (
+                            <div className="rounded-lg bg-nofx-bg border border-nofx-gold/20 p-3 text-[10px] text-nofx-text-muted">
+                              <div className="mb-2 text-xs font-medium text-nofx-text">
+                                {language === 'zh'
+                                  ? 'K 线输入审计'
+                                  : 'K-line Input Audit'}
                               </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  {language === 'zh' ? '数据源' : 'Source'}{' '}
+                                  <span className="text-nofx-text">
+                                    {String(klines.market_data_source || '-')}
+                                  </span>
+                                </div>
+                                <div>
+                                  {language === 'zh' ? '周期' : 'Timeframes'}{' '}
+                                  <span className="text-nofx-text">
+                                    {Array.isArray(klines.timeframes)
+                                      ? klines.timeframes.join(', ')
+                                      : '-'}
+                                  </span>
+                                </div>
+                                <div>
+                                  {language === 'zh' ? '计算 K 线' : 'Compute'}{' '}
+                                  <span className="text-nofx-text">
+                                    {String(klines.compute_lookback || '-')}
+                                  </span>
+                                </div>
+                                <div>
+                                  {language === 'zh' ? '展示 K 线' : 'Display'}{' '}
+                                  <span className="text-nofx-text">
+                                    {String(klines.display_count || '-')}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })()}
+
+                        {(() => {
+                          const marketContext = getResultObject<
+                            Record<string, unknown>
+                          >(aiTestResult, 'market_context')
+                          const metrics =
+                            marketContext?.metrics &&
+                            typeof marketContext.metrics === 'object'
+                              ? (marketContext.metrics as Record<
+                                  string,
+                                  unknown
+                                >)
+                              : {}
+                          if (!marketContext) return null
+                          return (
+                            <div className="rounded-lg bg-nofx-bg border border-white/10 p-3 text-[10px] text-nofx-text-muted">
+                              <div className="mb-2 text-xs font-medium text-nofx-text">
+                                {language === 'zh'
+                                  ? '市场方向原因'
+                                  : 'Market Direction Reason'}
+                              </div>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  {language === 'zh' ? '方向' : 'Direction'}{' '}
+                                  <span className="text-nofx-text">
+                                    {marketDirectionLabel(
+                                      marketContext.direction_bias,
+                                      language
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  {language === 'zh'
+                                    ? '偏多比例'
+                                    : 'Bullish breadth'}{' '}
+                                  <span className="text-nofx-text">
+                                    {formatRatio(metrics.bullish_breadth_ratio)}
+                                  </span>
+                                </div>
+                                <div>
+                                  BTC{' '}
+                                  <span className="text-nofx-text">
+                                    {marketTrendLabel(
+                                      marketContext.btc_trend,
+                                      language
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  ETH{' '}
+                                  <span className="text-nofx-text">
+                                    {marketTrendLabel(
+                                      marketContext.eth_trend,
+                                      language
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                              {String(marketContext.context_summary || '') && (
+                                <div className="mt-2 font-mono text-[10px] text-nofx-text-muted">
+                                  {String(marketContext.context_summary)}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })()}
+
+                        {String(aiTestResult.signal_preview_error || '') && (
+                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">
+                            {String(aiTestResult.signal_preview_error)}
+                          </div>
+                        )}
+
+                        {getResultArray(aiTestResult, 'external_data_warnings')
+                          .length > 0 && (
+                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100 space-y-1">
+                            <div className="font-medium">
+                              {language === 'zh'
+                                ? '外部数据提示'
+                                : 'External Data'}
+                            </div>
+                            {getResultArray(
+                              aiTestResult,
+                              'external_data_warnings'
+                            ).map((warning, index) => (
+                              <div key={index}>{String(warning)}</div>
                             ))}
                           </div>
                         )}
 
-                        {getResultArray(aiTestResult, 'setup_evaluations').length > 0 && (
+                        {getResultArray(aiTestResult, 'market_data_warnings')
+                          .length > 0 && (
+                          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100 space-y-1">
+                            <div className="font-medium">
+                              {language === 'zh'
+                                ? '市场数据提示'
+                                : 'Market Data'}
+                            </div>
+                            {getResultArray(
+                              aiTestResult,
+                              'market_data_warnings'
+                            ).map((warning, index) => (
+                              <div key={index}>{String(warning)}</div>
+                            ))}
+                          </div>
+                        )}
+
+                        {getResultArray(aiTestResult, 'signals').length > 0 && (
                           <div className="space-y-2">
-                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '场景判定' : 'Setup Checks'}</div>
-                            {getResultArray(aiTestResult, 'setup_evaluations').slice(0, 20).map((trace, index) => {
-                              const timeframes = trace.timeframes as Record<string, unknown> | undefined
-                              const confirmations = Array.isArray(timeframes?.confirmations) ? timeframes.confirmations.join(', ') : '-'
-                              return (
-                                <div key={`${String(trace.symbol || index)}-setup`} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
+                            <div className="text-xs font-medium text-nofx-text">
+                              {language === 'zh'
+                                ? '候选信号'
+                                : 'Candidate Signals'}
+                            </div>
+                            {getResultArray(aiTestResult, 'signals').map(
+                              (signal, index) => (
+                                <div
+                                  key={`${String(signal.id || index)}`}
+                                  className="rounded-lg bg-nofx-bg border border-green-500/20 p-3"
+                                >
                                   <div className="flex items-center justify-between gap-2">
-                                    <div className="text-xs font-medium text-nofx-text">
-                                      {String(trace.symbol || '-')} · {String(trace.setup || (language === 'zh' ? '未触发' : 'no setup'))}
+                                    <div className="text-sm font-semibold text-nofx-text">
+                                      {String(signal.symbol || '-')}
                                     </div>
-                                    <span className={`rounded px-2 py-1 text-[10px] ${Boolean(trace.eligible) ? 'bg-green-500/15 text-green-300' : 'bg-yellow-500/15 text-yellow-300'}`}>
-                                      {String(trace.action || '') || (language === 'zh' ? '无候选' : 'no candidate')}
+                                    <span className="rounded bg-green-500/15 px-2 py-1 text-[10px] text-green-300">
+                                      {String(signal.action || '-')}
                                     </span>
                                   </div>
                                   <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
-                                    <div>{language === 'zh' ? '入场' : 'entry'} <span className="text-nofx-text">{String(timeframes?.entry || '-')}</span></div>
-                                    <div>{language === 'zh' ? '主周期' : 'primary'} <span className="text-nofx-text">{String(timeframes?.primary || '-')}</span></div>
-                                    <div>{language === 'zh' ? '确认' : 'confirm'} <span className="text-nofx-text">{confirmations}</span></div>
+                                    <div>
+                                      entry{' '}
+                                      <span className="text-nofx-text">
+                                        {formatPreviewValue(signal.entry_price)}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      conf{' '}
+                                      <span className="text-nofx-text">
+                                        {String(signal.confidence ?? '-')}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      rule{' '}
+                                      <span className="text-nofx-text">
+                                        {String(signal.rule_id || '-')}
+                                      </span>
+                                    </div>
                                   </div>
-                                  {String(trace.reason || '') && (
-                                    <div className="mt-2 text-[11px] text-nofx-text-muted">{String(trace.reason)}</div>
-                                  )}
+                                  <div className="mt-2 text-[11px] text-nofx-text-muted">
+                                    {String(signal.trigger_reason || '')}
+                                  </div>
                                 </div>
                               )
-                            })}
+                            )}
                           </div>
                         )}
 
-                        {getResultArray(aiTestResult, 'evidence_evaluations').length > 0 && (
+                        {getResultArray(aiTestResult, 'setup_evaluations')
+                          .length > 0 && (
                           <div className="space-y-2">
-                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '证据过滤' : 'Evidence Filters'}</div>
-                            {getResultArray(aiTestResult, 'evidence_evaluations').slice(0, 20).map((trace, index) => (
-                              <div key={`${String(trace.symbol || index)}-evidence`} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs font-medium text-nofx-text">{String(trace.symbol || '-')} · {formatPreviewValue(trace.score)}</div>
-                                  <span className={`rounded px-2 py-1 text-[10px] ${String(trace.action || '') ? 'bg-green-500/15 text-green-300' : Boolean(trace.eligible) ? 'bg-blue-500/15 text-blue-300' : 'bg-yellow-500/15 text-yellow-300'}`}>
-                                    {String(trace.action || '') || (Boolean(trace.eligible) ? (language === 'zh' ? '可作证据' : 'usable evidence') : (language === 'zh' ? '证据不足' : 'insufficient evidence'))}
-                                  </span>
-                                </div>
-                                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
-                                  <div>{language === 'zh' ? '证据权重' : 'evidence'} <span className="text-nofx-text">{formatRatio(trace.available_weight_ratio)}</span></div>
-                                  <div>{language === 'zh' ? '最低要求' : 'required'} <span className="text-nofx-text">{formatRatio(trace.min_available_weight_ratio)}</span></div>
-                                  <div>{language === 'zh' ? '因子' : 'factors'} <span className="text-nofx-text">{String(trace.available_factor_count ?? 0)}/{String(trace.required_factor_count ?? 0)}</span></div>
-                                </div>
-                                <div className="mt-2 text-[10px] text-nofx-text-muted">
-                                  ok: {Array.isArray(trace.available_factors) ? trace.available_factors.join(', ') || '-' : '-'}
-                                </div>
-                                <div className="mt-1 text-[10px] text-nofx-text-muted">
-                                  missing: {Array.isArray(trace.missing_factors) ? trace.missing_factors.join(', ') || '-' : '-'}
-                                </div>
-                                {String(trace.reason || '') && (
-                                  <div className="mt-2 text-[11px] text-yellow-200">{String(trace.reason)}</div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {getResultArray(aiTestResult, 'rule_evaluations').length > 0 && (
-                          <div className="space-y-2">
-                            <div className="text-xs font-medium text-nofx-text">{language === 'zh' ? '条件判定' : 'Condition Checks'}</div>
-                            {getResultArray(aiTestResult, 'rule_evaluations').slice(0, 20).map((trace, index) => (
-                              <div key={`${String(trace.rule_id || index)}-${String(trace.symbol || index)}`} className="rounded-lg bg-nofx-bg border border-white/10 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-xs font-medium text-nofx-text">{String(trace.symbol || '-')} · {String(trace.rule_id || '-')}</div>
-                                  <span className={`rounded px-2 py-1 text-[10px] ${Boolean(trace.matched) ? 'bg-green-500/15 text-green-300' : Boolean(trace.missing) ? 'bg-yellow-500/15 text-yellow-300' : 'bg-white/10 text-nofx-text-muted'}`}>
-                                    {Boolean(trace.matched) ? (language === 'zh' ? '触发' : 'matched') : Boolean(trace.missing) ? (language === 'zh' ? '缺数据' : 'missing') : (language === 'zh' ? '未触发' : 'no match')}
-                                  </span>
-                                </div>
-                                <div className="mt-2 space-y-1">
-                                  {getResultArray(trace, 'conditions').map((condition, conditionIndex) => (
-                                    <div key={conditionIndex} className="rounded border border-white/5 bg-black/20 px-2 py-1 text-[10px] text-nofx-text-muted">
-                                      <span className={Boolean(condition.passed) ? 'text-green-300' : 'text-nofx-text-muted'}>{Boolean(condition.passed) ? '✓' : '×'}</span>
-                                      {' '}{String(condition.left)} {formatPreviewValue(condition.left_value)} {String(condition.operator)} {String(condition.right)} {formatPreviewValue(condition.right_value)}
+                            <div className="text-xs font-medium text-nofx-text">
+                              {language === 'zh' ? '场景判定' : 'Setup Checks'}
+                            </div>
+                            {getResultArray(aiTestResult, 'setup_evaluations')
+                              .slice(0, 20)
+                              .map((trace, index) => {
+                                const timeframes = trace.timeframes as
+                                  | Record<string, unknown>
+                                  | undefined
+                                const confirmations = Array.isArray(
+                                  timeframes?.confirmations
+                                )
+                                  ? timeframes.confirmations.join(', ')
+                                  : '-'
+                                return (
+                                  <div
+                                    key={`${String(trace.symbol || index)}-setup`}
+                                    className="rounded-lg bg-nofx-bg border border-white/10 p-3"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="text-xs font-medium text-nofx-text">
+                                        {String(trace.symbol || '-')} ·{' '}
+                                        {String(
+                                          trace.setup ||
+                                            (language === 'zh'
+                                              ? '未触发'
+                                              : 'no setup')
+                                        )}
+                                      </div>
+                                      <span
+                                        className={`rounded px-2 py-1 text-[10px] ${trace.eligible ? 'bg-green-500/15 text-green-300' : 'bg-yellow-500/15 text-yellow-300'}`}
+                                      >
+                                        {String(trace.action || '') ||
+                                          (language === 'zh'
+                                            ? '无候选'
+                                            : 'no candidate')}
+                                      </span>
                                     </div>
-                                  ))}
+                                    <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
+                                      <div>
+                                        {language === 'zh' ? '入场' : 'entry'}{' '}
+                                        <span className="text-nofx-text">
+                                          {String(timeframes?.entry || '-')}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        {language === 'zh'
+                                          ? '主周期'
+                                          : 'primary'}{' '}
+                                        <span className="text-nofx-text">
+                                          {String(timeframes?.primary || '-')}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        {language === 'zh' ? '确认' : 'confirm'}{' '}
+                                        <span className="text-nofx-text">
+                                          {confirmations}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {String(trace.reason || '') && (
+                                      <div className="mt-2 text-[11px] text-nofx-text-muted">
+                                        {String(trace.reason)}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                          </div>
+                        )}
+
+                        {getResultArray(aiTestResult, 'evidence_evaluations')
+                          .length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-nofx-text">
+                              {language === 'zh'
+                                ? '证据过滤'
+                                : 'Evidence Filters'}
+                            </div>
+                            {getResultArray(
+                              aiTestResult,
+                              'evidence_evaluations'
+                            )
+                              .slice(0, 20)
+                              .map((trace, index) => (
+                                <div
+                                  key={`${String(trace.symbol || index)}-evidence`}
+                                  className="rounded-lg bg-nofx-bg border border-white/10 p-3"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-xs font-medium text-nofx-text">
+                                      {String(trace.symbol || '-')} ·{' '}
+                                      {formatPreviewValue(trace.score)}
+                                    </div>
+                                    <span
+                                      className={`rounded px-2 py-1 text-[10px] ${String(trace.action || '') ? 'bg-green-500/15 text-green-300' : trace.eligible ? 'bg-blue-500/15 text-blue-300' : 'bg-yellow-500/15 text-yellow-300'}`}
+                                    >
+                                      {String(trace.action || '') ||
+                                        (trace.eligible
+                                          ? language === 'zh'
+                                            ? '可作证据'
+                                            : 'usable evidence'
+                                          : language === 'zh'
+                                            ? '证据不足'
+                                            : 'insufficient evidence')}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-nofx-text-muted">
+                                    <div>
+                                      {language === 'zh'
+                                        ? '证据权重'
+                                        : 'evidence'}{' '}
+                                      <span className="text-nofx-text">
+                                        {formatRatio(
+                                          trace.available_weight_ratio
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      {language === 'zh'
+                                        ? '最低要求'
+                                        : 'required'}{' '}
+                                      <span className="text-nofx-text">
+                                        {formatRatio(
+                                          trace.min_available_weight_ratio
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div>
+                                      {language === 'zh' ? '因子' : 'factors'}{' '}
+                                      <span className="text-nofx-text">
+                                        {String(
+                                          trace.available_factor_count ?? 0
+                                        )}
+                                        /
+                                        {String(
+                                          trace.required_factor_count ?? 0
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 text-[10px] text-nofx-text-muted">
+                                    ok:{' '}
+                                    {Array.isArray(trace.available_factors)
+                                      ? trace.available_factors.join(', ') ||
+                                        '-'
+                                      : '-'}
+                                  </div>
+                                  <div className="mt-1 text-[10px] text-nofx-text-muted">
+                                    missing:{' '}
+                                    {Array.isArray(trace.missing_factors)
+                                      ? trace.missing_factors.join(', ') || '-'
+                                      : '-'}
+                                  </div>
+                                  {String(trace.reason || '') && (
+                                    <div className="mt-2 text-[11px] text-yellow-200">
+                                      {String(trace.reason)}
+                                    </div>
+                                  )}
                                 </div>
-                              </div>
-                            ))}
+                              ))}
+                          </div>
+                        )}
+
+                        {getResultArray(aiTestResult, 'rule_evaluations')
+                          .length > 0 && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-nofx-text">
+                              {language === 'zh'
+                                ? '条件判定'
+                                : 'Condition Checks'}
+                            </div>
+                            {getResultArray(aiTestResult, 'rule_evaluations')
+                              .slice(0, 20)
+                              .map((trace, index) => (
+                                <div
+                                  key={`${String(trace.rule_id || index)}-${String(trace.symbol || index)}`}
+                                  className="rounded-lg bg-nofx-bg border border-white/10 p-3"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="text-xs font-medium text-nofx-text">
+                                      {String(trace.symbol || '-')} ·{' '}
+                                      {String(trace.rule_id || '-')}
+                                    </div>
+                                    <span
+                                      className={`rounded px-2 py-1 text-[10px] ${trace.matched ? 'bg-green-500/15 text-green-300' : trace.missing ? 'bg-yellow-500/15 text-yellow-300' : 'bg-white/10 text-nofx-text-muted'}`}
+                                    >
+                                      {trace.matched
+                                        ? language === 'zh'
+                                          ? '触发'
+                                          : 'matched'
+                                        : trace.missing
+                                          ? language === 'zh'
+                                            ? '缺数据'
+                                            : 'missing'
+                                          : language === 'zh'
+                                            ? '未触发'
+                                            : 'no match'}
+                                    </span>
+                                  </div>
+                                  <div className="mt-2 space-y-1">
+                                    {getResultArray(trace, 'conditions').map(
+                                      (condition, conditionIndex) => (
+                                        <div
+                                          key={conditionIndex}
+                                          className="rounded border border-white/5 bg-black/20 px-2 py-1 text-[10px] text-nofx-text-muted"
+                                        >
+                                          <span
+                                            className={
+                                              condition.passed
+                                                ? 'text-green-300'
+                                                : 'text-nofx-text-muted'
+                                            }
+                                          >
+                                            {condition.passed ? '✓' : '×'}
+                                          </span>{' '}
+                                          {String(condition.left)}{' '}
+                                          {formatPreviewValue(
+                                            condition.left_value
+                                          )}{' '}
+                                          {String(condition.operator)}{' '}
+                                          {String(condition.right)}{' '}
+                                          {formatPreviewValue(
+                                            condition.right_value
+                                          )}
+                                        </div>
+                                      )
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
                           </div>
                         )}
                       </>
                     )}
-	                    <details className="rounded-lg border border-nofx-gold/20 bg-nofx-bg">
-	                      <summary className="cursor-pointer px-3 py-2 text-xs text-nofx-text-muted hover:text-nofx-text">
-	                        {language === 'zh' ? '原始 JSON' : 'Raw JSON'}
-	                      </summary>
-	                      <pre
-	                        className="border-t border-white/10 p-2 text-[10px] font-mono overflow-auto whitespace-pre-wrap text-nofx-text"
-	                        style={{ maxHeight: '360px' }}
-	                      >
-	                        {JSON.stringify(aiTestResult, null, 2)}
-	                      </pre>
-	                    </details>
+                    <details className="rounded-lg border border-nofx-gold/20 bg-nofx-bg">
+                      <summary className="cursor-pointer px-3 py-2 text-xs text-nofx-text-muted hover:text-nofx-text">
+                        {language === 'zh' ? '原始 JSON' : 'Raw JSON'}
+                      </summary>
+                      <pre
+                        className="border-t border-white/10 p-2 text-[10px] font-mono overflow-auto whitespace-pre-wrap text-nofx-text"
+                        style={{ maxHeight: '360px' }}
+                      >
+                        {JSON.stringify(aiTestResult, null, 2)}
+                      </pre>
+                    </details>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 text-nofx-text-muted">
                     <Play className="w-10 h-10 mb-2 opacity-30" />
-                    <p className="text-sm">{tr('runAiTestHint')}</p>
+                    <p className="text-sm">
+                      {language === 'zh'
+                        ? '运行一次确定性策略预演'
+                        : 'Run a deterministic strategy test'}
+                    </p>
                   </div>
                 )}
               </div>

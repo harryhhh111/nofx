@@ -2,8 +2,8 @@ import { Shield, AlertTriangle, TrendingDown } from 'lucide-react'
 import type { RiskControlConfig } from '../../types'
 import { riskControl, ts } from '../../i18n/strategy-translations'
 
-const DEFAULT_STOP_LOSS_ATR_BUFFER = 2
-const DEFAULT_MIN_RISK_REWARD_RATIO = 2.5
+const DEFAULT_STOP_LOSS_ATR_BUFFER = 1.5
+const DEFAULT_MIN_RISK_REWARD_RATIO = 1.5
 
 interface RiskControlEditorProps {
   config: RiskControlConfig
@@ -20,7 +20,9 @@ export function RiskControlEditor({
   language,
   availableTimeframes = [],
 }: RiskControlEditorProps) {
-  const rawStopLossATRBuffer = Number(config.stop_loss_atr_buffer ?? DEFAULT_STOP_LOSS_ATR_BUFFER)
+  const rawStopLossATRBuffer = Number(
+    config.stop_loss_atr_buffer ?? DEFAULT_STOP_LOSS_ATR_BUFFER
+  )
   const stopLossATRBuffer =
     Number.isFinite(rawStopLossATRBuffer) && rawStopLossATRBuffer > 0
       ? rawStopLossATRBuffer
@@ -30,9 +32,10 @@ export function RiskControlEditor({
     new Set(availableTimeframes.map((tf) => tf.trim()).filter(Boolean))
   )
   const selectedStopLossTimeframe =
-    config.stop_loss_timeframe && stopLossTimeframeOptions.includes(config.stop_loss_timeframe)
+    config.stop_loss_timeframe &&
+    stopLossTimeframeOptions.includes(config.stop_loss_timeframe)
       ? config.stop_loss_timeframe
-      : stopLossTimeframeOptions[0] ?? ''
+      : (stopLossTimeframeOptions[0] ?? '')
 
   const updateField = <K extends keyof RiskControlConfig>(
     key: K,
@@ -179,7 +182,10 @@ export function RiskControlEditor({
                 type="range"
                 value={config.btc_eth_max_position_value_ratio ?? 5}
                 onChange={(e) =>
-                  updateField('btc_eth_max_position_value_ratio', parseFloat(e.target.value))
+                  updateField(
+                    'btc_eth_max_position_value_ratio',
+                    parseFloat(e.target.value)
+                  )
                 }
                 disabled={disabled}
                 min={0.5}
@@ -211,7 +217,10 @@ export function RiskControlEditor({
                 type="range"
                 value={config.altcoin_max_position_value_ratio ?? 1}
                 onChange={(e) =>
-                  updateField('altcoin_max_position_value_ratio', parseFloat(e.target.value))
+                  updateField(
+                    'altcoin_max_position_value_ratio',
+                    parseFloat(e.target.value)
+                  )
                 }
                 disabled={disabled}
                 min={0.5}
@@ -254,7 +263,9 @@ export function RiskControlEditor({
               <span style={{ color: '#848E9C' }}>1:</span>
               <input
                 type="number"
-                value={config.min_risk_reward_ratio ?? DEFAULT_MIN_RISK_REWARD_RATIO}
+                value={
+                  config.min_risk_reward_ratio ?? DEFAULT_MIN_RISK_REWARD_RATIO
+                }
                 onChange={(e) =>
                   updateField(
                     'min_risk_reward_ratio',
@@ -298,7 +309,10 @@ export function RiskControlEditor({
                 step={0.1}
                 className="flex-1 accent-yellow-500"
               />
-              <span className="w-14 text-center font-mono" style={{ color: '#F0B90B' }}>
+              <span
+                className="w-14 text-center font-mono"
+                style={{ color: '#F0B90B' }}
+              >
                 {(config.risk_per_trade_pct ?? 1).toFixed(1)}%
               </span>
             </div>
@@ -319,14 +333,20 @@ export function RiskControlEditor({
                 type="range"
                 value={(config.max_margin_usage ?? 0.9) * 100}
                 onChange={(e) =>
-                  updateField('max_margin_usage', parseInt(e.target.value) / 100)
+                  updateField(
+                    'max_margin_usage',
+                    parseInt(e.target.value) / 100
+                  )
                 }
                 disabled={disabled}
                 min={10}
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#0ECB81' }}
+              >
                 {Math.round((config.max_margin_usage ?? 0.9) * 100)}%
               </span>
             </div>
@@ -359,7 +379,10 @@ export function RiskControlEditor({
                 type="number"
                 value={config.min_position_size ?? 12}
                 onChange={(e) =>
-                  updateField('min_position_size', parseFloat(e.target.value) || 12)
+                  updateField(
+                    'min_position_size',
+                    parseFloat(e.target.value) || 12
+                  )
                 }
                 disabled={disabled}
                 min={10}
@@ -399,36 +422,11 @@ export function RiskControlEditor({
                 max={100}
                 className="flex-1 accent-green-500"
               />
-              <span className="w-12 text-center font-mono" style={{ color: '#0ECB81' }}>
+              <span
+                className="w-12 text-center font-mono"
+                style={{ color: '#0ECB81' }}
+              >
                 {config.min_confidence ?? 75}
-              </span>
-            </div>
-          </div>
-
-          <div
-            className="p-4 rounded-lg"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
-          >
-            <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
-              {ts(riskControl.minCloseConfidence, language)}
-            </label>
-            <p className="text-xs mb-2" style={{ color: '#848E9C' }}>
-              {ts(riskControl.minCloseConfidenceDesc, language)}
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                value={config.min_close_confidence ?? 85}
-                onChange={(e) =>
-                  updateField('min_close_confidence', parseInt(e.target.value))
-                }
-                disabled={disabled}
-                min={70}
-                max={95}
-                className="flex-1 accent-yellow-500"
-              />
-              <span className="w-12 text-center font-mono" style={{ color: '#F0B90B' }}>
-                {config.min_close_confidence ?? 85}
               </span>
             </div>
           </div>
@@ -436,11 +434,16 @@ export function RiskControlEditor({
       </div>
 
       {/* Stop Loss ATR Buffer */}
-      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #2B3139' }}>
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #2B3139' }}
+      >
         <div className="flex items-center gap-2 mb-2">
           <AlertTriangle className="w-5 h-5" style={{ color: '#F6465D' }} />
           <h3 className="font-medium" style={{ color: '#EAECEF' }}>
-            {language === 'zh' ? '止损 ATR 缓冲 (AI 引导)' : 'Stop Loss ATR Buffer (AI Guided)'}
+            {language === 'zh'
+              ? '止损 ATR 缓冲 (AI 引导)'
+              : 'Stop Loss ATR Buffer (AI Guided)'}
           </h3>
         </div>
         <p className="text-xs mb-4" style={{ color: '#848E9C' }}>
@@ -456,7 +459,9 @@ export function RiskControlEditor({
               const value = parseFloat(e.target.value)
               updateField(
                 'stop_loss_atr_buffer',
-                Number.isFinite(value) && value > 0 ? value : DEFAULT_STOP_LOSS_ATR_BUFFER
+                Number.isFinite(value) && value > 0
+                  ? value
+                  : DEFAULT_STOP_LOSS_ATR_BUFFER
               )
             }}
             disabled={disabled}
@@ -464,7 +469,11 @@ export function RiskControlEditor({
             max={3}
             step={0.1}
             className="w-24 px-3 py-2 rounded text-center"
-            style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+            style={{
+              background: '#0B0E11',
+              border: '1px solid #2B3139',
+              color: '#EAECEF',
+            }}
           />
           <span className="text-sm" style={{ color: '#848E9C' }}>
             × ATR14
@@ -498,17 +507,26 @@ export function RiskControlEditor({
                   !disabled &&
                   onChange({
                     ...config,
-                    stop_loss_timeframe_mode: option.value as RiskControlConfig['stop_loss_timeframe_mode'],
+                    stop_loss_timeframe_mode:
+                      option.value as RiskControlConfig['stop_loss_timeframe_mode'],
                     stop_loss_timeframe:
-                      option.value === 'custom' ? selectedStopLossTimeframe : undefined,
+                      option.value === 'custom'
+                        ? selectedStopLossTimeframe
+                        : undefined,
                   })
                 }
                 disabled={disabled}
                 className="px-3 py-2 rounded text-sm transition-colors"
                 style={{
-                  background: stopLossTimeframeMode === option.value ? '#F0B90B22' : '#0B0E11',
+                  background:
+                    stopLossTimeframeMode === option.value
+                      ? '#F0B90B22'
+                      : '#0B0E11',
                   border: `1px solid ${stopLossTimeframeMode === option.value ? '#F0B90B' : '#2B3139'}`,
-                  color: stopLossTimeframeMode === option.value ? '#F0B90B' : '#EAECEF',
+                  color:
+                    stopLossTimeframeMode === option.value
+                      ? '#F0B90B'
+                      : '#EAECEF',
                   cursor: disabled ? 'not-allowed' : 'pointer',
                 }}
               >
@@ -520,10 +538,16 @@ export function RiskControlEditor({
             <div className="mt-3 flex items-center gap-3">
               <select
                 value={selectedStopLossTimeframe}
-                onChange={(e) => updateField('stop_loss_timeframe', e.target.value)}
+                onChange={(e) =>
+                  updateField('stop_loss_timeframe', e.target.value)
+                }
                 disabled={disabled}
                 className="w-32 px-3 py-2 rounded"
-                style={{ background: '#0B0E11', border: '1px solid #2B3139', color: '#EAECEF' }}
+                style={{
+                  background: '#0B0E11',
+                  border: '1px solid #2B3139',
+                  color: '#EAECEF',
+                }}
               >
                 {stopLossTimeframeOptions.map((timeframe) => (
                   <option key={timeframe} value={timeframe}>
@@ -542,7 +566,10 @@ export function RiskControlEditor({
       </div>
 
       {/* Drawdown Close Monitor */}
-      <div className="p-5 rounded-xl" style={{ background: '#1E2329', border: '1px solid #F6465D33' }}>
+      <div
+        className="p-5 rounded-xl"
+        style={{ background: '#1E2329', border: '1px solid #F6465D33' }}
+      >
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
             <TrendingDown className="w-5 h-5" style={{ color: '#F6465D' }} />
@@ -553,23 +580,40 @@ export function RiskControlEditor({
           {/* Enable / disable toggle */}
           <button
             type="button"
-            onClick={() => !disabled && updateField('drawdown_close_enabled', !(config.drawdown_close_enabled ?? true))}
+            onClick={() =>
+              !disabled &&
+              updateField(
+                'drawdown_close_enabled',
+                !(config.drawdown_close_enabled ?? true)
+              )
+            }
             disabled={disabled}
             className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium transition-colors"
             style={{
-              background: (config.drawdown_close_enabled ?? true) ? '#F6465D22' : '#2B3139',
+              background:
+                (config.drawdown_close_enabled ?? true)
+                  ? '#F6465D22'
+                  : '#2B3139',
               border: `1px solid ${(config.drawdown_close_enabled ?? true) ? '#F6465D' : '#5E6673'}`,
-              color: (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#848E9C',
+              color:
+                (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#848E9C',
               cursor: disabled ? 'not-allowed' : 'pointer',
             }}
           >
             <span
               className="w-2 h-2 rounded-full"
-              style={{ background: (config.drawdown_close_enabled ?? true) ? '#F6465D' : '#5E6673' }}
+              style={{
+                background:
+                  (config.drawdown_close_enabled ?? true)
+                    ? '#F6465D'
+                    : '#5E6673',
+              }}
             />
             {(config.drawdown_close_enabled ?? true)
               ? ts(riskControl.drawdownCloseEnabled, language)
-              : (language === 'zh' ? '已禁用' : 'Disabled')}
+              : language === 'zh'
+                ? '已禁用'
+                : 'Disabled'}
           </button>
         </div>
 
@@ -577,9 +621,19 @@ export function RiskControlEditor({
           {ts(riskControl.drawdownCloseDesc, language)}
         </p>
 
-        <div className="grid grid-cols-2 gap-4 mb-4" style={{ opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4, pointerEvents: (config.drawdown_close_enabled ?? true) ? 'auto' : 'none' }}>
+        <div
+          className="grid grid-cols-2 gap-4 mb-4"
+          style={{
+            opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4,
+            pointerEvents:
+              (config.drawdown_close_enabled ?? true) ? 'auto' : 'none',
+          }}
+        >
           {/* Min profit to activate */}
-          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.drawdownCloseMinProfit, language)}
             </label>
@@ -590,21 +644,32 @@ export function RiskControlEditor({
               <input
                 type="range"
                 value={config.drawdown_close_min_profit_pct ?? 5}
-                onChange={(e) => updateField('drawdown_close_min_profit_pct', parseFloat(e.target.value))}
+                onChange={(e) =>
+                  updateField(
+                    'drawdown_close_min_profit_pct',
+                    parseFloat(e.target.value)
+                  )
+                }
                 disabled={disabled}
                 min={1}
                 max={30}
                 step={0.5}
                 className="flex-1 accent-red-500"
               />
-              <span className="w-14 text-center font-mono" style={{ color: '#F6465D' }}>
+              <span
+                className="w-14 text-center font-mono"
+                style={{ color: '#F6465D' }}
+              >
                 {config.drawdown_close_min_profit_pct ?? 5}%
               </span>
             </div>
           </div>
 
           {/* Drawdown trigger */}
-          <div className="p-4 rounded-lg" style={{ background: '#0B0E11', border: '1px solid #2B3139' }}>
+          <div
+            className="p-4 rounded-lg"
+            style={{ background: '#0B0E11', border: '1px solid #2B3139' }}
+          >
             <label className="block text-sm mb-1" style={{ color: '#EAECEF' }}>
               {ts(riskControl.drawdownCloseTrigger, language)}
             </label>
@@ -615,65 +680,25 @@ export function RiskControlEditor({
               <input
                 type="range"
                 value={config.drawdown_close_trigger_pct ?? 40}
-                onChange={(e) => updateField('drawdown_close_trigger_pct', parseFloat(e.target.value))}
+                onChange={(e) =>
+                  updateField(
+                    'drawdown_close_trigger_pct',
+                    parseFloat(e.target.value)
+                  )
+                }
                 disabled={disabled}
                 min={10}
                 max={90}
                 step={5}
                 className="flex-1 accent-red-500"
               />
-              <span className="w-14 text-center font-mono" style={{ color: '#F6465D' }}>
+              <span
+                className="w-14 text-center font-mono"
+                style={{ color: '#F6465D' }}
+              >
                 {config.drawdown_close_trigger_pct ?? 40}%
               </span>
             </div>
-          </div>
-        </div>
-
-        {/* Action mode: Auto Close vs AI Decide */}
-        <div style={{ opacity: (config.drawdown_close_enabled ?? true) ? 1 : 0.4, pointerEvents: (config.drawdown_close_enabled ?? true) ? 'auto' : 'none' }}>
-          <p className="text-xs font-medium mb-2" style={{ color: '#EAECEF' }}>
-            {ts(riskControl.drawdownCloseMode, language)}
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            {/* Auto Close */}
-            <button
-              type="button"
-              onClick={() => !disabled && updateField('drawdown_close_use_ai', false)}
-              disabled={disabled}
-              className="p-3 rounded-lg text-left transition-colors"
-              style={{
-                background: !(config.drawdown_close_use_ai ?? false) ? '#F6465D22' : '#0B0E11',
-                border: `1px solid ${!(config.drawdown_close_use_ai ?? false) ? '#F6465D' : '#2B3139'}`,
-                cursor: disabled ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <p className="text-sm font-medium mb-1" style={{ color: !(config.drawdown_close_use_ai ?? false) ? '#F6465D' : '#848E9C' }}>
-                {ts(riskControl.drawdownCloseModeAuto, language)}
-              </p>
-              <p className="text-xs" style={{ color: '#5E6673' }}>
-                {ts(riskControl.drawdownCloseModeAutoDesc, language)}
-              </p>
-            </button>
-
-            {/* AI Decide */}
-            <button
-              type="button"
-              onClick={() => !disabled && updateField('drawdown_close_use_ai', true)}
-              disabled={disabled}
-              className="p-3 rounded-lg text-left transition-colors"
-              style={{
-                background: (config.drawdown_close_use_ai ?? false) ? '#F0B90B22' : '#0B0E11',
-                border: `1px solid ${(config.drawdown_close_use_ai ?? false) ? '#F0B90B' : '#2B3139'}`,
-                cursor: disabled ? 'not-allowed' : 'pointer',
-              }}
-            >
-              <p className="text-sm font-medium mb-1" style={{ color: (config.drawdown_close_use_ai ?? false) ? '#F0B90B' : '#848E9C' }}>
-                {ts(riskControl.drawdownCloseModeAI, language)}
-              </p>
-              <p className="text-xs" style={{ color: '#5E6673' }}>
-                {ts(riskControl.drawdownCloseModeAIDesc, language)}
-              </p>
-            </button>
           </div>
         </div>
       </div>

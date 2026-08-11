@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"nofx/kernel"
 	"nofx/logger"
-	"nofx/mcp"
-	_ "nofx/mcp/provider"
 	"nofx/store"
 	"nofx/trader/aster"
 	"nofx/trader/binance"
@@ -22,12 +20,12 @@ import (
 	"time"
 )
 
-// AutoTraderConfig auto trading configuration (simplified version - AI makes all decisions)
+// AutoTraderConfig contains deterministic execution and exchange configuration.
 type AutoTraderConfig struct {
 	// Trader identification
-	ID      string // Trader unique identifier (for log directory, etc.)
-	Name    string // Trader display name
-	AIModel string // AI model: "qwen" or "deepseek"
+	ID       string // Trader unique identifier (for log directory, etc.)
+	Name     string // Trader display name
+	EngineID string // Runtime engine identifier.
 
 	// Trading platform selection
 	Exchange   string // Exchange type: "binance", "bybit", "okx", "bitget", "gate", "hyperliquid", "aster", "lighter", or "paper"
@@ -82,15 +80,7 @@ type AutoTraderConfig struct {
 	LighterAPIKeyIndex      int    // LIGHTER API Key index (0-255)
 	LighterTestnet          bool   // Whether to use testnet
 
-	// AI configuration
-	UseQwen     bool
-	DeepSeekKey string
-	QwenKey     string
-
-	// Custom AI API configuration
-	CustomAPIURL     string
-	CustomAPIKey     string
-	CustomModelName  string
+	// Claw402 is a market-data payment channel, not a reasoning dependency.
 	Claw402WalletKey string
 
 	// Scan configuration
@@ -123,44 +113,41 @@ type pendingOpeningReasoning struct {
 
 // AutoTrader automatic trader
 type AutoTrader struct {
-	id                      string // Trader unique identifier
-	name                    string // Trader display name
-	aiModel                 string // AI model name
-	exchange                string // Trading platform type (binance/bybit/etc)
-	exchangeID              string // Exchange account UUID
-	showInCompetition       bool   // Whether to show in competition page
-	config                  AutoTraderConfig
-	trader                  Trader // Use Trader interface (supports multiple platforms)
-	mcpClient               mcp.AIClient
-	store                   *store.Store           // Data storage (decision records, etc.)
-	strategyEngine          *kernel.StrategyEngine // Strategy engine (uses strategy configuration)
-	cycleNumber             int                    // Current cycle number
-	initialBalance          float64
-	dailyPnL                float64
-	lastResetTime           time.Time
-	stopUntil               time.Time
-	isRunning               bool
-	isRunningMutex          sync.RWMutex       // Mutex to protect isRunning flag
-	startTime               time.Time          // System start time
-	callCount               int                // AI call count
-	positionFirstSeenTime   map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
-	stopMonitorCh           chan struct{}      // Used to stop monitoring goroutine
-	monitorWg               sync.WaitGroup     // Used to wait for monitoring goroutine to finish
-	peakPnLCache            map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
-	peakPnLPositionEntry    map[string]int64   // Entry time associated with each peak cache entry
-	peakPnLCacheMutex       sync.RWMutex       // Cache read-write lock
-	pendingOpenReasoning    map[string]pendingOpeningReasoning
-	pendingOpenReasoningMu  sync.Mutex             // Mutex for pendingOpenReasoning
-	recentlyClosedByRisk    map[string]time.Time   // Positions recently closed by risk monitor (symbol_side -> close time)
-	recentlyClosedByRiskMu  sync.RWMutex           // Mutex for recentlyClosedByRisk
-	pendingDrawdownAlerts   []kernel.DrawdownAlert // Drawdown alerts queued for the next AI cycle (AI-decide mode)
-	pendingDrawdownAlertsMu sync.Mutex             // Mutex for pendingDrawdownAlerts
-	lastBalanceSyncTime     time.Time              // Last balance sync time
-	userID                  string                 // User ID
-	gridState               *GridState             // Grid trading state (only used when StrategyType == "grid_trading")
-	consecutiveAIFailures   int                    // Consecutive AI call failures
-	safeMode                bool                   // Safe mode: no new positions, protect existing ones
-	safeModeReason          string                 // Why safe mode was activated
+	id                          string // Trader unique identifier
+	name                        string // Trader display name
+	engineID                    string // Runtime engine identifier
+	exchange                    string // Trading platform type (binance/bybit/etc)
+	exchangeID                  string // Exchange account UUID
+	showInCompetition           bool   // Whether to show in competition page
+	config                      AutoTraderConfig
+	trader                      Trader                 // Use Trader interface (supports multiple platforms)
+	store                       *store.Store           // Data storage (decision records, etc.)
+	strategyEngine              *kernel.StrategyEngine // Strategy engine (uses strategy configuration)
+	cycleNumber                 int                    // Current cycle number
+	initialBalance              float64
+	dailyPnL                    float64
+	lastResetTime               time.Time
+	stopUntil                   time.Time
+	isRunning                   bool
+	isRunningMutex              sync.RWMutex       // Mutex to protect isRunning flag
+	startTime                   time.Time          // System start time
+	callCount                   int                // Completed evaluation cycle count
+	positionFirstSeenTime       map[string]int64   // Position first seen time (symbol_side -> timestamp in milliseconds)
+	stopMonitorCh               chan struct{}      // Used to stop monitoring goroutine
+	monitorWg                   sync.WaitGroup     // Used to wait for monitoring goroutine to finish
+	peakPnLCache                map[string]float64 // Peak profit cache (symbol -> peak P&L percentage)
+	peakPnLPositionEntry        map[string]int64   // Entry time associated with each peak cache entry
+	peakPnLCacheMutex           sync.RWMutex       // Cache read-write lock
+	pendingOpenReasoning        map[string]pendingOpeningReasoning
+	pendingOpenReasoningMu      sync.Mutex           // Mutex for pendingOpenReasoning
+	recentlyClosedByRisk        map[string]time.Time // Positions recently closed by risk monitor (symbol_side -> close time)
+	recentlyClosedByRiskMu      sync.RWMutex         // Mutex for recentlyClosedByRisk
+	lastBalanceSyncTime         time.Time            // Last balance sync time
+	userID                      string               // User ID
+	gridState                   *GridState           // Grid trading state (only used when StrategyType == "grid_trading")
+	consecutiveDecisionFailures int                  // Consecutive deterministic decision failures
+	safeMode                    bool                 // Safe mode: no new positions, protect existing ones
+	safeModeReason              string               // Why safe mode was activated
 }
 
 // NewAutoTrader creates an automatic trader
@@ -173,57 +160,10 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	if config.Name == "" {
 		config.Name = "Default Trader"
 	}
-	if config.AIModel == "" {
-		if config.UseQwen {
-			config.AIModel = "qwen"
-		} else {
-			config.AIModel = "deepseek"
-		}
+	if config.EngineID == "" {
+		config.EngineID = store.DeterministicEngineID
 	}
-
-	// Initialize AI client based on provider
-	var mcpClient mcp.AIClient
-	aiModel := config.AIModel
-	if config.UseQwen && aiModel == "" {
-		aiModel = "qwen"
-	}
-
-	// Resolve API key (provider-specific overrides)
-	apiKey := config.CustomAPIKey
-	customURL := config.CustomAPIURL
-	if store.IsClaw402Config(aiModel) {
-		return nil, fmt.Errorf("claw402 is a payment/data channel; configure a real LLM model for trader %s", config.Name)
-	}
-	switch aiModel {
-	case "qwen":
-		if config.QwenKey != "" {
-			apiKey = config.QwenKey
-		}
-	case "deepseek", "":
-		if config.DeepSeekKey != "" {
-			apiKey = config.DeepSeekKey
-		}
-	}
-
-	// Create client via registry (covers all registered providers)
-	if aiModel == "custom" {
-		mcpClient = mcp.New()
-	} else if aiModel == "" {
-		aiModel = "deepseek"
-		mcpClient = mcp.NewAIClientByProvider(aiModel)
-	} else {
-		mcpClient = mcp.NewAIClientByProvider(aiModel)
-	}
-	if mcpClient == nil {
-		mcpClient = mcp.New()
-	}
-
-	mcpClient.SetAPIKey(apiKey, customURL, config.CustomModelName)
-	logger.Infof("🤖 [%s] Using %s AI", config.Name, aiModel)
-
-	if config.CustomAPIURL != "" || config.CustomModelName != "" {
-		logger.Infof("🔧 [%s] Custom config - URL: %s, Model: %s", config.Name, config.CustomAPIURL, config.CustomModelName)
-	}
+	logger.Infof("⚙️ [%s] Using deterministic setup engine", config.Name)
 
 	// Set default trading platform
 	if config.Exchange == "" {
@@ -362,13 +302,12 @@ func NewAutoTrader(config AutoTraderConfig, st *store.Store, userID string) (*Au
 	return &AutoTrader{
 		id:                    config.ID,
 		name:                  config.Name,
-		aiModel:               config.AIModel,
+		engineID:              config.EngineID,
 		exchange:              config.Exchange,
 		exchangeID:            config.ExchangeID,
 		showInCompetition:     config.ShowInCompetition,
 		config:                config,
 		trader:                trader,
-		mcpClient:             mcpClient,
 		store:                 st,
 		strategyEngine:        strategyEngine,
 		cycleNumber:           cycleNumber,
@@ -566,9 +505,10 @@ func (at *AutoTrader) GetName() string {
 	return at.name
 }
 
-// GetAIModel gets AI model
+// GetAIModel keeps the existing response field stable while reporting the
+// deterministic runtime engine rather than a reasoning model.
 func (at *AutoTrader) GetAIModel() string {
-	return at.aiModel
+	return at.engineID
 }
 
 // GetExchange gets exchange

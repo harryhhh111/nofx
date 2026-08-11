@@ -146,59 +146,6 @@ func GeneratePositionLifecycleSignals(req SignalRequest, existing []CandidateSig
 	return out
 }
 
-func GenerateDrawdownAlertSignals(req SignalRequest, existing []CandidateSignal) []CandidateSignal {
-	if len(req.DrawdownAlerts) == 0 || len(req.Positions) == 0 {
-		return nil
-	}
-	now := req.Now
-	if now.IsZero() {
-		now = time.Now().UTC()
-	}
-	existingClose := existingCloseSignalKeys(existing)
-	out := []CandidateSignal{}
-	for _, alert := range req.DrawdownAlerts {
-		symbol := market.Normalize(alert.Symbol)
-		side := normalizedPositionSide(alert.Side)
-		if symbol == "" || side == "" {
-			continue
-		}
-		position, ok := matchingPosition(req.Positions, symbol, side)
-		if !ok {
-			continue
-		}
-		closeAction := closeActionForPositionSide(side)
-		if existingClose[symbol+":"+closeAction] {
-			continue
-		}
-		referencePrice := position.MarkPrice
-		if referencePrice <= 0 {
-			referencePrice = position.EntryPrice
-		}
-		signal := CandidateSignal{
-			ID:              fmt.Sprintf("profit_protection_drawdown:%s:%s:%d", symbol, side, now.UnixMilli()),
-			RuleID:          "profit_protection_drawdown",
-			Setup:           "profit_protection_drawdown",
-			StrategyVersion: position.StrategyVersion,
-			Symbol:          symbol,
-			Action:          closeAction,
-			EntryPrice:      referencePrice,
-			Confidence:      95,
-			TriggerReason: fmt.Sprintf(
-				"profit protection drawdown: net PnL %.2f USDT, current net return %.2f%%, peak %.2f%%, drawdown %.2f%%",
-				alert.CurrentNetPnL, alert.CurrentPnLPct, alert.PeakPnLPct, alert.DrawdownPct,
-			),
-			Evidence: map[string]interface{}{
-				"drawdown_alert": alert,
-				"opening_thesis": openingThesisEvidence(position),
-			},
-			GeneratedAt: now,
-		}
-		out = append(out, signal)
-		existingClose[symbol+":"+closeAction] = true
-	}
-	return out
-}
-
 func mergePositionLifecycleSignals(signals, lifecycleSignals []CandidateSignal) []CandidateSignal {
 	closeBySymbol := map[string]bool{}
 	for _, signal := range lifecycleSignals {
@@ -315,6 +262,7 @@ type PositionLifecycleTrace struct {
 	OpeningSetup       string                 `json:"opening_setup,omitempty"`
 	OpeningRuleID      string                 `json:"opening_rule_id,omitempty"`
 	OpeningSignalID    string                 `json:"opening_signal_id,omitempty"`
+	OpeningEpisodeID   string                 `json:"opening_episode_id,omitempty"`
 	OpeningReasoning   string                 `json:"opening_reasoning,omitempty"`
 	EntryPrice         float64                `json:"entry_price,omitempty"`
 	MarkPrice          float64                `json:"mark_price,omitempty"`
@@ -324,17 +272,30 @@ type PositionLifecycleTrace struct {
 }
 
 type SetupEvaluationTrace struct {
-	Symbol        string                   `json:"symbol"`
-	Setup         string                   `json:"setup,omitempty"`
-	Route         SetupRouteTrace          `json:"route"`
-	Action        string                   `json:"action,omitempty"`
-	Signals       []string                 `json:"signals,omitempty"`
-	Timeframes    TimeframeRoleTrace       `json:"timeframes"`
-	Eligible      bool                     `json:"eligible"`
-	Reason        string                   `json:"reason,omitempty"`
-	Primary       ScoringEvaluationTrace   `json:"primary"`
-	Entry         ScoringEvaluationTrace   `json:"entry"`
-	Confirmations []ScoringEvaluationTrace `json:"confirmations,omitempty"`
+	Symbol           string                   `json:"symbol"`
+	DetectedSetup    string                   `json:"detected_setup,omitempty"`
+	DetectedAction   string                   `json:"detected_action,omitempty"`
+	Setup            string                   `json:"setup,omitempty"`
+	Route            SetupRouteTrace          `json:"route"`
+	Action           string                   `json:"action,omitempty"`
+	Signals          []string                 `json:"signals,omitempty"`
+	EvidenceDecision SetupEvidenceDecision    `json:"evidence_decision"`
+	Timeframes       TimeframeRoleTrace       `json:"timeframes"`
+	Eligible         bool                     `json:"eligible"`
+	Reason           string                   `json:"reason,omitempty"`
+	Primary          ScoringEvaluationTrace   `json:"primary"`
+	Entry            ScoringEvaluationTrace   `json:"entry"`
+	Confirmations    []ScoringEvaluationTrace `json:"confirmations,omitempty"`
+}
+
+// SetupEvidenceDecision explains how directional evidence relates to the
+// detected setup. It is deliberately setup-aware: the same momentum value can
+// confirm a continuation, warn about a late breakout, or support exhaustion.
+type SetupEvidenceDecision struct {
+	Status      string   `json:"status"` // pass, warn, wait, reject
+	Reasons     []string `json:"reasons,omitempty"`
+	Supporting  []string `json:"supporting,omitempty"`
+	Conflicting []string `json:"conflicting,omitempty"`
 }
 
 type SetupRouteTrace struct {
@@ -397,6 +358,9 @@ func (e *SetupSignalEngine) Generate(ctx context.Context, req SignalRequest) ([]
 			return nil, err
 		}
 		signal.Setup = trace.Setup
+		if trace.EvidenceDecision.Status == "warn" {
+			signal.RiskFlags = append(signal.RiskFlags, "setup_evidence_warning")
+		}
 		signal.Evidence["setup"] = trace
 		signal.Evidence["primary_evaluation"] = trace.Primary
 		signal.Evidence["entry_evaluation"] = trace.Entry
@@ -591,12 +555,9 @@ func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace
 		OpeningSetup:       pos.OpeningSetup,
 		OpeningRuleID:      pos.OpeningRuleID,
 		OpeningSignalID:    pos.OpeningSignalID,
+		OpeningEpisodeID:   pos.OpeningEpisodeID,
 		OpeningReasoning:   pos.OpeningReasoning,
 	}
-	if !trace.Primary.Eligible || !trace.Entry.Eligible {
-		return PositionLifecycleTrace{}, false
-	}
-
 	closeAction := closeActionForPositionSide(side)
 	oppositeOpenAction := oppositeOpenActionForPositionSide(side)
 	if strings.TrimSpace(pos.OpeningSetup) != "" && (trace.Route.Status == "blocked" || trace.Setup == "no_trade_structure_invalidated") {
@@ -604,6 +565,16 @@ func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace
 		lifecycle.Action = closeAction
 		lifecycle.Reason = fmt.Sprintf("position lifecycle: opening setup %s is invalidated by the current confirmed primary structure", pos.OpeningSetup)
 		return lifecycle, true
+	}
+	if invalidated, reason := openingSetupStructurallyInvalidated(pos.OpeningSetup, trace); invalidated {
+		lifecycle.State = "thesis_invalidated"
+		lifecycle.Action = closeAction
+		lifecycle.OppositeSetup = trace.DetectedSetup
+		lifecycle.Reason = reason
+		return lifecycle, true
+	}
+	if !trace.Primary.Eligible || !trace.Entry.Eligible {
+		return PositionLifecycleTrace{}, false
 	}
 	if trace.Eligible && trace.Action == oppositeOpenAction {
 		lifecycle.State = "opposite_setup"
@@ -636,6 +607,49 @@ func evaluatePositionLifecycle(scoring *ScoringStrategy, pos PositionInfo, trace
 	return PositionLifecycleTrace{}, false
 }
 
+func openingSetupStructurallyInvalidated(openingSetup string, trace SetupEvaluationTrace) (bool, string) {
+	openingSetup = strings.ToLower(strings.TrimSpace(openingSetup))
+	detectedSetup := strings.ToLower(strings.TrimSpace(trace.DetectedSetup))
+	if openingSetup == "" || detectedSetup == "" {
+		return false, ""
+	}
+	openingAction := actionForSetupName(openingSetup)
+	detectedAction := trace.DetectedAction
+	if detectedAction == "" {
+		detectedAction = actionForSetupName(detectedSetup)
+	}
+	if openingAction == "" || detectedAction == "" || openingAction == detectedAction {
+		return false, ""
+	}
+
+	openingFamily := setupFamily(openingSetup)
+	detectedFamily := setupFamily(detectedSetup)
+	invalidated := false
+	switch openingFamily {
+	case "trend":
+		invalidated = detectedFamily == "trend" || detectedFamily == "breakout"
+	case "breakout":
+		invalidated = strings.HasPrefix(detectedSetup, "failed_breakout_") || detectedFamily == "breakout" || detectedFamily == "trend"
+	case "reversal", "exhaustion":
+		invalidated = detectedFamily == "breakout" || detectedFamily == "trend"
+	}
+	if !invalidated {
+		return false, ""
+	}
+	return true, fmt.Sprintf("position lifecycle: opening setup %s is structurally invalidated by confirmed primary setup %s; close without waiting for entry-score approval", openingSetup, detectedSetup)
+}
+
+func actionForSetupName(setup string) string {
+	setup = strings.ToLower(strings.TrimSpace(setup))
+	if strings.HasSuffix(setup, "_long") {
+		return "open_long"
+	}
+	if strings.HasSuffix(setup, "_short") {
+		return "open_short"
+	}
+	return ""
+}
+
 func matchingPosition(positions []PositionInfo, symbol, side string) (PositionInfo, bool) {
 	for _, position := range positions {
 		if market.Normalize(position.Symbol) == symbol && normalizedPositionSide(position.Side) == side {
@@ -650,6 +664,7 @@ func openingThesisEvidence(position PositionInfo) map[string]interface{} {
 		"setup":                 position.OpeningSetup,
 		"rule_id":               position.OpeningRuleID,
 		"signal_id":             position.OpeningSignalID,
+		"episode_id":            position.OpeningEpisodeID,
 		"strategy_version":      position.StrategyVersion,
 		"reasoning":             position.OpeningReasoning,
 		"last_review_summary":   position.LastReviewSummary,
@@ -773,6 +788,11 @@ func evaluateSetupSnapshot(scoring *ScoringStrategy, symbol string, snapshot *ma
 		Primary:       primary,
 		Entry:         entry,
 		Confirmations: confirmations,
+	}
+	if hasPrimarySetup && setup.Valid && !strings.HasPrefix(strings.TrimSpace(setup.Setup), "no_trade") {
+		trace.DetectedSetup = strings.TrimSpace(setup.Setup)
+		trace.DetectedAction = actionForStructureSetup(setup)
+		trace.Signals = append([]string(nil), setup.Signals...)
 	}
 	if route.Status == "blocked" {
 		trace.Setup = "no_trade_structure_invalidated"
@@ -1010,15 +1030,19 @@ func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, s
 		return trace
 	}
 	action := actionForStructureSetup(setup)
+	trace.DetectedSetup = name
+	trace.DetectedAction = action
 	if action == "" {
 		trace.Setup = "no_trade_insufficient_evidence"
 		trace.Reason = fmt.Sprintf("structure setup %s has no actionable direction", name)
 		return trace
 	}
-	if !scoresSupportStructureSetup(action, name, trace.Primary, trace.Entry) {
+	evidenceDecision := evaluateSetupEvidence(action, name, trace.Primary, trace.Entry)
+	trace.EvidenceDecision = evidenceDecision
+	if evidenceDecision.Status == "reject" || evidenceDecision.Status == "wait" {
 		trace.Setup = "no_trade_threshold_not_met"
 		trace.Signals = append([]string(nil), setup.Signals...)
-		trace.Reason = fmt.Sprintf("structure setup %s exists, but score evidence does not support %s: primary %.2f, entry %.2f", name, action, trace.Primary.Score, trace.Entry.Score)
+		trace.Reason = fmt.Sprintf("structure setup %s exists, but setup-aware evidence is %s for %s: %s", name, evidenceDecision.Status, action, strings.Join(evidenceDecision.Reasons, "; "))
 		return trace
 	}
 	if !entryTriggerOK {
@@ -1043,7 +1067,7 @@ func applyStructureSetup(scoring *ScoringStrategy, trace SetupEvaluationTrace, s
 	trace.Action = action
 	trace.Setup = name
 	trace.Signals = append([]string(nil), setup.Signals...)
-	trace.Reason = fmt.Sprintf("%s: primary structure confirmed; %s; primary score %.2f, entry score %.2f, %s", name, entryTriggerReason, trace.Primary.Score, trace.Entry.Score, confirmReason)
+	trace.Reason = fmt.Sprintf("%s: primary structure confirmed; %s; setup-aware evidence %s; primary score %.2f, entry score %.2f, %s", name, entryTriggerReason, evidenceDecision.Status, trace.Primary.Score, trace.Entry.Score, confirmReason)
 	if len(trace.Signals) == 0 {
 		trace.Signals = append(trace.Signals, "deterministic market structure setup")
 	}
@@ -1069,20 +1093,109 @@ func actionForStructureSetup(setup market.StructureSnapshot) string {
 }
 
 func scoresSupportStructureSetup(action, setup string, primary, entry ScoringEvaluationTrace) bool {
-	reversal := strings.Contains(setup, "reversal") || strings.Contains(setup, "bounce") || strings.Contains(setup, "exhaustion") || strings.Contains(setup, "failed_breakout")
+	decision := evaluateSetupEvidence(action, setup, primary, entry)
+	return decision.Status == "pass" || decision.Status == "warn"
+}
+
+func evaluateSetupEvidence(action, setup string, primary, entry ScoringEvaluationTrace) SetupEvidenceDecision {
+	decision := SetupEvidenceDecision{Status: "pass"}
+	direction := 0.0
 	switch action {
 	case "open_long":
-		if reversal {
-			return primary.Score > -maxOppositePrimaryScoreForReversalSetup && entry.Score >= 0
-		}
-		return primary.Score > 0 && entry.Score >= -5
+		direction = 1
 	case "open_short":
-		if reversal {
-			return primary.Score < maxOppositePrimaryScoreForReversalSetup && entry.Score <= 0
-		}
-		return primary.Score < 0 && entry.Score <= 5
+		direction = -1
 	default:
-		return false
+		return SetupEvidenceDecision{Status: "reject", Reasons: []string{"setup has no executable direction"}}
+	}
+
+	primaryDirectional := primary.Score * direction
+	entryDirectional := entry.Score * direction
+	primaryMomentum, primaryMomentumOK := scoringComponentValue(primary, "momentum")
+	entryMomentum, entryMomentumOK := scoringComponentValue(entry, "momentum")
+	primaryMomentum *= direction
+	entryMomentum *= direction
+
+	addSupport := func(reason string) { decision.Supporting = append(decision.Supporting, reason) }
+	addConflict := func(reason string) { decision.Conflicting = append(decision.Conflicting, reason) }
+	if primaryDirectional > 0 {
+		addSupport(fmt.Sprintf("primary evidence %.1f supports direction", primary.Score))
+	} else if primaryDirectional < 0 {
+		addConflict(fmt.Sprintf("primary evidence %.1f opposes direction", primary.Score))
+	}
+	if entryDirectional > 0 {
+		addSupport(fmt.Sprintf("entry evidence %.1f supports direction", entry.Score))
+	} else if entryDirectional < 0 {
+		addConflict(fmt.Sprintf("entry evidence %.1f opposes direction", entry.Score))
+	}
+
+	family := setupFamily(setup)
+	switch family {
+	case "trend":
+		switch {
+		case primaryDirectional <= -20:
+			decision.Status = "reject"
+			decision.Reasons = append(decision.Reasons, "primary evidence materially conflicts with the trend setup")
+		case entryDirectional < -35:
+			decision.Status = "wait"
+			decision.Reasons = append(decision.Reasons, "entry evidence is still moving strongly against the trend setup")
+		case primaryDirectional <= 0:
+			decision.Status = "wait"
+			decision.Reasons = append(decision.Reasons, "primary evidence has not resumed in the setup direction")
+		}
+	case "breakout":
+		bothMomentumOppose := primaryMomentumOK && entryMomentumOK && primaryMomentum <= -45 && entryMomentum <= -45
+		switch {
+		case primaryDirectional <= -35 && entryDirectional <= -20:
+			decision.Status = "reject"
+			decision.Reasons = append(decision.Reasons, "both primary and entry evidence conflict with the breakout direction")
+		case bothMomentumOppose:
+			decision.Status = "wait"
+			decision.Reasons = append(decision.Reasons, "breakout is extended into opposing momentum on both decision timeframes")
+		case (primaryMomentumOK && primaryMomentum <= -45) || (entryMomentumOK && entryMomentum <= -45):
+			decision.Status = "warn"
+			decision.Reasons = append(decision.Reasons, "breakout has one-timeframe momentum exhaustion risk")
+		}
+	case "reversal":
+		if primaryDirectional <= -maxOppositePrimaryScoreForReversalSetup {
+			decision.Status = "reject"
+			decision.Reasons = append(decision.Reasons, "countertrend evidence is too strong for a reversal entry")
+		} else if entryDirectional < 0 {
+			decision.Status = "warn"
+			decision.Reasons = append(decision.Reasons, "reversal structure exists before entry evidence fully turns")
+		}
+	case "exhaustion":
+		if (!primaryMomentumOK || primaryMomentum <= 0) && (!entryMomentumOK || entryMomentum <= 0) {
+			decision.Status = "wait"
+			decision.Reasons = append(decision.Reasons, "momentum exhaustion setup lacks directional exhaustion evidence")
+		}
+	default:
+		decision.Status = "reject"
+		decision.Reasons = append(decision.Reasons, "unsupported setup family")
+	}
+	if len(decision.Reasons) == 0 {
+		decision.Reasons = append(decision.Reasons, "setup-specific evidence is compatible")
+	}
+	return decision
+}
+
+func scoringComponentValue(trace ScoringEvaluationTrace, name string) (float64, bool) {
+	if trace.Components == nil {
+		return 0, false
+	}
+	value, ok := trace.Components[name]
+	if !ok {
+		return 0, false
+	}
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case float32:
+		return float64(typed), true
+	case int:
+		return float64(typed), true
+	default:
+		return 0, false
 	}
 }
 
@@ -1655,6 +1768,8 @@ func assessStopQuality(setup, side string, entry, stopAnchor float64, stopTF, st
 	if quality.DistanceATR > maxDistance && maxDistance > 0 {
 		quality.Fragility = "wide"
 		quality.Warnings = append(quality.Warnings, fmt.Sprintf("stop_distance %.2f ATR above %.2f ATR setup guideline", quality.DistanceATR, maxDistance))
+		quality.RejectReason = fmt.Sprintf("stop anchor %.2f ATR from entry is too wide for %s", quality.DistanceATR, name)
+		return quality
 	}
 	if quality.ConfirmedSwingCount > 0 && quality.ConfirmedSwingCount < minConfirmedSwingCountForSetup(name) {
 		quality.Warnings = append(quality.Warnings, fmt.Sprintf("confirmed_swing_count_%d_is_limited", quality.ConfirmedSwingCount))

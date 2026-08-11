@@ -32,6 +32,9 @@ type SignalCalibrationSample struct {
 	Timeframe                  string    `gorm:"column:timeframe;default:''" json:"timeframe,omitempty"`
 	PrimaryTimeframe           string    `gorm:"column:primary_timeframe;default:''" json:"primary_timeframe,omitempty"`
 	EntryTimeframe             string    `gorm:"column:entry_timeframe;default:''" json:"entry_timeframe,omitempty"`
+	MarketDataSource           string    `gorm:"column:market_data_source;not null;default:'default';index" json:"market_data_source"`
+	PrimaryBarTime             int64     `gorm:"column:primary_bar_time;default:0;index" json:"primary_bar_time,omitempty"`
+	RepeatCount                int       `gorm:"column:repeat_count;not null;default:1" json:"repeat_count"`
 	ConfirmationTimeframesJSON string    `gorm:"column:confirmation_timeframes_json;default:'[]'" json:"confirmation_timeframes_json,omitempty"`
 	EntryPrice                 float64   `gorm:"column:entry_price;default:0" json:"entry_price,omitempty"`
 	Confidence                 int       `gorm:"column:confidence;default:0" json:"confidence,omitempty"`
@@ -49,7 +52,7 @@ type SignalCalibrationSample struct {
 	EvidenceTraceJSON          string    `gorm:"column:evidence_trace_json;type:text" json:"evidence_trace_json,omitempty"`
 	SignalJSON                 string    `gorm:"column:signal_json;type:text" json:"signal_json,omitempty"`
 	MarketContextJSON          string    `gorm:"column:market_context_json;type:text" json:"market_context_json,omitempty"`
-	KlineWindowsJSON           string    `gorm:"column:kline_windows_json;type:text" json:"kline_windows_json,omitempty"`
+	KlineWindowsJSON           string    `gorm:"-" json:"-"`
 	AsOf                       time.Time `gorm:"column:as_of;not null;index:idx_signal_calib_trader_time,sort:desc;index:idx_signal_calib_symbol_time,sort:desc" json:"as_of"`
 	CreatedAt                  time.Time `gorm:"autoCreateTime" json:"created_at"`
 }
@@ -78,6 +81,15 @@ type SignalCalibrationReport struct {
 	WinRate               float64                            `json:"win_rate"`
 	TotalPnL              float64                            `json:"total_pnl"`
 	AveragePnL            float64                            `json:"average_pnl"`
+	EpisodeCount          int                                `json:"episode_count"`
+	LabeledEpisodeCount   int                                `json:"labeled_episode_count"`
+	PendingEpisodeCount   int                                `json:"pending_episode_count"`
+	AmbiguousEpisodeCount int                                `json:"ambiguous_episode_count"`
+	PositiveEpisodeCount  int                                `json:"positive_episode_count"`
+	NegativeEpisodeCount  int                                `json:"negative_episode_count"`
+	EpisodeHitRate        float64                            `json:"episode_hit_rate"`
+	AverageEpisodeR       float64                            `json:"average_episode_r"`
+	EpisodeRCount         int                                `json:"episode_r_count"`
 	MinRequiredSamples    int                                `json:"min_required_samples"`
 	MinRequiredOutcomes   int                                `json:"min_required_outcomes"`
 	EnoughOutcomes        bool                               `json:"enough_outcomes"`
@@ -90,6 +102,8 @@ type SignalCalibrationReport struct {
 	SetupStats            []SignalCalibrationSetupStat       `json:"setup_stats"`
 	RegimeSetupStats      []SignalCalibrationRegimeSetupStat `json:"regime_setup_stats"`
 	TimeframeStats        []SignalCalibrationTimeframeStat   `json:"timeframe_stats"`
+	EpisodeStats          []SetupEpisodeStat                 `json:"episode_stats"`
+	FactorStats           []SetupFactorStat                  `json:"factor_stats"`
 	LatestSampleAt        *time.Time                         `json:"latest_sample_at,omitempty"`
 	GeneratedAt           time.Time                          `json:"generated_at"`
 }
@@ -137,7 +151,7 @@ func NewSignalCalibrationStore(db *gorm.DB) *SignalCalibrationStore {
 }
 
 func (s *SignalCalibrationStore) initTables() error {
-	return s.db.AutoMigrate(&SignalCalibrationSample{})
+	return s.db.AutoMigrate(&SignalCalibrationSample{}, &SetupEpisode{}, &CalibrationKline{})
 }
 
 func (s *SignalCalibrationStore) CreateMany(samples []*SignalCalibrationSample) error {
@@ -154,6 +168,10 @@ func (s *SignalCalibrationStore) CreateMany(samples []*SignalCalibrationSample) 
 		sample.StrategyID = strings.TrimSpace(sample.StrategyID)
 		sample.StrategyVersion = strings.TrimSpace(sample.StrategyVersion)
 		sample.Symbol = strings.TrimSpace(strings.ToUpper(sample.Symbol))
+		sample.MarketDataSource = strings.ToLower(strings.TrimSpace(sample.MarketDataSource))
+		if sample.MarketDataSource == "" {
+			sample.MarketDataSource = "default"
+		}
 		sample.SampleKind = strings.TrimSpace(sample.SampleKind)
 		if sample.SampleKind == "" {
 			sample.SampleKind = "setup"
@@ -172,12 +190,60 @@ func (s *SignalCalibrationStore) CreateMany(samples []*SignalCalibrationSample) 
 		} else {
 			sample.AsOf = sample.AsOf.UTC()
 		}
+		if bar, ok := latestSetupEpisodeBar(sample.KlineWindowsJSON, sample.PrimaryTimeframe); ok {
+			sample.PrimaryBarTime = bar.CloseTime
+		}
 		valid = append(valid, sample)
 	}
 	if len(valid) == 0 {
 		return nil
 	}
-	return s.db.Create(&valid).Error
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := upsertCalibrationKlines(tx, valid); err != nil {
+			return err
+		}
+		if err := s.observeSetupEpisodes(tx, valid); err != nil {
+			return err
+		}
+		return persistCalibrationSamples(tx, valid)
+	})
+}
+
+func persistCalibrationSamples(tx *gorm.DB, samples []*SignalCalibrationSample) error {
+	for _, sample := range samples {
+		if sample == nil {
+			continue
+		}
+		sample.KlineWindowsJSON = ""
+		if sample.SampleKind == "setup" && sample.PrimaryBarTime > 0 {
+			var existing SignalCalibrationSample
+			err := tx.Select("id", "repeat_count", "created_at").
+				Where("trader_id = ? AND strategy_id = ? AND strategy_version = ? AND symbol = ? AND sample_kind = ? AND primary_timeframe = ? AND primary_bar_time = ?",
+					sample.TraderID, sample.StrategyID, sample.StrategyVersion, sample.Symbol,
+					sample.SampleKind, sample.PrimaryTimeframe, sample.PrimaryBarTime).
+				First(&existing).Error
+			switch err {
+			case nil:
+				sample.ID = existing.ID
+				sample.CreatedAt = existing.CreatedAt
+				sample.RepeatCount = existing.RepeatCount + 1
+				if saveErr := tx.Save(sample).Error; saveErr != nil {
+					return fmt.Errorf("update calibration sample: %w", saveErr)
+				}
+				continue
+			case gorm.ErrRecordNotFound:
+			default:
+				return fmt.Errorf("load calibration sample: %w", err)
+			}
+		}
+		if sample.RepeatCount <= 0 {
+			sample.RepeatCount = 1
+		}
+		if err := tx.Create(sample).Error; err != nil {
+			return fmt.Errorf("create calibration sample: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *SignalCalibrationStore) BuildReport(strategyID string, limit int) (*SignalCalibrationReport, error) {
@@ -342,10 +408,14 @@ func (s *SignalCalibrationStore) buildReport(strategyID string, strategyVersion 
 	if report.StrategyVersion == "" {
 		report.StrategyVersion = mostCommonString(versionCounts)
 	}
-	report.EnoughSamples = report.SampleCount >= report.MinRequiredSamples
 	if err := s.applyClosedPositionOutcomes(report, setupStats, regimeStats, outcomeRouteBySignal, strategyID, strategyVersion, limit); err != nil {
 		return nil, err
 	}
+	if err := s.applySetupEpisodeStats(report, strategyID, strategyVersion, limit); err != nil {
+		return nil, err
+	}
+	report.EnoughSamples = report.EpisodeCount >= report.MinRequiredSamples
+	report.EnoughOutcomes = report.LabeledEpisodeCount >= report.MinRequiredOutcomes
 	report.QualityGate, report.Recommendation = calibrationGate(report)
 
 	for _, stat := range setupStats {
@@ -520,7 +590,6 @@ func (s *SignalCalibrationStore) applyClosedPositionOutcomes(report *SignalCalib
 			stat.AveragePnL = stat.TotalPnL / float64(stat.ClosedTrades)
 		}
 	}
-	report.EnoughOutcomes = report.ClosedTradeCount >= report.MinRequiredOutcomes
 	return nil
 }
 
@@ -537,20 +606,17 @@ func nonEmptyCalibrationValue(value, fallback string) string {
 }
 
 func calibrationGate(report *SignalCalibrationReport) (string, string) {
-	if report == nil || report.SampleCount == 0 {
-		return "no_data", "No calibration samples yet. Run the strategy in paper mode before calibration."
+	if report == nil || report.EpisodeCount == 0 {
+		return "no_data", "No independent setup episodes yet. Run the strategy until reproducible market opportunities are observed."
 	}
 	if !report.EnoughSamples {
-		return "collecting", "Calibration samples are still insufficient. Keep collecting deterministic setup/signal evidence before changing parameters."
-	}
-	if report.ExecutedCount == 0 {
-		return "blocked", "Samples exist, but no candidate signal has been executed. Review setup triggers, execution results, and data availability before paper validation."
-	}
-	if report.ClosedTradeCount == 0 {
-		return "paper_collecting", "Candidate signal coverage is sufficient, but no closed paper trades are linked to this strategy yet. Keep paper mode running until outcomes are available."
+		return "collecting", "Independent setup episodes are still insufficient. Repeated scans of the same candle are intentionally not counted."
 	}
 	if !report.EnoughOutcomes {
-		return "outcome_collecting", "Closed trade outcomes are linked, but still below the calibration threshold. Review manually; do not auto-evolve parameters yet."
+		return "outcome_collecting", "Setup episodes exist, but too few have reached a structural target, invalidation, or forward horizon for calibration."
+	}
+	if report.ExecutedCount == 0 || report.ClosedTradeCount == 0 {
+		return "calibration_ready", "Forward setup labels are sufficient for evidence calibration. Keep paper trading for execution and fee validation before live use."
 	}
 	if report.WinRate < 0.4 || report.TotalPnL < 0 {
 		return "needs_review", "Outcome sample size is sufficient but performance is weak. Use manual strategy review before any live deployment."

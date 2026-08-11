@@ -35,8 +35,6 @@ type StrategyEvolutionEvidence struct {
 }
 
 type StrategyEvolutionConfigSummary struct {
-	StrategyArchetype string                 `json:"strategy_archetype,omitempty"`
-	RiskProfile       string                 `json:"risk_profile,omitempty"`
 	StrategyMode      string                 `json:"strategy_mode,omitempty"`
 	Timeframes        map[string]any         `json:"timeframes,omitempty"`
 	EvidenceFilters   map[string]any         `json:"evidence_filters,omitempty"`
@@ -378,11 +376,14 @@ func buildStrategyEvolutionSystemPrompt(lang string) string {
 You are a strategy evolution analyst for a deterministic crypto trading system.
 
 Your task:
-- Review historical structured evidence, closed paper outcomes, and current strategy parameters.
+- Review independent setup episodes, their forward labels, closed paper outcomes, and current strategy parameters.
+- calibration.episode_stats is the primary evidence for setup and factor changes. Raw sample_count contains operational scans and must not be treated as independent observations.
+- calibration.factor_stats measures factor/outcome alignment by regime, setup, side, and factor. Change factor weights only when the relevant rows have enough labeled episodes and show a consistent pattern; do not extrapolate from a single setup.
+- Use labeled setup episodes for opportunity-quality calibration; use closed paper trades for fees, slippage, sizing, stop execution, and realized PnL validation.
 - Evaluate trade outcomes by net_pnl after fees; realized_pnl is the gross exchange result.
 - Use replay.parameter_scans to judge whether market_structure parameter changes are stable across persisted K-line windows before proposing them.
 - Replay is a setup-classification sensitivity scan, not a profitability backtest. Never infer higher returns from tradable_count, changed_from_baseline_count, or stability alone.
-- Connect any proposed parameter change to closed net outcomes for the affected symbol regime, setup, and side; otherwise leave that parameter unchanged.
+- Connect setup/evidence changes to labeled episode outcomes for the affected regime, setup, and side. Connect execution/risk changes to closed net outcomes; otherwise leave that parameter unchanged.
 - Produce a conservative manual strategy improvement proposal.
 - The program calculates K-lines, indicators, market_structure, setup detection, evidence filters, risk gate decisions, and paper outcomes. Do not recalculate raw indicators.
 - Do not invent unavailable market data.
@@ -555,9 +556,7 @@ func summarizeEvolutionConfig(config *store.StrategyConfig) StrategyEvolutionCon
 	}
 	klines := config.Indicators.Klines
 	return StrategyEvolutionConfigSummary{
-		StrategyArchetype: config.StrategyArchetype,
-		RiskProfile:       config.RiskProfile,
-		StrategyMode:      config.StrategyMode,
+		StrategyMode: config.StrategyMode,
 		Timeframes: map[string]any{
 			"primary":            klines.PrimaryTimeframe,
 			"entry":              klines.EntryTimeframe,
@@ -625,10 +624,10 @@ func buildEvolutionDataQualityNotes(report *store.SignalCalibrationReport) []str
 	}
 	notes := []string{}
 	if !report.EnoughSamples {
-		notes = append(notes, fmt.Sprintf("sample count %d is below recommended %d", report.SampleCount, report.MinRequiredSamples))
+		notes = append(notes, fmt.Sprintf("independent setup episode count %d is below recommended %d", report.EpisodeCount, report.MinRequiredSamples))
 	}
 	if !report.EnoughOutcomes {
-		notes = append(notes, fmt.Sprintf("closed outcomes %d is below recommended %d", report.ClosedTradeCount, report.MinRequiredOutcomes))
+		notes = append(notes, fmt.Sprintf("labeled setup episode count %d is below recommended %d", report.LabeledEpisodeCount, report.MinRequiredOutcomes))
 	}
 	if report.ExecutedCount == 0 {
 		notes = append(notes, "no approved signals were executed")

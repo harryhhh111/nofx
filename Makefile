@@ -1,53 +1,17 @@
-# NOFX Makefile for testing and development
+# NOFX Makefile for building and development
 
-.PHONY: help test test-backend test-frontend test-coverage clean
+.PHONY: help clean
 
 # Default target
 help:
-	@echo "NOFX Testing & Development Commands"
-	@echo ""
-	@echo "Testing:"
-	@echo "  make test                 - Run all tests (backend + frontend)"
-	@echo "  make test-backend         - Run backend tests only"
-	@echo "  make test-frontend        - Run frontend tests only"
-	@echo "  make test-coverage        - Generate backend coverage report"
+	@echo "NOFX Build & Development Commands"
 	@echo ""
 	@echo "Build:"
 	@echo "  make build                - Build backend binary"
 	@echo "  make build-frontend       - Build frontend"
 	@echo ""
 	@echo "Clean:"
-	@echo "  make clean                - Clean build artifacts and test cache"
-
-# =============================================================================
-# Testing
-# =============================================================================
-
-# Run all tests
-test:
-	@echo "🧪 Running backend tests..."
-	go test -v ./...
-	@echo ""
-	@echo "🧪 Running frontend tests..."
-	cd web && npm run test
-	@echo "✅ All tests completed"
-
-# Backend tests only
-test-backend:
-	@echo "🧪 Running backend tests..."
-	go test -v ./...
-
-# Frontend tests only
-test-frontend:
-	@echo "🧪 Running frontend tests..."
-	cd web && npm run test
-
-# Coverage report
-test-coverage:
-	@echo "📊 Generating coverage..."
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "✅ Backend coverage: coverage.html"
+	@echo "  make clean                - Clean build artifacts"
 
 # =============================================================================
 # Build
@@ -98,9 +62,7 @@ lint:
 clean:
 	@echo "🧹 Cleaning..."
 	rm -f nofx
-	rm -f coverage.out coverage.html
 	rm -rf web/dist
-	go clean -testcache
 	@echo "✅ Cleaned"
 
 # =============================================================================
