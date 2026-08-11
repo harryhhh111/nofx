@@ -1,5 +1,7 @@
 # x402 Streaming Payment Architecture
 
+> **Note (2026 update):** the claw402 LLM inference gateway described in this document has been removed. The streaming-payment flow below is kept for historical reference only. Today claw402 is used solely as the NofxOS data payment channel (x402 USDC payments on Base); it no longer proxies AI model calls.
+
 ## Overview
 
 NOFX calls AI models (DeepSeek, GPT, Claude, etc.) through the claw402 gateway, using the [x402 protocol](https://github.com/coinbase/x402) to pay per request with USDC on Base L2.

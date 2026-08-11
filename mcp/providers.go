@@ -12,7 +12,6 @@ const (
 	ProviderGrok     = "grok"
 	ProviderKimi     = "kimi"
 	ProviderMiniMax  = "minimax"
-	ProviderClaw402  = "claw402"
 
 	// Default DeepSeek configuration (used as fallback in NewClient)
 	DefaultDeepSeekBaseURL = "https://api.deepseek.com"

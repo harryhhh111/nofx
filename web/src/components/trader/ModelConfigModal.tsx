@@ -9,7 +9,6 @@ import { getModelIcon } from '../common/ModelIcons'
 import { ModelStepIndicator } from './ModelStepIndicator'
 import { ModelCard } from './ModelCard'
 import {
-  CLAW402_MODELS,
   AI_PROVIDER_CONFIG,
   getShortName,
 } from './model-constants'
@@ -78,7 +77,8 @@ export function ModelConfigModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!selectedModelId || !apiKey.trim()) return
-    onSave(selectedModelId, apiKey.trim(), baseUrl.trim() || undefined, modelName.trim() || undefined)
+    // claw402 is a data payment wallet, not an LLM — never submit a model name for it
+    onSave(selectedModelId, apiKey.trim(), baseUrl.trim() || undefined, isClaw402Selected ? undefined : modelName.trim() || undefined)
   }
 
   const availableModels = allModels || []
@@ -154,15 +154,13 @@ export function ModelConfigModal({
             />
           )}
 
-          {/* Step 1: Configure — Claw402 Dedicated UI */}
+          {/* Step 1: Configure — Claw402 Data Wallet UI */}
           {(currentStep === 1 || editingModelId) && selectedModel && (selectedModel.provider === 'claw402' || selectedModel.id === 'claw402') && (
             <Claw402ConfigForm
               apiKey={apiKey}
-              modelName={modelName}
               configuredModel={configuredModel}
               editingModelId={editingModelId}
               onApiKeyChange={setApiKey}
-              onModelNameChange={setModelName}
               onBack={handleBack}
               onSubmit={handleSubmit}
               language={language}
@@ -206,8 +204,7 @@ function ModelSelectionStep({
   onSelectModel: (modelId: string) => void
   language: Language
 }) {
-  const [showOtherProviders, setShowOtherProviders] = useState(false)
-  const claw402Model = availableModels.find((m) => m.provider === 'claw402')
+  const [showOtherProviders, setShowOtherProviders] = useState(true)
   const otherProviders = availableModels.filter((m) => m.provider !== 'claw402')
 
   return (
@@ -215,51 +212,6 @@ function ModelSelectionStep({
       <div className="text-sm font-semibold" style={{ color: '#EAECEF' }}>
         {t('modelConfig.chooseProvider', language)}
       </div>
-
-      {/* Claw402 Featured Card */}
-      {claw402Model && (
-        <button
-          type="button"
-          onClick={() => {
-            onSelectModel(claw402Model.id)
-          }}
-          className="w-full p-5 rounded-xl text-left transition-all hover:scale-[1.01]"
-          style={{ background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%)', border: '1.5px solid rgba(37, 99, 235, 0.4)' }}
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden">
-                <img src="/icons/claw402.png" alt="Claw402" width={40} height={40} />
-              </div>
-              <div>
-                <div className="font-bold text-base" style={{ color: '#EAECEF' }}>
-                  Claw402
-                  <a href="https://claw402.ai" target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="ml-1.5 text-[10px] font-normal px-1.5 py-0.5 rounded" style={{ color: '#60A5FA', background: 'rgba(96, 165, 250, 0.1)' }}>↗ claw402.ai</a>
-                </div>
-                <div className="text-xs mt-0.5" style={{ color: '#A0AEC0' }}>
-                  {t('modelConfig.payPerCall', language)}
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {configuredIds.has(claw402Model.id) && (
-                <div className="w-2 h-2 rounded-full" style={{ background: '#00E096' }} />
-              )}
-              <div className="px-3 py-1.5 rounded-full text-xs font-bold" style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)', color: '#fff' }}>
-                {'🔥 ' + t('modelConfig.recommended', language)}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mt-3 ml-[52px]">
-            <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(0, 224, 150, 0.1)', color: '#00E096', border: '1px solid rgba(0, 224, 150, 0.2)' }}>
-              GPT · Claude · DeepSeek · Gemini · Grok · Qwen · Kimi
-            </span>
-          </div>
-          <div className="mt-4 ml-[52px] text-[11px]" style={{ color: '#A0AEC0' }}>
-            {t('modelConfig.claw402EntryDesc', language)}
-          </div>
-        </button>
-      )}
 
       {otherProviders.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-black/20 overflow-hidden">
@@ -312,21 +264,17 @@ function ModelSelectionStep({
 
 function Claw402ConfigForm({
   apiKey,
-  modelName,
   configuredModel,
   editingModelId,
   onApiKeyChange,
-  onModelNameChange,
   onBack,
   onSubmit,
   language,
 }: {
   apiKey: string
-  modelName: string
   configuredModel: AIModel | null
   editingModelId: string | null
   onApiKeyChange: (value: string) => void
-  onModelNameChange: (value: string) => void
   onBack: () => void
   onSubmit: (e: React.FormEvent) => void
   language: Language
@@ -498,7 +446,7 @@ function Claw402ConfigForm({
           {t('modelConfig.allModelsClaw', language)}
         </div>
         <div className="flex items-center justify-center gap-3 mt-3 flex-wrap">
-          {['GPT', 'Claude', 'DeepSeek', 'Gemini', 'Grok', 'Qwen', 'Kimi'].map(name => (
+          {['NofxOS Data', 'AI500', 'Base USDC'].map(name => (
             <span key={name} className="text-[11px] px-2 py-0.5 rounded-full" style={{ background: 'rgba(255,255,255,0.06)', color: '#A0AEC0' }}>
               {name}
             </span>
@@ -525,51 +473,7 @@ function Claw402ConfigForm({
         </div>
       </div>
 
-      {/* Step 1: Select AI Model */}
-      <div className="space-y-3">
-        <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
-          <Brain className="w-4 h-4" style={{ color: '#2563EB' }} />
-          {t('modelConfig.selectAiModel', language)}
-        </label>
-        <div className="text-xs mb-2" style={{ color: '#848E9C' }}>
-          {t('modelConfig.allModelsUnified', language)}
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {CLAW402_MODELS.map((m) => {
-            const isSelected = (modelName || 'deepseek') === m.id
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => onModelNameChange(m.id)}
-                className="flex items-start gap-2 px-3 py-2.5 rounded-xl text-left transition-all hover:scale-[1.02]"
-                style={{
-                  background: isSelected ? 'rgba(37, 99, 235, 0.2)' : '#0B0E11',
-                  border: isSelected ? '1.5px solid #2563EB' : '1px solid #2B3139',
-                }}
-              >
-                <span className="text-base mt-0.5">{m.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold truncate" style={{ color: isSelected ? '#60A5FA' : '#EAECEF' }}>
-                    {m.name}
-                  </div>
-                  <div className="text-[10px] truncate" style={{ color: '#848E9C' }}>
-                    {m.provider} · {m.desc}
-                  </div>
-                  <div className="text-[10px]" style={{ color: '#00E096' }}>
-                    ~${m.price}/call
-                  </div>
-                </div>
-                {isSelected && (
-                  <span className="text-[10px] mt-1" style={{ color: '#60A5FA' }}>✓</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {/* Step 2: Wallet Setup */}
+      {/* Wallet Setup */}
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm font-semibold" style={{ color: '#EAECEF' }}>
           <svg className="w-4 h-4" style={{ color: '#2563EB' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">

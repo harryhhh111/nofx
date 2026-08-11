@@ -70,7 +70,7 @@ func (s *Server) handleGetModelConfigs(c *gin.Context) {
 			{ID: "grok", Name: "Grok AI", Provider: "grok", Enabled: false},
 			{ID: "kimi", Name: "Kimi AI", Provider: "kimi", Enabled: false},
 			{ID: "minimax", Name: "MiniMax AI", Provider: "minimax", Enabled: false},
-			{ID: "claw402", Name: "Claw402", Provider: "claw402", Enabled: false},
+			{ID: "claw402", Name: "Claw402 (Data Wallet)", Provider: "claw402", Enabled: false},
 		}
 		c.JSON(http.StatusOK, defaultModels)
 		return
@@ -225,7 +225,6 @@ func (s *Server) handleGetSupportedModels(c *gin.Context) {
 		{"id": "grok", "name": "Grok (xAI)", "provider": "grok", "defaultModel": "grok-3-latest"},
 		{"id": "kimi", "name": "Kimi (Moonshot)", "provider": "kimi", "defaultModel": "moonshot-v1-auto"},
 		{"id": "minimax", "name": "MiniMax", "provider": "minimax", "defaultModel": "MiniMax-M2.7"},
-		{"id": "claw402", "name": "Claw402 (Base USDC)", "provider": "claw402", "defaultModel": "glm-5"},
 	}
 
 	c.JSON(http.StatusOK, supportedModels)

@@ -44,7 +44,7 @@ var (
 
 // TokenUsage represents token usage from AI API response
 type TokenUsage struct {
-	Provider         string // payment channel: "claw402" or native provider name
+	Provider         string // native provider name
 	Model            string
 	PromptTokens     int
 	CompletionTokens int
@@ -52,14 +52,8 @@ type TokenUsage struct {
 }
 
 // Channel returns the payment channel category for telemetry.
-// Returns "claw402" or "native" based on the provider.
 func (u TokenUsage) Channel() string {
-	switch u.Provider {
-	case ProviderClaw402:
-		return "claw402"
-	default:
-		return "native"
-	}
+	return "native"
 }
 
 // Client AI API configuration

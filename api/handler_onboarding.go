@@ -17,18 +17,16 @@ import (
 )
 
 type beginnerOnboardingResponse struct {
-	Address           string `json:"address"`
-	PrivateKey        string `json:"private_key"`
-	Chain             string `json:"chain"`
-	Asset             string `json:"asset"`
-	Provider          string `json:"provider"`
-	DefaultModel      string `json:"default_model"`
-	ConfiguredModelID string `json:"configured_model_id"`
-	BalanceUSDC       string `json:"balance_usdc"`
-	EnvSaved          bool   `json:"env_saved"`
-	EnvPath           string `json:"env_path,omitempty"`
-	ReusedExisting    bool   `json:"reused_existing"`
-	EnvWarning        string `json:"env_warning,omitempty"`
+	Address        string `json:"address"`
+	PrivateKey     string `json:"private_key"`
+	Chain          string `json:"chain"`
+	Asset          string `json:"asset"`
+	Provider       string `json:"provider"`
+	BalanceUSDC    string `json:"balance_usdc"`
+	EnvSaved       bool   `json:"env_saved"`
+	EnvPath        string `json:"env_path,omitempty"`
+	ReusedExisting bool   `json:"reused_existing"`
+	EnvWarning     string `json:"env_warning,omitempty"`
 }
 
 type currentBeginnerWalletResponse struct {
@@ -46,7 +44,7 @@ func (s *Server) handleBeginnerOnboarding(c *gin.Context) {
 		return
 	}
 
-	privateKey, address, configuredModelID, reusedExisting, err := s.resolveBeginnerWallet(userID)
+	privateKey, address, reusedExisting, err := s.resolveBeginnerWallet(userID)
 	if err != nil {
 		logger.Errorf("Failed to resolve beginner wallet for user %s: %v", userID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare beginner wallet"})
@@ -54,35 +52,28 @@ func (s *Server) handleBeginnerOnboarding(c *gin.Context) {
 	}
 
 	if !reusedExisting {
-		if err := s.store.AIModel().Update(userID, "claw402", true, privateKey, "", "glm-5", ""); err != nil {
+		// The claw402 record stores the data-payment wallet key only; it is not an LLM config.
+		if err := s.store.AIModel().Update(userID, "claw402", true, privateKey, "", "", ""); err != nil {
 			logger.Errorf("Failed to save beginner claw402 config for user %s: %v", userID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save beginner model configuration"})
 			return
-		}
-
-		configuredModelID, err = s.findConfiguredClaw402ModelID(userID)
-		if err != nil {
-			logger.Warnf("Could not resolve configured claw402 model id for user %s: %v", userID, err)
 		}
 	}
 
 	os.Setenv("CLAW402_WALLET_KEY", privateKey)
 	os.Setenv("CLAW402_WALLET_ADDRESS", address)
-	os.Setenv("CLAW402_DEFAULT_MODEL", "glm-5")
 
 	envSaved, envPath, envErr := persistBeginnerWalletEnv(privateKey, address)
 	resp := beginnerOnboardingResponse{
-		Address:           address,
-		PrivateKey:        privateKey,
-		Chain:             "base",
-		Asset:             "USDC",
-		Provider:          "claw402",
-		DefaultModel:      "glm-5",
-		ConfiguredModelID: configuredModelID,
-		BalanceUSDC:       wallet.QueryUSDCBalanceStr(address),
-		EnvSaved:          envSaved,
-		EnvPath:           envPath,
-		ReusedExisting:    reusedExisting,
+		Address:        address,
+		PrivateKey:     privateKey,
+		Chain:          "base",
+		Asset:          "USDC",
+		Provider:       "claw402",
+		BalanceUSDC:    wallet.QueryUSDCBalanceStr(address),
+		EnvSaved:       envSaved,
+		EnvPath:        envPath,
+		ReusedExisting: reusedExisting,
 	}
 	if envErr != nil {
 		resp.EnvWarning = envErr.Error()
@@ -151,10 +142,10 @@ func (s *Server) handleCurrentBeginnerWallet(c *gin.Context) {
 	})
 }
 
-func (s *Server) resolveBeginnerWallet(userID string) (privateKey string, address string, configuredModelID string, reused bool, err error) {
+func (s *Server) resolveBeginnerWallet(userID string) (privateKey string, address string, reused bool, err error) {
 	models, err := s.store.AIModel().List(userID)
 	if err != nil {
-		return "", "", "", false, err
+		return "", "", false, err
 	}
 
 	for _, model := range models {
@@ -172,32 +163,17 @@ func (s *Server) resolveBeginnerWallet(userID string) (privateKey string, addres
 			break
 		}
 
-		return existingKey, addr, model.ID, true, nil
+		return existingKey, addr, true, nil
 	}
 
 	privateKeyObj, genErr := gethcrypto.GenerateKey()
 	if genErr != nil {
-		return "", "", "", false, genErr
+		return "", "", false, genErr
 	}
 
 	addr := gethcrypto.PubkeyToAddress(privateKeyObj.PublicKey)
 	keyHex := "0x" + hex.EncodeToString(gethcrypto.FromECDSA(privateKeyObj))
-	return keyHex, addr.Hex(), "", false, nil
-}
-
-func (s *Server) findConfiguredClaw402ModelID(userID string) (string, error) {
-	models, err := s.store.AIModel().List(userID)
-	if err != nil {
-		return "", err
-	}
-
-	for _, model := range models {
-		if model != nil && model.Provider == "claw402" {
-			return model.ID, nil
-		}
-	}
-
-	return "", fmt.Errorf("claw402 model not found")
+	return keyHex, addr.Hex(), false, nil
 }
 
 func walletAddressFromPrivateKey(privateKey string) (string, error) {
@@ -233,7 +209,6 @@ func persistBeginnerWalletEnv(privateKey string, address string) (bool, string, 
 		if err := upsertEnvFile(path, map[string]string{
 			"CLAW402_WALLET_KEY":     privateKey,
 			"CLAW402_WALLET_ADDRESS": address,
-			"CLAW402_DEFAULT_MODEL":  "glm-5",
 		}); err != nil {
 			lastErr = err
 			continue

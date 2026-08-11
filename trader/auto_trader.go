@@ -5,7 +5,6 @@ import (
 	"nofx/kernel"
 	"nofx/logger"
 	"nofx/mcp"
-	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
 	"nofx/store"
 	"nofx/trader/aster"
@@ -405,7 +404,6 @@ func (at *AutoTrader) Run() error {
 	logger.Infof("⚙️  Scan interval: %v", at.config.ScanInterval)
 	logger.Info("🤖 AI will make full decisions on leverage, position size, stop loss/take profit, etc.")
 
-	// Pre-launch checks for claw402 users
 	at.monitorWg.Add(1)
 	defer at.monitorWg.Done()
 

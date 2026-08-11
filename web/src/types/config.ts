@@ -141,8 +141,6 @@ export interface BeginnerOnboardingResponse {
   chain: string
   asset: string
   provider: string
-  default_model: string
-  configured_model_id: string
   balance_usdc: string
   env_saved: boolean
   env_path?: string

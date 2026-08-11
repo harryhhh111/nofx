@@ -16,7 +16,7 @@
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go" alt="Go"></a>
   <a href="https://reactjs.org/"><img src="https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react" alt="React"></a>
   <a href="https://x402.org"><img src="https://img.shields.io/badge/x402-USDC%20Payments-2775CA?style=flat" alt="x402"></a>
-  <a href="https://claw402.ai"><img src="https://img.shields.io/badge/Claw402-AI%20Gateway-FF6B35?style=flat" alt="Claw402"></a>
+  <a href="https://claw402.ai"><img src="https://img.shields.io/badge/Claw402-Data%20Payments-FF6B35?style=flat" alt="Claw402"></a>
 </p>
 
 <p align="center">
@@ -57,13 +57,13 @@ x402 流程：
 请求 → 402（返回价格）→ 钱包签名 USDC → 重试 → 完成
 ```
 
-无需注册。无需 API Key。无需预付费。一个钱包，所有模型。
+无需注册。无需 API Key。无需预付费。一个钱包，按次付费。
 
 ### 内置 x402 提供商
 
-| 提供商 | 链 | 模型 |
+| 提供商 | 链 | 用途 |
 |:---------|:------|:-------|
-| <img src="../../../web/public/icons/claw402.png" width="20" height="20" style="vertical-align: middle;"/> **[Claw402](https://claw402.ai)** | Base | GPT-5.4、Claude Opus、DeepSeek、Qwen、Grok、Gemini、Kimi — 15+ 模型 |
+| <img src="../../../web/public/icons/claw402.png" width="20" height="20" style="vertical-align: middle;"/> **[Claw402](https://claw402.ai)** | Base | NofxOS 数据付费钱包 — 按次 USDC 扣费 |
 
 ---
 
@@ -115,9 +115,9 @@ x402 流程：
 | <img src="../../../web/public/icons/kimi.svg" width="20" height="20" style="vertical-align: middle;"/> **Kimi** | ✅ | [获取 API Key](https://platform.moonshot.cn) |
 | <img src="../../../web/public/icons/minimax.svg" width="20" height="20" style="vertical-align: middle;"/> **MiniMax** | ✅ | [获取 API Key](https://platform.minimaxi.com) |
 
-### AI 模型 (x402 模式 — 无需 API Key)
+### 数据付费 (x402 模式 — 无需 API Key)
 
-15+ 模型通过 [Claw402](https://claw402.ai) 接入 — 只需一个 USDC 钱包
+NofxOS 数据通过 [Claw402](https://claw402.ai) 按次付费 — 只需一个 USDC 钱包
 
 ---
 

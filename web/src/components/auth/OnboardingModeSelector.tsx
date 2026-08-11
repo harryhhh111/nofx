@@ -24,8 +24,8 @@ export function OnboardingModeSelector({
       title: isZh ? '新手模式' : 'Beginner Mode',
       badge: isZh ? '推荐' : 'Recommended',
       description: isZh
-        ? '自动生成 Base 钱包，默认接入 Claw402 + DeepSeek，最快完成首次启动。'
-        : 'Generate a Base wallet automatically and start with Claw402 + DeepSeek by default.',
+        ? '自动创建 Base USDC 数据付费钱包（Claw402），最快完成首次启动。'
+        : 'Automatically create a Base USDC data payment wallet (Claw402) and get started fast.',
     },
     {
       id: 'advanced',

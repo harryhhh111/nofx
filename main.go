@@ -8,7 +8,6 @@ import (
 	"nofx/telemetry"
 	"nofx/logger"
 	"nofx/manager"
-	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
 	"nofx/provider/smallcap"
 	"nofx/provider/supplyrefresher"

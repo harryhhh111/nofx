@@ -5,7 +5,6 @@ import (
 	"nofx/config"
 	"nofx/logger"
 	"nofx/mcp"
-	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
 	"nofx/store"
 	"nofx/telegram/agent"
@@ -272,14 +271,11 @@ func newLLMClient(st *store.Store, userID string) mcp.AIClient {
 	if tgCfg, err := st.TelegramConfig().Get(); err == nil && tgCfg.ModelID != "" {
 		if model, err := st.AIModel().Get(userID, tgCfg.ModelID); err == nil && model.Enabled {
 			apiKey := string(model.APIKey)
-			if apiKey != "" {
+			// claw402 records hold a data-payment wallet key, not an LLM credential — skip them.
+			if apiKey != "" && !isUSDCProvider(model.Provider) {
 				client := clientForProvider(model.Provider)
 				client.SetAPIKey(apiKey, model.CustomAPIURL, model.CustomModelName)
-				if isUSDCProvider(model.Provider) {
-					logger.Infof("Telegram agent: provider=%s (USDC payment) user=%s", model.Provider, userID)
-				} else {
-					logger.Infof("Telegram agent: provider=%s user=%s", model.Provider, userID)
-				}
+				logger.Infof("Telegram agent: provider=%s user=%s", model.Provider, userID)
 				return client
 			}
 		}
@@ -288,14 +284,10 @@ func newLLMClient(st *store.Store, userID string) mcp.AIClient {
 	// 2. Fall back to first enabled model
 	if model, err := st.AIModel().GetDefault(userID); err == nil {
 		apiKey := string(model.APIKey)
-		if apiKey != "" {
+		if apiKey != "" && !isUSDCProvider(model.Provider) {
 			client := clientForProvider(model.Provider)
 			client.SetAPIKey(apiKey, model.CustomAPIURL, model.CustomModelName)
-			if isUSDCProvider(model.Provider) {
-				logger.Infof("Telegram agent: provider=%s (USDC payment) user=%s", model.Provider, userID)
-			} else {
-				logger.Infof("Telegram agent: provider=%s user=%s", model.Provider, userID)
-			}
+			logger.Infof("Telegram agent: provider=%s user=%s", model.Provider, userID)
 			return client
 		}
 	}
@@ -315,7 +307,8 @@ func newLLMClient(st *store.Store, userID string) mcp.AIClient {
 	return nil
 }
 
-// isUSDCProvider returns true for providers that pay per call with USDC (x402 protocol).
+// isUSDCProvider returns true for claw402, whose stored record holds a USDC
+// data-payment wallet key rather than an LLM credential.
 func isUSDCProvider(provider string) bool {
 	return provider == "claw402"
 }
@@ -337,7 +330,7 @@ func statusMsg(st *store.Store, userID string, apiPort int, lang string) string 
 
 	// Determine what's missing.
 	hasModel := false
-	if _, err := st.AIModel().GetDefault(userID); err == nil {
+	if model, err := st.AIModel().GetDefault(userID); err == nil && !isUSDCProvider(model.Provider) {
 		hasModel = true
 	}
 

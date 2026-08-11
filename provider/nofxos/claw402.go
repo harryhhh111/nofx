@@ -9,6 +9,7 @@ import (
 	"nofx/mcp"
 	"nofx/mcp/payment"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -108,7 +109,7 @@ func (c *Claw402DataClient) DoRequestContext(ctx context.Context, endpoint strin
 
 	signFn := payment.MakeClaw402SignFunc(c.privateKey)
 
-	body, err := payment.DoX402RequestWithContext(
+	body, paymentInfo, err := payment.DoX402RequestWithContext(
 		ctx,
 		c.httpClient,
 		buildReq,
@@ -120,5 +121,19 @@ func (c *Claw402DataClient) DoRequestContext(ctx context.Context, endpoint strin
 		return nil, fmt.Errorf("claw402 data request failed (%s): %w", claw402Path, err)
 	}
 
+	if paymentInfo != nil {
+		c.logger.Infof("💰 [claw402-data] Paid %s USDC for %s (tx %s)",
+			formatUSDCAmount(paymentInfo.Amount), claw402Path, paymentInfo.TxHash)
+	}
+
 	return body, nil
+}
+
+// formatUSDCAmount converts a raw 6-decimal USDC amount to a plain decimal string.
+func formatUSDCAmount(raw string) string {
+	v, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return raw
+	}
+	return fmt.Sprintf("%.6f", float64(v)/1e6)
 }

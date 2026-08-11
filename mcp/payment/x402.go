@@ -1,7 +1,6 @@
 package payment
 
 import (
-	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -28,11 +27,6 @@ const (
 
 	// X402RetryBaseWait is the base wait between payment retry attempts.
 	X402RetryBaseWait = 3 * time.Second
-
-	// X402Timeout is the HTTP timeout for x402 payment providers.
-	// AI inference (especially DeepSeek) can take several minutes; the default
-	// 120s causes premature timeouts that trigger duplicate payments.
-	X402Timeout = 5 * time.Minute
 )
 
 func x402RetryPolicy(providerTag string) (int, time.Duration) {
@@ -119,19 +113,30 @@ func SignBasePaymentHeader(privateKey *ecdsa.PrivateKey, paymentHeaderB64 string
 	return SignX402Payment(privateKey, senderAddr, req.Accepts[0], req.Resource)
 }
 
-// DoX402Request executes an HTTP request and handles the x402 v2 payment flow.
-func DoX402Request(
-	httpClient *http.Client,
-	buildReqFn func() (*http.Request, error),
-	signFn X402SignFunc,
-	providerTag string,
-	logger mcp.Logger,
-) ([]byte, error) {
-	return DoX402RequestWithContext(context.Background(), httpClient, buildReqFn, signFn, providerTag, logger)
+// X402PaymentInfo carries details of a settled x402 payment.
+type X402PaymentInfo struct {
+	Amount string // raw amount in the asset's smallest unit (USDC: 6 decimals)
+	Asset  string // asset contract address
+	TxHash string // settlement tx hash from the Payment-Response header
+}
+
+// x402ParseAccept extracts the amount and asset from a base64 Payment-Required header.
+func x402ParseAccept(paymentHeaderB64 string) (amount, asset string) {
+	decoded, err := X402DecodeHeader(paymentHeaderB64)
+	if err != nil {
+		return "", ""
+	}
+	var req X402v2PaymentRequired
+	if err := json.Unmarshal(decoded, &req); err != nil || len(req.Accepts) == 0 {
+		return "", ""
+	}
+	return req.Accepts[0].Amount, req.Accepts[0].Asset
 }
 
 // DoX402RequestWithContext executes an HTTP request and handles the x402 v2
 // payment flow, respecting ctx during HTTP calls and retry waits.
+// The returned *X402PaymentInfo is non-nil only when a payment was settled
+// (i.e. the request succeeded after the 402 dance).
 func DoX402RequestWithContext(
 	ctx context.Context,
 	httpClient *http.Client,
@@ -139,16 +144,16 @@ func DoX402RequestWithContext(
 	signFn X402SignFunc,
 	providerTag string,
 	logger mcp.Logger,
-) ([]byte, error) {
+) ([]byte, *X402PaymentInfo, error) {
 	req, err := buildReqFn()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req = req.WithContext(ctx)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -159,15 +164,17 @@ func DoX402RequestWithContext(
 		}
 		if paymentHeader == "" {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, fmt.Errorf("received 402 but no Payment-Required header found. Body: %s", string(body))
+			return nil, nil, fmt.Errorf("received 402 but no Payment-Required header found. Body: %s", string(body))
 		}
 
 		// Drain 402 body to allow HTTP connection reuse.
 		_, _ = io.Copy(io.Discard, resp.Body)
 
+		amount, asset := x402ParseAccept(paymentHeader)
+
 		paymentSig, err := signFn(paymentHeader)
 		if err != nil {
-			return nil, fmt.Errorf("failed to sign x402 payment: %w", err)
+			return nil, nil, fmt.Errorf("failed to sign x402 payment: %w", err)
 		}
 
 		// Retry loop for 5xx / expired-402 errors on the payment-signed request.
@@ -177,7 +184,7 @@ func DoX402RequestWithContext(
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			req2, err := buildReqFn()
 			if err != nil {
-				return nil, fmt.Errorf("failed to build retry request: %w", err)
+				return nil, nil, fmt.Errorf("failed to build retry request: %w", err)
 			}
 			req2 = req2.WithContext(ctx)
 			req2.Header.Set("X-Payment", paymentSig)
@@ -190,27 +197,29 @@ func DoX402RequestWithContext(
 					logger.Warnf("⚠️  [%s] Payment request failed: %v, retrying in %v (%d/%d)...",
 						providerTag, err, wait, attempt+1, maxRetries)
 					if err := sleepWithContext(ctx, wait); err != nil {
-						return nil, err
+						return nil, nil, err
 					}
 					continue
 				}
-				return nil, fmt.Errorf("failed to send payment retry: %w", err)
+				return nil, nil, fmt.Errorf("failed to send payment retry: %w", err)
 			}
 
 			body2, readErr := io.ReadAll(resp2.Body)
 			resp2.Body.Close()
 			if readErr != nil {
-				return nil, fmt.Errorf("failed to read payment retry response: %w", readErr)
+				return nil, nil, fmt.Errorf("failed to read payment retry response: %w", readErr)
 			}
 
 			if resp2.StatusCode == http.StatusOK {
+				info := &X402PaymentInfo{Amount: amount, Asset: asset}
 				if txHash := resp2.Header.Get("Payment-Response"); txHash != "" {
+					info.TxHash = txHash
 					logger.Infof("💰 [%s] Payment tx: %s", providerTag, txHash)
 				}
 				if attempt > 1 {
 					logger.Infof("✅ [%s] Payment retry succeeded on attempt %d", providerTag, attempt)
 				}
-				return body2, nil
+				return body2, info, nil
 			}
 
 			lastBody = body2
@@ -231,6 +240,7 @@ func DoX402RequestWithContext(
 						newSig, signErr := signFn(newHeader)
 						if signErr == nil {
 							paymentSig = newSig
+							amount, asset = x402ParseAccept(newHeader)
 							logger.Warnf("⚠️  [%s] Payment expired (402), re-signed and retrying in %v (%d/%d)...",
 								providerTag, wait, attempt+1, maxRetries)
 						} else {
@@ -247,7 +257,7 @@ func DoX402RequestWithContext(
 				}
 
 				if err := sleepWithContext(ctx, wait); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				continue
 			}
@@ -256,17 +266,17 @@ func DoX402RequestWithContext(
 			break
 		}
 
-		return nil, fmt.Errorf("%s payment retry failed (status %d): %s", providerTag, lastStatus, string(lastBody))
+		return nil, nil, fmt.Errorf("%s payment retry failed (status %d): %s", providerTag, lastStatus, string(lastBody))
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
+		return nil, nil, fmt.Errorf("failed to read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s API error (status %d): %s", providerTag, resp.StatusCode, string(body))
+		return nil, nil, fmt.Errorf("%s API error (status %d): %s", providerTag, resp.StatusCode, string(body))
 	}
-	return body, nil
+	return body, nil, nil
 }
 
 func sleepWithContext(ctx context.Context, d time.Duration) error {
@@ -278,298 +288,6 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
-}
-
-// DoX402RequestStream executes an HTTP request with x402 v2 payment flow and
-// returns the open *http.Response for streaming. The caller is responsible for
-// reading and closing the response body.
-// The provided ctx is attached to the final successful HTTP request so that
-// cancelling ctx will immediately close the underlying connection and unblock
-// any pending body reads.
-func DoX402RequestStream(
-	ctx context.Context,
-	httpClient *http.Client,
-	buildReqFn func() (*http.Request, error),
-	signFn X402SignFunc,
-	providerTag string,
-	logger mcp.Logger,
-) (*http.Response, error) {
-	// Initial request — use background context (no idle timeout yet).
-	req, err := buildReqFn()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-
-	// Non-402 initial response
-	if resp.StatusCode != http.StatusPaymentRequired {
-		if resp.StatusCode == http.StatusOK {
-			return resp, nil
-		}
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, fmt.Errorf("%s API error (status %d): %s", providerTag, resp.StatusCode, string(body))
-	}
-
-	// 402 — extract payment header and sign
-	paymentHeader := resp.Header.Get("Payment-Required")
-	if paymentHeader == "" {
-		paymentHeader = resp.Header.Get("X-Payment-Required")
-	}
-	if paymentHeader == "" {
-		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		return nil, fmt.Errorf("received 402 but no Payment-Required header found. Body: %s", string(body))
-	}
-	_, _ = io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-
-	paymentSig, err := signFn(paymentHeader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to sign x402 payment: %w", err)
-	}
-
-	// Retry loop for the payment-signed request.
-	// Attach ctx to these requests so the caller can cancel body reads.
-	var lastStatus int
-	var lastBody []byte
-	for attempt := 1; attempt <= X402MaxPaymentRetries; attempt++ {
-		req2, err := buildReqFn()
-		if err != nil {
-			return nil, fmt.Errorf("failed to build retry request: %w", err)
-		}
-		req2 = req2.WithContext(ctx)
-		req2.Header.Set("X-Payment", paymentSig)
-		req2.Header.Set("Payment-Signature", paymentSig)
-
-		resp2, err := httpClient.Do(req2)
-		if err != nil {
-			if attempt < X402MaxPaymentRetries {
-				wait := X402RetryBaseWait * time.Duration(attempt)
-				logger.Warnf("⚠️  [%s] Payment request failed: %v, retrying in %v (%d/%d)...",
-					providerTag, err, wait, attempt+1, X402MaxPaymentRetries)
-				time.Sleep(wait)
-				continue
-			}
-			return nil, fmt.Errorf("failed to send payment retry: %w", err)
-		}
-
-		if resp2.StatusCode == http.StatusOK {
-			if txHash := resp2.Header.Get("Payment-Response"); txHash != "" {
-				logger.Infof("💰 [%s] Payment tx: %s", providerTag, txHash)
-			}
-			if attempt > 1 {
-				logger.Infof("✅ [%s] Payment retry succeeded on attempt %d", providerTag, attempt)
-			}
-			return resp2, nil // caller reads and closes body
-		}
-
-		// Non-200: read body for error handling / re-sign
-		body2, readErr := io.ReadAll(resp2.Body)
-		resp2.Body.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read payment retry response: %w", readErr)
-		}
-
-		lastBody = body2
-		lastStatus = resp2.StatusCode
-
-		retryable := resp2.StatusCode >= 500 || resp2.StatusCode == http.StatusPaymentRequired
-
-		if retryable && attempt < X402MaxPaymentRetries {
-			wait := X402RetryBaseWait * time.Duration(attempt)
-
-			if resp2.StatusCode == http.StatusPaymentRequired {
-				newHeader := resp2.Header.Get("Payment-Required")
-				if newHeader == "" {
-					newHeader = resp2.Header.Get("X-Payment-Required")
-				}
-				if newHeader != "" {
-					newSig, signErr := signFn(newHeader)
-					if signErr == nil {
-						paymentSig = newSig
-						logger.Warnf("⚠️  [%s] Payment expired (402), re-signed and retrying in %v (%d/%d)...",
-							providerTag, wait, attempt+1, X402MaxPaymentRetries)
-					} else {
-						logger.Warnf("⚠️  [%s] Payment expired (402), re-sign failed: %v, retrying in %v (%d/%d)...",
-							providerTag, signErr, wait, attempt+1, X402MaxPaymentRetries)
-					}
-				} else {
-					logger.Warnf("⚠️  [%s] Got 402 but no new Payment-Required header, retrying in %v (%d/%d)...",
-						providerTag, wait, attempt+1, X402MaxPaymentRetries)
-				}
-			} else {
-				logger.Warnf("⚠️  [%s] Server error (status %d), retrying in %v (%d/%d)...",
-					providerTag, resp2.StatusCode, wait, attempt+1, X402MaxPaymentRetries)
-			}
-
-			time.Sleep(wait)
-			continue
-		}
-
-		break
-	}
-
-	return nil, fmt.Errorf("%s payment retry failed (status %d): %s", providerTag, lastStatus, string(lastBody))
-}
-
-// x402StreamIdleTimeout is the idle timeout for SSE streaming through x402.
-// If no SSE line arrives for this duration, the stream is considered stalled.
-const x402StreamIdleTimeout = 90 * time.Second
-
-// X402CallStream handles the x402 payment flow with streaming for the simple Call path.
-// It adds "stream": true to the request body and uses ParseSSEStream to read chunks.
-//
-// Robustness: uses TeeReader so the raw body is captured while parsing SSE.
-// If SSE parsing yields no text (e.g. server returned plain JSON despite stream:true),
-// falls back to ParseMCPResponse on the buffered body.
-func X402CallStream(c *mcp.Client, signFn X402SignFunc, tag string, systemPrompt, userPrompt string, onChunk func(string)) (string, error) {
-	c.Log.Infof("📡 [%s] Request AI Server (stream): %s", tag, c.BaseURL)
-
-	requestBody := c.Hooks.BuildMCPRequestBody(systemPrompt, userPrompt)
-	requestBody["stream"] = true
-	jsonData, err := c.Hooks.MarshalRequestBody(requestBody)
-	if err != nil {
-		return "", err
-	}
-
-	// Idle-timeout context: cancel() closes the underlying TCP connection,
-	// which immediately unblocks any pending resp.Body.Read().
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resp, err := DoX402RequestStream(ctx, c.HTTPClient, func() (*http.Request, error) {
-		return c.Hooks.BuildRequest(c.Hooks.BuildUrl(), jsonData)
-	}, signFn, tag, c.Log)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	ct := resp.Header.Get("Content-Type")
-	c.Log.Infof("📡 [%s] Response Content-Type: %s", tag, ct)
-
-	// Start idle-timeout watchdog AFTER the 402 dance is done.
-	resetCh := make(chan struct{}, 1)
-	go func() {
-		t := time.NewTimer(x402StreamIdleTimeout)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				c.Log.Warnf("⚠️  [%s] SSE idle timeout (%v), cancelling stream", tag, x402StreamIdleTimeout)
-				cancel() // closes the TCP connection → body.Read() returns error
-				return
-			case <-resetCh:
-				if !t.Stop() {
-					select {
-					case <-t.C:
-					default:
-					}
-				}
-				t.Reset(x402StreamIdleTimeout)
-			}
-		}
-	}()
-
-	onLine := func() {
-		select {
-		case resetCh <- struct{}{}:
-		default:
-		}
-	}
-
-	// TeeReader: body is streamed through SSE parser AND captured in bodyBuf.
-	// If SSE yields nothing (server returned JSON), we can still parse bodyBuf.
-	var bodyBuf bytes.Buffer
-	tee := io.TeeReader(resp.Body, &bodyBuf)
-
-	text, sseErr := mcp.ParseSSEStream(tee, onChunk, onLine)
-
-	if text != "" {
-		c.Log.Infof("📡 [%s] SSE stream complete, got %d chars", tag, len(text))
-		return text, nil
-	}
-
-	// SSE yielded nothing — try JSON fallback on the buffered body.
-	if bodyBuf.Len() > 0 {
-		c.Log.Infof("📡 [%s] SSE empty, trying JSON fallback on %d bytes", tag, bodyBuf.Len())
-		jsonText, jsonErr := c.Hooks.ParseMCPResponse(bodyBuf.Bytes())
-		if jsonErr == nil && jsonText != "" {
-			return jsonText, nil
-		}
-		c.Log.Warnf("⚠️  [%s] JSON fallback also failed: %v", tag, jsonErr)
-	}
-
-	if sseErr != nil {
-		return "", fmt.Errorf("[%s] stream failed: %w", tag, sseErr)
-	}
-	return "", fmt.Errorf("[%s] no content received (SSE empty, body %d bytes)", tag, bodyBuf.Len())
-}
-
-// X402BuildRequest creates a POST request with Content-Type but no auth header.
-func X402BuildRequest(url string, jsonData []byte) (*http.Request, error) {
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("fail to build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Client-ID", "nofx")
-	return req, nil
-}
-
-// X402SetAuthHeader is a no-op — x402 providers authenticate via payment signing.
-func X402SetAuthHeader(_ http.Header) {}
-
-// X402Call handles the x402 payment flow for the simple CallWithMessages path.
-func X402Call(c *mcp.Client, signFn X402SignFunc, tag string, systemPrompt, userPrompt string) (string, error) {
-	c.Log.Infof("📡 [%s] Request AI Server: %s", tag, c.BaseURL)
-
-	requestBody := c.Hooks.BuildMCPRequestBody(systemPrompt, userPrompt)
-	jsonData, err := c.Hooks.MarshalRequestBody(requestBody)
-	if err != nil {
-		return "", err
-	}
-
-	body, err := DoX402Request(c.HTTPClient, func() (*http.Request, error) {
-		return c.Hooks.BuildRequest(c.Hooks.BuildUrl(), jsonData)
-	}, signFn, tag, c.Log)
-	if err != nil {
-		return "", err
-	}
-	return c.Hooks.ParseMCPResponse(body)
-}
-
-// X402CallFull handles the x402 payment flow for the advanced Request path.
-func X402CallFull(c *mcp.Client, signFn X402SignFunc, tag string, req *mcp.Request) (*mcp.LLMResponse, error) {
-	if c.APIKey == "" {
-		return nil, fmt.Errorf("AI API key not set, please call SetAPIKey first")
-	}
-	if req.Model == "" {
-		req.Model = c.Model
-	}
-
-	c.Log.Infof("📡 [%s] Request AI (full): %s", tag, c.BaseURL)
-
-	requestBody := c.Hooks.BuildRequestBodyFromRequest(req)
-	jsonData, err := c.Hooks.MarshalRequestBody(requestBody)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := DoX402Request(c.HTTPClient, func() (*http.Request, error) {
-		return c.Hooks.BuildRequest(c.Hooks.BuildUrl(), jsonData)
-	}, signFn, tag, c.Log)
-	if err != nil {
-		return nil, err
-	}
-	return c.Hooks.ParseMCPResponseFull(body)
 }
 
 // ── Shared EIP-712 constants & helpers (Base chain, USDC) ────────────────────

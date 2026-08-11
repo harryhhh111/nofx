@@ -207,13 +207,13 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
   const getClaw402BalanceMessage = (balance: number, blocking: boolean) => {
     if (language === 'zh') {
       return blocking
-        ? `当前 Claw402 钱包余额为 ${balance.toFixed(6)} USDC，AI 调用无法执行。请先为这个钱包充值，再重新点击启动。`
-        : `当前 Claw402 钱包余额仅剩 ${balance.toFixed(6)} USDC，虽然还能尝试启动，但很快可能因为 AI 调用费用不足而停止。建议先补一点 USDC。`
+        ? `当前 Claw402 钱包余额为 ${balance.toFixed(6)} USDC，NofxOS 数据请求无法付费。请先为这个钱包充值，再重新点击启动。`
+        : `当前 Claw402 钱包余额仅剩 ${balance.toFixed(6)} USDC，虽然还能尝试启动，但很快可能因为数据费用不足而停止。建议先补一点 USDC。`
     }
 
     return blocking
-      ? `Your Claw402 wallet balance is ${balance.toFixed(6)} USDC. AI calls cannot run with zero balance. Please top up this wallet before starting again.`
-      : `Your Claw402 wallet balance is only ${balance.toFixed(6)} USDC. You can still try to start, but AI calls may stop soon due to insufficient funds.`
+      ? `Your Claw402 wallet balance is ${balance.toFixed(6)} USDC. NofxOS data requests cannot be paid with zero balance. Please top up this wallet before starting again.`
+      : `Your Claw402 wallet balance is only ${balance.toFixed(6)} USDC. You can still try to start, but data requests may stop soon due to insufficient funds.`
   }
   const getClaw402BalanceIssue = (traderId: string) => {
     const trader = traders?.find((item) => item.trader_id === traderId)
@@ -902,8 +902,8 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
       setAllModels(refreshedModels)
       toast.success(
         language === 'zh'
-          ? 'Claw402 已默认配置为 DeepSeek'
-          : 'Claw402 is configured with DeepSeek by default'
+          ? 'Claw402 数据付费钱包已就绪'
+          : 'Claw402 data payment wallet is ready'
       )
     } catch (error) {
       console.error('Failed to quick setup claw402:', error)
@@ -1050,7 +1050,7 @@ export function AITradersPage({ onTraderSelect }: AITradersPageProps) {
                 background: 'rgba(0, 0, 0, 0.18)',
               }}
             >
-              {language === 'zh' ? '查看 AI 钱包' : 'Open AI wallet'}
+              {language === 'zh' ? '查看数据钱包' : 'Open data wallet'}
             </button>
           </div>
         ) : null}

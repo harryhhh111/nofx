@@ -10,7 +10,6 @@ import (
 	"nofx/logger"
 	"nofx/market"
 	"nofx/mcp"
-	_ "nofx/mcp/payment"
 	_ "nofx/mcp/provider"
 	"nofx/provider/nofxos"
 	"nofx/store"

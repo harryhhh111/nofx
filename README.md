@@ -16,7 +16,7 @@
   <a href="https://golang.org/"><img src="https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go" alt="Go"></a>
   <a href="https://reactjs.org/"><img src="https://img.shields.io/badge/React-18+-61DAFB?style=flat&logo=react" alt="React"></a>
   <a href="https://x402.org"><img src="https://img.shields.io/badge/x402-USDC%20Payments-2775CA?style=flat" alt="x402"></a>
-  <a href="https://claw402.ai"><img src="https://img.shields.io/badge/Claw402-AI%20Gateway-FF6B35?style=flat" alt="Claw402"></a>
+  <a href="https://claw402.ai"><img src="https://img.shields.io/badge/Claw402-Data%20Payments-FF6B35?style=flat" alt="Claw402"></a>
 </p>
 
 <p align="center">
@@ -55,13 +55,13 @@ x402 flow:
 Request → 402 (here's the price) → wallet signs USDC → retry → done
 ```
 
-No accounts. No API keys. No prepaid credits. One wallet, every model.
+No accounts. No API keys. No prepaid credits. One wallet, pay per request.
 
 ### Built-in x402 Providers
 
-| Provider | Chain | Models |
-|:---------|:------|:-------|
-| <img src="web/public/icons/claw402.png" width="20" height="20" style="vertical-align: middle;"/> **[Claw402](https://claw402.ai)** | Base | GPT-5.4, Claude Opus, DeepSeek, Qwen, Grok, Gemini, Kimi — 15+ models |
+| Provider | Chain | Purpose |
+|:---------|:------|:--------|
+| <img src="web/public/icons/claw402.png" width="20" height="20" style="vertical-align: middle;"/> **[Claw402](https://claw402.ai)** | Base | NofxOS data payment wallet — per-request USDC billing |
 
 ---
 
@@ -112,9 +112,9 @@ Crypto · US Stocks · Forex · Metals
 | <img src="web/public/icons/kimi.svg" width="20" height="20" style="vertical-align: middle;"/> **Kimi** | ✅ | [Get API Key](https://platform.moonshot.cn) |
 | <img src="web/public/icons/minimax.svg" width="20" height="20" style="vertical-align: middle;"/> **MiniMax** | ✅ | [Get API Key](https://platform.minimaxi.com) |
 
-### AI Models (x402 Mode — No API Key)
+### Data Payment (x402 Mode — No API Key)
 
-15+ models via [Claw402](https://claw402.ai) — just a USDC wallet
+NofxOS data is paid per request via [Claw402](https://claw402.ai) — just a USDC wallet
 
 ---
 

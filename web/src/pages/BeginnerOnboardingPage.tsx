@@ -63,8 +63,8 @@ export function BeginnerOnboardingPage() {
   const noticeText = useMemo(
     () =>
       isZh
-        ? '此钱包仅用于大模型调用费用，不会自动充到交易所。私钥丢失后无法恢复，只充 Base 链 USDC。'
-        : 'This wallet only pays for model calls. It does not fund your exchange automatically. The private key cannot be recovered, and you should only deposit Base USDC.',
+        ? '此钱包仅用于 NofxOS 数据付费，不会自动充到交易所。私钥丢失后无法恢复，只充 Base 链 USDC。'
+        : 'This wallet only pays for NofxOS data requests. It does not fund your exchange automatically. The private key cannot be recovered, and you should only deposit Base USDC.',
     [isZh]
   )
 
@@ -128,8 +128,8 @@ export function BeginnerOnboardingPage() {
                   : 'text-[13px] tracking-[0.12em] lg:whitespace-nowrap'
               }`}
             >
-              Claw402 + DeepSeek <span className="mx-2 text-zinc-700">·</span>
-              {isZh ? '按次付费' : 'Pay per call'}
+              {isZh ? 'Claw402 数据钱包' : 'Claw402 data wallet'} <span className="mx-2 text-zinc-700">·</span>
+              Base USDC
             </div>
           </div>
 

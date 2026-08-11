@@ -1,4 +1,4 @@
-import { Brain, Landmark, Rocket, Sparkles } from 'lucide-react'
+import { Landmark, Rocket, Sparkles, Wallet } from 'lucide-react'
 
 interface BeginnerGuideCardsProps {
   language: string
@@ -37,18 +37,18 @@ export function BeginnerGuideCards({
   const cards = [
     {
       key: 'model',
-      icon: Brain,
-      title: isZh ? '1. 极速模型' : '1. Fast AI',
+      icon: Wallet,
+      title: isZh ? '1. 数据钱包' : '1. Data Wallet',
       desc: isZh
-        ? '默认就是 Claw402 + DeepSeek。第一次不用挑模型，先跑起来。'
-        : 'Start with Claw402 + DeepSeek. No model picking needed for the first run.',
+        ? '一键创建 Claw402 数据付费钱包，NofxOS 数据按次扣费。'
+        : 'Create a Claw402 data payment wallet in one click. NofxOS data is billed per request.',
       meta: walletAddress
         ? isZh
           ? `钱包 ${truncateAddress(walletAddress)}`
           : `Wallet ${truncateAddress(walletAddress)}`
         : isZh
           ? 'Base 链 USDC 按次付费'
-          : 'Pay per call with Base USDC',
+          : 'Pay per request with Base USDC',
       ready: claw402Ready,
       actionLabel: claw402Ready
         ? isZh
